@@ -103,7 +103,7 @@ export function AppHeader({
   };
 
   return (
-    <header className="h-16 flex items-center justify-between px-4 lg:px-6 bg-[#FFFFFF] flex-shrink-0 relative z-20" style={{ borderBottom: "1px solid #E2E8F0" }}>
+    <header className="h-16 flex items-center justify-between px-4 lg:px-6 flex-shrink-0 relative z-20" style={{ borderBottom: "1px solid var(--warm-border-light, #E2E8F0)", background: 'var(--warm-bg, #FFFFFF)' }}>
       {/* Left Section: Mobile menu, icons, title */}
       <div className="flex items-center gap-2 lg:gap-3">
         <MobileMenuButton />

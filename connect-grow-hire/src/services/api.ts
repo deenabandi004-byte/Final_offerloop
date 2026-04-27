@@ -229,6 +229,19 @@ export interface FindHiringManagerResponse {
 // Base response type
 export interface SearchResponse {
   contacts: Contact[];
+  /**
+   * Contacts that matched the search but are already in the user's tracker.
+   * Surfaced so the UI can render them as "Already saved" cards instead of
+   * silently dropping them (which would otherwise trigger a false "no results"
+   * Scout flow). Populated by backend/app/routes/runs.py:prompt_search.
+   */
+  already_saved_contacts?: Contact[];
+  /**
+   * Human-readable summary from the backend. Present when the result has an
+   * unusual shape that needs an explanation (e.g. all matches were already
+   * saved). Prefer displaying this over hardcoded frontend copy when present.
+   */
+  message?: string;
   successful_drafts: number;
   total_contacts: number;
   tier: string;
@@ -326,6 +339,9 @@ export interface OutboxThread {
   updatedAt: string;
   lastSyncError?: { code: string; message: string; at: string } | null;
   lastSyncAt?: string | null;
+  // True when a draft has been in draft_created state > 24h with no matched
+  // Gmail thread (webhook silent-drop). UI should nudge the user to Refresh.
+  needsManualSync?: boolean;
   // Legacy aliases — used by Outbox.tsx and Dashboard.tsx until migrated
   contactName?: string;
   jobTitle?: string;
@@ -1343,6 +1359,21 @@ class ApiService {
       method: 'POST',
       headers,
       body: JSON.stringify({ query, batchSize }),
+    });
+  }
+
+  async getSchoolAffinity(university: string, field: string): Promise<{
+    success: boolean;
+    university: string;
+    field: string;
+    companies: Array<{ company_name: string; alumni_count: number; linkedin_url?: string }>;
+    total: number;
+  }> {
+    const headers = await this.getAuthHeaders();
+    const params = new URLSearchParams({ university, field });
+    return this.makeRequest(`/companies/school-affinity?${params.toString()}`, {
+      method: 'GET',
+      headers,
     });
   }
 

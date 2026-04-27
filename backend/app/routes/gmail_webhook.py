@@ -82,8 +82,13 @@ def _process_gmail_notification(email_address, history_id):
             gmail_ref.set({"watchHistoryId": history_id}, merge=True)
             return
 
-        # Save historyId immediately so a crash mid-loop won't cause reprocessing
-        gmail_ref.set({"watchHistoryId": history_id}, merge=True)
+        # NOTE: watchHistoryId is advanced at the END of this function, only
+        # after all messages in the history delta have been processed. If we
+        # crash mid-loop, Pub/Sub at-least-once redelivery will re-invoke this
+        # webhook with the same history_id and we'll retry from last_history_id.
+        # Downstream writes (contact matching, stage transitions, notification
+        # doc) are idempotent, so redelivery is safe. Advancing the pointer
+        # early risks silently dropping messages if any step below fails.
 
         user_doc = db.collection("users").document(uid).get()
         user_email = (user_doc.to_dict() or {}).get("email") if user_doc.exists else email_address
@@ -439,6 +444,17 @@ def _process_gmail_notification(email_address, history_id):
                 merge=True,
             )
             logger.info(f"[gmail_webhook] uid={uid} notification updated: unreadReplyCount={unread_count} for contact={contact_id}")
+
+        # All history delta messages processed successfully — advance the
+        # watchHistoryId pointer. On crash/exception above, this line is
+        # skipped, and the next webhook replays from last_history_id (safe
+        # because downstream writes are idempotent).
+        try:
+            gmail_ref.set({"watchHistoryId": history_id}, merge=True)
+        except Exception as persist_err:
+            logger.error(
+                f"[gmail_webhook] uid={uid} FAILED to persist watchHistoryId={history_id}: {persist_err}"
+            )
 
         logger.info(f"[gmail_webhook] uid={uid} processing complete: handled {len(all_message_ids)} message(s)")
 

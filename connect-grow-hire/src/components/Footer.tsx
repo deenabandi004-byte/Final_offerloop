@@ -30,6 +30,9 @@ const Footer = () => {
           <p className="text-sm text-muted-foreground">
             © 2024 Offerloop.ai. All rights reserved.
           </p>
+          <p className="text-xs text-muted-foreground mt-2">
+            Illustrations by <a href="https://storyset.com/work" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground transition-colors">Storyset</a>
+          </p>
         </div>
       </div>
     </footer>

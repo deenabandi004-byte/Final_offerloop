@@ -13,11 +13,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import random
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
-from app.services.openai_client import get_async_openai_client
+from app.services.openai_client import get_async_openai_client, get_async_anthropic_client, create_async_openai_client
+from app.extensions import get_db
 
 _ERROR_RECOVERY_LINES = [
     "Try again in a sec?",
@@ -164,6 +167,7 @@ ROUTE_KEYWORDS = {
 }
 
 
+@lru_cache(maxsize=1)
 def _build_knowledge_prompt() -> str:
     """Build the knowledge section of the system prompt."""
     lines = [
@@ -230,177 +234,26 @@ def _build_knowledge_prompt() -> str:
         "",
         "## SUBSCRIPTION TIERS",
         "",
-        "### Free ($0/month)",
-        "- 300 credits/month (~20 contacts)",
-        "- Up to 3 contacts per search",
-        "- 3 Coffee Chat Preps (LIFETIME, not monthly)",
-        "- 2 Interview Preps (LIFETIME, not monthly)",
-        "- 10 alumni searches (lifetime cap)",
-        "- Basic email generation",
-        "- Gmail integration",
-        "- NO Firm Search (blocked)",
-        "- NO resume-matched emails",
-        "- NO exports (CSV, bulk Gmail drafts)",
+        "- **Free** ($0/mo): 300 credits, 3 contacts/search, 3 coffee chats + 2 interview preps LIFETIME, 10 alumni searches. No Firm Search, exports, or resume-matched emails.",
+        "- **Pro** ($14.99/mo): 1,500 credits, 8 contacts/search, 10 coffee chats + 5 interview preps/month, unlimited alumni, Firm Search, smart filters, bulk drafts, CSV export.",
+        "- **Elite** ($34.99/mo): 3,000 credits, 15 contacts/search, UNLIMITED preps, priority queue, personalized templates, weekly insights.",
         "",
-        "### Pro ($14.99/month)",
-        "- 1,500 credits/month (~100 contacts)",
-        "- Up to 8 contacts per search",
-        "- 10 Coffee Chat Preps per month",
-        "- 5 Interview Preps per month",
-        "- Unlimited alumni searches",
-        "- Full Firm Search access",
-        "- Resume-matched personalized emails",
-        "- Smart filters (school, major, career)",
-        "- Bulk drafting + CSV export",
-        "- Priority support",
-        "",
-        "### Elite ($34.99/month)",
-        "- 3,000 credits/month (~200 contacts)",
-        "- Up to 15 contacts per search",
-        "- UNLIMITED Coffee Chat Preps",
-        "- UNLIMITED Interview Preps",
-        "- Everything in Pro",
-        "- Priority queue for contact generation",
-        "- Personalized outreach templates",
-        "- Weekly firm insights",
-        "- Early access to new features",
-        "",
-        "**Credit reset:** Monthly on billing cycle date. Credits do NOT roll over.",
-        "",
-        "---",
-        "",
-        "## WORKFLOWS",
-        "",
-        "### Finding Contacts to Network With",
-        "1. Connect Gmail in Account Settings (required for email drafts)",
-        "2. Go to Find People (Contact Search)",
-        "3. Enter job title (required), company (optional), location (required)",
-        "4. Optionally filter by college or experience level",
-        "5. Select batch size (1-15 depending on plan)",
-        "6. Click Search",
-        "7. Review contacts and AI-generated emails",
-        "8. Emails save to Gmail drafts automatically",
-        "9. Open Gmail, personalize if needed, send",
-        "10. Save contacts to Networking directory",
-        "",
-        "### Preparing for a Coffee Chat",
-        "1. Go to Coffee Chat Prep",
-        "2. Get the LinkedIn URL of the person you're meeting",
-        "3. Paste URL and click Generate Prep",
-        "4. Wait 1-2 minutes for research",
-        "5. Review: talking points, questions, company news, similarity analysis",
-        "6. Download PDF for the meeting",
-        "",
-        "### Preparing for an Interview",
-        "1. Go to Interview Prep",
-        "2. Get job posting URL (or enter company + job title manually)",
-        "3. Paste and click Generate Prep",
-        "4. Wait 2-3 minutes (includes Reddit research)",
-        "5. Review: interview process, common questions, culture insights, tips",
-        "6. Download PDF for studying",
-        "",
-        "### Optimizing Resume for a Job",
-        "1. Go to Job Board",
-        "2. Find a job listing",
-        "3. Click \"Optimize Resume\"",
-        "4. Review ATS score and suggestions",
-        "5. Apply changes and download",
-        "",
-        "OR use Resume Workshop:",
-        "1. Go to Resume",
-        "2. Upload resume if needed",
-        "3. Enter job context",
-        "4. Click Tailor Resume",
-        "5. Review and apply suggestions",
-        "",
-        "### Connecting Gmail",
-        "1. Go to Account Settings",
-        "2. Find Gmail section",
-        "3. Click \"Connect Gmail\"",
-        "4. Sign in with Google and grant permissions",
-        "5. Done! Emails will save to drafts automatically",
-        "",
-        "---",
-        "",
-        "## TROUBLESHOOTING",
-        "",
-        "### \"My emails aren't saving to Gmail\"",
-        "Gmail not connected. Go to Account Settings → Connect Gmail.",
-        "",
-        "### \"I'm out of credits\"",
-        "- Check credits in sidebar (shows X/Y with progress bar)",
-        "- Credits reset monthly on your billing date",
-        "- Upgrade at Pricing page for more credits",
-        "",
-        "### \"Contact search returned no results\"",
-        "- Try broader job titles (e.g., \"Analyst\" instead of \"Investment Banking Analyst\")",
-        "- Check spelling of company name",
-        "- Try a different or broader location",
-        "- Some smaller companies have limited data",
-        "- Use Scout's search help for alternative suggestions",
-        "",
-        "### \"Firm Search is blocked\"",
-        "Firm Search is Pro+ only. Upgrade to Pro ($14.99/month) or Elite ($34.99/month) at Pricing.",
-        "",
-        "### \"My emails seem generic\"",
-        "- Upload your resume in Account Settings",
-        "- Pro/Elite users get resume-matched personalization",
-        "- Complete your profile with career interests",
-        "",
-        "### \"Coffee Chat Prep taking too long\"",
-        "Usually 1-2 minutes. If stuck >5 minutes:",
-        "- Check LinkedIn URL is valid and public (not private profile)",
-        "- Refresh and try again",
-        "- Make sure you have enough credits (15)",
-        "",
-        "### \"Interview Prep failed\"",
-        "- Try pasting job description manually instead of URL",
-        "- Some job postings require login (can't be scraped)",
-        "- Check you have enough credits (25)",
-        "- Normal processing is 2-3 minutes",
-        "",
-        "### \"Payment/subscription issues\"",
-        "Go to Pricing → Manage Subscription. Opens Stripe to update payment or manage billing.",
-        "",
-        "### \"How do I cancel?\"",
-        "Go to Pricing → Manage Subscription → Cancel in Stripe portal.",
-        "",
-        "---",
-        "",
-        "## QUICK REFERENCE",
-        "",
-        "**Credit costs to remember:**",
-        "- Contact = 15 credits",
-        "- Firm = 5 credits",
-        "- Coffee Chat Prep = 15 credits",
-        "- Interview Prep = 25 credits",
-        "- Resume Optimization = 20 credits (Job Board)",
-        "- Cover Letter = 10-15 credits",
-        "- Reply Generation = 10 credits",
-        "",
-        "**Tier limits to remember:**",
-        "- Free: 3 contacts/search, 3 coffee chats LIFETIME, 2 interview preps LIFETIME",
-        "- Pro: 8 contacts/search, 10 coffee chats/MONTH, 5 interview preps/MONTH",
-        "- Elite: 15 contacts/search, UNLIMITED preps",
-        "",
-        "**Pro+ only features:**",
-        "- Firm Search",
-        "- Resume-matched emails",
-        "- CSV export",
-        "- Bulk Gmail drafting",
-        "- Smart filters",
+        "Credits reset monthly on billing date. Do NOT roll over. Manage subscription at Pricing → Manage Subscription.",
     ])
     
     return "\n".join(lines)
 
 
-def _build_system_prompt(user_name: str, tier: str, credits: int, max_credits: int, current_page: str) -> str:
+def _build_system_prompt(user_name: str, tier: str, credits: int, max_credits: int, current_page: str, user_context: Optional[Dict[str, Any]] = None) -> str:
     """Build the complete system prompt for Scout assistant."""
     knowledge = _build_knowledge_prompt()
-    
+    user_context_section = _build_user_context_prompt(user_context) if user_context else ""
+
     routes_list = "\n".join([f"  {route}" for route in ROUTE_KEYWORDS.keys()])
-    
+
     return f"""You are Scout, the built-in assistant for Offerloop — a networking platform that helps college students connect with professionals for career opportunities.
+
+CRITICAL RULE: When users mention "contacts at Google", "contacts from Goldman", "my contacts at [any company]", or similar — they ALWAYS mean their saved networking contacts on Offerloop at that company. NEVER interpret this as Google Contacts, Gmail contacts, or phone contacts. This is the #1 most common query you receive. Always search/show their saved Offerloop contacts.
 
 ## Who you are
 You're a knowledgeable teammate, not a help doc. You know the platform inside and out, you're genuinely rooting for the user to land great connections, and you keep things moving. You're direct, a little warm, and never patronizing. Think: a friend who happens to know every feature.
@@ -483,43 +336,18 @@ USER CONTEXT:
 - Current page: {current_page}
 
 {knowledge}
+{user_context_section}
 
 AVAILABLE ROUTES FOR NAVIGATION:
 {routes_list}
 
 AUTO-POPULATE INSTRUCTIONS:
 
-When you have enough information to run a search — whether the user gave it all in one message or you gathered it across several turns — you MUST include auto_populate and set navigate_to to the appropriate search route. Do not just describe what you'll do; actually populate the fields.
+When the user provides ANY searchable field (company, job title, location, or industry), you MUST include auto_populate and set navigate_to. Don't wait for "perfect" input.
 
-The trigger is: "Do I have at least one searchable field (company, job title, location, or industry)?" If yes, auto-populate NOW.
-
-FOR CONTACT SEARCH (navigate_to: "/contact-search"):
-- Fields: job_title, company, location
-- Set each to the value the user gave, or "" if not specified / user said "any"
-- Single-turn example:
-  "find me software engineers at Google in NYC" →
-  auto_populate: {{"search_type": "contact", "job_title": "Software Engineer", "company": "Google", "location": "NYC"}}
-- Multi-turn example:
-  User: "I want to find people to reach out to"
-  Scout: asks what kind → User: "Google" → Scout: asks location → User: "San Francisco" → Scout: asks job title → User: "Any"
-  → auto_populate: {{"search_type": "contact", "job_title": "", "company": "Google", "location": "San Francisco"}}
-  Scout's message should confirm and offer navigation, e.g. "Google in San Francisco, any role — want me to take you to Contact Search?"
-
-FOR FIRM SEARCH (navigate_to: "/firm-search"):
-- Fields: industry, location
-- Set each to the value the user gave, or "" if not specified
-- Single-turn example:
-  "find venture capital firms in San Francisco" →
-  auto_populate: {{"search_type": "firm", "industry": "Venture Capital", "location": "San Francisco"}}
-- Multi-turn example:
-  User: "help me find firms" → Scout: asks industry → User: "consulting" → Scout: asks location → User: "Boston"
-  → auto_populate: {{"search_type": "firm", "industry": "Consulting", "location": "Boston"}}
-
-RULES:
-- When navigate_to is "/contact-search" or "/firm-search" and the user has given any searchable criteria, auto_populate MUST be present.
-- When navigate_to is something else, or the user hasn't given criteria, auto_populate is null.
-- Empty string "" means "not specified" — use it for fields the user skipped or said "any" for.
-- Do not wait for "perfect" input. If the user gave a company, that's enough to auto-populate and navigate.
+Contact search (navigate_to: "/contact-search"): auto_populate: {{"search_type": "contact", "job_title": "...", "company": "...", "location": "..."}} — use "" for unspecified fields.
+Firm search (navigate_to: "/firm-search"): auto_populate: {{"search_type": "firm", "industry": "...", "location": "..."}} — use "" for unspecified fields.
+For other routes or no criteria: auto_populate is null.
 
 RESPONSE FORMAT:
 You must respond with valid JSON in this exact format:
@@ -543,16 +371,222 @@ You must respond with valid JSON in this exact format:
 """
 
 
+def _build_user_context_prompt(user_context: Dict[str, Any]) -> str:
+    """Format user profile data into a prompt section, handling missing fields gracefully."""
+    if not user_context:
+        return ""
+
+    parts = ["\n\n## YOUR USER'S PROFILE (use this data proactively)"]
+
+    academics = user_context.get("academics")
+    if academics:
+        uni = academics.get("university", "")
+        major = academics.get("major", "")
+        grad = academics.get("graduation_year", "")
+        pieces = [p for p in [uni, major, f"Class of {grad}" if grad else ""] if p]
+        if pieces:
+            parts.append(f"- School: {', '.join(pieces)}")
+
+    goals = user_context.get("goals")
+    if goals:
+        industries = goals.get("target_industries", [])
+        roles = goals.get("target_roles", [])
+        dream = goals.get("dream_companies", [])
+        recruiting = goals.get("recruiting_for", "")
+        if industries:
+            parts.append(f"- Target industries: {', '.join(industries[:5])}")
+        if roles:
+            parts.append(f"- Target roles: {', '.join(roles[:5])}")
+        if dream:
+            parts.append(f"- Dream companies: {', '.join(dream[:8])}")
+        if recruiting:
+            parts.append(f"- Recruiting for: {recruiting}")
+
+    location = user_context.get("location")
+    if location:
+        pref = location.get("preferred", "")
+        curr = location.get("current", "")
+        if pref:
+            parts.append(f"- Preferred location: {pref}")
+        elif curr:
+            parts.append(f"- Current location: {curr}")
+
+    prof = user_context.get("professional_info")
+    if prof:
+        role = prof.get("current_role", "")
+        level = prof.get("experience_level", "")
+        if role:
+            parts.append(f"- Current role: {role}")
+        if level:
+            parts.append(f"- Experience level: {level}")
+
+    resume = user_context.get("resume_summary")
+    if resume:
+        parts.append(f"- Resume: {resume[:300]}")
+
+    personal = user_context.get("personal_note")
+    if personal:
+        parts.append(f"- Personal note: {personal[:200]}")
+
+    email_tmpl = user_context.get("email_template")
+    if email_tmpl:
+        style = email_tmpl.get("style_preset") or "default"
+        purpose = email_tmpl.get("purpose") or "networking"
+        parts.append(f"- Email style: {purpose}, {style}")
+
+    contacts = user_context.get("contacts_summary")
+    if contacts:
+        total = contacts.get("total", 0)
+        top = contacts.get("top_companies", [])
+        top_str = ", ".join([f"{c['name']} ({c['count']})" for c in top[:5]])
+        parts.append(f"- Saved contacts: {total} total. Top companies: {top_str}")
+
+    if len(parts) <= 1:
+        return ""
+
+    parts.append("")
+    parts.append("BEHAVIORAL RULE — USE THIS CONTEXT:")
+    parts.append("When the user asks you to do something and doesn't specify details available in their profile, "
+                 "USE THE PROFILE DATA. For example:")
+    parts.append('- "Find me contacts at Rivian" → Use their preferred location and target role from goals')
+    parts.append('- "Write an email for a data engineer" → Use their email template style and resume context')
+    parts.append('- "What companies should I target?" → Reference their dream companies and target industries')
+    parts.append("Only ask follow-up questions when the profile genuinely doesn't have the needed information.")
+
+    return "\n".join(parts)
+
+
+# ============================================================================
+# TOOL DEFINITIONS (OpenAI function calling)
+# ============================================================================
+
+SCOUT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_saved_contacts",
+            "description": "Search the user's saved contacts by company, job title, name, or status. Use when the user asks about their contacts, wants to see who they've saved, or asks about contacts at a specific company.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "company": {
+                        "type": "string",
+                        "description": "Filter by company name (partial match)",
+                    },
+                    "job_title": {
+                        "type": "string",
+                        "description": "Filter by job title (partial match)",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Filter by contact name (partial match)",
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "Filter by pipeline status",
+                        "enum": ["needs_attention", "active", "done"],
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_email_preview",
+            "description": "Generate a draft email preview for outreach to a professional. Use when the user asks to write, draft, or compose an email for a specific person or role.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "recipient_name": {
+                        "type": "string",
+                        "description": "Name of the recipient",
+                    },
+                    "recipient_company": {
+                        "type": "string",
+                        "description": "Company the recipient works at",
+                    },
+                    "recipient_title": {
+                        "type": "string",
+                        "description": "Job title of the recipient",
+                    },
+                    "purpose": {
+                        "type": "string",
+                        "description": "Purpose of the email",
+                        "enum": ["networking", "referral", "coffee_chat", "follow_up", "thank_you"],
+                    },
+                },
+                "required": ["recipient_company"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "suggest_networking_strategy",
+            "description": "Suggest a personalized networking strategy based on the user's goals, dream companies, and resume. Use when the user asks for advice on who to reach out to, how to network, or what their next steps should be.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "focus_area": {
+                        "type": "string",
+                        "description": "Optional focus area for strategy",
+                        "enum": ["getting_started", "expanding_network", "specific_company", "industry_switch", "interview_prep"],
+                    },
+                    "target_company": {
+                        "type": "string",
+                        "description": "Optional specific company to focus strategy on",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+]
+
+
 def _detect_route_from_query(query: str) -> Optional[str]:
     """Detect if the query mentions a specific route/page."""
     query_lower = query.lower()
-    
+
     for route, keywords in ROUTE_KEYWORDS.items():
         for keyword in keywords:
             if keyword in query_lower:
                 return route
-    
+
     return None
+
+
+# Intent patterns for smart tool routing
+_INTENT_PATTERNS = {
+    "contacts": re.compile(
+        r"(?:my contacts|saved contacts|contacts at|who (?:do i|have i)|show me .* contacts|"
+        r"contacts (?:at|from|in)|how many contacts|list .*contacts)",
+        re.IGNORECASE,
+    ),
+    "email": re.compile(
+        r"(?:write (?:an? )?email|draft (?:an? )?email|compose|reach out to|"
+        r"email (?:to|for|preview)|send (?:an? )?email|outreach email)",
+        re.IGNORECASE,
+    ),
+    "strategy": re.compile(
+        r"(?:networking strategy|who should i|advice|what should i do|"
+        r"how (?:should|do) i (?:network|start|approach)|next steps|strategy for)",
+        re.IGNORECASE,
+    ),
+}
+
+
+def _detect_intent(message: str) -> str:
+    """Fast keyword/regex check to determine intent and select appropriate tools.
+
+    Returns one of: "contacts", "email", "strategy", "general"
+    """
+    for intent, pattern in _INTENT_PATTERNS.items():
+        if pattern.search(message):
+            return intent
+    return "general"
 
 
 # ============================================================================
@@ -566,14 +600,24 @@ class ScoutAssistantResponse:
     navigate_to: Optional[str] = None
     action_buttons: List[Dict[str, str]] = field(default_factory=list)
     auto_populate: Optional[Dict[str, Any]] = None
-    
+    contacts_results: Optional[List[Dict[str, Any]]] = None
+    email_preview: Optional[Dict[str, str]] = None
+    tool_used: Optional[str] = None
+
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        result = {
             "message": self.message,
             "navigate_to": self.navigate_to,
             "action_buttons": self.action_buttons,
             "auto_populate": self.auto_populate,
         }
+        if self.contacts_results is not None:
+            result["contacts_results"] = self.contacts_results
+        if self.email_preview is not None:
+            result["email_preview"] = self.email_preview
+        if self.tool_used is not None:
+            result["tool_used"] = self.tool_used
+        return result
 
 
 # ============================================================================
@@ -582,12 +626,19 @@ class ScoutAssistantResponse:
 
 class ScoutAssistantService:
     """Service for Scout product assistant functionality."""
-    
+
     DEFAULT_MODEL = "gpt-4o-mini"
-    
+    CLAUDE_MODEL = "claude-3-haiku-20240307"
+
     def __init__(self):
         self._openai = get_async_openai_client()
-    
+
+    def _get_openai(self):
+        """Get the appropriate async OpenAI client.
+        Returns _stream_openai if set (streaming context with fresh event loop),
+        otherwise falls back to self._openai (main event loop)."""
+        return getattr(self, "_stream_openai", None) or self._openai
+
     async def handle_chat(
         self,
         *,
@@ -598,25 +649,13 @@ class ScoutAssistantService:
         tier: str = "free",
         credits: int = 0,
         max_credits: int = 300,
+        user_context: Optional[Dict[str, Any]] = None,
+        uid: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Handle a chat message from the user.
-        
-        Args:
-            message: User's current message
-            conversation_history: Previous messages for context
-            current_page: User's current route
-            user_name: User's display name
-            tier: User's subscription tier
-            credits: Current credit balance
-            max_credits: Maximum credits for tier
-        
-        Returns:
-            ScoutAssistantResponse as dictionary
-        """
+        """Handle a chat message from the user."""
         message = (message or "").strip()
         conversation_history = conversation_history or []
-        
+
         # Handle empty message
         if not message:
             return ScoutAssistantResponse(
@@ -624,134 +663,813 @@ class ScoutAssistantService:
                 navigate_to=None,
                 action_buttons=[],
             ).to_dict()
-        
-        # Build system prompt
+
+        # Detect intent for smart tool routing
+        intent = _detect_intent(message)
+
+        # Build system prompt with user context
         system_prompt = _build_system_prompt(
             user_name=user_name,
             tier=tier,
             credits=credits,
             max_credits=max_credits,
             current_page=current_page,
+            user_context=user_context,
         )
-        
-        # Build messages for OpenAI
+
+        # Build messages list
         messages = [{"role": "system", "content": system_prompt}]
-        
-        # Add conversation history (last 10 messages)
-        for msg in conversation_history[-10:]:
+
+        # Add conversation history (last 6 messages)
+        for msg in conversation_history[-6:]:
             role = msg.get("role", "user")
             content = msg.get("content", "")
             if role in ["user", "assistant"] and content:
                 messages.append({"role": role, "content": content})
-        
-        # Add current message
-        messages.append({"role": "user", "content": message})
-        
+
+        # For contacts intent: pre-load contacts into prompt to avoid tool call
+        contacts_results = None
+        tool_used = None
+        email_preview = None
+
+        if intent == "contacts" and uid:
+            # Extract filter from message and pre-load contacts
+            pre_loaded = await self._preload_contacts(uid, message)
+            if pre_loaded:
+                contacts_results = pre_loaded.get("contacts", [])
+                tool_used = "search_saved_contacts"
+                # Add contacts data to the user message so model can reference them
+                contacts_info = json.dumps(pre_loaded, indent=None)
+                messages.append({
+                    "role": "user",
+                    "content": f"{message}\n\n[SAVED OFFERLOOP CONTACTS — these are the user's saved networking contacts. Summarize them in your response. Do NOT confuse with Google/Gmail contacts.]\n{contacts_info}",
+                })
+            else:
+                messages.append({"role": "user", "content": message})
+        else:
+            messages.append({"role": "user", "content": message})
+
+        # Select tools based on intent
+        tools_for_intent = self._get_tools_for_intent(intent, uid)
+
         try:
-            # Call OpenAI with timeout (allow time for cold start / load)
-            try:
-                response = await asyncio.wait_for(
-                    self._openai.chat.completions.create(
-                        model=self.DEFAULT_MODEL,
-                        messages=messages,
-                        temperature=0.7,
-                        max_tokens=350,
-                        response_format={"type": "json_object"},
-                    ),
-                    timeout=28.0  # 28 second timeout — reduces "taking too long" on slow API
+            # For "general" intent (no tools) or pre-loaded contacts: try Claude first, single LLM call
+            if not tools_for_intent:
+                content = await self._call_llm_json(messages, system_prompt)
+            else:
+                # Tool-based flow (email, strategy): use OpenAI with function calling
+                content, tool_used_from_call, contacts_from_call, email_from_call = (
+                    await self._call_with_tools(messages, system_prompt, conversation_history, message, tools_for_intent, uid, user_context)
                 )
-            except asyncio.TimeoutError:
-                # Timeout occurred - return friendly message
-                return ScoutAssistantResponse(
-                    message=f"I'm taking too long to think! {random.choice(_ERROR_RECOVERY_LINES)}",
-                    navigate_to=None,
-                    action_buttons=[],
-                    auto_populate=None,
-                ).to_dict()
-            
-            # Parse response
-            content = response.choices[0].message.content
-            try:
-                parsed = json.loads(content)
-            except json.JSONDecodeError:
-                # If JSON parsing fails, use content as message
-                if content and content.strip():
-                    parsed = {"message": content, "navigate_to": None, "action_buttons": [], "auto_populate": None}
-                else:
-                    # Empty or invalid content - return fallback
-                    parsed = {
-                        "message": "I had trouble formatting my response. Could you try again?",
-                        "navigate_to": None,
-                        "action_buttons": [],
-                        "auto_populate": None
-                    }
-            
-            # Extract fields
+                tool_used = tool_used or tool_used_from_call
+                contacts_results = contacts_results or contacts_from_call
+                email_preview = email_preview or email_from_call
+
+            # Parse the final JSON response
+            parsed = self._parse_json_response(content)
+
             response_message = parsed.get("message", "I'm not sure how to help with that. Could you rephrase?")
-            navigate_to = parsed.get("navigate_to")
-            action_buttons = parsed.get("action_buttons", [])
-            auto_populate = parsed.get("auto_populate")
-            
-            # Validate navigate_to is a valid route
-            if navigate_to and not any(navigate_to.startswith(route.split("?")[0]) for route in ROUTE_KEYWORDS.keys()):
-                # Check if it's a valid route we know about
-                valid_routes = [
-                    "/dashboard", "/contact-search", "/firm-search", "/recruiter-spreadsheet",
-                    "/job-board", "/coffee-chat-prep", "/interview-prep", "/application-lab",
-                    "/write/resume", "/write/cover-letter", "/outbox", "/calendar",
-                    "/contact-directory", "/hiring-manager-tracker", "/company-tracker",
-                    "/pricing", "/account-settings"
-                ]
-                if navigate_to not in valid_routes:
-                    navigate_to = None
-            
-            # Validate action buttons
-            validated_buttons = []
-            for btn in action_buttons[:3]:  # Max 3 buttons
-                if isinstance(btn, dict) and "label" in btn and "route" in btn:
-                    validated_buttons.append({
-                        "label": str(btn["label"])[:50],  # Limit label length
-                        "route": str(btn["route"]),
-                    })
-            
-            # Validate auto_populate
-            validated_auto_populate = None
-            if auto_populate and isinstance(auto_populate, dict):
-                search_type = auto_populate.get("search_type")
-                if search_type == "contact":
-                    validated_auto_populate = {
-                        "search_type": "contact",
-                        "job_title": str(auto_populate.get("job_title", ""))[:100],
-                        "company": str(auto_populate.get("company", ""))[:100],
-                        "location": str(auto_populate.get("location", ""))[:100],
-                    }
-                elif search_type == "firm":
-                    validated_auto_populate = {
-                        "search_type": "firm",
-                        "industry": str(auto_populate.get("industry", ""))[:100],
-                        "location": str(auto_populate.get("location", ""))[:100],
-                        "size": str(auto_populate.get("size", ""))[:50] if auto_populate.get("size") else "",
-                    }
-            
+            navigate_to = self._validate_route(parsed.get("navigate_to"))
+            action_buttons = self._validate_buttons(parsed.get("action_buttons", []))
+            auto_populate = self._validate_auto_populate(parsed.get("auto_populate"))
+
             return ScoutAssistantResponse(
                 message=response_message,
                 navigate_to=navigate_to,
-                action_buttons=validated_buttons,
-                auto_populate=validated_auto_populate,
+                action_buttons=action_buttons,
+                auto_populate=auto_populate,
+                contacts_results=contacts_results,
+                email_preview=email_preview,
+                tool_used=tool_used,
             ).to_dict()
-            
+
         except Exception as e:
             print(f"[ScoutAssistant] Error: {type(e).__name__}: {e}")
             import traceback
             traceback.print_exc()
-            
-            # Always return a valid response, even on error
+
             return ScoutAssistantResponse(
                 message=f"I'm having a moment! {random.choice(_ERROR_RECOVERY_LINES)}",
                 navigate_to=None,
                 action_buttons=[],
                 auto_populate=None,
             ).to_dict()
+
+    def _get_tools_for_intent(self, intent: str, uid: Optional[str]) -> Optional[List[Dict]]:
+        """Return the subset of tools appropriate for the detected intent."""
+        if not uid:
+            return None
+        if intent == "contacts":
+            # Contacts are pre-loaded into prompt; no tool needed
+            return None
+        if intent == "email":
+            return [t for t in SCOUT_TOOLS if t["function"]["name"] == "generate_email_preview"]
+        if intent == "strategy":
+            return [t for t in SCOUT_TOOLS if t["function"]["name"] == "suggest_networking_strategy"]
+        # "general" — no tools, fastest path
+        return None
+
+    async def _preload_contacts(self, uid: str, message: str) -> Optional[Dict[str, Any]]:
+        """Pre-load contacts matching the user's query to avoid a tool call."""
+        # Extract a rough filter from the message
+        args: Dict[str, Any] = {}
+        # Try to extract company name — look for "at <company>"
+        at_match = re.search(r'\bat\s+(\w[\w&.\' -]+)', message, re.IGNORECASE)
+        if at_match:
+            args["company"] = at_match.group(1).strip()
+        # Try "from <company>"
+        elif (from_match := re.search(r'\bfrom\s+(\w[\w&.\' -]+)', message, re.IGNORECASE)):
+            args["company"] = from_match.group(1).strip()
+        try:
+            result_str = await self._tool_search_contacts(uid, args)
+            result = json.loads(result_str) if isinstance(result_str, str) else result_str
+            contacts = result.get("contacts", [])
+            if isinstance(contacts, list):
+                return result
+        except Exception as e:
+            print(f"[ScoutAssistant] Pre-load contacts failed: {e}")
+        return None
+
+    async def _call_llm_json(self, messages: List[Dict], system_prompt: str) -> str:
+        """Single LLM call for JSON response. Tries Claude first, falls back to GPT-4o-mini."""
+        anthropic_client = get_async_anthropic_client()
+
+        # Try Claude first for non-tool queries (faster for text generation)
+        if anthropic_client:
+            try:
+                # Convert messages to Anthropic format: extract system, keep user/assistant
+                anthropic_messages = [m for m in messages if m["role"] in ("user", "assistant")]
+                claude_system = system_prompt + "\n\nRespond with valid JSON only."
+
+                response = await asyncio.wait_for(
+                    anthropic_client.messages.create(
+                        model=self.CLAUDE_MODEL,
+                        max_tokens=500,
+                        temperature=0.5,
+                        system=claude_system,
+                        messages=anthropic_messages,
+                    ),
+                    timeout=10.0,
+                )
+                content = response.content[0].text
+                # Validate it's parseable JSON
+                json.loads(content)
+                return content
+            except Exception as e:
+                print(f"[ScoutAssistant] Claude failed, falling back to GPT: {type(e).__name__}: {e}")
+
+        # Fallback to GPT-4o-mini
+        try:
+            response = await asyncio.wait_for(
+                self._get_openai().chat.completions.create(
+                    model=self.DEFAULT_MODEL,
+                    messages=messages,
+                    temperature=0.5,
+                    max_tokens=500,
+                    response_format={"type": "json_object"},
+                ),
+                timeout=15.0,
+            )
+            return response.choices[0].message.content
+        except asyncio.TimeoutError:
+            return json.dumps({
+                "message": f"I'm taking too long to think! {random.choice(_ERROR_RECOVERY_LINES)}",
+                "navigate_to": None,
+                "action_buttons": [],
+                "auto_populate": None,
+            })
+
+    async def _call_with_tools(
+        self,
+        messages: List[Dict],
+        system_prompt: str,
+        conversation_history: List[Dict[str, str]],
+        user_message: str,
+        tools: List[Dict],
+        uid: Optional[str],
+        user_context: Optional[Dict[str, Any]],
+    ) -> tuple:
+        """Two-pass LLM flow with tool calling. Returns (content, tool_used, contacts, email_preview).
+        Uses self._get_openai() which picks the right client for the event loop."""
+        tool_used = None
+        contacts_results = None
+        email_preview = None
+
+        try:
+            response = await asyncio.wait_for(
+                self._get_openai().chat.completions.create(
+                    model=self.DEFAULT_MODEL,
+                    messages=messages,
+                    temperature=0.5,
+                    max_tokens=500,
+                    tools=tools,
+                    tool_choice="auto",
+                ),
+                timeout=15.0,
+            )
+        except asyncio.TimeoutError:
+            return (
+                json.dumps({
+                    "message": f"I'm taking too long to think! {random.choice(_ERROR_RECOVERY_LINES)}",
+                    "navigate_to": None, "action_buttons": [], "auto_populate": None,
+                }),
+                None, None, None,
+            )
+
+        choice = response.choices[0]
+        tool_calls = choice.message.tool_calls
+
+        if not tool_calls or not uid:
+            return (choice.message.content, None, None, None)
+
+        # Execute tool calls
+        tool_messages = [choice.message]
+        for tc in tool_calls:
+            fn_name = tc.function.name
+            try:
+                fn_args = json.loads(tc.function.arguments)
+            except json.JSONDecodeError:
+                fn_args = {}
+
+            tool_result = await self._execute_tool(fn_name, fn_args, uid, user_context or {})
+            tool_used = fn_name
+
+            if fn_name == "search_saved_contacts":
+                try:
+                    parsed_contacts = json.loads(tool_result) if isinstance(tool_result, str) else tool_result
+                    if isinstance(parsed_contacts, list):
+                        contacts_results = parsed_contacts
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            elif fn_name == "generate_email_preview":
+                try:
+                    parsed_email = json.loads(tool_result) if isinstance(tool_result, str) else tool_result
+                    if isinstance(parsed_email, dict) and "body" in parsed_email:
+                        email_preview = parsed_email
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            tool_messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": tool_result if isinstance(tool_result, str) else json.dumps(tool_result),
+            })
+
+        # Second LLM call with tool results
+        second_system = system_prompt + "\n\nIMPORTANT: You just called a tool and got results. Include those results naturally in your response. Respond with valid JSON in the standard format."
+        second_messages = [{"role": "system", "content": second_system}]
+        for msg in conversation_history[-6:]:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role in ["user", "assistant"] and content:
+                second_messages.append({"role": role, "content": content})
+        second_messages.append({"role": "user", "content": user_message})
+        second_messages.extend(tool_messages)
+
+        try:
+            second_response = await asyncio.wait_for(
+                self._get_openai().chat.completions.create(
+                    model=self.DEFAULT_MODEL,
+                    messages=second_messages,
+                    temperature=0.5,
+                    max_tokens=500,
+                    response_format={"type": "json_object"},
+                ),
+                timeout=15.0,
+            )
+            content = second_response.choices[0].message.content
+        except (asyncio.TimeoutError, Exception) as e:
+            print(f"[ScoutAssistant] Second pass failed: {e}")
+            content = json.dumps({
+                "message": "I found some results but had trouble formatting them. Check the data below!",
+                "navigate_to": None, "action_buttons": [], "auto_populate": None,
+            })
+
+        return (content, tool_used, contacts_results, email_preview)
+
+    # ========================================================================
+    # STREAMING
+    # ========================================================================
+
+    async def handle_chat_stream(
+        self,
+        *,
+        message: str,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        current_page: str = "/home",
+        user_name: str = "there",
+        tier: str = "free",
+        credits: int = 0,
+        max_credits: int = 300,
+        user_context: Optional[Dict[str, Any]] = None,
+        uid: Optional[str] = None,
+        queue: "asyncio.Queue[Optional[Dict[str, Any]]]" = None,
+    ) -> None:
+        """Stream a chat response, pushing SSE events to the provided queue.
+
+        IMPORTANT: This runs in a NEW event loop (background thread). We must
+        create fresh async HTTP clients here — the ones from __init__ are bound
+        to the main event loop and will hang/fail in this context.
+
+        Events pushed:
+          {"event": "intent", "data": {"intent": "..."}}
+          {"event": "token", "data": {"text": "..."}}
+          {"event": "done", "data": {full response dict}}
+          {"event": "error", "data": {"message": "..."}}
+        """
+        # Create fresh async clients for this event loop
+        self._stream_openai = create_async_openai_client()
+        try:
+            import anthropic as _anthropic
+            from app.config import CLAUDE_API_KEY
+            self._stream_anthropic = _anthropic.AsyncAnthropic(api_key=CLAUDE_API_KEY) if CLAUDE_API_KEY else None
+        except (ImportError, Exception):
+            self._stream_anthropic = None
+
+        message = (message or "").strip()
+        conversation_history = conversation_history or []
+
+        if not message:
+            greeting = f"Hey{', ' + user_name if user_name != 'there' else ''}! I'm Scout — I know the platform inside and out. What are you trying to do right now?"
+            await queue.put({"event": "done", "data": {
+                "message": greeting, "navigate_to": None, "action_buttons": [], "auto_populate": None,
+            }})
+            await queue.put(None)  # Signal end
+            return
+
+        intent = _detect_intent(message)
+        await queue.put({"event": "intent", "data": {"intent": intent}})
+
+        system_prompt = _build_system_prompt(
+            user_name=user_name, tier=tier, credits=credits,
+            max_credits=max_credits, current_page=current_page, user_context=user_context,
+        )
+
+        messages = [{"role": "system", "content": system_prompt}]
+        for msg in conversation_history[-6:]:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role in ["user", "assistant"] and content:
+                messages.append({"role": role, "content": content})
+
+        contacts_results = None
+        email_preview = None
+        tool_used = None
+
+        # Pre-load contacts for contacts intent
+        if intent == "contacts" and uid:
+            pre_loaded = await self._preload_contacts(uid, message)
+            if pre_loaded:
+                contacts_results = pre_loaded.get("contacts", [])
+                tool_used = "search_saved_contacts"
+                contacts_info = json.dumps(pre_loaded, indent=None)
+                messages.append({
+                    "role": "user",
+                    "content": f"{message}\n\n[SAVED OFFERLOOP CONTACTS — these are the user's saved networking contacts. Summarize them in your response. Do NOT confuse with Google/Gmail contacts.]\n{contacts_info}",
+                })
+            else:
+                messages.append({"role": "user", "content": message})
+        else:
+            messages.append({"role": "user", "content": message})
+
+        tools_for_intent = self._get_tools_for_intent(intent, uid)
+
+        try:
+            if tools_for_intent:
+                # Tool flow: execute tools first, then stream synthesis
+                content, tool_used_fc, contacts_fc, email_fc = await self._call_with_tools(
+                    messages, system_prompt, conversation_history, message,
+                    tools_for_intent, uid, user_context,
+                )
+                tool_used = tool_used or tool_used_fc
+                contacts_results = contacts_results or contacts_fc
+                email_preview = email_preview or email_fc
+
+                # Stream the already-generated content token by token (simulate streaming for tool results)
+                parsed = self._parse_json_response(content)
+                text = parsed.get("message", "")
+                # Send text in chunks for a streaming feel
+                chunk_size = 8
+                words = text.split(" ")
+                for i in range(0, len(words), chunk_size):
+                    chunk = " ".join(words[i:i + chunk_size])
+                    if i > 0:
+                        chunk = " " + chunk
+                    await queue.put({"event": "token", "data": {"text": chunk}})
+
+                await queue.put({"event": "done", "data": {
+                    "message": text,
+                    "navigate_to": self._validate_route(parsed.get("navigate_to")),
+                    "action_buttons": self._validate_buttons(parsed.get("action_buttons", [])),
+                    "auto_populate": self._validate_auto_populate(parsed.get("auto_populate")),
+                    "contacts_results": contacts_results,
+                    "email_preview": email_preview,
+                    "tool_used": tool_used,
+                }})
+            else:
+                # No tools — stream directly
+                full_text = await self._stream_llm(messages, system_prompt, queue)
+
+                # Check if the model accidentally returned JSON instead of plain text
+                clean_text = full_text.strip()
+                if clean_text.startswith("{") and clean_text.endswith("}"):
+                    try:
+                        parsed_json = json.loads(clean_text)
+                        if "message" in parsed_json:
+                            # Model returned JSON — extract the message and metadata directly
+                            msg_text = parsed_json["message"]
+                            metadata = {
+                                "message": msg_text,
+                                "navigate_to": self._validate_route(parsed_json.get("navigate_to")),
+                                "action_buttons": self._validate_buttons(parsed_json.get("action_buttons", [])),
+                                "auto_populate": self._validate_auto_populate(parsed_json.get("auto_populate")),
+                                "contacts_results": contacts_results,
+                                "email_preview": email_preview,
+                                "tool_used": tool_used,
+                            }
+                            await queue.put({"event": "done", "data": metadata})
+                            return  # _stream_llm already pushed None-triggering return
+                    except (json.JSONDecodeError, KeyError):
+                        pass  # Not valid JSON, continue with normal flow
+
+                # Phase 2: classify metadata from the full text
+                metadata = await self._classify_metadata(full_text, system_prompt)
+                metadata["message"] = full_text
+                metadata["contacts_results"] = contacts_results
+                metadata["email_preview"] = email_preview
+                metadata["tool_used"] = tool_used
+                await queue.put({"event": "done", "data": metadata})
+
+        except Exception as e:
+            print(f"[ScoutAssistant] Stream error: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            await queue.put({"event": "error", "data": {"message": "Something went wrong. Try again!"}})
+
+        await queue.put(None)  # Signal end
+
+    async def _stream_llm(self, messages: List[Dict], system_prompt: str, queue) -> str:
+        """Stream text tokens from LLM. Tries Claude first, falls back to GPT-4o-mini.
+        Returns the full accumulated text.
+        Uses fresh clients via self._get_openai() and self._stream_anthropic."""
+        anthropic_client = getattr(self, "_stream_anthropic", None)
+        full_text = ""
+
+        if anthropic_client:
+            try:
+                anthropic_messages = [m for m in messages if m["role"] in ("user", "assistant")]
+                claude_system = system_prompt + "\n\nRespond with ONLY your message text (no JSON). Be direct and helpful."
+
+                async with anthropic_client.messages.stream(
+                    model=self.CLAUDE_MODEL,
+                    max_tokens=500,
+                    temperature=0.5,
+                    system=claude_system,
+                    messages=anthropic_messages,
+                ) as stream:
+                    async for event in stream:
+                        # Handle ContentBlockDeltaEvent with TextDelta
+                        if hasattr(event, "type") and event.type == "content_block_delta":
+                            delta = getattr(event, "delta", None)
+                            if delta and hasattr(delta, "text"):
+                                full_text += delta.text
+                                await queue.put({"event": "token", "data": {"text": delta.text}})
+                return full_text
+            except Exception as e:
+                print(f"[ScoutAssistant] Claude streaming failed, falling back to GPT: {type(e).__name__}: {e}")
+                full_text = ""
+
+        # Fallback: GPT-4o-mini streaming
+        try:
+            stream = await asyncio.wait_for(
+                self._get_openai().chat.completions.create(
+                    model=self.DEFAULT_MODEL,
+                    messages=messages,
+                    temperature=0.5,
+                    max_tokens=500,
+                    stream=True,
+                ),
+                timeout=15.0,
+            )
+            async for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta and delta.content:
+                    full_text += delta.content
+                    await queue.put({"event": "token", "data": {"text": delta.content}})
+        except asyncio.TimeoutError:
+            if not full_text:
+                full_text = f"I'm taking too long to think! {random.choice(_ERROR_RECOVERY_LINES)}"
+                await queue.put({"event": "token", "data": {"text": full_text}})
+
+        return full_text
+
+    async def _classify_metadata(self, text: str, system_prompt: str) -> Dict[str, Any]:
+        """Fast classification call to extract navigate_to, action_buttons, auto_populate from text.
+        Uses the fresh streaming client if available."""
+
+        classify_prompt = f"""Based on this Scout assistant response, extract structured metadata.
+
+RESPONSE TEXT:
+{text}
+
+Return JSON:
+{{"navigate_to": "/route" or null, "action_buttons": [{{"label": "...", "route": "/..."}}] or [], "auto_populate": {{"search_type": "contact" or "firm", ...}} or null}}
+
+Only set navigate_to if the response suggests navigation. Only set auto_populate if the response contains search criteria for contact-search or firm-search."""
+
+        try:
+            response = await asyncio.wait_for(
+                self._get_openai().chat.completions.create(
+                    model=self.DEFAULT_MODEL,
+                    messages=[
+                        {"role": "system", "content": "Extract structured metadata from the text. Return valid JSON only."},
+                        {"role": "user", "content": classify_prompt},
+                    ],
+                    temperature=0.0,
+                    max_tokens=200,
+                    response_format={"type": "json_object"},
+                ),
+                timeout=5.0,
+            )
+            parsed = json.loads(response.choices[0].message.content)
+            return {
+                "navigate_to": self._validate_route(parsed.get("navigate_to")),
+                "action_buttons": self._validate_buttons(parsed.get("action_buttons", [])),
+                "auto_populate": self._validate_auto_populate(parsed.get("auto_populate")),
+            }
+        except Exception as e:
+            print(f"[ScoutAssistant] Metadata classification failed: {e}")
+            # Fall back to simple route detection
+            route = _detect_route_from_query(text)
+            return {
+                "navigate_to": route,
+                "action_buttons": [],
+                "auto_populate": None,
+            }
+
+    def _parse_json_response(self, content: Optional[str]) -> Dict[str, Any]:
+        """Parse LLM response as JSON with fallbacks."""
+        if not content or not content.strip():
+            return {
+                "message": "I had trouble formatting my response. Could you try again?",
+                "navigate_to": None,
+                "action_buttons": [],
+                "auto_populate": None,
+            }
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            return {"message": content, "navigate_to": None, "action_buttons": [], "auto_populate": None}
+
+    def _validate_route(self, navigate_to: Optional[str]) -> Optional[str]:
+        """Validate navigate_to is a known route."""
+        if not navigate_to:
+            return None
+        if any(navigate_to.startswith(route.split("?")[0]) for route in ROUTE_KEYWORDS.keys()):
+            return navigate_to
+        valid_routes = [
+            "/dashboard", "/contact-search", "/firm-search", "/recruiter-spreadsheet",
+            "/job-board", "/coffee-chat-prep", "/interview-prep", "/application-lab",
+            "/write/resume", "/write/cover-letter", "/outbox", "/calendar",
+            "/contact-directory", "/hiring-manager-tracker", "/company-tracker",
+            "/pricing", "/account-settings",
+        ]
+        return navigate_to if navigate_to in valid_routes else None
+
+    def _validate_buttons(self, action_buttons: Any) -> List[Dict[str, str]]:
+        """Validate and sanitize action buttons."""
+        validated = []
+        if not isinstance(action_buttons, list):
+            return []
+        for btn in action_buttons[:3]:
+            if isinstance(btn, dict) and "label" in btn and "route" in btn:
+                validated.append({
+                    "label": str(btn["label"])[:50],
+                    "route": str(btn["route"]),
+                })
+        return validated
+
+    def _validate_auto_populate(self, auto_populate: Any) -> Optional[Dict[str, Any]]:
+        """Validate auto_populate data."""
+        if not auto_populate or not isinstance(auto_populate, dict):
+            return None
+        search_type = auto_populate.get("search_type")
+        if search_type == "contact":
+            return {
+                "search_type": "contact",
+                "job_title": str(auto_populate.get("job_title", ""))[:100],
+                "company": str(auto_populate.get("company", ""))[:100],
+                "location": str(auto_populate.get("location", ""))[:100],
+            }
+        elif search_type == "firm":
+            return {
+                "search_type": "firm",
+                "industry": str(auto_populate.get("industry", ""))[:100],
+                "location": str(auto_populate.get("location", ""))[:100],
+                "size": str(auto_populate.get("size", ""))[:50] if auto_populate.get("size") else "",
+            }
+        return None
+
+    # ========================================================================
+    # TOOL EXECUTION
+    # ========================================================================
+
+    async def _execute_tool(
+        self, tool_name: str, args: Dict[str, Any], uid: str, user_context: Dict[str, Any]
+    ) -> str:
+        """Execute a Scout tool and return the result as a string."""
+        try:
+            if tool_name == "search_saved_contacts":
+                return await self._tool_search_contacts(uid, args)
+            elif tool_name == "generate_email_preview":
+                return await self._tool_email_preview(uid, user_context, args)
+            elif tool_name == "suggest_networking_strategy":
+                return await self._tool_networking_strategy(user_context, args)
+            else:
+                return json.dumps({"error": f"Unknown tool: {tool_name}"})
+        except Exception as e:
+            print(f"[ScoutAssistant] Tool {tool_name} failed: {e}")
+            return json.dumps({"error": f"Tool failed: {str(e)}"})
+
+    async def _tool_search_contacts(self, uid: str, args: Dict[str, Any]) -> str:
+        """Search the user's saved contacts in Firestore."""
+        db = get_db()
+        contacts_ref = db.collection("users").document(uid).collection("contacts")
+
+        # Firestore doesn't support partial text search well, so fetch and filter in Python
+        docs = contacts_ref.limit(50).get()
+        contacts = []
+        for doc in docs:
+            if not doc.exists:
+                continue
+            c = doc.to_dict()
+            c["id"] = doc.id
+            contacts.append(c)
+
+        # Apply filters
+        company_filter = (args.get("company") or "").lower()
+        title_filter = (args.get("job_title") or "").lower()
+        name_filter = (args.get("name") or "").lower()
+        status_filter = (args.get("status") or "").lower()
+
+        filtered = []
+        for c in contacts:
+            company = (c.get("company") or c.get("job_company_name") or "").lower()
+            title = (c.get("job_title") or c.get("title") or "").lower()
+            name = (c.get("full_name") or c.get("name") or "").lower()
+            status = (c.get("status") or c.get("pipelineStatus") or "").lower()
+
+            if company_filter and company_filter not in company:
+                continue
+            if title_filter and title_filter not in title:
+                continue
+            if name_filter and name_filter not in name:
+                continue
+            if status_filter and status_filter not in status:
+                continue
+            filtered.append(c)
+
+        # Return up to 5 results (10 for pre-loading), compact format
+        results = []
+        for c in filtered[:5]:
+            results.append({
+                "name": c.get("full_name") or c.get("name") or "Unknown",
+                "job_title": c.get("job_title") or c.get("title") or "",
+                "company": c.get("company") or c.get("job_company_name") or "",
+                "email": c.get("work_email") or c.get("email") or "",
+                "linkedin_url": c.get("linkedin_url") or "",
+                "status": c.get("status") or c.get("pipelineStatus") or "",
+            })
+
+        if not results:
+            return json.dumps({"contacts": [], "message": f"No saved contacts found matching your criteria. You have {len(contacts)} total saved contacts."})
+
+        return json.dumps({"contacts": results, "total_matches": len(filtered), "total_saved": len(contacts)})
+
+    async def _tool_email_preview(self, uid: str, user_context: Dict[str, Any], args: Dict[str, Any]) -> str:
+        """Generate a draft email preview using the user's template settings."""
+        recipient_name = args.get("recipient_name", "the recipient")
+        recipient_company = args.get("recipient_company", "")
+        recipient_title = args.get("recipient_title", "")
+        purpose = args.get("purpose", "networking")
+
+        # Build context from user profile
+        user_name = ""
+        university = ""
+        resume_summary = ""
+
+        academics = user_context.get("academics", {})
+        if academics:
+            university = academics.get("university", "")
+            user_name = user_context.get("resume_summary", "").split("|")[0].replace("Name:", "").strip() if user_context.get("resume_summary") else ""
+
+        resume_summary = user_context.get("resume_summary", "")
+        personal_note = user_context.get("personal_note", "")
+
+        # Get template style from user preferences
+        email_tmpl = user_context.get("email_template", {})
+        style = email_tmpl.get("style_preset") or "professional"
+        custom_instr = email_tmpl.get("custom_instructions", "")
+
+        email_prompt = f"""Generate a short, personalized networking email.
+
+SENDER CONTEXT:
+- University: {university or 'Not specified'}
+- Resume summary: {resume_summary or 'Not available'}
+- Personal note: {personal_note or 'None'}
+- Preferred style: {style}
+{f'- Custom instructions: {custom_instr}' if custom_instr else ''}
+
+RECIPIENT:
+- Name: {recipient_name}
+- Company: {recipient_company}
+- Title: {recipient_title or 'Not specified'}
+- Purpose: {purpose}
+
+Write a concise email (3-5 sentences for the body). Include a subject line.
+Return JSON: {{"subject": "...", "body": "...", "recipient_name": "{recipient_name}", "recipient_company": "{recipient_company}"}}"""
+
+        try:
+            import time as _time
+            t0 = _time.monotonic()
+            response = await asyncio.wait_for(
+                self._get_openai().chat.completions.create(
+                    model=self.DEFAULT_MODEL,
+                    messages=[
+                        {"role": "system", "content": "You are an expert networking email writer. Generate concise, warm, professional emails. Return valid JSON only."},
+                        {"role": "user", "content": email_prompt},
+                    ],
+                    temperature=0.7,
+                    max_tokens=400,
+                    response_format={"type": "json_object"},
+                ),
+                timeout=10.0,
+            )
+            print(f"[ScoutAssistant] Email preview generated in {_time.monotonic() - t0:.2f}s")
+            return response.choices[0].message.content
+        except Exception as e:
+            print(f"[ScoutAssistant] Email preview generation failed: {e}")
+            return json.dumps({
+                "subject": f"Reaching out — {purpose}",
+                "body": f"Hi {recipient_name},\n\nI'm reaching out because I'm very interested in {recipient_company}. I'd love to learn more about your experience. Would you be open to a brief conversation?\n\nBest regards",
+                "recipient_name": recipient_name,
+                "recipient_company": recipient_company,
+            })
+
+    async def _tool_networking_strategy(self, user_context: Dict[str, Any], args: Dict[str, Any]) -> str:
+        """Generate personalized networking strategy advice."""
+        focus = args.get("focus_area", "getting_started")
+        target_company = args.get("target_company", "")
+
+        goals = user_context.get("goals", {})
+        academics = user_context.get("academics", {})
+        contacts_summary = user_context.get("contacts_summary", {})
+        resume = user_context.get("resume_summary", "")
+
+        strategy_prompt = f"""Give personalized networking strategy advice.
+
+USER PROFILE:
+- University: {academics.get('university', 'Unknown')}
+- Major: {academics.get('major', 'Unknown')}
+- Target industries: {', '.join(goals.get('target_industries', [])) or 'Not specified'}
+- Target roles: {', '.join(goals.get('target_roles', [])) or 'Not specified'}
+- Dream companies: {', '.join(goals.get('dream_companies', [])) or 'Not specified'}
+- Recruiting for: {goals.get('recruiting_for', 'Not specified')}
+- Resume: {resume[:200] or 'Not available'}
+- Saved contacts: {contacts_summary.get('total', 0)} total
+- Top companies contacted: {', '.join([c['name'] for c in contacts_summary.get('top_companies', [])]) or 'None yet'}
+
+FOCUS: {focus}
+{f'TARGET COMPANY: {target_company}' if target_company else ''}
+
+Give 3-5 specific, actionable suggestions. Be concrete — mention specific companies, roles, or approaches based on their profile.
+Return JSON: {{"strategy": "A brief strategy summary", "suggestions": ["suggestion 1", "suggestion 2", ...]}}"""
+
+        try:
+            response = await asyncio.wait_for(
+                self._get_openai().chat.completions.create(
+                    model=self.DEFAULT_MODEL,
+                    messages=[
+                        {"role": "system", "content": "You are an expert career networking strategist for college students. Be specific and actionable. Return valid JSON only."},
+                        {"role": "user", "content": strategy_prompt},
+                    ],
+                    temperature=0.7,
+                    max_tokens=500,
+                    response_format={"type": "json_object"},
+                ),
+                timeout=10.0,
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            print(f"[ScoutAssistant] Networking strategy failed: {e}")
+            return json.dumps({
+                "strategy": "Focus on building connections at your dream companies through alumni outreach.",
+                "suggestions": [
+                    "Start with alumni from your university at target companies",
+                    "Use coffee chat requests to learn about company culture",
+                    "Follow up within 48 hours of every conversation",
+                ],
+            })
 
 
     async def handle_search_help(
@@ -857,7 +1575,7 @@ Keep the message to 1-2 sentences. Be specific about the company if known."""
 
         try:
             response = await asyncio.wait_for(
-                self._openai.chat.completions.create(
+                self._get_openai().chat.completions.create(
                     model=self.DEFAULT_MODEL,
                     messages=[
                         {"role": "system", "content": system_prompt},
@@ -969,7 +1687,7 @@ Keep the message to 1-2 sentences."""
 
         try:
             response = await asyncio.wait_for(
-                self._openai.chat.completions.create(
+                self._get_openai().chat.completions.create(
                     model=self.DEFAULT_MODEL,
                     messages=[
                         {"role": "system", "content": system_prompt},

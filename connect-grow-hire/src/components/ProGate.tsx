@@ -8,13 +8,14 @@ interface ProGateProps {
   description: string;
   videoId: string;
   children: ReactNode;
+  bypass?: boolean;
 }
 
-export function ProGate({ title, description, videoId, children }: ProGateProps) {
+export function ProGate({ title, description, videoId, children, bypass }: ProGateProps) {
   const { user } = useFirebaseAuth();
   const navigate = useNavigate();
 
-  const isFree = !user?.tier || user.tier === "free";
+  const isFree = !bypass && (!user?.tier || user.tier === "free");
 
   if (!isFree) {
     return <>{children}</>;

@@ -79,24 +79,32 @@ RULES:
    - Amazon: use "SDE", "Software Development Engineer", not "Software Engineer".
    - Google: use "Software Engineer", "Product Manager", not "SDE".
    - Meta: use "Software Engineer" with team suffixes where relevant, "Product Manager".
-   - Finance: "Investment Banking Analyst", "Investment Banking Associate", "Investment Banking VP" — never standalone "Associate" or "VP".
-3. Title variations must contain the core domain keyword. Do not use standalone generic titles like "associate", "vp", "manager", "analyst" without the domain qualifier. Examples: "investment banker", "investment banking analyst", "investment banking associate" (not "associate", "vp" alone); "software engineer", "senior software engineer" (not just "engineer" or "manager" alone).
+   - Finance: "Investment Banking Analyst", "Investment Banking Associate" — match the seniority the user specified.
+3. Title variations should primarily use domain-qualified titles (e.g., "Investment Banking Analyst", "Software Engineer"). ALSO include the standalone generic version as a fallback at the end of the list (e.g., "Analyst", "Engineer", "Associate"). Many real LinkedIn profiles only have the generic title, so including both ensures broad coverage.
 4. Include seniority only when combined with the domain: e.g. "investment banking associate", "software engineering manager".
-5. Include closely related roles: if user says "PM", include "Product Manager", "Technical Program Manager", "Program Manager".
-6. Expand shorthand:
+5. RESPECT the seniority level the user specified. If they say "analysts", generate analyst-level titles ONLY — do NOT add senior titles like "Vice President", "Managing Director", "Partner", "Principal" unless the user explicitly asks for them. If they say "bankers" (generic), include all levels. If they say "associates", include associate-level only. Match the user's intent.
+6. Include closely related roles: if user says "PM", include "Product Manager", "Technical Program Manager", "Program Manager".
+7. Expand shorthand:
    - "FAANG" → Google, Apple, Meta, Amazon, Netflix
    - "Big 4" → Deloitte, PwC, EY, KPMG
    - "MBB" → McKinsey, Bain, BCG
-7. Expand location shorthand: "NYC" → "New York", "SF" → "San Francisco", "LA" → "Los Angeles", "DC" → "Washington".
-8. Set confidence to "low" ONLY when the prompt has no specifics at all — no job titles/roles, no companies, no schools, and no location. Examples of LOW confidence: "find me people", "help", "good contacts". Examples of HIGH confidence: "Software engineers from USC" (title + school), "Product managers in NYC" (title + location), "People at Google" (company), "USC alumni in consulting" (school + industry). If the prompt has at least one of: title_variations, companies, schools, or locations, set confidence to "high".
-9. title_variations must be a flat, deduplicated list of ALL job titles across all companies for use in search.
-10. When a company is specified, generate title variations that people ACTUALLY use at that company, not generic industry titles. Think about what the company does and what titles exist there. If the user's role description doesn't match what the company does, interpret the user's INTENT — they probably want to connect with people in a related function at that company. Examples:
+8. Expand location shorthand: "NYC" → "New York", "SF" → "San Francisco", "LA" → "Los Angeles", "DC" → "Washington".
+9. Set confidence to "low" ONLY when the prompt has no specifics at all — no job titles/roles, no companies, no schools, and no location. Examples of LOW confidence: "find me people", "help", "good contacts". Examples of HIGH confidence: "Software engineers from USC" (title + school), "Product managers in NYC" (title + location), "People at Google" (company), "USC alumni in consulting" (school + industry). If the prompt has at least one of: title_variations, companies, schools, or locations, set confidence to "high".
+10. title_variations must be a flat, deduplicated list of ALL job titles across all companies for use in search.
+11. When a company is specified, generate title variations that people ACTUALLY use at that company, not generic industry titles. Think about what the company does and what titles exist there. If the user's role description doesn't match what the company does, interpret the user's INTENT — they probably want to connect with people in a related function at that company. Examples:
    - "Investment bankers at Bain" → Bain is a consulting firm, not an investment bank. The user likely wants finance-related or client-facing roles at Bain. Generate titles like: "Consultant", "Associate Consultant", "Manager", "Senior Manager", "Partner".
-   - "Investment bankers at Goldman Sachs" → Goldman IS an investment bank. Generate: "Investment Banking Analyst", "Investment Banking Associate", "Vice President", "Managing Director".
+   - "Investment banking analysts at Goldman Sachs" → Goldman IS an investment bank. User said "analysts" so generate analyst-level only: "Investment Banking Analyst", "Analyst", "Financial Analyst". Do NOT include "Vice President" or "Managing Director" — the user specified the seniority.
+   - "Investment bankers at Goldman Sachs" → User said "bankers" (generic), so include all levels: "Investment Banking Analyst", "Investment Banking Associate", "Vice President", "Managing Director", "Analyst".
    - "Engineers at McKinsey" → McKinsey is a consulting firm that does have engineers. Generate: "Software Engineer", "Data Engineer", "Engineering Manager".
    Always think about what titles actually exist at the specified company before generating variations.
 
-11. If the user mentions an industry (e.g. "consulting", "finance", "tech", "healthcare"), include it in the industries array. Use PDL-compatible industry labels when possible: "financial services", "technology", "management consulting", "health care", "real estate", "education", "media", "legal services", "accounting", "marketing and advertising".
+12. If the user mentions an industry (e.g. "consulting", "finance", "tech", "healthcare"), include it in the industries array. Use PDL-compatible industry labels when possible: "financial services", "technology", "management consulting", "health care", "real estate", "education", "media", "legal services", "accounting", "marketing and advertising".
+13. For matched_titles in the companies array and for title_variations, always include BOTH domain-specific titles AND their generic fallbacks. Examples:
+    - "Investment Banking Analyst" → also include "Analyst"
+    - "Software Development Engineer" → also include "Software Engineer", "Engineer"
+    - "Management Consultant" → also include "Consultant"
+    - "Product Manager" → also include "PM"
+    Place domain-specific titles first, generic fallbacks last.
 
 Return ONLY valid JSON with this exact structure (no markdown, no explanation):
 {

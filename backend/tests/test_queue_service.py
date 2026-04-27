@@ -23,7 +23,9 @@ from app.services.queue_service import (
     DISMISS_WRONG_PERSON,
     QUEUE_CONTACT_COUNT,
     QUEUE_GENERATION_CREDITS,
+    QUEUE_STALENESS_SECONDS,
     QUEUE_TTL_DAYS,
+    QUEUE_TUESDAY_WEEKDAY,
     STATUS_ARCHIVED,
     STATUS_COMPLETED_PARTIAL,
     STATUS_PENDING_REVIEW,
@@ -33,6 +35,8 @@ from app.services.queue_service import (
     _iso_week_key,
     _normalize_email,
     _normalize_text,
+    _should_run_queue_scanner,
+    _write_queue_scanner_health,
     approve_queue_contact,
     cleanup_expired_queues,
     dismiss_queue_contact,
@@ -40,6 +44,7 @@ from app.services.queue_service import (
     get_current_queue,
     is_free_weekly_eligible,
     is_queue_feature_enabled,
+    scan_and_generate_queues,
 )
 
 
@@ -946,3 +951,330 @@ def test_get_current_queue_none_when_empty():
 
     result = get_current_queue(db, "uid1")
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Queue scanner gate (C2 coordination PR — daemon contract)
+# ---------------------------------------------------------------------------
+#
+# Contract: docs/designs/tracker-daemon-contract.md
+# Rule: scanner runs if today is Tuesday UTC OR the last successful run was
+# more than 6d 20h ago. First-ever boot on a non-Tuesday must NOT fire.
+
+def _system_scanner_doc_mock(last_success_iso=None, exists=True):
+    """Wire up a mock Firestore db that returns a system/queue_scanner doc."""
+    db = Mock()
+    doc = Mock()
+    doc.exists = exists
+    if exists and last_success_iso is not None:
+        doc.to_dict.return_value = {"lastSuccessAt": last_success_iso}
+    else:
+        doc.to_dict.return_value = {}
+    db.collection.return_value.document.return_value.get.return_value = doc
+    return db
+
+
+@pytest.mark.unit
+def test_queue_scanner_gate_constants_match_contract():
+    """Guard against silent drift of the Tuesday / 6d20h constants."""
+    assert QUEUE_TUESDAY_WEEKDAY == 1  # datetime.weekday(): Tue=1
+    assert QUEUE_STALENESS_SECONDS == (6 * 24 + 20) * 3600
+
+
+@pytest.mark.unit
+def test_queue_scanner_gate_tuesday_always_runs():
+    """Tuesday UTC → gate opens regardless of last success."""
+    db = _system_scanner_doc_mock(exists=False)
+    tue = datetime(2026, 4, 14, 10, 0, 0, tzinfo=timezone.utc)  # Tue
+    assert tue.weekday() == 1
+    assert _should_run_queue_scanner(db, now=tue) is True
+
+
+@pytest.mark.unit
+def test_queue_scanner_gate_non_tuesday_first_boot_does_not_fire():
+    """
+    First-ever boot on a non-Tuesday must NOT fire — that would push the
+    Monday-after-deploy queue a day early. Per contract line rationale.
+    """
+    db = _system_scanner_doc_mock(exists=False)
+    wed = datetime(2026, 4, 15, 10, 0, 0, tzinfo=timezone.utc)  # Wed
+    assert wed.weekday() == 2
+    assert _should_run_queue_scanner(db, now=wed) is False
+
+
+@pytest.mark.unit
+def test_queue_scanner_gate_non_tuesday_fresh_run_skips():
+    """Not Tuesday, last run 2 days ago → gate closed."""
+    now = datetime(2026, 4, 15, 10, 0, 0, tzinfo=timezone.utc)  # Wed
+    last = (now - timedelta(days=2)).isoformat().replace("+00:00", "Z")
+    db = _system_scanner_doc_mock(last_success_iso=last)
+    assert _should_run_queue_scanner(db, now=now) is False
+
+
+@pytest.mark.unit
+def test_queue_scanner_gate_non_tuesday_stale_recovers():
+    """Not Tuesday, last run > 6d20h ago → gate opens (recovery path)."""
+    now = datetime(2026, 4, 15, 10, 0, 0, tzinfo=timezone.utc)  # Wed
+    last = (now - timedelta(days=7, hours=1)).isoformat().replace("+00:00", "Z")
+    db = _system_scanner_doc_mock(last_success_iso=last)
+    assert _should_run_queue_scanner(db, now=now) is True
+
+
+@pytest.mark.unit
+def test_queue_scanner_gate_db_error_fails_closed():
+    """A Firestore error during the gate check must default to NOT running."""
+    db = Mock()
+    db.collection.return_value.document.return_value.get.side_effect = \
+        Exception("firestore down")
+    wed = datetime(2026, 4, 15, 10, 0, 0, tzinfo=timezone.utc)
+    # Must not raise, must return False to be safe
+    assert _should_run_queue_scanner(db, now=wed) is False
+
+
+# ---------------------------------------------------------------------------
+# Queue scanner health doc
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_queue_scanner_health_doc_fields_match_contract():
+    """
+    Health doc must contain the exact fields the watchdog + dashboards read.
+    Contract: docs/designs/tracker-daemon-contract.md §health doc schema.
+    """
+    db = Mock()
+    system_doc_ref = Mock()
+    db.collection.return_value.document.return_value = system_doc_ref
+
+    _write_queue_scanner_health(
+        db,
+        users_processed=42,
+        queues_generated=7,
+        error_count=2,
+        duration_ms=1234,
+    )
+
+    # system/queue_scanner.set({...}) called once
+    system_doc_ref.set.assert_called_once()
+    payload = system_doc_ref.set.call_args[0][0]
+
+    # Contract-required fields
+    assert "lastSuccessAt" in payload
+    assert payload["lastDurationMs"] == 1234
+    assert payload["usersProcessed"] == 42
+    assert payload["queuesGenerated"] == 7
+    assert payload["errorCount"] == 2
+    # ISO8601 with Z suffix
+    assert payload["lastSuccessAt"].endswith("Z")
+
+
+@pytest.mark.unit
+def test_queue_scanner_health_doc_targets_system_collection():
+    """Health doc is written to `system/queue_scanner`, per contract."""
+    db = Mock()
+    system_coll = Mock()
+    db.collection.return_value = system_coll
+
+    _write_queue_scanner_health(
+        db, users_processed=0, queues_generated=0, error_count=0, duration_ms=0,
+    )
+
+    # Called as db.collection("system").document("queue_scanner").set(...)
+    db.collection.assert_called_with("system")
+    system_coll.document.assert_called_with("queue_scanner")
+
+
+@pytest.mark.unit
+def test_queue_scanner_health_doc_write_failure_is_swallowed():
+    """Health doc write failure must NOT raise (daemon keeps going)."""
+    db = Mock()
+    db.collection.return_value.document.return_value.set.side_effect = \
+        Exception("firestore write error")
+    # Must not raise
+    _write_queue_scanner_health(
+        db, users_processed=1, queues_generated=1, error_count=0, duration_ms=1,
+    )
+
+
+# ---------------------------------------------------------------------------
+# scan_and_generate_queues — entry point wiring
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+@patch("app.services.queue_service.get_db", return_value=None)
+def test_scan_and_generate_queues_no_db_returns_silently(_mock_db):
+    """No db client → return silently; no raise, no infinite loop."""
+    scan_and_generate_queues()  # must not raise
+
+
+@pytest.mark.unit
+@patch("app.services.queue_service._should_run_queue_scanner", return_value=False)
+@patch("app.services.queue_service.get_db")
+def test_scan_and_generate_queues_gate_closed_skips_everything(
+    mock_get_db, _mock_gate,
+):
+    """
+    Gate closed → must not iterate users and must not write health doc
+    (a skipped run is not a successful run).
+    """
+    db = Mock()
+    mock_get_db.return_value = db
+    users_coll = Mock()
+    db.collection.return_value = users_coll
+
+    scan_and_generate_queues()
+
+    users_coll.stream.assert_not_called()
+
+
+@pytest.mark.unit
+@patch("app.services.queue_service._should_run_queue_scanner", return_value=True)
+@patch("app.services.queue_service.get_db")
+def test_scan_and_generate_queues_writes_health_on_success(
+    mock_get_db, _mock_gate,
+):
+    """Gate open, no users → health doc still written with zero counters."""
+    db = Mock()
+    mock_get_db.return_value = db
+    # users collection: empty stream
+    users_coll = Mock()
+    users_coll.stream.return_value = iter([])
+    # system/queue_scanner ref (for health doc write)
+    system_doc = Mock()
+
+    def _collection(name):
+        if name == "users":
+            return users_coll
+        if name == "system":
+            coll = Mock()
+            coll.document.return_value = system_doc
+            return coll
+        return Mock()
+
+    db.collection.side_effect = _collection
+
+    scan_and_generate_queues()
+
+    system_doc.set.assert_called_once()
+    payload = system_doc.set.call_args[0][0]
+    assert payload["usersProcessed"] == 0
+    assert payload["queuesGenerated"] == 0
+    assert payload["errorCount"] == 0
+
+
+@pytest.mark.unit
+@patch("app.services.queue_service._should_run_queue_scanner", return_value=True)
+@patch("app.services.queue_service.is_queue_feature_enabled", return_value=False)
+@patch("app.services.queue_service.get_db")
+def test_scan_skips_free_tier_users(
+    mock_get_db, _mock_enabled, _mock_gate,
+):
+    """Free-tier users → skipped (no queue eligibility)."""
+    db = Mock()
+    mock_get_db.return_value = db
+
+    user_doc = Mock()
+    user_doc.id = "free-uid"
+    user_doc.to_dict.return_value = {"subscriptionTier": "free"}
+
+    users_coll = Mock()
+    users_coll.stream.return_value = iter([user_doc])
+    system_doc = Mock()
+
+    def _collection(name):
+        if name == "users":
+            return users_coll
+        if name == "system":
+            coll = Mock()
+            coll.document.return_value = system_doc
+            return coll
+        return Mock()
+
+    db.collection.side_effect = _collection
+
+    scan_and_generate_queues()
+
+    # Free user counted as processed but not eligible
+    payload = system_doc.set.call_args[0][0]
+    assert payload["usersProcessed"] == 1
+    assert payload["queuesGenerated"] == 0
+
+
+@pytest.mark.unit
+@patch("app.services.queue_service._should_run_queue_scanner", return_value=True)
+@patch("app.services.queue_service.is_free_weekly_eligible", return_value=True)
+@patch("app.services.queue_service.get_queue_preferences", return_value={"enabled": True})
+@patch("app.services.queue_service.is_queue_feature_enabled", return_value=True)
+@patch("app.services.queue_service.get_db")
+def test_scan_counts_eligible_pro_user(
+    mock_get_db, _m_enabled, _m_prefs, _m_weekly, _m_gate,
+):
+    """Pro user, enabled, not paused, free-weekly eligible → counted."""
+    db = Mock()
+    mock_get_db.return_value = db
+
+    user_doc = Mock()
+    user_doc.id = "pro-uid"
+    user_doc.to_dict.return_value = {"subscriptionTier": "pro"}
+
+    users_coll = Mock()
+    users_coll.stream.return_value = iter([user_doc])
+    system_doc = Mock()
+
+    def _collection(name):
+        if name == "users":
+            return users_coll
+        if name == "system":
+            coll = Mock()
+            coll.document.return_value = system_doc
+            return coll
+        return Mock()
+
+    db.collection.side_effect = _collection
+
+    scan_and_generate_queues()
+
+    payload = system_doc.set.call_args[0][0]
+    assert payload["usersProcessed"] == 1
+    assert payload["queuesGenerated"] == 1
+
+
+@pytest.mark.unit
+@patch("app.services.queue_service._should_run_queue_scanner", return_value=True)
+@patch("app.services.queue_service.is_queue_feature_enabled", side_effect=Exception("boom"))
+@patch("app.services.queue_service.get_db")
+def test_scan_per_user_error_does_not_kill_scan(
+    mock_get_db, _m_enabled, _m_gate,
+):
+    """One bad user doc → error_count increments, scan continues, health written."""
+    db = Mock()
+    mock_get_db.return_value = db
+
+    bad_user = Mock()
+    bad_user.id = "bad-uid"
+    bad_user.to_dict.return_value = {"subscriptionTier": "pro"}
+    good_user = Mock()
+    good_user.id = "good-uid"
+    good_user.to_dict.return_value = {"subscriptionTier": "pro"}
+
+    users_coll = Mock()
+    users_coll.stream.return_value = iter([bad_user, good_user])
+    system_doc = Mock()
+
+    def _collection(name):
+        if name == "users":
+            return users_coll
+        if name == "system":
+            coll = Mock()
+            coll.document.return_value = system_doc
+            return coll
+        return Mock()
+
+    db.collection.side_effect = _collection
+
+    scan_and_generate_queues()  # must not raise
+
+    payload = system_doc.set.call_args[0][0]
+    # Both users attempted
+    assert payload["usersProcessed"] == 2
+    # Both raised via is_queue_feature_enabled side_effect
+    assert payload["errorCount"] == 2

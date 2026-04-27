@@ -96,14 +96,27 @@ def _release_lock(db):
         logger.warning("Failed to release nudge scanner lock: %s", e)
 
 
-def _update_healthcheck(db, nudges_generated: int, users_scanned: int, errors: int):
-    """Write healthcheck timestamp so monitoring can detect daemon death."""
+def _update_healthcheck(
+    db,
+    nudges_generated: int,
+    users_scanned: int,
+    contacts_scanned: int,
+    errors: int,
+    duration_ms: int,
+):
+    """
+    Write healthcheck doc consumed by the daemon watchdog in wsgi.py.
+    Field names follow docs/designs/tracker-daemon-contract.md.
+    """
     try:
         db.collection("system").document("nudge_scanner").set({
-            "lastScanAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            "nudgesGenerated": nudges_generated,
-            "usersScanned": users_scanned,
-            "errors": errors,
+            "lastSuccessAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "lastDurationMs": int(duration_ms),
+            "contactsScanned": int(contacts_scanned),
+            "nudgesGenerated": int(nudges_generated),
+            "errorCount": int(errors),
+            # Kept for operator visibility — not part of the contract.
+            "usersScanned": int(users_scanned),
         })
     except Exception as e:
         logger.warning("Failed to update healthcheck: %s", e)
@@ -443,7 +456,9 @@ def scan_and_generate_nudges():
 def _run_scan(db):
     """Execute the nudge scan (called after lock is acquired)."""
     logger.info("Nudge scan starting")
+    scan_started = time.time()
     users_scanned = 0
+    contacts_scanned = 0
     total_nudges = 0
     total_errors = 0
 
@@ -462,6 +477,7 @@ def _run_scan(db):
 
         try:
             eligible = _get_eligible_contacts(db, uid, followup_days=followup_days)
+            contacts_scanned += len(eligible)
             if not eligible:
                 users_scanned += 1
                 # Still run cleanup even if no eligible contacts
@@ -525,10 +541,18 @@ def _run_scan(db):
             users_scanned += 1
             logger.error("Error processing user uid=%s: %s", uid, e)
 
-    _update_healthcheck(db, total_nudges, users_scanned, total_errors)
+    duration_ms = int((time.time() - scan_started) * 1000)
+    _update_healthcheck(
+        db,
+        nudges_generated=total_nudges,
+        users_scanned=users_scanned,
+        contacts_scanned=contacts_scanned,
+        errors=total_errors,
+        duration_ms=duration_ms,
+    )
     logger.info(
-        "Nudge scan complete: users=%d nudges=%d errors=%d",
-        users_scanned, total_nudges, total_errors,
+        "Nudge scan complete: users=%d contacts=%d nudges=%d errors=%d duration=%dms",
+        users_scanned, contacts_scanned, total_nudges, total_errors, duration_ms,
     )
 
 

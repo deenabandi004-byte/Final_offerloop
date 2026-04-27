@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -37,10 +37,27 @@ import FirmSearchResults from "@/components/FirmSearchResults";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { StickyCTA } from "@/components/StickyCTA";
-import SuggestionChips from "@/components/find/SuggestionChips";
+
+import { DEV_MOCK_USER } from "@/lib/devPreview";
+import { getUniversityShortName } from "@/lib/universityUtils";
+import { ArchiveList, type ArchiveItem } from "@/components/find/ArchiveList";
+import { FooterSearch } from "@/components/find/FooterSearch";
+import { ScoutNote } from "@/components/personalization/ScoutNote";
+import { getRecommendedCompanies, type UserContext } from "@/utils/suggestionChips";
+import { firebaseApi } from "@/services/firebaseApi";
 
 // Session storage key for Scout auto-populate
 const SCOUT_AUTO_POPULATE_KEY = 'scout_auto_populate';
+
+function getFirmPlaceholders(schoolShort: string | null): string[] {
+  return [
+    'Netflix hiring managers in LA',
+    schoolShort ? `${schoolShort} grads at McKinsey` : 'Top grads at McKinsey',
+    'AI startups hiring data scientists',
+    'Boutique banks in New York',
+    'Gaming studios in Los Angeles',
+  ];
+}
 
 // Batch options
 const BATCH_OPTIONS = [
@@ -56,10 +73,11 @@ const getQuantityMessage = (qty: number) => {
   return "Maximum discovery — cast a wide net";
 };
 
-const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string }> = ({ embedded = false, initialTab }) => {
+const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevPreview?: boolean }> = ({ embedded = false, initialTab, isDevPreview = false }) => {
   const navigate = useNavigate();
   const routerLocation = useLocation();
-  const { user, checkCredits } = useFirebaseAuth();
+  const { user: authUser, checkCredits } = useFirebaseAuth();
+  const user = isDevPreview ? DEV_MOCK_USER as any : authUser;
   const { openPanelWithSearchHelp } = useScout();
   const effectiveUser = user || {
     credits: 0,
@@ -68,6 +86,9 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string }> = ({
     email: "user@example.com",
     tier: "free",
   } as const;
+
+  const userSchoolShort = useMemo(() => getUniversityShortName((user as any)?.university), [user]);
+  const FIRM_PLACEHOLDERS = useMemo(() => getFirmPlaceholders(userSchoolShort), [userSchoolShort]);
 
   // Search state
   const [query, setQuery] = useState('');
@@ -112,8 +133,94 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string }> = ({
   const [creditsPerFirm] = useState<number>(5);
 
   // UI polish state
-  const [suggestionsCollapsed, setSuggestionsCollapsed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Rotating placeholder
+  const [placeholderIdx, setPlaceholderIdx] = useState(0);
+  const [placeholderVisible, setPlaceholderVisible] = useState(true);
+  const [inputFocused, setInputFocused] = useState(false);
+
+  useEffect(() => {
+    if (inputFocused || query) return;
+    const timer = setInterval(() => {
+      setPlaceholderVisible(false);
+      setTimeout(() => {
+        setPlaceholderIdx(i => (i + 1) % FIRM_PLACEHOLDERS.length);
+        setPlaceholderVisible(true);
+      }, 300);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [inputFocused, query]);
+
+  const showAnimatedPlaceholder = !query && !inputFocused;
+
+  // Archive list state (personalized landing state)
+  const [archiveItems, setArchiveItems] = useState<ArchiveItem[]>([]);
+  const [archiveSchoolName, setArchiveSchoolName] = useState<string | null>(null);
+  const archiveLoadedRef = useRef(false);
+
+  // Build archive list from user profile data
+  useEffect(() => {
+    if (!user?.uid || archiveLoadedRef.current) return;
+    archiveLoadedRef.current = true;
+
+    const buildArchive = async () => {
+      try {
+        const onboarding = await firebaseApi.getUserOnboardingData(user.uid);
+        const schoolShort = getUniversityShortName(onboarding.university);
+        setArchiveSchoolName(schoolShort || onboarding.university || null);
+
+        const ctx: UserContext = {
+          firstName: onboarding.firstName,
+          university: onboarding.university,
+          graduationYear: onboarding.graduationYear,
+          targetIndustries: onboarding.targetIndustries,
+          preferredLocations: onboarding.preferredLocations,
+          dreamCompanies: onboarding.dreamCompanies,
+          careerTrack: onboarding.careerTrack,
+          preferredJobRole: onboarding.preferredJobRole,
+        };
+
+        const recs = getRecommendedCompanies(ctx);
+
+        // Try to enrich with school affinity data for the top industry
+        let affinityMap: Record<string, number> = {};
+        if (onboarding.university && onboarding.targetIndustries.length > 0) {
+          try {
+            const field = onboarding.targetIndustries[0];
+            const result = await apiService.getSchoolAffinity(onboarding.university, field);
+            if (result.companies) {
+              for (const c of result.companies) {
+                affinityMap[c.company_name.toLowerCase()] = c.alumni_count;
+              }
+            }
+          } catch { /* affinity is optional enrichment */ }
+        }
+
+        const items: ArchiveItem[] = recs.slice(0, 12).map((rec) => {
+          const alumniCount = affinityMap[rec.company.toLowerCase()];
+          const school = schoolShort || onboarding.university || 'your school';
+          let sentence: string;
+          if (alumniCount && alumniCount > 0) {
+            sentence = `${alumniCount} ${school} alumni work here in ${rec.industry} roles.`;
+          } else {
+            sentence = `A strong fit based on your ${rec.industry} interest.`;
+          }
+          return {
+            company: rec.company,
+            sentence,
+            sector: rec.industry,
+          };
+        });
+
+        setArchiveItems(items);
+      } catch (err) {
+        console.error('Failed to build archive list:', err);
+      }
+    };
+
+    buildArchive();
+  }, [user?.uid]);
 
   // Validation
   const hasIndustry = /\b(tech(nology)?|fintech|finance|banking|consulting|healthcare|pharma|biotech|energy|legal|law|real estate|insurance|media|advertising|marketing|retail|e-?commerce|education|edtech|telecom|manufacturing|automotive|aerospace|defense|crypto|blockchain|saas|ai|artificial intelligence|machine learning|data|analytics|cybersecurity|cloud|devops|enterprise|logistics|supply chain|food|agri(culture)?|hospitality|travel|gaming|entertainment|sports|venture capital|private equity|investment|wealth management|asset management|accounting|audit|tax|compliance|government|nonprofit|sustainability|cleantech|construction|architecture|design|fashion|beauty|fitness|wellness|startup|b2b|b2c|marketplace|platform|software|engineering|recruiting|staffing|hr|human resources)\b/i.test(query);
@@ -364,7 +471,7 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string }> = ({
               if (checkCredits) checkCredits();
               loadHistory();
             } else if (result.firms?.length === 0) {
-              setError('No firms found matching your criteria. Try broadening your search.');
+              setError('Hmm, nothing matched that exactly. Try broadening to just the city or industry — or ask Scout.');
               openPanelWithSearchHelp({
                 searchType: 'firm',
                 failedSearchParams: { industry: q, location: '', size: '' },
@@ -454,6 +561,7 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string }> = ({
       setSearchProgress(null);
     }
   };
+
 
   // Handle "View Contacts" - navigate to contact search with company/location pre-filled
   const handleViewContacts = (firm: Firm) => {
@@ -753,160 +861,238 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string }> = ({
                     )}
 
                     <div style={{ padding: '24px 32px 32px', maxWidth: '860px' }}>
-                      {/* Search input */}
-                      <div style={{ marginBottom: 14 }}>
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'flex-start',
-                            gap: 10,
-                            padding: '16px 20px',
-                            border: '1.5px solid transparent',
-                            borderRadius: 14,
-                            background: '#F0F7FF',
-                            transition: 'all .15s',
-                            minHeight: 110,
-                          }}
-                          className="focus-within:border-[#2563EB] focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(37,99,235,0.12)]"
-                        >
-                          <Search style={{ width: 16, height: 16, flexShrink: 0, color: '#3B82F6', marginTop: 1 }} />
-                          <input
-                            ref={textareaRef as any}
-                            value={query}
-                            onChange={(e) => setQuery(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            placeholder="Fintech startups in NYC, consulting firms in Chicago..."
-                            disabled={isSearching || !user}
-                            style={{
-                              flex: 1,
-                              border: 'none',
-                              background: 'none',
-                              fontSize: 14,
-                              color: '#0F172A',
-                              outline: 'none',
-                              fontFamily: 'inherit',
-                              lineHeight: 1.5,
+
+                      {/* ── LANDING STATE: Archive list (no search yet) ── */}
+                      {!query.trim() && !hasSearched && !isSearching && (
+                        <>
+                          {/* Scout note */}
+                          {archiveSchoolName && (
+                            <ScoutNote>
+                              We'll start where {archiveSchoolName} alumni have landed before.
+                            </ScoutNote>
+                          )}
+
+                          {/* Archive list */}
+                          {archiveItems.length > 0 ? (
+                            <ArchiveList
+                              items={archiveItems}
+                              onSelect={(company) => {
+                                setQuery(company);
+                                handleSearch(company);
+                              }}
+                            />
+                          ) : (
+                            /* Loading placeholder while archive builds */
+                            <div style={{ padding: '32px 0', textAlign: 'center' }}>
+                              <Loader2 className="w-5 h-5 animate-spin mx-auto" style={{ color: 'var(--ink-3)' }} />
+                              <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 8 }}>
+                                Building your recommendations...
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Footer search */}
+                          <FooterSearch
+                            onSearch={(q) => {
+                              setQuery(q);
+                              handleSearch(q);
                             }}
+                            disabled={!user}
+                            placeholder="Or search for a specific company or industry..."
                           />
-                        </div>
-                      </div>
-
-                      {/* Personalized suggestion cards — hidden when user has typed */}
-                      {!query.trim() && (
-                        <SuggestionChips
-                          type="companies"
-                          uid={user?.uid}
-                          onSelect={(prompt) => {
-                            setQuery(prompt);
-                            handleSearch(prompt);
-                          }}
-                          collapsed={suggestionsCollapsed}
-                          onCollapse={setSuggestionsCollapsed}
-                          hasSearched={hasSearched}
-                          disabled={isSearching}
-                        />
+                        </>
                       )}
 
-                      {/* Error Message */}
-                      {error && (
-                        <div className="p-3 bg-red-50 text-red-700 text-sm rounded-[3px] flex items-center gap-2 border border-red-200 mb-4">
-                          <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                          {error}
-                        </div>
-                      )}
-
-                      {/* Quantity slider — shown after user types */}
-                      {query.trim() && (
-                        <div style={{ marginBottom: 16 }}>
-                          <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 500, letterSpacing: '.05em', marginBottom: 8 }}>
-                            HOW MANY TO FIND?
-                          </div>
-                          <div className="slider-container">
-                            <div className="slider-wrapper">
-                              <span className="text-xs text-[#94A3B8] min-w-[16px]">5</span>
-                              <div className="slider-input-wrapper">
+                      {/* ── ACTIVE SEARCH STATE: search input + results ── */}
+                      {(query.trim() || hasSearched || isSearching) && (
+                        <>
+                          {/* Search input */}
+                          <div style={{ marginBottom: 14 }}>
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                gap: 10,
+                                padding: '16px 20px',
+                                border: '1.5px solid var(--warm-border, #E8E4DE)',
+                                borderRadius: 14,
+                                background: 'var(--warm-surface, #FAF9F6)',
+                                transition: 'all .15s',
+                                minHeight: 110,
+                              }}
+                              className="focus-within:border-[#2563EB] focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(37,99,235,0.12)]"
+                            >
+                              <Search style={{ width: 16, height: 16, flexShrink: 0, color: '#3B82F6', marginTop: 1 }} />
+                              <div style={{ flex: 1, position: 'relative' }}>
+                              <input
+                                ref={textareaRef as any}
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                onFocus={() => setInputFocused(true)}
+                                onBlur={() => { if (!query) setInputFocused(false); }}
+                                placeholder={inputFocused && !query ? FIRM_PLACEHOLDERS[placeholderIdx] : undefined}
+                                disabled={isSearching || !user}
+                                style={{
+                                  width: '100%',
+                                  border: 'none',
+                                  background: 'none',
+                                  fontSize: 14,
+                                  color: '#0F172A',
+                                  outline: 'none',
+                                  fontFamily: 'inherit',
+                                  lineHeight: 1.5,
+                                }}
+                              />
+                              {showAnimatedPlaceholder && (
                                 <div
-                                  className="slider-filled-track"
                                   style={{
-                                    width: maxBatchSize > 5 ? `${((batchSize - 5) / (maxBatchSize - 5)) * 100}%` : '0%'
+                                    position: 'absolute',
+                                    top: 0, left: 0, right: 0,
+                                    pointerEvents: 'none',
+                                    fontSize: 14, fontFamily: 'inherit', lineHeight: 1.5,
+                                    color: 'var(--warm-ink-tertiary, #9C9590)',
+                                    opacity: placeholderVisible ? 1 : 0,
+                                    transition: 'opacity 0.3s ease',
+                                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                                   }}
-                                />
-                                <input
-                                  type="range"
-                                  min={5}
-                                  max={maxBatchSize}
-                                  step={5}
-                                  value={batchSize}
-                                  onChange={(e) => {
-                                    const clampedValue = Math.min(Number(e.target.value), maxBatchSize);
-                                    setBatchSize(clampedValue);
-                                  }}
-                                  disabled={isSearching}
-                                  className="slider-custom"
-                                  aria-label="Number of companies to find"
-                                />
+                                >
+                                  {FIRM_PLACEHOLDERS[placeholderIdx]}
+                                </div>
+                              )}
                               </div>
-                              <span className="text-xs text-[#94A3B8] min-w-[20px] text-right">{maxBatchSize}</span>
                             </div>
                           </div>
-                          <p className="text-xs text-[#6B7280] mt-2">{getQuantityMessage(batchSize)}</p>
-                          <div className="mt-2 flex items-center gap-2 text-xs text-[#6B7280]">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#FAFBFF] border border-[#E2E8F0] font-medium text-[#0F172A]">
-                              {batchSize * creditsPerFirm} credits
-                            </span>
-                            <span>of {effectiveUser.credits ?? 0} available</span>
-                          </div>
-                          {/* Insufficient Credits Warning */}
-                          {effectiveUser.credits !== undefined && effectiveUser.credits < (batchSize * creditsPerFirm) && (
-                            <p className="text-xs text-amber-600 mt-2 flex items-center gap-1">
-                              <AlertCircle className="w-3 h-3" />
-                              Insufficient credits. You need {batchSize * creditsPerFirm} but have {effectiveUser.credits}.
+
+                          {/* Error Message */}
+                          {error && (
+                            <div className="p-3 bg-red-50 text-red-700 text-sm rounded-[3px] flex items-center gap-2 border border-red-200 mb-4">
+                              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                              {error}
+                            </div>
+                          )}
+
+                          {/* Quantity slider — shown after user types */}
+                          {query.trim() && (
+                            <div style={{ marginBottom: 16 }}>
+                              <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 500, letterSpacing: '.05em', marginBottom: 8 }}>
+                                HOW MANY TO FIND?
+                              </div>
+                              <div className="slider-container">
+                                <div className="slider-wrapper">
+                                  <span className="text-xs text-[#94A3B8] min-w-[16px]">5</span>
+                                  <div className="slider-input-wrapper">
+                                    <div
+                                      className="slider-filled-track"
+                                      style={{
+                                        width: maxBatchSize > 5 ? `${((batchSize - 5) / (maxBatchSize - 5)) * 100}%` : '0%'
+                                      }}
+                                    />
+                                    <input
+                                      type="range"
+                                      min={5}
+                                      max={maxBatchSize}
+                                      step={5}
+                                      value={batchSize}
+                                      onChange={(e) => {
+                                        const clampedValue = Math.min(Number(e.target.value), maxBatchSize);
+                                        setBatchSize(clampedValue);
+                                      }}
+                                      disabled={isSearching}
+                                      className="slider-custom"
+                                      aria-label="Number of companies to find"
+                                    />
+                                  </div>
+                                  <span className="text-xs text-[#94A3B8] min-w-[20px] text-right">{maxBatchSize}</span>
+                                </div>
+                              </div>
+                              <p className="text-xs text-[#6B7280] mt-2">{getQuantityMessage(batchSize)}</p>
+                              <div className="mt-2 flex items-center gap-2 text-xs text-[#6B7280]">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#FAFBFF] border border-[#E2E8F0] font-medium text-[#0F172A]">
+                                  {batchSize * creditsPerFirm} credits
+                                </span>
+                                <span>of {effectiveUser.credits ?? 0} available</span>
+                              </div>
+                              {/* Insufficient Credits Warning */}
+                              {effectiveUser.credits !== undefined && effectiveUser.credits < (batchSize * creditsPerFirm) && (
+                                <p className="text-xs text-amber-600 mt-2 flex items-center gap-1">
+                                  <AlertCircle className="w-3 h-3" />
+                                  Insufficient credits. You need {batchSize * creditsPerFirm} but have {effectiveUser.credits}.
+                                </p>
+                              )}
+                            </div>
+                          )}
+
+                          {/* CTA button */}
+                          <button
+                            ref={originalButtonRef}
+                            onClick={() => handleSearch()}
+                            disabled={!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm) || (effectiveUser.credits ?? 0) === 0}
+                            style={{
+                              width: '100%',
+                              height: 52,
+                              borderRadius: 12,
+                              background: isSearching ? '#E2E8F0'
+                                : !query.trim() ? 'transparent'
+                                : (!isValidQuery || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm) || (effectiveUser.credits ?? 0) === 0) ? '#E2E8F0'
+                                : '#2563EB',
+                              color: isSearching ? '#94A3B8'
+                                : !query.trim() ? '#6B6560'
+                                : (!isValidQuery || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm) || (effectiveUser.credits ?? 0) === 0) ? '#94A3B8'
+                                : '#fff',
+                              border: !query.trim() && !isSearching ? '1.5px solid #D5D0C9' : '1.5px solid transparent',
+                              fontSize: 15,
+                              fontWeight: 600,
+                              cursor: isSearching ? 'not-allowed' : 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 8,
+                              transition: 'all .15s ease',
+                              fontFamily: 'inherit',
+                            }}
+                          >
+                            {isSearching ? (
+                              <>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                <span>Finding companies...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Building2 className="w-4 h-4" />
+                                <span>Search companies</span>
+                              </>
+                            )}
+                          </button>
+
+                          {/* Validation feedback */}
+                          {query && !isValidQuery && (
+                            <p style={{ fontSize: 11, color: '#94A3B8', marginTop: 10, textAlign: 'center' }}>
+                              Include an industry and location for best results
                             </p>
                           )}
-                        </div>
-                      )}
 
-                      {/* CTA button */}
-                      <button
-                        ref={originalButtonRef}
-                        onClick={() => handleSearch()}
-                        disabled={!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm) || (effectiveUser.credits ?? 0) === 0}
-                        style={{
-                          width: '100%',
-                          height: 52,
-                          borderRadius: 12,
-                          background: (!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm) || (effectiveUser.credits ?? 0) === 0) ? '#E2E8F0' : '#2563EB',
-                          color: (!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm) || (effectiveUser.credits ?? 0) === 0) ? '#94A3B8' : '#fff',
-                          border: 'none',
-                          fontSize: 15,
-                          fontWeight: 600,
-                          cursor: (!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm) || (effectiveUser.credits ?? 0) === 0) ? 'not-allowed' : 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 8,
-                          transition: 'all .15s',
-                          fontFamily: 'inherit',
-                        }}
-                      >
-                        {isSearching ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            <span>Finding companies...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Building2 className="w-4 h-4" />
-                            <span>Find companies</span>
-                          </>
-                        )}
-                      </button>
-
-                      {/* Validation feedback */}
-                      {query && !isValidQuery && (
-                        <p style={{ fontSize: 11, color: '#94A3B8', marginTop: 10, textAlign: 'center' }}>
-                          Include an industry and location for best results
-                        </p>
+                          {/* Back to recommendations link */}
+                          {hasSearched && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setQuery('');
+                                setHasSearched(false);
+                                setError(null);
+                              }}
+                              style={{
+                                fontSize: 12, color: 'var(--ink-3, #64748B)', background: 'none', border: 'none',
+                                cursor: 'pointer', fontFamily: 'inherit', padding: '12px 0 0',
+                                transition: 'color .12s',
+                              }}
+                              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--accent, #1B2A44)'; }}
+                              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--ink-3, #64748B)'; }}
+                            >
+                              ← Back to recommendations
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   </TabsContent>

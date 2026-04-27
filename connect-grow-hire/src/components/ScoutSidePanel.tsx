@@ -9,9 +9,9 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { X, Send, Loader2, Trash2 } from 'lucide-react';
+import { X, Send, Loader2, Trash2, Copy, ExternalLink, Mail, Check } from 'lucide-react';
 import { useScout, SearchHelpResponse } from '@/contexts/ScoutContext';
-import { useScoutChat, formatMessage } from '@/hooks/useScoutChat';
+import { useScoutChat, formatMessage, type ContactResult, type EmailPreview } from '@/hooks/useScoutChat';
 import { SUGGESTED_QUESTIONS, SCOUT_CHIPS_BY_PAGE, getPageByRoute } from '@/data/scout-knowledge';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
 import { toast } from '@/hooks/use-toast';
@@ -22,12 +22,119 @@ import { BACKEND_URL } from '@/services/api';
 // Session storage key for auto-populate
 const AUTO_POPULATE_KEY = 'scout_auto_populate';
 
-const SCOUT_LOADING_MESSAGES = [
-  "One sec…",
-  "Looking that up…",
-  "Let me check…",
-  "On it…",
-];
+const SCOUT_LOADING_MESSAGES: Record<string, string> = {
+  contacts: "Searching your contacts…",
+  email: "Drafting an email…",
+  strategy: "Building a strategy…",
+  general: "Thinking…",
+  default: "On it…",
+};
+
+// Contact card component for search results
+function ContactCard({ contact, onCopyEmail }: { contact: ContactResult; onCopyEmail: (email: string) => void }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    if (!contact.email) return;
+    navigator.clipboard.writeText(contact.email);
+    setCopied(true);
+    onCopyEmail(contact.email);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-1.5">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-gray-900 truncate">{contact.name}</p>
+          <p className="text-xs text-gray-500 truncate">
+            {contact.job_title}{contact.job_title && contact.company ? ' at ' : ''}{contact.company}
+          </p>
+        </div>
+        {contact.status && (
+          <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+            contact.status === 'active' ? 'bg-green-50 text-green-700' :
+            contact.status === 'done' ? 'bg-blue-50 text-blue-700' :
+            'bg-amber-50 text-amber-700'
+          }`}>
+            {contact.status.replace('_', ' ')}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        {contact.email && (
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+            <span className="truncate max-w-[160px]">{contact.email}</span>
+          </button>
+        )}
+        {contact.linkedin_url && (
+          <a
+            href={contact.linkedin_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-shrink-0 text-xs text-blue-500 hover:text-blue-700 transition-colors"
+          >
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Email preview component
+function EmailPreviewCard({ preview, onCopy, onSearchInFind }: { preview: EmailPreview; onCopy: () => void; onSearchInFind: (company: string) => void }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    const text = `Subject: ${preview.subject}\n\n${preview.body}`;
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    onCopy();
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+      <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center gap-2">
+        <Mail className="h-3.5 w-3.5 text-gray-400" />
+        <span className="text-xs font-medium text-gray-600">Email Preview</span>
+        {preview.recipient_name && (
+          <span className="text-xs text-gray-400">to {preview.recipient_name}</span>
+        )}
+      </div>
+      <div className="px-3 py-2 space-y-2">
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">Subject</p>
+          <p className="text-sm text-gray-900">{preview.subject}</p>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">Body</p>
+          <p className="text-sm text-gray-700 whitespace-pre-line leading-relaxed">{preview.body}</p>
+        </div>
+      </div>
+      <div className="px-3 py-2 border-t border-gray-100 flex items-center justify-between">
+        <button
+          onClick={() => onSearchInFind(preview.recipient_company)}
+          className="text-xs text-blue-500 hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50 transition-colors"
+        >
+          Search in Find
+        </button>
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-50 transition-colors"
+        >
+          {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export function ScoutSidePanel() {
   const navigate = useNavigate();
@@ -482,6 +589,41 @@ export function ScoutSidePanel() {
                                     ))}
                                   </div>
                                 )}
+
+                                {/* Contact search results */}
+                                {message.contacts_results && message.contacts_results.length > 0 && (
+                                  <div className="space-y-2">
+                                    {message.contacts_results.map((contact, idx) => (
+                                      <ContactCard
+                                        key={idx}
+                                        contact={contact}
+                                        onCopyEmail={() => toast({ title: 'Email copied', description: 'Copied to clipboard' })}
+                                      />
+                                    ))}
+                                    <button
+                                      onClick={() => handleNavigate('/contact-directory')}
+                                      className="w-full px-3 py-1.5 rounded-xl bg-gray-50 text-gray-600 text-xs hover:bg-gray-100 transition-colors border border-gray-200"
+                                    >
+                                      View all in Contacts
+                                    </button>
+                                  </div>
+                                )}
+
+                                {/* Email preview */}
+                                {message.email_preview && (
+                                  <EmailPreviewCard
+                                    preview={message.email_preview}
+                                    onCopy={() => toast({ title: 'Email copied', description: 'Subject and body copied to clipboard' })}
+                                    onSearchInFind={(company) => {
+                                      handleNavigate('/find', {
+                                        search_type: 'contact',
+                                        company,
+                                        job_title: '',
+                                        location: '',
+                                      });
+                                    }}
+                                  />
+                                )}
                               </div>
                             </div>
                           ) : (
@@ -497,11 +639,11 @@ export function ScoutSidePanel() {
                         </div>
                       ))}
                       
-                      {/* Loading indicator */}
-                      {isLoading && (
+                      {/* Loading indicator — only show when loading AND no streaming content yet */}
+                      {isLoading && !messages.some(m => m.isStreaming && m.content) && (
                         <div className="flex gap-3">
                           <div className="w-7 h-7 rounded-full bg-[#FFF7EA] flex-shrink-0 flex items-center justify-center overflow-hidden">
-                            <video 
+                            <video
                               src={ScoutWavingWhite}
                               autoPlay
                               loop
@@ -514,7 +656,11 @@ export function ScoutSidePanel() {
                           <div className="bg-gray-100 rounded-[3px] rounded-tl-md px-4 py-3">
                             <div className="flex items-center gap-2 text-gray-500">
                               <Loader2 className="h-4 w-4 animate-spin" />
-                              <span className="text-sm">{SCOUT_LOADING_MESSAGES[Math.floor(Math.random() * SCOUT_LOADING_MESSAGES.length)]}</span>
+                              <span className="text-sm">{(() => {
+                                const streamingMsg = messages.find(m => m.isStreaming);
+                                const intent = streamingMsg?.intent || 'default';
+                                return SCOUT_LOADING_MESSAGES[intent] || SCOUT_LOADING_MESSAGES.default;
+                              })()}</span>
                             </div>
                           </div>
                         </div>

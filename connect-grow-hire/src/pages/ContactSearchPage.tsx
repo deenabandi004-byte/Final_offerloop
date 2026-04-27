@@ -28,9 +28,33 @@ import { ACCEPTED_RESUME_TYPES, isValidResumeFile } from "@/utils/resumeFileType
 import { StickyCTA } from "@/components/StickyCTA";
 import ContactImport from "@/components/ContactImport";
 import SuggestionChips from "@/components/find/SuggestionChips";
+import { TemplateButton } from "@/components/TemplateButton";
+
+import { DEV_MOCK_USER } from "@/lib/devPreview";
+import { getUniversityShortName } from "@/lib/universityUtils";
 
 // Session storage key for Scout auto-populate
 const SCOUT_AUTO_POPULATE_KEY = 'scout_auto_populate';
+
+function getPeopleFallbackPlaceholders(schoolShort: string | null): string[] {
+  const base = [
+    'Alumni at Goldman Sachs',
+    'Engineers at Sequoia-backed startups',
+    'Hiring managers at Disney',
+  ];
+  if (schoolShort) {
+    return [
+      `${schoolShort} data scientists at Google`,
+      `Product managers who went to ${schoolShort}`,
+      ...base,
+    ];
+  }
+  return [
+    'Data scientists at Google',
+    'Product managers in tech',
+    ...base,
+  ];
+}
 
 // LinkedIn URL detection helper
 function isLinkedInUrl(input: string): boolean {
@@ -130,8 +154,9 @@ const StripeTabs: React.FC<StripeTabsProps> = ({ activeTab, onTabChange, tabs })
   );
 };
 
-const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; parentEmailTemplate?: EmailTemplate | null }> = ({ embedded = false, hideSubTabs = false, parentEmailTemplate }) => {
-  const { user, checkCredits, updateCredits } = useFirebaseAuth();
+const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; parentEmailTemplate?: EmailTemplate | null; isDevPreview?: boolean }> = ({ embedded = false, hideSubTabs = false, parentEmailTemplate, isDevPreview = false }) => {
+  const { user: authUser, checkCredits, updateCredits } = useFirebaseAuth();
+  const user = isDevPreview ? DEV_MOCK_USER as any : authUser;
   const { openPanelWithSearchHelp } = useScout();
   const navigate = useNavigate();
   const routerLocation = useLocation();
@@ -177,12 +202,16 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
   const [progressValue, setProgressValue] = useState(0);
   const [searchComplete, setSearchComplete] = useState(false);
   const [lastResults, setLastResults] = useState<any[]>([]);
+  const [alreadySavedResults, setAlreadySavedResults] = useState<any[]>([]);
+  // Backend-provided message for unusual result shapes (e.g. "All N matching contact(s)
+  // are already in your tracker..."). Prefer this over hardcoded frontend copy.
+  const [resultMessage, setResultMessage] = useState<string>("");
   const [companyContext, setCompanyContext] = useState<string>("");
   const [lastSearchStats, setLastSearchStats] = useState<{
     successful_drafts: number;
     total_contacts: number;
   } | null>(null);
-  const hasResults = lastResults.length > 0;
+  const hasResults = lastResults.length > 0 || alreadySavedResults.length > 0;
 
   // Auto-scroll to success state after search completes
   useEffect(() => {
@@ -196,6 +225,71 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
 
   // UI polish state
   const [suggestionsCollapsed, setSuggestionsCollapsed] = useState(false);
+
+  // Rotating placeholder text with crossfade
+  const [placeholderIdx, setPlaceholderIdx] = useState(0);
+  const [placeholderVisible, setPlaceholderVisible] = useState(true);
+  const [profileHints, setProfileHints] = useState<string[]>([]);
+  const [inputFocused, setInputFocused] = useState(false);
+  const [userSchoolShort, setUserSchoolShort] = useState<string | null>(null);
+  const peopleFallbackPlaceholders = useMemo(() => getPeopleFallbackPlaceholders(userSchoolShort), [userSchoolShort]);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    if (isDevPreview) {
+      const school = getUniversityShortName((user as any)?.university);
+      setUserSchoolShort(school);
+      const hints: string[] = [];
+      if (school) {
+        hints.push(`${school} alumni in Data Science`);
+        hints.push('Who\'s hiring for AI/ML?');
+        hints.push(`${school} grads at McKinsey`);
+      } else {
+        hints.push('Alumni in Data Science');
+        hints.push('Who\'s hiring for AI/ML?');
+      }
+      hints.push('Analysts in Los Angeles');
+      hints.push('Try a company name, role, or school');
+      setProfileHints(hints);
+      return;
+    }
+    firebaseApi.getUserOnboardingData(user.uid).then((data) => {
+      const uni = data.university || '';
+      const shortUni = uni.replace(/^(University of |The )/, '').split(' - ')[0].split(',')[0].trim();
+      setUserSchoolShort(getUniversityShortName(uni));
+      const industries = data.targetIndustries || [];
+      const locs = data.preferredLocations || [];
+      const hints: string[] = [];
+      if (shortUni && industries[0]) hints.push(`${shortUni} alumni in ${industries[0]}`);
+      if (industries[0]) hints.push(`Who's hiring for ${industries[0]}?`);
+      if (shortUni) hints.push(`${shortUni} grads at McKinsey`);
+      if (locs[0]) hints.push(`Analysts in ${locs[0]}`);
+      hints.push("Paste a LinkedIn URL to import a contact");
+      hints.push("Who do you want to meet today?");
+      if (shortUni) hints.push(`${shortUni} alumni at Goldman Sachs`);
+      hints.push("Try a company name, role, or school");
+      if (hints.length > 0) setProfileHints(hints);
+    }).catch(() => {});
+  }, [user?.uid, isDevPreview]);
+
+  useEffect(() => {
+    if (inputFocused || searchPrompt) return;
+    const totalHints = profileHints.length > 0 ? profileHints.length : peopleFallbackPlaceholders.length;
+    if (totalHints <= 1) return;
+    const timer = setInterval(() => {
+      setPlaceholderVisible(false);
+      setTimeout(() => {
+        setPlaceholderIdx((i) => (i + 1) % (profileHints.length || peopleFallbackPlaceholders.length));
+        setPlaceholderVisible(true);
+      }, 300);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [profileHints.length, inputFocused, searchPrompt]);
+
+  const placeholderText = profileHints.length > 0
+    ? profileHints[placeholderIdx]
+    : peopleFallbackPlaceholders[placeholderIdx % peopleFallbackPlaceholders.length];
+  const showAnimatedPlaceholder = !searchPrompt && !inputFocused;
 
   const maxBatchSize = useMemo(() => {
     // Get tier-specific max contacts: free=3, pro=8, elite=15
@@ -212,7 +306,13 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
 
   // Gmail state
   const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
-  const [gmailBannerDismissed, setGmailBannerDismissed] = useState(false);
+  const [gmailBannerDismissed, setGmailBannerDismissed] = useState(() => {
+    try { return localStorage.getItem('offerloop-gmail-banner-dismissed') === 'true'; } catch { return false; }
+  });
+  const dismissGmailBanner = () => {
+    setGmailBannerDismissed(true);
+    try { localStorage.setItem('offerloop-gmail-banner-dismissed', 'true'); } catch {}
+  };
 
   // Tab state
   const [activeTab, setActiveTab] = useState<string>("contact-search");
@@ -274,7 +374,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
 
   // Load saved email template on mount (contact search tab)
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!user?.uid || isDevPreview) return;
     apiService.getEmailTemplate().then((t) => {
       setSavedEmailTemplate({
         purpose: t.purpose ?? null,
@@ -542,7 +642,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
 
   // Load saved resume from Firestore
   const loadSavedResume = useCallback(async () => {
-    if (!user?.uid) return;
+    if (!user?.uid || isDevPreview) return;
     try {
       const userRef = doc(db, 'users', user.uid);
       const snap = await getDoc(userRef);
@@ -825,6 +925,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
     setIsSearching(true);
     setProgressValue(10);
     setSearchComplete(false);
+    setResultMessage("");
 
     let progressInterval: NodeJS.Timeout | null = null;
     let searchSucceeded = false;
@@ -891,17 +992,14 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
         await updateCredits(newCredits).catch(() => {});
       }
       setProgressValue(100);
+      const alreadySavedFromServer = (result as any)?.already_saved_contacts || [];
+      const backendMessage = (result as any)?.message || "";
       setLastResults(result.contacts);
+      setAlreadySavedResults(alreadySavedFromServer);
+      setResultMessage(backendMessage);
       setCompanyContext((result as any)?.parsed_query?.company_context || "");
 
-      if ((result as any)?.search_broadened && result.contacts.length > 0) {
-        toast({
-          title: "Broadened search",
-          description: "We couldn't find an exact role match, so we showed other people at the same company.",
-        });
-      }
-
-      if (result.contacts.length === 0) {
+      if (result.contacts.length === 0 && alreadySavedFromServer.length === 0) {
         triggerScoutForNoResults();
         setSearchComplete(true);
       }
@@ -932,16 +1030,40 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
 
       setLastSearchStats({
         successful_drafts: 0,
-        total_contacts: result.contacts.length,
+        total_contacts: result.contacts.length + ((result as any)?.already_saved_contacts?.length || 0),
       });
       setSearchComplete(true);
       searchSucceeded = true;
 
-      toast({
-        title: "Contacts Found!",
-        description: `Found ${result.contacts.length} contacts — view them in your Outbox to start outreach.`,
-        duration: 5000,
-      });
+      const savedCount = alreadySavedFromServer.length;
+      const newCount = result.contacts.length;
+      if (newCount === 0 && savedCount === 0) {
+        // Genuine no-results — Scout panel already opened above; a short toast
+        // confirms the outcome without claiming "Contacts Found!".
+        toast({
+          title: "No matching contacts found",
+          description: backendMessage || "Try broadening your search.",
+          duration: 5000,
+        });
+      } else if (newCount === 0 && savedCount > 0) {
+        // All matches already saved. Use the backend's exact message so the UI
+        // copy matches what the API contract promises (and gives the user a
+        // specific next step: open them in the network or broaden the search).
+        toast({
+          title: "Already in your tracker",
+          description: backendMessage
+            || `All ${savedCount} matching contact(s) are already in your tracker. Open them in your network, or broaden your search to find new people.`,
+          duration: 7000,
+        });
+      } else {
+        toast({
+          title: "Contacts Found!",
+          description: savedCount > 0
+            ? `Found ${newCount + savedCount} contacts (${newCount} new, ${savedCount} already saved) — view in your Outbox.`
+            : `Found ${newCount} contacts — view them in your Outbox to start outreach.`,
+          duration: 5000,
+        });
+      }
     } catch (error: any) {
       // Clear progress interval on error
       if (progressInterval) clearInterval(progressInterval);
@@ -1096,35 +1218,27 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
   // --- Embedded content (rendered inside FindPage wrapper) ---
   const embeddedContent = (
     <>
-      {/* Gmail banner */}
+      {/* Gmail hint — subtle inline text, not a warning banner */}
       {gmailConnected === false && !gmailBannerDismissed && (
-        <div
-          className="flex items-center justify-between gap-4 px-4 py-3 text-sm"
-          style={{ maxWidth: '860px', margin: '0 auto', borderBottom: '0.5px solid #E2E8F0', background: '#FFFBEB' }}
-          role="alert"
-        >
-          <div className="flex items-center gap-2 text-amber-800">
-            <Mail className="h-4 w-4 shrink-0" />
-            <span>
-              Gmail not connected — drafts won&apos;t be created.{" "}
-              <Button
-                variant="link"
-                className="h-auto p-0 text-amber-800 underline underline-offset-2"
-                onClick={initiateGmailOAuth}
-              >
-                Connect Gmail
-              </Button>
-            </span>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0 text-amber-700 hover:bg-amber-100"
+        <div style={{ maxWidth: '860px', margin: '0 auto', padding: '8px 32px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <span style={{ fontSize: 12, color: 'var(--warm-ink-tertiary, #9C9590)' }}>
+            <button
+              type="button"
+              onClick={initiateGmailOAuth}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--warm-ink-secondary, #6B6560)', textDecoration: 'underline', textUnderlineOffset: 2, fontFamily: 'inherit' }}
+            >
+              Connect Gmail
+            </button>
+            {' '}to auto-create email drafts
+          </span>
+          <button
+            type="button"
             aria-label="Dismiss"
-            onClick={() => setGmailBannerDismissed(true)}
+            onClick={dismissGmailBanner}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--warm-ink-tertiary, #9C9590)', fontSize: 14, lineHeight: 1, padding: 2 }}
           >
-            <X className="h-4 w-4" />
-          </Button>
+            &times;
+          </button>
         </div>
       )}
 
@@ -1182,6 +1296,22 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
           </div>
         )}
 
+        {/* Personalized suggestion cards — shown above search box */}
+        {!searchPrompt.trim() && (
+          <SuggestionChips
+            type="people"
+            uid={user?.uid}
+            onSelect={(prompt) => {
+              setSearchPrompt(prompt);
+              setTimeout(() => { pendingAutoSearch.current = true; }, 0);
+            }}
+            collapsed={suggestionsCollapsed}
+            onCollapse={setSuggestionsCollapsed}
+            hasSearched={hasResults}
+            disabled={isSearching || linkedInLoading}
+          />
+        )}
+
         {/* Hero search bar */}
         <div style={{ marginTop: 20, marginBottom: 16 }}>
           <div
@@ -1190,32 +1320,59 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
               alignItems: 'flex-start',
               gap: 10,
               padding: '16px 20px',
-              border: '1.5px solid transparent',
+              border: '1.5px solid var(--warm-border, #E8E4DE)',
               borderRadius: 14,
-              background: '#F0F7FF',
+              background: 'var(--warm-surface, #FAF9F6)',
               transition: 'all .15s',
               minHeight: 110,
             }}
             className="focus-within:border-[#2563EB] focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(37,99,235,0.12)]"
           >
             <Search style={{ width: 16, height: 16, flexShrink: 0, color: '#3B82F6', marginTop: 1 }} />
-            <input
-              value={searchPrompt}
-              onChange={(e) => { setSearchPrompt(e.target.value); setLinkedInError(null); setLinkedInSuccess(null); }}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
-              placeholder="Paste a LinkedIn URL, or try 'USC alumni at Goldman Sachs'..."
-              disabled={isSearching || linkedInLoading}
-              style={{
-                flex: 1,
-                border: 'none',
-                background: 'none',
-                fontSize: 14,
-                color: '#0F172A',
-                outline: 'none',
-                fontFamily: 'inherit',
-                lineHeight: 1.5,
-              }}
-            />
+            <div style={{ flex: 1, position: 'relative' }}>
+              <input
+                value={searchPrompt}
+                onChange={(e) => { setSearchPrompt(e.target.value); setLinkedInError(null); setLinkedInSuccess(null); }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
+                onFocus={() => setInputFocused(true)}
+                onBlur={() => setInputFocused(false)}
+                placeholder={inputFocused && !searchPrompt ? placeholderText : undefined}
+                disabled={isSearching || linkedInLoading}
+                style={{
+                  width: '100%',
+                  border: 'none',
+                  background: 'none',
+                  fontSize: 14,
+                  color: '#0F172A',
+                  outline: 'none',
+                  fontFamily: 'inherit',
+                  lineHeight: 1.5,
+                }}
+              />
+              {/* Animated placeholder overlay — fades between suggestions */}
+              {showAnimatedPlaceholder && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    pointerEvents: 'none',
+                    fontSize: 14,
+                    fontFamily: 'inherit',
+                    lineHeight: 1.5,
+                    color: 'var(--warm-ink-tertiary, #9C9590)',
+                    opacity: placeholderVisible ? 1 : 0,
+                    transition: 'opacity 0.3s ease',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {placeholderText}
+                </div>
+              )}
+            </div>
             {isLinkedInUrl(searchPrompt) && (
               <div style={{
                 display: 'flex',
@@ -1235,132 +1392,23 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
               </div>
             )}
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-            <div style={{ position: 'relative' }}>
-              <button
-                onClick={() => navigate("/find/templates")}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  fontSize: 12,
-                  color: '#6B7280',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                  transition: 'color .15s',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = '#0F172A';
-                  templateTooltipTimer.current = setTimeout(() => setShowTemplateTooltip(true), 280);
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = '#6B7280';
-                  if (templateTooltipTimer.current) clearTimeout(templateTooltipTimer.current);
-                  setShowTemplateTooltip(false);
-                }}
-              >
-                Email template:&nbsp;<span style={{ fontWeight: 600, color: '#0F172A' }}>{getEmailTemplateLabel(activeEmailTemplate)}</span>
-                <ChevronRight style={{ width: 12, height: 12 }} />
-              </button>
-              <div
-                className="pointer-events-none"
-                style={{
-                  position: 'absolute',
-                  bottom: '100%',
-                  left: 0,
-                  marginBottom: 8,
-                  background: '#1E293B',
-                  color: '#fff',
-                  fontSize: 13,
-                  lineHeight: 1.45,
-                  padding: '8px 12px',
-                  borderRadius: 8,
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                  width: 260,
-                  whiteSpace: 'normal',
-                  opacity: showTemplateTooltip ? 1 : 0,
-                  transition: 'opacity .15s',
-                }}
-              >
-                Set the tone, style, and sign-off for every email we draft. Click to customize your template.
-              </div>
-            </div>
-            <div style={{ position: 'relative' }}>
-              <button
-                type="button"
-                onClick={() => setShowImportDialog(true)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  padding: '6px 12px',
-                  border: '1px solid #E2E8F0',
-                  borderRadius: 6,
-                  background: 'transparent',
-                  color: '#94A3B8',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                  fontFamily: 'inherit',
-                  transition: 'all .15s',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = '#3B82F6'; e.currentTarget.style.color = '#3B82F6';
-                  csvTooltipTimer.current = setTimeout(() => setShowCsvTooltip(true), 280);
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.color = '#94A3B8';
-                  if (csvTooltipTimer.current) clearTimeout(csvTooltipTimer.current);
-                  setShowCsvTooltip(false);
-                }}
-              >
-                <Upload className="h-3 w-3" />
-                Import CSV
-              </button>
-              <div
-                className="pointer-events-none"
-                style={{
-                  position: 'absolute',
-                  bottom: '100%',
-                  right: 0,
-                  marginBottom: 8,
-                  background: '#1E293B',
-                  color: '#fff',
-                  fontSize: 13,
-                  lineHeight: 1.45,
-                  padding: '8px 12px',
-                  borderRadius: 8,
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                  width: 240,
-                  whiteSpace: 'normal',
-                  opacity: showCsvTooltip ? 1 : 0,
-                  transition: 'opacity .15s',
-                }}
-              >
-                Import your own contacts from a spreadsheet or LinkedIn export. We'll match emails and add them to your network.
-              </div>
-            </div>
+          {/* Template button + Import link */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+            <TemplateButton
+              template={activeEmailTemplate}
+              onClick={() => navigate("/find/templates")}
+            />
+            <button
+              type="button"
+              onClick={() => setShowImportDialog(true)}
+              style={{ fontSize: 12, color: 'var(--accent, #1B2A44)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
+              onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none'; }}
+            >
+              Import contacts
+            </button>
           </div>
         </div>
-
-        {/* Personalized suggestion cards — hidden after user types */}
-        {!searchPrompt.trim() && (
-          <SuggestionChips
-            type="people"
-            uid={user?.uid}
-            onSelect={(prompt) => {
-              setSearchPrompt(prompt);
-              setTimeout(() => { pendingAutoSearch.current = true; }, 0);
-            }}
-            collapsed={suggestionsCollapsed}
-            onCollapse={setSuggestionsCollapsed}
-            hasSearched={hasResults}
-            disabled={isSearching || linkedInLoading}
-          />
-        )}
 
         {linkedInError && (
           <div className="p-3 bg-red-50 text-red-700 text-sm rounded-[3px] flex items-center gap-2 border border-red-200 mb-4">
@@ -1416,22 +1464,26 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
         <button
           ref={originalButtonRef}
           onClick={handleSubmit}
-          disabled={isSearching || linkedInLoading || !searchPrompt.trim() || !user}
+          disabled={isSearching || linkedInLoading}
           style={{
             width: '100%',
             height: 52,
             borderRadius: 12,
-            background: (isSearching || linkedInLoading || !searchPrompt.trim() || !user) ? '#E2E8F0' : '#2563EB',
-            color: (isSearching || linkedInLoading || !searchPrompt.trim() || !user) ? '#94A3B8' : '#fff',
-            border: 'none',
+            background: (isSearching || linkedInLoading) ? 'var(--warm-border, #E8E4DE)'
+              : (!searchPrompt.trim() || !user) ? 'transparent'
+              : 'var(--ink, #1A1D23)',
+            color: (isSearching || linkedInLoading) ? 'var(--warm-ink-tertiary, #9C9590)'
+              : (!searchPrompt.trim() || !user) ? '#6B6560'
+              : 'var(--paper, #FFFFFF)',
+            border: (!searchPrompt.trim() || !user) && !(isSearching || linkedInLoading) ? '1.5px solid #D5D0C9' : '1.5px solid transparent',
             fontSize: 15,
             fontWeight: 600,
-            cursor: (isSearching || linkedInLoading || !searchPrompt.trim() || !user) ? 'not-allowed' : 'pointer',
+            cursor: (isSearching || linkedInLoading) ? 'not-allowed' : 'pointer',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             gap: 8,
-            transition: 'all .15s',
+            transition: 'all .15s ease',
             fontFamily: 'inherit',
           }}
         >
@@ -1453,15 +1505,71 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
           )}
         </button>
 
-        {/* Resume status as subtle text link below CTA */}
-        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 10 }}>
-          {savedResumeUrl && savedResumeFileName ? (
+        {/* Resume upload card — shown when no results and no resume */}
+        {!hasResults && !isSearching && !savedResumeUrl && (
+          <div
+            className="max-sm:flex-col max-sm:items-start"
+            style={{
+              marginTop: 20,
+              background: '#FFFFFF',
+              border: '1px solid var(--warm-border, #E8E4DE)',
+              borderRadius: 12,
+              padding: '18px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 16,
+            }}
+          >
+            <div style={{
+              width: 44,
+              height: 44,
+              borderRadius: 10,
+              background: 'var(--warm-surface, #F9FAFB)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}>
+              <FileText style={{ width: 20, height: 20, color: '#6B6560' }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, color: '#1A1714', marginBottom: 3 }}>
+                Upload your resume for better matches
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--warm-ink-tertiary, #9C9590)', lineHeight: 1.5 }}>
+                We'll find people who hired for roles like yours — and tailor your outreach automatically.
+              </div>
+            </div>
+            <button
+              className="max-sm:w-full"
+              onClick={() => document.getElementById('resume-upload')?.click()}
+              style={{
+                background: '#1A1714',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 8,
+                padding: '9px 16px',
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
+            >
+              Upload resume
+            </button>
+          </div>
+        )}
+
+        {/* Resume status — compact indicator when resume is already uploaded */}
+        {savedResumeUrl && savedResumeFileName && !hasResults && !isSearching && (
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: 10 }}>
             <button
               onClick={() => document.getElementById('resume-upload')?.click()}
               disabled={isSearching || isUploadingResume}
               style={{
                 fontSize: 11,
-                color: '#94A3B8',
+                color: 'var(--warm-ink-tertiary, #9C9590)',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 4,
@@ -1472,28 +1580,11 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
               }}
             >
               <Check className="w-3 h-3 text-green-600" />
-              Resume: <span style={{ fontWeight: 500 }}>{savedResumeFileName}</span>
+              Resume: <span style={{ fontWeight: 500, fontFamily: "'JetBrains Mono', monospace" }}>{savedResumeFileName}</span>
             </button>
-          ) : (
-            <button
-              onClick={() => !isSearching && !isUploadingResume && document.getElementById('resume-upload')?.click()}
-              style={{
-                fontSize: 11,
-                color: '#94A3B8',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                cursor: 'pointer',
-                background: 'none',
-                border: 'none',
-                fontFamily: 'inherit',
-              }}
-            >
-              <FileText className="w-3 h-3" />
-              Add resume for better personalization
-            </button>
-          )}
-        </div>
+          </div>
+        )}
+
 
         {/* Results section */}
         {hasResults && !isSearching && !linkedInSuccess && (
@@ -1520,10 +1611,33 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                 fontWeight: 500,
               }}>
                 <CheckCircle className="w-3 h-3" />
-                {lastResults.length} {lastResults.length === 1 ? 'result' : 'results'} found
+                {lastResults.length + alreadySavedResults.length} {(lastResults.length + alreadySavedResults.length) === 1 ? 'result' : 'results'} found
               </div>
-              <span style={{ fontSize: 11, color: '#94A3B8' }}>Saved to your tracker automatically</span>
+              <span style={{ fontSize: 11, color: '#94A3B8' }}>
+                {lastResults.length > 0 ? `${lastResults.length} new — saved to your tracker automatically` : ''}
+                {lastResults.length > 0 && alreadySavedResults.length > 0 ? ' · ' : ''}
+                {alreadySavedResults.length > 0 ? `${alreadySavedResults.length} already in your tracker` : ''}
+              </span>
             </div>
+
+            {/* Backend message — persistent inline callout for "all already saved" (or similar)
+                shapes. Prefer this over toast-only so users don't miss the context after the
+                toast auto-dismisses. Only shown when there are no new contacts; otherwise the
+                success pill + result cards already tell the story. */}
+            {resultMessage && lastResults.length === 0 && alreadySavedResults.length > 0 && (
+              <div style={{
+                padding: '10px 14px',
+                background: 'rgba(245,158,11,0.06)',
+                border: '0.5px solid #FDE68A',
+                borderRadius: 6,
+                fontSize: 13,
+                color: '#713F12',
+                lineHeight: 1.5,
+                marginBottom: 12,
+              }}>
+                {resultMessage}
+              </div>
+            )}
 
             {/* Company context hint — explains when search intent was reinterpreted */}
             {companyContext && (
@@ -1670,6 +1784,90 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
               );
             })}
 
+            {/* Already saved contacts */}
+            {alreadySavedResults.length > 0 && (
+              <>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  marginTop: 10,
+                  marginBottom: 4,
+                }}>
+                  <div style={{ flex: 1, height: 1, background: '#E2E8F0' }} />
+                  <span style={{ fontSize: 10, color: '#94A3B8', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                    Already in your tracker
+                  </span>
+                  <div style={{ flex: 1, height: 1, background: '#E2E8F0' }} />
+                </div>
+                {alreadySavedResults.map((c: any, i: number) => {
+                  const name = [c.FirstName || c.firstName, c.LastName || c.lastName].filter(Boolean).join(' ') || 'Unknown';
+                  const title = c.Title || c.JobTitle || c.jobTitle || '';
+                  const company = c.Company || c.company || '';
+                  const linkedin = c.LinkedIn || c.linkedinUrl || '';
+                  const initials = name.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase();
+                  return (
+                    <div
+                      key={`saved-${i}`}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 11,
+                        padding: '11px 13px',
+                        background: '#FAFAFA',
+                        border: '0.5px solid #E2E8F0',
+                        borderRadius: 3,
+                        marginBottom: 6,
+                        opacity: 0.7,
+                      }}
+                    >
+                      <div style={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: '50%',
+                        background: 'rgba(107,114,128,0.10)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: '#6B7280',
+                        flexShrink: 0,
+                      }}>
+                        {initials}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 13, fontWeight: 500, color: '#6B7280' }}>{name}</span>
+                          <span style={{
+                            padding: '1px 6px',
+                            borderRadius: 3,
+                            background: 'rgba(107,114,128,0.08)',
+                            color: '#94A3B8',
+                            fontSize: 10,
+                            fontWeight: 500,
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                          }}>
+                            Already saved
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 1 }}>
+                          {[title, company].filter(Boolean).join(' at ')}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                        {linkedin && (
+                          <a href={linkedin.startsWith('http') ? linkedin : `https://${linkedin}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+                            <ExternalLink className="w-3.5 h-3.5" style={{ color: '#CBD5E1' }} />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
+            )}
+
             {/* Action buttons */}
             <div style={{ display: 'flex', gap: 7, marginTop: 14 }}>
               <button
@@ -1713,7 +1911,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                 }}
               >
                 <User className="w-3 h-3" />
-                View in Tracker
+                View in Spreadsheet
               </button>
             </div>
           </div>
@@ -1792,7 +1990,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                 }}
               >
                 <User className="w-3 h-3" />
-                View in Tracker
+                View in Spreadsheet
               </button>
             </div>
           </div>

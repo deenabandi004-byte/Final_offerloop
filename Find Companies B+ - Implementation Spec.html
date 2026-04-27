@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<style data-omelette-injected>html,body{background:transparent}</style><script data-omelette-injected>(()=>{var $=["https://claude.ai","https://preview.claude.ai","https://eap-omelette.claude.ai"];var F=30000;var A=3000;document.addEventListener("DOMContentLoaded",()=>{const Q="transform-react-jsx-source";document.querySelectorAll('script[type="text/babel"],script[type="text/jsx"]').forEach((J,V)=>{const X=J.getAttribute("data-plugins")||"";if(X.indexOf(Q)<0){J.setAttribute("data-plugins",X?`${X},${Q}`:Q)}if(!J.hasAttribute("data-filename")){J.setAttribute("data-filename",J.getAttribute("src")||`inline-${V}`)}})});var W=window.parent;if(W&&W!==window){const Q=(z,k)=>{try{W.postMessage({__omelette_log:true,type:z,data:k},"*")}catch{}};["log","warn","error"].forEach((z)=>{const k=console[z];console[z]=(...C)=>{const D=C.map((w)=>{try{return typeof w==="object"?JSON.stringify(w):String(w)}catch{try{return String(w)}catch{return"[unstringifiable]"}}}).join(" ");Q(z,D);k.apply(console,C)}});window.addEventListener("error",(z)=>{const k=z.target;if(k&&k!==window&&k.tagName){const C=k.src||k.href||"";Q("resource_error",`${k.tagName} failed to load: ${C}`)}else{Q("error",`${z.message||"Unknown error"} at ${z.filename||"?"}:${z.lineno||0}:${z.colno||0}`)}},true);window.addEventListener("unhandledrejection",(z)=>{const k=z.reason;const C=k instanceof Error?`${k.message} ${k.stack}`:String(k);Q("error",`Unhandled rejection: ${C}`)});const J=()=>{try{W.postMessage({type:"omelette:height",height:document.documentElement.scrollHeight},"*")}catch{}};if(document.readyState==="complete")J();else window.addEventListener("load",J);if(window.ResizeObserver)new ResizeObserver(J).observe(document.documentElement);const V={};let X=0;window.claude={complete(z){return new Promise((k,C)=>{if(!$.length){C(new Error("claude.complete: no parent origin"));return}const D=`c${++X}`;const w=()=>setTimeout(()=>{delete V[D];C(new Error(`claude.complete: no data for ${F/1000}s`))},F);const K=w();V[D]={resolve:k,reject:C,text:"",t:K,arm:w};try{for(const Z of $){W.postMessage({__om_api:true,id:D,body:z},Z)}}catch(Z){clearTimeout(K);delete V[D];C(Z)}})}};const Y={};let h=0;window.omelette={writeFile:(z,k)=>new Promise((C,D)=>{if(!$.length){C();return}const w=`f${++h}`;const K=setTimeout(()=>{delete Y[w];C()},A);Y[w]={resolve:C,reject:D,t:K};try{for(const Z of $){W.postMessage({__om_file:true,id:w,op:"write",path:z,content:k},Z)}}catch{clearTimeout(K);delete Y[w];C()}})};const b=(z)=>{try{return JSON.stringify(z)}catch{return JSON.stringify(String(z))}};window.addEventListener("message",(z)=>{if($.indexOf(z.origin)<0)return;if(z.source!==W)return;const k=z.data;if(!k)return;if(k.__om_file_r){const w=Y[k.id];if(!w)return;clearTimeout(w.t);delete Y[k.id];if(k.ok)w.resolve();else w.reject(new Error(k.error||"write failed"));return}if(k.__om_api_r){const w=V[k.id];if(!w)return;if(k.error!=null){clearTimeout(w.t);delete V[k.id];w.reject(new Error(k.error));return}if(k.chunk!=null){clearTimeout(w.t);w.t=w.arm();w.text+=k.chunk;return}if(k.done){clearTimeout(w.t);delete V[k.id];w.resolve(k.text!=null?k.text:w.text);return}return}if(!k.__om_eval)return;const C=k;const D=(w)=>{z.source.postMessage({...w,__om_eval_r:1,id:C.id},z.origin)};try{const w=(0,eval)(C.code);if(w&&typeof w.then==="function"){w.then((K)=>D({ok:1,v:b(K)}),(K)=>D({ok:0,e:String(K)}))}else{D({ok:1,v:b(w)})}}catch(w){D({ok:0,e:String(w)})}})}})();
+</script>
+
+<meta charset="UTF-8"/>
+<title>Find · Companies · B+ — Implementation Spec</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#FDFDFD; --paper-2:#F6F5F1; --paper-3:#F0EEE7;
+    --ink:#111418; --ink-2:#4A4F57; --ink-3:#8A8F97;
+    --line:#E5E3DE; --line-2:#EFEDE8;
+    --brand:#1B2A44; --brand-2:#2A3D5C; --accent:#8B2E1F;
+    --serif:'Instrument Serif',Georgia,serif;
+    --sans:'Inter',system-ui,sans-serif;
+    --mono:'JetBrains Mono',monospace;
+  }
+  html,body{margin:0;padding:0;background:var(--paper-3);font-family:var(--sans);color:var(--ink);}
+  *{box-sizing:border-box;}
+  body{padding:48px 32px 80px;}
+  main{max-width:920px;margin:0 auto;background:var(--paper);border:1px solid var(--line);padding:56px 64px;}
+
+  .eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:0.16em;color:var(--accent);text-transform:uppercase;margin-bottom:12px;}
+  h1{font-family:var(--serif);font-weight:400;font-size:42px;line-height:1.1;letter-spacing:-0.015em;margin:0 0 10px;}
+  h1 em{color:var(--accent);}
+  .lede{font-family:var(--serif);font-style:italic;font-size:18px;line-height:1.5;color:var(--ink-2);margin:0 0 32px;max-width:640px;}
+
+  h2{font-family:var(--serif);font-weight:400;font-size:26px;line-height:1.15;letter-spacing:-0.01em;margin:40px 0 4px;}
+  h2 .num{font-family:var(--mono);font-style:normal;font-size:11px;letter-spacing:0.16em;color:var(--ink-3);display:block;margin-bottom:6px;font-weight:500;}
+  h3{font-family:var(--sans);font-weight:600;font-size:14px;letter-spacing:-0.005em;margin:22px 0 8px;color:var(--ink);}
+
+  p, li{font-size:13px;line-height:1.65;color:var(--ink-2);}
+  p strong{color:var(--ink);font-weight:600;}
+
+  code{font-family:var(--mono);font-size:12px;background:var(--paper-2);padding:1px 6px;border-radius:2px;color:var(--ink);}
+
+  pre{font-family:var(--mono);font-size:11.5px;line-height:1.6;background:#0F1117;color:#E8E6E1;padding:18px 20px;overflow:auto;margin:10px 0 18px;border-radius:2px;}
+  pre .c{color:#6A6E78;font-style:italic;}
+  pre .k{color:#C2A878;}
+  pre .s{color:#9BB4A8;}
+  pre .t{color:#D4A29A;}
+
+  table{width:100%;border-collapse:collapse;margin:12px 0 24px;font-size:12.5px;}
+  th, td{text-align:left;padding:10px 12px;vertical-align:top;border-bottom:1px solid var(--line-2);}
+  th{font-family:var(--mono);font-size:10px;letter-spacing:0.12em;color:var(--ink-3);text-transform:uppercase;border-bottom:1px solid var(--line);font-weight:500;}
+  td b{color:var(--ink);font-weight:600;}
+  td code{font-size:11px;}
+
+  hr{border:none;border-top:1px solid var(--line);margin:36px 0;}
+
+  .callout{background:#FCFBF7;border:1px solid var(--line);padding:14px 18px;margin:14px 0;font-family:var(--serif);font-style:italic;font-size:14px;line-height:1.55;color:var(--ink);}
+  .callout b{color:var(--brand);font-style:normal;font-weight:500;}
+
+  /* layout diagram */
+  .diagram{border:1px solid var(--line);background:var(--paper-2);padding:20px;margin:12px 0 18px;}
+  .diagram .row{display:grid;grid-template-columns:160px 1fr;gap:14px;padding:6px 0;align-items:start;}
+  .diagram .row .k{font-family:var(--mono);font-size:10px;letter-spacing:0.12em;color:var(--ink-3);text-transform:uppercase;}
+  .diagram .row .v{font-size:12.5px;color:var(--ink);}
+  .diagram .row .v b{color:var(--brand);font-weight:500;}
+
+  .annotated{border:1px solid var(--line);background:#fff;padding:0;margin:16px 0 24px;}
+  .annotated .hdr{padding:10px 14px;border-bottom:1px dashed var(--line);font-family:var(--mono);font-size:10px;letter-spacing:0.14em;color:var(--ink-3);text-transform:uppercase;display:flex;justify-content:space-between;}
+  .annotated .body{display:grid;grid-template-columns:1.15fr 1fr;gap:28px;padding:22px 24px;border-top:1px solid var(--line);}
+
+  .hero-ann > div{position:relative;margin-bottom:10px;}
+  .list-ann > div{position:relative;margin-bottom:0;}
+
+  .tag{display:inline-block;font-family:var(--mono);font-size:9px;letter-spacing:0.12em;color:var(--accent);background:#F4E3DE;padding:2px 5px;border-radius:2px;margin-left:6px;vertical-align:middle;text-transform:uppercase;}
+
+  .h-eye{font-family:var(--mono);font-size:10px;letter-spacing:0.16em;color:var(--accent);font-weight:500;}
+  .h-name{display:flex;align-items:center;gap:10px;}
+  .h-mark{width:26px;height:26px;border-radius:50%;background:#4285F4;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-family:var(--serif);font-style:italic;font-size:13px;}
+  .h-nameText{font-family:var(--serif);font-size:26px;line-height:1.1;letter-spacing:-0.015em;color:var(--ink);}
+  .h-headline{font-family:var(--serif);font-style:italic;font-size:18px;line-height:1.4;color:var(--ink);letter-spacing:-0.005em;}
+  .h-detail{font-size:13px;line-height:1.6;color:var(--ink-2);max-width:100%;}
+  .h-meta{font-family:var(--mono);font-size:9px;letter-spacing:0.14em;color:var(--ink-3);text-transform:uppercase;}
+  .h-cta{font-size:12px;color:var(--brand);font-weight:500;}
+
+  .l-hdr{font-family:var(--mono);font-size:9px;letter-spacing:0.16em;color:var(--ink-3);text-transform:uppercase;margin-bottom:4px;}
+  .l-row{display:grid;grid-template-columns:22px 20px 1fr;gap:10px;padding:14px 0;border-top:1px solid var(--line-2);align-items:start;}
+  .l-num{font-family:var(--mono);font-size:10px;letter-spacing:0.14em;color:var(--ink-3);padding-top:3px;}
+  .l-mark{width:20px;height:20px;border-radius:50%;background:#1B2A44;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-family:var(--serif);font-style:italic;font-size:10px;}
+  .l-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:5px;}
+  .l-cname{font-size:13px;font-weight:500;color:var(--ink);letter-spacing:-0.005em;}
+  .l-city{font-family:var(--mono);font-size:9px;letter-spacing:0.12em;color:var(--ink-3);text-transform:uppercase;}
+  .l-sent{font-family:var(--serif);font-style:italic;font-size:12.5px;color:var(--ink-2);line-height:1.5;}
+
+  ul.do{list-style:none;padding:0;margin:10px 0 22px;}
+  ul.do li{padding:7px 0 7px 26px;position:relative;font-size:12.5px;color:var(--ink-2);line-height:1.55;border-bottom:1px solid var(--line-2);}
+  ul.do li::before{content:'✓';position:absolute;left:0;top:7px;color:#2D5F3F;font-family:var(--mono);font-weight:600;}
+  ul.do li.x::before{content:'✗';color:var(--accent);}
+  ul.do li b{color:var(--ink);font-weight:600;}
+
+  .fileref{font-family:var(--mono);font-size:11px;background:var(--paper-2);border:1px solid var(--line);padding:2px 8px;border-radius:2px;color:var(--ink);}
+</style>
+</head>
+<body>
+<main>
+
+<div class="eyebrow">Find · Companies · Implementation · v1 (B+)</div>
+<h1>Two-column, <em>adjusted.</em></h1>
+<p class="lede">The shipping design for Find → Companies. Hero on the left, four two-line entries on the right. This doc is the handoff: tokens, structure, exact measurements, and where the Scout sentence plugs in.</p>
+
+<div class="callout">
+Pair this file with <b>Scout Intro Sentence — Spec.html</b> in the project root. That file owns the copy generation; this file owns the layout and component shape. Claude Code should read both before implementing.
+</div>
+
+<hr/>
+
+<h2><span class="num">01</span>Files in this package</h2>
+<table>
+  <thead><tr><th>File (project root)</th><th>Owns</th></tr></thead>
+  <tbody>
+    <tr><td><span class="fileref">Find Companies B+ — Implementation Spec.html</span></td><td>This file. Layout, tokens, component structure, measurements.</td></tr>
+    <tr><td><span class="fileref">Scout Intro Sentence — Spec.html</span></td><td>Copy generation: data schema, closest-path score, 5-rung fallback ladder, LLM prompt, guardrails.</td></tr>
+    <tr><td><span class="fileref">Find - Companies Aesthetic Improvements.html</span></td><td>Working prototype. B+ is the first artboard in the "Rhythm Experiments" section. Use <code>window.TwoColumnAdjusted</code> in <span class="fileref">find-companies-rhythm.jsx</span> as the visual reference.</td></tr>
+  </tbody>
+</table>
+
+<hr/>
+
+<h2><span class="num">02</span>Design tokens</h2>
+<p>These are the only tokens the Companies page uses. Declare once, at <code>:root</code>.</p>
+
+<pre><span class="c">/* Paper & ink */</span>
+<span class="k">--paper</span>:     <span class="s">#FDFDFD</span>;   <span class="c">// page background</span>
+<span class="k">--paper-2</span>:   <span class="s">#F6F5F1</span>;   <span class="c">// subtle fill (search box, callouts)</span>
+<span class="k">--ink</span>:       <span class="s">#111418</span>;   <span class="c">// primary text</span>
+<span class="k">--ink-2</span>:     <span class="s">#4A4F57</span>;   <span class="c">// secondary text, italic body</span>
+<span class="k">--ink-3</span>:     <span class="s">#8A8F97</span>;   <span class="c">// mono meta, dividers overlay</span>
+
+<span class="c">/* Structure */</span>
+<span class="k">--line</span>:      <span class="s">#E5E3DE</span>;   <span class="c">// section borders, topbar</span>
+<span class="k">--line-2</span>:    <span class="s">#EFEDE8</span>;   <span class="c">// row dividers (hairline)</span>
+
+<span class="c">/* Brand */</span>
+<span class="k">--brand</span>:     <span class="s">#1B2A44</span>;   <span class="c">// oxblood navy — CTA links, emphasized digits</span>
+<span class="k">--accent</span>:    <span class="s">#8B2E1F</span>;   <span class="c">// USC oxblood — underline scribble, eyebrow accent</span>
+
+<span class="c">/* Type */</span>
+<span class="k">--serif</span>:    <span class="s">'Instrument Serif', Georgia, serif</span>;
+<span class="k">--sans</span>:     <span class="s">'Inter', system-ui, sans-serif</span>;
+<span class="k">--mono</span>:     <span class="s">'JetBrains Mono', monospace</span>;</pre>
+
+<p><b>Rules:</b></p>
+<ul class="do">
+  <li><b>Never introduce new colors on this page.</b> If you need a signal color, pick from the existing palette or add one to the token file globally.</li>
+  <li class="x"><b>No gradients.</b> Flat fills only. Brand marks are solid discs.</li>
+  <li class="x"><b>No shadows on list rows or the hero.</b> Depth comes from borders and type weight.</li>
+  <li><b>Italic serif is the voice of Scout.</b> Sans is structure. Mono is metadata. Don't mix voices within a single sentence.</li>
+</ul>
+
+<hr/>
+
+<h2><span class="num">03</span>Page structure</h2>
+
+<div class="diagram">
+  <div class="row"><div class="k">Shell</div><div class="v"><b>Sidebar</b> (180px, oxblood navy) + <b>main column</b> (1fr, paper)</div></div>
+  <div class="row"><div class="k">Topbar</div><div class="v">12px mono crumb · inline tab row (People / <b>Companies</b> / Hiring Managers) · Ask Scout button</div></div>
+  <div class="row"><div class="k">Content container</div><div class="v"><code>max-width: 960px</code> · <code>margin: 0 auto</code> · <code>padding: 52px 48px 40px</code></div></div>
+  <div class="row"><div class="k">Header block</div><div class="v">Seal + angle · H1 · italic lede · mono stats line</div></div>
+  <div class="row"><div class="k">Body</div><div class="v">2-column grid · <code>grid-template-columns: 1.15fr 1fr</code> · <code>gap: 48px</code> · top border on grid</div></div>
+  <div class="row"><div class="k">Footer</div><div class="v">Centered text link ("Search for a specific company →") — expands into single-line input with bottom border on click</div></div>
+</div>
+
+<hr/>
+
+<h2><span class="num">04</span>The hero (left column)</h2>
+
+<div class="annotated">
+  <div class="hdr"><span>HERO — left column, 1.15fr</span><span>from the figma / prototype</span></div>
+  <div class="body hero-ann" style="grid-template-columns:1fr;">
+    <div class="h-eye">01 · START HERE <span class="tag">eyebrow</span></div>
+    <div class="h-name" style="margin-top:14px;">
+      <span class="h-mark">G</span>
+      <span class="h-nameText">Google</span>
+      <span class="tag">mark + name</span>
+    </div>
+    <div class="h-headline" style="margin-top:14px;">Twelve USC data scientists work here now — three started this fall. <span class="tag">scout headline</span></div>
+    <div class="h-detail" style="margin-top:10px;">Your closest path in: Priya Desai, '22, on the Ads ML team. She's replied to three cohort intros this month. <span class="tag">scout detail · from ladder</span></div>
+    <div class="h-meta" style="margin-top:14px;">TECH · AI · <b style="color:var(--brand);font-weight:500;">SAN FRANCISCO</b> <span class="tag">meta</span></div>
+    <div class="h-cta" style="margin-top:10px;">Find contacts → <span class="tag">cta</span></div>
+  </div>
+</div>
+
+<h3>Measurements</h3>
+<table>
+  <thead><tr><th>Element</th><th>Font / size</th><th>Color</th><th>Spacing</th></tr></thead>
+  <tbody>
+    <tr><td><b>Eyebrow</b> "01 · START HERE"</td><td>mono 10px · 0.16em tracking · 500</td><td><code>--accent</code></td><td><code>margin-bottom: 14px</code></td></tr>
+    <tr><td><b>Mark</b></td><td>28px disc · serif italic letter, size 14px</td><td>brand-of-company fill, white letter</td><td>gap 12px to name</td></tr>
+    <tr><td><b>Name</b></td><td>serif 28px · line-height 1.1 · <code>letter-spacing: -0.015em</code></td><td><code>--ink</code></td><td><code>margin-bottom: 16px</code></td></tr>
+    <tr><td><b>Headline</b></td><td>serif italic 20px · line-height 1.4 · <code>letter-spacing: -0.005em</code></td><td><code>--ink</code></td><td><code>margin-bottom: 12px</code></td></tr>
+    <tr><td><b>Detail paragraph</b></td><td>sans 13px · line-height 1.6</td><td><code>--ink-2</code></td><td><code>margin-bottom: 18px</code></td></tr>
+    <tr><td><b>Meta</b></td><td>mono 9px · 0.14em tracking · uppercase</td><td><code>--ink-3</code>, city in <code>--brand</code> 500</td><td><code>margin-bottom: 10px</code></td></tr>
+    <tr><td><b>CTA</b></td><td>sans 12px · 500</td><td><code>--brand</code></td><td>—</td></tr>
+  </tbody>
+</table>
+
+<h3>Where the copy comes from</h3>
+<ul class="do">
+  <li><b>Headline</b> = rendered from the Scout ladder, R4-tier sentence (always aggregate, never names). See Scout Spec §04.</li>
+  <li><b>Detail</b> = rendered from the Scout ladder, R1 → R5 cascade. The hero uses whichever rung fires. See Scout Spec §04.</li>
+  <li><b>Name + mark</b> = from the company record. <code>mark.color</code> is the company's primary brand color; <code>mark.letters</code> is 1–2 chars (initial or monogram). Never render an empty square — if we don't have a real color, fall back to <code>--brand</code> with the initial.</li>
+  <li><b>Meta</b> = <code>sector · city</code> from company record.</li>
+  <li class="x"><b>Never hardcode the Priya Desai line.</b> It's output from the ladder. If the ladder returns R4 or R5, the detail paragraph renders those rungs' sentence — NOT a placeholder.</li>
+</ul>
+
+<hr/>
+
+<h2><span class="num">05</span>The list (right column)</h2>
+
+<div class="annotated">
+  <div class="hdr"><span>LIST — right column, 1fr · four 2-line rows</span><span>from the figma / prototype</span></div>
+  <div class="body list-ann" style="grid-template-columns:1fr;padding:18px 24px 22px;">
+    <div class="l-hdr">Four more, ranked by fit</div>
+    <div class="l-row">
+      <div class="l-num">02</div>
+      <div class="l-mark">S</div>
+      <div>
+        <div class="l-top"><div class="l-cname">Sequoia</div><div class="l-city">MENLO PARK</div></div>
+        <div class="l-sent">Q1 analyst roles — <em>replies come fast.</em></div>
+      </div>
+    </div>
+    <div class="l-row">
+      <div class="l-num">03</div>
+      <div class="l-mark" style="background:#0B1E3F;">D</div>
+      <div>
+        <div class="l-top"><div class="l-cname">Disney</div><div class="l-city">LOS ANGELES</div></div>
+        <div class="l-sent">Hired <span style="font-family:var(--sans);font-style:normal;color:var(--brand);font-weight:600;">4</span> USC grads in six months.</div>
+      </div>
+    </div>
+    <div class="l-row">
+      <div class="l-num">04</div>
+      <div class="l-mark" style="background:#D93A2F;font-size:9px;">EA</div>
+      <div>
+        <div class="l-top"><div class="l-cname">Electronic Arts</div><div class="l-city">REDWOOD CITY</div></div>
+        <div class="l-sent"><em>9 Trojans</em> answered cold outreach this semester.</div>
+      </div>
+    </div>
+    <div class="l-row">
+      <div class="l-num">05</div>
+      <div class="l-mark" style="background:#111418;">O</div>
+      <div>
+        <div class="l-top"><div class="l-cname">OpenAI</div><div class="l-city">SAN FRANCISCO</div></div>
+        <div class="l-sent">Tight fit for your ML coursework.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3>Row grid</h3>
+<pre><span class="k">display</span>: <span class="s">grid</span>;
+<span class="k">grid-template-columns</span>: <span class="s">24px 22px 1fr</span>;   <span class="c">// number · mark · content</span>
+<span class="k">gap</span>: <span class="s">12px</span>;
+<span class="k">padding</span>: <span class="s">16px 0</span>;
+<span class="k">border-top</span>: <span class="s">1px solid var(--line-2)</span>;  <span class="c">// hairline between rows only</span>
+<span class="k">align-items</span>: <span class="s">start</span>;
+<span class="k">cursor</span>: <span class="s">pointer</span>;                        <span class="c">// whole row is a link</span></pre>
+
+<h3>Row content — 2 lines</h3>
+<p><b>Line 1</b> — name + city, flex row with <code>justify-content: space-between</code>, <code>align-items: baseline</code>, <code>margin-bottom: 6px</code>.</p>
+<p><b>Line 2</b> — italic scout sentence, its own line, wraps naturally. Serif italic 13px, <code>--ink-2</code>, <code>line-height: 1.5</code>. Digits inside the italic sentence switch to sans + <code>--brand</code> + 600 (visible numeric emphasis inside a serif italic voice).</p>
+
+<ul class="do">
+  <li><b>No right-arrow icon on rows.</b> Whole-row <code>cursor: pointer</code>; hover state bumps name color to <code>--brand</code>.</li>
+  <li><b>City is mono 9px uppercase.</b> Same style as the hero meta — keeps the page visually quiet.</li>
+  <li><b>Scout sentence on its own line.</b> Never inline-truncate. If it wraps to two lines that's fine; the row grows.</li>
+  <li class="x"><b>No dividers at the TOP of the first row or BOTTOM of the last.</b> Only between rows. Visually this looks like a list, not a box.</li>
+</ul>
+
+<hr/>
+
+<h2><span class="num">06</span>Data contract</h2>
+
+<pre><span class="c">// props expected by &lt;FindCompaniesPage /&gt;</span>
+{
+  <span class="k">user</span>: {
+    name:      <span class="s">"Deena"</span>,
+    school:    <span class="s">"USC"</span>,
+    seal:      <span class="s">"SC"</span>,
+    sealColor: <span class="s">"#990000"</span>,
+    major:     <span class="s">"Data Science"</span>,
+    location:  <span class="s">"Los Angeles"</span>,
+    demonym:   <span class="s">"Trojans"</span>,         <span class="c">// null-safe, see Scout Spec §02</span>
+    demonymConfidence: <span class="s">"high"</span>
+  },
+  <span class="k">stats</span>: {
+    alumni_tracked:   <span class="t">3200</span>,
+    jobs_indexed:     <span class="t">13700</span>,
+    last_updated:     <span class="s">"today"</span>
+  },
+  <span class="k">companies</span>: [
+    {
+      rank:     <span class="t">1</span>,                        <span class="c">// 1 = hero, 2-5 = list</span>
+      id:       <span class="s">"google"</span>,
+      name:     <span class="s">"Google"</span>,
+      mark:     { letters: <span class="s">"G"</span>, color: <span class="s">"#4285F4"</span> },
+      sector:   <span class="s">"Tech · AI"</span>,
+      city:     <span class="s">"San Francisco"</span>,
+      scout: {                        <span class="c">// from Scout Spec ladder output</span>
+        rung:      <span class="s">"R1"</span>,
+        headline:  <span class="s">"Twelve USC data scientists work here now — three started this fall."</span>,
+        detail:    <span class="s">"Your closest path in: Priya Desai, '22, on the Ads ML team. She's replied to three cohort intros this month."</span>,
+        short:     <span class="s">"12 USC alumni in data roles."</span>   <span class="c">// compact form for list rows</span>
+      }
+    },
+    { rank: <span class="t">2</span>, id: <span class="s">"sequoia"</span>, <span class="c">/* ... */</span> },
+    <span class="c">/* ... */</span>
+  ]
+}</pre>
+
+<p>The page has no internal state for company data. It's a pure render of these props. Scout sentence generation happens server-side (or in a background worker) using the spec in <span class="fileref">Scout Intro Sentence — Spec.html</span>, and the result is hydrated into <code>company.scout</code> before the page renders.</p>
+
+<hr/>
+
+<h2><span class="num">07</span>Component hierarchy</h2>
+
+<pre>&lt;<span class="k">FindCompaniesPage</span>&gt;
+  &lt;<span class="k">Sidebar</span> /&gt;                       <span class="c">// existing, unchanged</span>
+  &lt;<span class="k">Topbar</span>&gt;                           <span class="c">// tabs inside topbar, not below title</span>
+    &lt;<span class="k">TabRow</span> active=<span class="s">"companies"</span> /&gt;
+    &lt;<span class="k">AskScoutButton</span> /&gt;
+  &lt;/<span class="k">Topbar</span>&gt;
+  &lt;<span class="k">PageHeader</span>&gt;
+    &lt;<span class="k">SealAndAngle</span> /&gt;               <span class="c">// seal + "Deena · USC · Data Science · LA"</span>
+    &lt;<span class="k">PageTitle</span>&gt;                    <span class="c">// "Where Trojans have landed." with underline scribble</span>
+    &lt;<span class="k">Lede</span> /&gt;                        <span class="c">// italic serif, one line</span>
+    &lt;<span class="k">StatsLine</span> /&gt;                   <span class="c">// mono, one line directly under lede</span>
+  &lt;/<span class="k">PageHeader</span>&gt;
+  &lt;<span class="k">ResultsGrid</span>&gt;                     <span class="c">// grid-template-columns: 1.15fr 1fr; gap: 48px;</span>
+    &lt;<span class="k">HeroCard</span> company={companies[0]} /&gt;
+    &lt;<span class="k">ListColumn</span>&gt;
+      &lt;<span class="k">ListHeader</span> /&gt;                 <span class="c">// "Four more, ranked by fit"</span>
+      {companies.slice(1).map(c =&gt; &lt;<span class="k">ListRow</span> key={c.id} company={c} /&gt;)}
+    &lt;/<span class="k">ListColumn</span>&gt;
+  &lt;/<span class="k">ResultsGrid</span>&gt;
+  &lt;<span class="k">FooterSearch</span> /&gt;                   <span class="c">// text link, expands on click</span>
+&lt;/<span class="k">FindCompaniesPage</span>&gt;</pre>
+
+<hr/>
+
+<h2><span class="num">08</span>States</h2>
+
+<table>
+  <thead><tr><th>State</th><th>What renders</th></tr></thead>
+  <tbody>
+    <tr><td><b>Default</b></td><td>Hero + 4 list rows + footer link (collapsed).</td></tr>
+    <tr><td><b>Search expanded</b></td><td>Footer link replaced by single-line input with bottom border. <code>autofocus</code>.</td></tr>
+    <tr><td><b>Loading</b></td><td>Hero and list rows render skeletons: name/headline as <code>--paper-2</code> blocks with the exact height of the text they replace. No spinner.</td></tr>
+    <tr><td><b>No companies</b></td><td>Hero and list hidden. Italic serif message centered: "Scout is still reading your resume — check back in a minute." No illustration, no spinner.</td></tr>
+    <tr><td><b>Hero only (1 company)</b></td><td>Grid collapses to single column. Hero spans full width, max-width 720px. Footer link unchanged.</td></tr>
+    <tr><td><b>Row hover</b></td><td>Company name color animates to <code>--brand</code>, 120ms. No background change, no scale.</td></tr>
+    <tr><td><b>Row focus (keyboard)</b></td><td>2px <code>--accent</code> outline offset 2px. Full row is a link with <code>tabindex="0"</code>.</td></tr>
+  </tbody>
+</table>
+
+<hr/>
+
+<h2><span class="num">09</span>Responsive behavior</h2>
+
+<table>
+  <thead><tr><th>Width</th><th>Behavior</th></tr></thead>
+  <tbody>
+    <tr><td><b>≥ 960px</b></td><td>Full 2-col layout as specified.</td></tr>
+    <tr><td><b>720–959px</b></td><td>Collapse grid to single column. Hero on top, list below. Keep 48px vertical gap between.</td></tr>
+    <tr><td><b>&lt; 720px</b></td><td>Sidebar becomes drawer (hamburger). Content padding drops to <code>32px 20px</code>. Row grid becomes <code>20px 18px 1fr</code>. Hero name drops to 24px.</td></tr>
+  </tbody>
+</table>
+
+<hr/>
+
+<h2><span class="num">10</span>Accessibility</h2>
+
+<ul class="do">
+  <li><b>Every row is a link</b> (<code>&lt;a&gt;</code> or button with role=link), not a div with onClick.</li>
+  <li><b>Focus visible</b> on all interactive elements (rows, CTA, footer link/input, tabs).</li>
+  <li><b>Hero mark has <code>aria-hidden="true"</code></b> — it's decorative; the company name below it is the label.</li>
+  <li><b>Mono italic combinations must clear 4.5:1 contrast</b>. Check <code>--ink-3</code> on <code>--paper</code> — currently passes. Check <code>--ink-2</code> italic serif at 12.5px — passes.</li>
+  <li><b>Tab order:</b> Topbar → tabs → Ask Scout → Hero CTA → List rows top-to-bottom → Footer search.</li>
+  <li class="x"><b>Do not use color alone</b> to indicate the hero vs list. The "01 · START HERE" eyebrow does the semantic work.</li>
+</ul>
+
+<hr/>
+
+<h2><span class="num">11</span>What NOT to do</h2>
+
+<ul class="do">
+  <li class="x"><b>No card backgrounds</b> on the hero, list, or footer. Content sits on paper.</li>
+  <li class="x"><b>No right-edge arrows</b> on list rows. Cursor pointer is the affordance.</li>
+  <li class="x"><b>No "Best match" pill</b> or badge. The hero's size + eyebrow is the signal.</li>
+  <li class="x"><b>No icons in the tab row.</b> Text only, mono uppercase, in the topbar.</li>
+  <li class="x"><b>No search input in the default state.</b> Only a text link. The link expands into an input only when clicked.</li>
+  <li class="x"><b>Never render an empty mark</b> (blank white square). Always have a letter + a color. Monogram fallback uses <code>--brand</code>.</li>
+  <li class="x"><b>Do not animate the hero entry.</b> Page loads, content is there. No fade-in, no slide-up.</li>
+</ul>
+
+<hr/>
+
+<h2><span class="num">12</span>Build order</h2>
+
+<ol>
+  <li><b>Scaffold</b> the component hierarchy from §07. Render with hardcoded JSON that matches §06.</li>
+  <li><b>Wire design tokens</b> from §02 into the global CSS (probably already exist).</li>
+  <li><b>Build HeroCard and ListRow</b> against the measurements in §04 and §05. Match the prototype pixel-for-pixel — use <code>find-companies-rhythm.jsx</code> <code>TwoColumnAdjusted</code> as the visual source of truth.</li>
+  <li><b>Swap hardcoded data</b> for real company records from the backend.</li>
+  <li><b>Hydrate <code>company.scout</code></b> by calling the Scout ladder service (spec'd in Scout Spec §04–§06). If the service isn't ready, stub with R4-tier output so the page still ships.</li>
+  <li><b>Add states</b> from §08 and responsive rules from §09.</li>
+  <li><b>Accessibility pass</b> per §10.</li>
+  <li><b>Observability</b> — add rung-fire-rate logging per Scout Spec §07.</li>
+</ol>
+
+<div class="callout">
+<b>One-line summary for the PR description:</b> Implements Find → Companies B+ layout — hero left, four two-line list rows right, no container boxes, inline-topbar tabs, text-link footer search. Scout copy is produced by the ladder in <b>Scout Intro Sentence — Spec.html</b>.
+</div>
+
+</main>
+</body>
+</html>

@@ -11,6 +11,8 @@ import {
   PanelLeft,
   Tag,
   FileText,
+  Users,
+  CalendarRange,
 } from "lucide-react";
 import CupIcon from "@/assets/sidebaricons/icons8-cup-48.png";
 import MailIcon from "@/assets/sidebaricons/icons8-important-mail-48.png";
@@ -39,8 +41,8 @@ import { cn } from "@/lib/utils";
 // ── Icon helpers ────────────────────────────────────────────────────────────
 
 const IMG_FILTER_ACTIVE =
-  "brightness(0) saturate(100%) invert(72%) sepia(30%) saturate(1200%) hue-rotate(190deg) brightness(105%) contrast(95%)";
-const IMG_FILTER_INACTIVE = "brightness(0) saturate(100%) invert(65%) sepia(15%) saturate(600%) hue-rotate(190deg) brightness(95%) contrast(90%)";
+  "brightness(0) saturate(100%) invert(14%) sepia(20%) saturate(1200%) hue-rotate(190deg) brightness(30%) contrast(105%)";
+const IMG_FILTER_INACTIVE = "brightness(0) saturate(100%) invert(100%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(100%) contrast(100%) opacity(0.5)";
 
 type NavItemDef = {
   title: string;
@@ -48,6 +50,9 @@ type NavItemDef = {
   dataTour?: string;
   newTab?: boolean;
   iconColor?: string; // per-item color for inactive state
+  activeColor?: string; // per-item override for active icon/text color
+  activeFilter?: string; // per-item override for active img filter
+  activeBg?: string; // per-item override for active background
 } & (
   | { iconSrc: string; LucideIcon?: never }
   | { LucideIcon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; iconSrc?: never }
@@ -59,20 +64,23 @@ const ICON_FILTERS: Record<string, string> = {
   sky:       "brightness(0) saturate(100%) invert(70%) sepia(60%) saturate(700%) hue-rotate(175deg) brightness(115%) contrast(95%)",
   indigo:    "brightness(0) saturate(100%) invert(55%) sepia(70%) saturate(800%) hue-rotate(210deg) brightness(115%) contrast(95%)",
   slate:     "brightness(0) saturate(100%) invert(65%) sepia(40%) saturate(600%) hue-rotate(190deg) brightness(120%) contrast(90%)",
+  brown:     "brightness(0) saturate(100%) invert(35%) sepia(40%) saturate(600%) hue-rotate(350deg) brightness(110%) contrast(90%)",
 };
 
 // Group 1 — main nav
 const mainNavItems: NavItemDef[] = [
-  { title: "Find", url: "/find", iconSrc: MagnifyingGlassIcon, iconColor: "blue" },
-  { title: "Coffee Chat Prep", url: "/coffee-chat-prep", iconSrc: CupIcon, dataTour: "tour-coffee-chat-prep", iconColor: "sky" },
-  { title: "Tracker", url: "/tracker", iconSrc: MailIcon, dataTour: "tour-track-email", iconColor: "indigo" },
-  { title: "Job Board", url: "/job-board", iconSrc: BriefcaseIcon, iconColor: "slate" },
+  { title: "Find", url: "/find", iconSrc: MagnifyingGlassIcon },
+  { title: "My Network", url: "/my-network", LucideIcon: Users },
+  { title: "Coffee Chat Prep", url: "/coffee-chat-prep", iconSrc: CupIcon, dataTour: "tour-coffee-chat-prep" },
+  { title: "Tracker", url: "/tracker", iconSrc: MailIcon, dataTour: "tour-track-email" },
+  { title: "Job Board", url: "/job-board", iconSrc: BriefcaseIcon },
+  { title: "Timeline", url: "/recruiting-timeline", LucideIcon: CalendarRange },
 ];
 
 // Utility nav — bottom of sidebar
 const utilityNavItems: NavItemDef[] = [
-  { title: "Pricing", url: "/pricing", LucideIcon: Tag, iconColor: "#93C5FD" },
-  { title: "Documentation", url: "/documentation", LucideIcon: FileText, iconColor: "#7DD3FC" },
+  { title: "Pricing", url: "/pricing", LucideIcon: Tag },
+  { title: "Documentation", url: "/documentation", LucideIcon: FileText },
 ];
 
 
@@ -92,13 +100,13 @@ const NAV_PY = "11px";
 const NAV_GAP = "10px";
 const NAV_RADIUS = "8px";
 
-const ACTIVE_BG = "rgba(59,130,246,.18)";
+const ACTIVE_BG = "rgba(255,255,255,1)";
 const ACTIVE_SHADOW = "none";
-const ACTIVE_COLOR = "#93C5FD";
-const INACTIVE_ICON = "rgba(140,170,210,.55)";
-const INACTIVE_LABEL = "rgba(255,255,255,.40)";
-const HOVER_BG = "rgba(255,255,255,.06)";
-const HOVER_LABEL = "rgba(255,255,255,.70)";
+const ACTIVE_COLOR = "#1B2A44";
+const INACTIVE_ICON = "rgba(255,255,255,.50)";
+const INACTIVE_LABEL = "rgba(255,255,255,.55)";
+const HOVER_BG = "rgba(255,255,255,.08)";
+const HOVER_LABEL = "rgba(255,255,255,.85)";
 
 // ── Component ───────────────────────────────────────────────────────────────
 
@@ -145,14 +153,14 @@ export function AppSidebar() {
         alt=""
         className="h-4 w-4 flex-shrink-0"
         style={{
-          filter: active ? IMG_FILTER_ACTIVE : inactiveFilter,
+          filter: active ? (item.activeFilter || IMG_FILTER_ACTIVE) : inactiveFilter,
           opacity: 1,
         }}
       />
     ) : item.LucideIcon ? (
       <item.LucideIcon
         className="h-4 w-4 flex-shrink-0"
-        style={{ color: active ? ACTIVE_COLOR : (item.iconColor && !ICON_FILTERS[item.iconColor] ? item.iconColor : INACTIVE_ICON) }}
+        style={{ color: active ? (item.activeColor || ACTIVE_COLOR) : (item.iconColor && !ICON_FILTERS[item.iconColor] ? item.iconColor : INACTIVE_ICON) }}
       />
     ) : null;
 
@@ -188,7 +196,7 @@ export function AppSidebar() {
                 className="flex items-center justify-center rounded-[8px] transition-all"
                 style={{
                   padding: NAV_PY,
-                  background: active ? ACTIVE_BG : "transparent",
+                  background: active ? (item.activeBg || ACTIVE_BG) : "transparent",
                   boxShadow: active ? ACTIVE_SHADOW : "none",
                   borderRadius: NAV_RADIUS,
                 }}
@@ -257,9 +265,9 @@ export function AppSidebar() {
           fontSize: NAV_FONT_SIZE,
           fontWeight: active ? 500 : 400,
           fontFamily: "var(--font-body)",
-          background: active ? ACTIVE_BG : "transparent",
+          background: active ? (item.activeBg || ACTIVE_BG) : "transparent",
           boxShadow: active ? ACTIVE_SHADOW : "none",
-          color: active ? ACTIVE_COLOR : INACTIVE_LABEL,
+          color: active ? (item.activeColor || ACTIVE_COLOR) : INACTIVE_LABEL,
         }}
         onMouseEnter={(e) => {
           if (!active) {
@@ -288,7 +296,7 @@ export function AppSidebar() {
         <SidebarContent
           className="flex flex-col h-full overflow-hidden"
           style={{
-            background: "#060D1A",
+            background: "var(--brand, #1B2A44)",
             borderRight: "0.5px solid rgba(255,255,255,.06)",
           }}
         >
@@ -336,11 +344,11 @@ export function AppSidebar() {
                       }
                     }}
                   >
-                    <Avatar className="h-8 w-8 flex-shrink-0 ring-2 ring-[#3B82F6]/20">
+                    <Avatar className="h-8 w-8 flex-shrink-0 ring-2 ring-white/20">
                       {user?.picture && <AvatarImage src={user.picture} alt={user.name} />}
                       <AvatarFallback
                         className="text-xs font-medium"
-                        style={{ background: "rgba(59, 130, 246, 0.12)", color: "#3B82F6" }}
+                        style={{ background: "rgba(255,255,255,.15)", color: "#FFFFFF" }}
                       >
                         {user?.name
                           ?.split(" ")
@@ -407,8 +415,8 @@ export function AppSidebar() {
                           cn(
                             "flex items-center gap-3 px-3 py-2 text-sm transition-colors",
                             isActive
-                              ? "text-[#3B82F6] bg-[#EFF6FF]"
-                              : "text-[#475569] hover:text-[#0F172A] hover:bg-[#EFF6FF]"
+                              ? "text-[#78553A] bg-[rgba(120,85,58,0.1)]"
+                              : "text-[#475569] hover:text-[#0F172A] hover:bg-[rgba(120,85,58,0.06)]"
                           )
                         }
                       >
@@ -452,7 +460,7 @@ export function AppSidebar() {
           className="p-3"
           style={{
             borderTop: "0.5px solid rgba(255,255,255,.07)",
-            background: "#060D1A",
+            background: "var(--brand, #1B2A44)",
           }}
         >
           {!isCollapsed ? (
@@ -485,13 +493,13 @@ export function AppSidebar() {
                 </div>
                 <div
                   className="h-1 rounded-full overflow-hidden"
-                  style={{ background: "rgba(59, 130, 246, 0.12)" }}
+                  style={{ background: "rgba(255, 255, 255, 0.12)" }}
                 >
                   <div
                     className="h-full rounded-full transition-all duration-300"
                     style={{
                       width: `${creditPercentage}%`,
-                      background: "#3B82F6",
+                      background: "rgba(255,255,255,.7)",
                     }}
                   />
                 </div>
@@ -503,21 +511,21 @@ export function AppSidebar() {
                   trackUpgradeClick("sidebar", { from_location: "sidebar" });
                   navigate("/pricing");
                 }}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-[3px] transition-all"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-[6px] transition-all"
                 style={{
-                  background: "#3B82F6",
-                  color: "#0F172A",
+                  background: "#FFFFFF",
+                  color: "var(--brand, #1B2A44)",
                   fontFamily: "var(--font-body)",
+                  fontWeight: 600,
                   border: "none",
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "#2563EB";
+                  e.currentTarget.style.opacity = "0.9";
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "#3B82F6";
+                  e.currentTarget.style.opacity = "1";
                 }}
               >
-                <Zap className="h-4 w-4" style={{ color: "#FACC15", fill: "#FACC15" }} />
                 <span>Upgrade Plan</span>
               </button>
             </div>
@@ -529,20 +537,20 @@ export function AppSidebar() {
                     trackUpgradeClick("sidebar", { from_location: "sidebar" });
                     navigate("/pricing");
                   }}
-                  className="w-full flex items-center justify-center p-2 rounded-[3px] transition-all"
+                  className="w-full flex items-center justify-center p-2 rounded-[6px] transition-all"
                   style={{
-                    background: "#3B82F6",
-                    color: "#0F172A",
+                    background: "#FFFFFF",
+                    color: "var(--brand, #1B2A44)",
                     border: "none",
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "#2563EB";
+                    e.currentTarget.style.opacity = "0.9";
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "#3B82F6";
+                    e.currentTarget.style.opacity = "1";
                   }}
                 >
-                  <Zap className="h-5 w-5" style={{ color: "#FACC15", fill: "#FACC15" }} />
+                  <Zap className="h-5 w-5" />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">

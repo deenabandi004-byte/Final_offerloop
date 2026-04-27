@@ -22,9 +22,13 @@ import {
   Users, Link, Building2, Briefcase, MapPin, FileText, CheckCircle,
   Mail, Sparkles, Check, ArrowRight, ClipboardList, Loader2, Upload, ChevronDown, ChevronUp
 } from "lucide-react";
+import type { FeedJob } from "@/services/api";
+import { getCompanyLogoUrl } from "@/utils/suggestionChips";
+import { DEV_MOCK_USER } from "@/lib/devPreview";
 
-const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
-  const { user } = useFirebaseAuth();
+const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: boolean }> = ({ embedded = false, isDevPreview = false }) => {
+  const { user: authUser } = useFirebaseAuth();
+  const user = isDevPreview ? DEV_MOCK_USER as any : authUser;
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState('find-hiring-managers');
 
@@ -46,6 +50,10 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean }> = ({ embedded =
   const [estimatedManagers] = useState(2);
   const [managersFound, setManagersFound] = useState(0);
   const [showManualEntry, setShowManualEntry] = useState(false);
+
+  // Recent jobs for chips
+  const [recentJobs, setRecentJobs] = useState<FeedJob[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(false);
 
   // Ref for original button to track visibility
   const originalButtonRef = useRef<HTMLButtonElement>(null);
@@ -85,7 +93,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean }> = ({ embedded =
 
   // Load saved resume from Firestore
   const loadSavedResume = useCallback(async () => {
-    if (!user?.uid) return;
+    if (!user?.uid || isDevPreview) return;
     try {
       const userRef = doc(db, 'users', user.uid);
       const snap = await getDoc(userRef);
@@ -102,6 +110,33 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean }> = ({ embedded =
   useEffect(() => {
     loadSavedResume();
   }, [loadSavedResume]);
+
+  // Fetch recent job feed for chips
+  useEffect(() => {
+    if (!user?.uid || isDevPreview) return;
+    let cancelled = false;
+    setJobsLoading(true);
+    apiService.getJobFeed().then(data => {
+      if (cancelled) return;
+      // Combine top_jobs and new_matches, deduplicate, take first 8
+      const all = [...(data.top_jobs || []), ...(data.new_matches || [])];
+      const seen = new Set<string>();
+      const unique: FeedJob[] = [];
+      for (const job of all) {
+        if (!seen.has(job.job_id) && job.apply_url) {
+          seen.add(job.job_id);
+          unique.push(job);
+        }
+        if (unique.length >= 8) break;
+      }
+      setRecentJobs(unique);
+    }).catch(() => {
+      // Silently fail — chips are optional
+    }).finally(() => {
+      if (!cancelled) setJobsLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [user?.uid]);
 
   // Save resume to account settings
   const saveResumeToAccountSettings = async (file: File) => {
@@ -466,6 +501,132 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean }> = ({ embedded =
                         ref={fileInputRef}
                         disabled={isSearching || isUploadingResume}
                       />
+
+                      {/* Recent Job Chips */}
+                      {recentJobs.length > 0 && !jobPostingUrl && !isSearching && (
+                        <div style={{ marginBottom: 18 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>
+                              From your job board
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 11.5, color: '#64748B', marginBottom: 10 }}>
+                            Find the hiring manager for a role you're interested in
+                          </div>
+                          <div
+                            style={{
+                              display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4,
+                              scrollbarWidth: 'none',
+                            }}
+                          >
+                            {recentJobs.map(job => {
+                              const accentColors = ['#3B82F6', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#06B6D4', '#EC4899', '#6366F1'];
+                              const accent = accentColors[Math.abs(job.company.charCodeAt(0)) % accentColors.length];
+                              // Logo priority: feed logo → domain map → guessed domain favicon
+                              const domainGuess = job.company.toLowerCase().replace(/[^a-z0-9]/g, '') + '.com';
+                              const logoUrl = job.employer_logo || getCompanyLogoUrl(job.company) || `https://www.google.com/s2/favicons?domain=${domainGuess}&sz=128`;
+                              const initial = job.company.charAt(0).toUpperCase();
+
+                              return (
+                                <button
+                                  key={job.job_id}
+                                  type="button"
+                                  onClick={() => {
+                                    setJobPostingUrl(job.apply_url);
+                                    setCompany(job.company);
+                                    setJobTitle(job.title);
+                                    setLocation(job.location || '');
+                                  }}
+                                  style={{
+                                    flex: '0 0 148px', width: 148,
+                                    borderRadius: 3, overflow: 'hidden',
+                                    background: '#FAFBFF', border: '1px solid #E2E8F0',
+                                    cursor: 'pointer', textAlign: 'left',
+                                    transition: 'border-color .15s, box-shadow .15s, transform .15s',
+                                    fontFamily: 'inherit', padding: 0,
+                                  }}
+                                  onMouseEnter={e => {
+                                    const el = e.currentTarget as HTMLButtonElement;
+                                    el.style.borderColor = '#93C5FD';
+                                    el.style.boxShadow = '0 2px 8px rgba(59,130,246,0.10)';
+                                    el.style.transform = 'scale(1.02)';
+                                  }}
+                                  onMouseLeave={e => {
+                                    const el = e.currentTarget as HTMLButtonElement;
+                                    el.style.borderColor = '#E2E8F0';
+                                    el.style.boxShadow = 'none';
+                                    el.style.transform = 'scale(1)';
+                                  }}
+                                >
+                                  {/* Accent bar */}
+                                  <div style={{ height: 3, background: accent }} />
+
+                                  {/* Card body */}
+                                  <div style={{ padding: '10px 12px 12px' }}>
+                                    {/* Logo */}
+                                    <div style={{ marginBottom: 8 }}>
+                                      {logoUrl ? (
+                                        <img
+                                          src={logoUrl}
+                                          alt=""
+                                          style={{ width: 32, height: 32, borderRadius: 3, objectFit: 'contain', background: '#fff' }}
+                                          onError={e => {
+                                            (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                            const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                                            if (fallback) fallback.style.display = 'flex';
+                                          }}
+                                        />
+                                      ) : null}
+                                      <div style={{
+                                        width: 32, height: 32, borderRadius: 3,
+                                        background: `${accent}18`, color: accent,
+                                        fontSize: 13, fontWeight: 600,
+                                        display: logoUrl ? 'none' : 'flex',
+                                        alignItems: 'center', justifyContent: 'center',
+                                      }}>
+                                        {initial}
+                                      </div>
+                                    </div>
+
+                                    {/* Company name */}
+                                    <div style={{
+                                      fontSize: 13, fontWeight: 500, color: '#0F172A',
+                                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                      marginBottom: 3,
+                                    }}>
+                                      {job.company}
+                                    </div>
+
+                                    {/* Job title */}
+                                    <div style={{
+                                      fontSize: 11, color: '#64748B', lineHeight: 1.35,
+                                      display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                                      overflow: 'hidden', minHeight: 30,
+                                      marginBottom: 8,
+                                    }}>
+                                      {job.title}
+                                    </div>
+
+                                    {/* CTA */}
+                                    <div style={{ fontSize: 11, color: '#3B82F6', fontWeight: 500 }}>
+                                      Find hiring manager →
+                                    </div>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {/* Divider */}
+                          <div style={{
+                            display: 'flex', alignItems: 'center', gap: 12, marginTop: 14,
+                          }}>
+                            <div style={{ flex: 1, height: 1, background: '#E2E8F0' }} />
+                            <span style={{ fontSize: 11, color: '#94A3B8', whiteSpace: 'nowrap' }}>or paste a job URL</span>
+                            <div style={{ flex: 1, height: 1, background: '#E2E8F0' }} />
+                          </div>
+                        </div>
+                      )}
 
                       {/* Search input */}
                       <div style={{ marginBottom: 14 }}>

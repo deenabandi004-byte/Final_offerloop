@@ -17,10 +17,10 @@ export default {
 			}
 		},
 		fontFamily: {
-			sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
-			serif: ['Lora', 'Georgia', 'serif'],
-			display: ['Lora', 'Georgia', 'serif'],
-			mono: ['SF Mono', 'Fira Code', 'monospace'],
+			sans: ['Inter', 'system-ui', 'sans-serif'],
+			serif: ['"Instrument Serif"', 'Georgia', 'serif'],
+			display: ['"Instrument Serif"', 'Georgia', 'serif'],
+			mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
 		},
 		extend: {
 			colors: {
@@ -66,7 +66,20 @@ export default {
 					'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
 					border: 'hsl(var(--sidebar-border))',
 					ring: 'hsl(var(--sidebar-ring))'
-				}
+				},
+				// Stationery design tokens
+				paper:     'var(--paper)',
+				'paper-2': 'var(--paper-2)',
+				elev:      'var(--elev)',
+				ink:       { DEFAULT: 'var(--ink)', 2: 'var(--ink-2)', 3: 'var(--ink-3)' },
+				line:      { DEFAULT: 'var(--line)', 2: 'var(--line-2)' },
+				brand:     { DEFAULT: 'var(--brand)', 2: 'var(--brand-2)' },
+				'st-accent': 'var(--accent)',
+				signal:    {
+					pos:  'var(--signal-pos)',
+					neg:  'var(--signal-neg)',
+					wait: 'var(--signal-wait)',
+				},
 			},
 			backgroundImage: {
 				'gradient-hero': 'var(--gradient-hero)',
@@ -74,12 +87,20 @@ export default {
 			},
 			boxShadow: {
 				'soft': 'var(--shadow-soft)',
-				'card': 'var(--shadow-card)'
+				'card': 'var(--shadow-card)',
+				'st-sm': 'var(--shadow-sm)',
+				'st-md': 'var(--shadow-md)',
+				'st-lg': 'var(--shadow-lg)',
 			},
 			borderRadius: {
 				lg: 'var(--radius)',
 				md: 'calc(var(--radius) - 2px)',
-				sm: 'calc(var(--radius) - 4px)'
+				sm: 'calc(var(--radius) - 4px)',
+				'st-sm':  '4px',
+				'st-md':  '6px',
+				'st-lg':  '8px',
+				'st-xl':  '10px',
+				'st-2xl': '14px',
 			},
 			keyframes: {
 				'accordion-down': {

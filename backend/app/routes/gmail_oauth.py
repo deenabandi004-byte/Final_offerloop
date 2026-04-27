@@ -222,7 +222,16 @@ def google_oauth_callback():
         # 2) Get Gmail profile email
         gmail_service = build("gmail", "v1", credentials=creds)
         profile = gmail_service.users().getProfile(userId="me").execute()
-        gmail_email = (profile or {}).get("emailAddress")
+        gmail_email = ((profile or {}).get("emailAddress") or "").strip().lower()
+
+        # Bail early if the profile response didn't include an email — without
+        # it we can't persist the integration or do a user lookup, and every
+        # downstream step would silently misbehave.
+        if not gmail_email:
+            print("[gmail_oauth] getProfile returned no emailAddress; aborting OAuth")
+            redirect_url = get_frontend_redirect_uri()
+            sep = "&" if "?" in redirect_url else "?"
+            return redirect(f"{redirect_url}{sep}gmail_error=profile_missing_email")
 
         # 3) If we don't have UID from state, try to find user by Gmail email
         if not uid:

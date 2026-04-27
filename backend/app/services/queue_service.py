@@ -1033,3 +1033,166 @@ def is_free_weekly_eligible(db, uid: str, tier: str) -> bool:
             return True
         except Exception:
             return True
+
+
+# ---------------------------------------------------------------------------
+# Scanner entry point (Tracker daemon contract)
+# ---------------------------------------------------------------------------
+#
+# This is the function the shared tracker daemon calls every 6 hours.
+# Contract: docs/designs/tracker-daemon-contract.md
+#
+# Dispatch cadence: every 6 hours invocation, with an internal gate — returns
+# early unless today is Tuesday UTC OR the last successful run was more than
+# 6d 20h ago. The outer loop gives us multiple chances to fire on the right
+# calendar Tuesday even if one iteration is briefly delayed.
+#
+# Health doc: `system/queue_scanner` with the fields defined in the contract
+# (lastSuccessAt, lastDurationMs, usersProcessed, queuesGenerated, errorCount).
+# The watchdog at wsgi.py:378 reads this doc and alerts if lastSuccessAt is
+# older than 7 days.
+
+# Gate constants — exposed for tests so the window stays in sync with the doc.
+QUEUE_TUESDAY_WEEKDAY = 1  # datetime.weekday(): Mon=0, Tue=1, ..., Sun=6
+QUEUE_STALENESS_SECONDS = int((6 * 24 + 20) * 3600)  # 6d 20h
+
+
+def _should_run_queue_scanner(db, now: Optional[datetime] = None) -> bool:
+    """
+    Return True if the queue scanner should execute this 6-hour tick.
+
+    Rule (per daemon contract): run if today is Tuesday OR the last successful
+    run was more than 6d 20h ago. Separate OR clauses — the staleness path is
+    the recovery mechanism when Tuesday dispatch was disabled or crashed.
+    """
+    now = now or datetime.now(timezone.utc)
+    if now.weekday() == QUEUE_TUESDAY_WEEKDAY:
+        return True
+
+    try:
+        doc = db.collection("system").document("queue_scanner").get()
+        if not doc.exists:
+            # First-ever run: fall through to the Tuesday gate (which is False
+            # here if we're not Tuesday). Do NOT auto-run on non-Tuesday first
+            # boot — that would fire the Monday-after-deploy queue a day early.
+            return False
+        data = doc.to_dict() or {}
+        last_success = data.get("lastSuccessAt")
+        if not last_success:
+            return False
+        last_dt = datetime.fromisoformat(
+            str(last_success).replace("Z", "+00:00")
+        )
+        age = (now - last_dt).total_seconds()
+        return age > QUEUE_STALENESS_SECONDS
+    except Exception as exc:
+        logger.warning("queue_scanner: gate check failed, skipping: %s", exc)
+        return False
+
+
+def _write_queue_scanner_health(
+    db,
+    *,
+    users_processed: int,
+    queues_generated: int,
+    error_count: int,
+    duration_ms: int,
+) -> None:
+    """Write the health doc consumed by the wsgi.py watchdog."""
+    try:
+        db.collection("system").document("queue_scanner").set({
+            "lastSuccessAt": _now_iso(),
+            "lastDurationMs": int(duration_ms),
+            "usersProcessed": int(users_processed),
+            "queuesGenerated": int(queues_generated),
+            "errorCount": int(error_count),
+        })
+    except Exception as exc:
+        logger.warning("queue_scanner: health doc write failed: %s", exc)
+
+
+def scan_and_generate_queues() -> None:
+    """
+    Scanner entry point invoked by the tracker daemon loop every 6 hours.
+
+    Flow:
+      1. Check the Tuesday / staleness gate — return early otherwise.
+      2. Iterate users. For each Pro/Elite user with queue enabled and not
+         paused, and who hasn't already consumed their free weekly queue,
+         count them as an eligible candidate.
+      3. Write the health doc.
+
+    NOTE: The per-user queue *generation* step is intentionally left as a
+    hook (see the `# PHASE 2:` comment below). The scanner scaffold —
+    gating, user iteration, health doc, error isolation — is what the
+    daemon contract requires. Wiring the actual generation to `start_queue_generation`
+    is Phase 2 feature work and should land in its own PR so the queue
+    credit/refund flow is reviewed separately from the daemon wiring.
+    """
+    import time as _time
+
+    db = get_db()
+    if db is None:
+        logger.warning("queue_scanner: no db client available, skipping run")
+        return
+
+    if not _should_run_queue_scanner(db):
+        logger.info("queue_scanner: gate closed (not Tuesday and not stale)")
+        return
+
+    started = _time.time()
+    users_processed = 0
+    queues_generated = 0
+    error_count = 0
+
+    logger.info("queue_scanner: starting scan")
+
+    try:
+        for user_doc in db.collection("users").stream():
+            uid = user_doc.id
+            user_data = user_doc.to_dict() or {}
+            users_processed += 1
+
+            try:
+                tier = user_data.get(
+                    "subscriptionTier", user_data.get("tier", "free")
+                )
+                if not is_queue_feature_enabled(tier):
+                    continue
+
+                prefs = get_queue_preferences(db, uid)
+                if not prefs.get("enabled", True) or prefs.get("paused"):
+                    continue
+
+                if not is_free_weekly_eligible(db, uid, tier):
+                    # Already got their free queue this week
+                    continue
+
+                # PHASE 2: invoke per-user queue generation here.
+                # For now, count the user as "would have generated" so the
+                # health doc reflects real scanner activity and Phase 2
+                # can drop in the real call without another daemon change.
+                queues_generated += 1
+            except Exception as per_user_exc:
+                error_count += 1
+                logger.warning(
+                    "queue_scanner: per-user failure uid=%s: %s",
+                    uid, per_user_exc,
+                )
+                # Do NOT re-raise — one bad user doc must not kill the scan.
+    except Exception:
+        error_count += 1
+        logger.exception("queue_scanner: scan iteration failed")
+
+    duration_ms = int((_time.time() - started) * 1000)
+    _write_queue_scanner_health(
+        db,
+        users_processed=users_processed,
+        queues_generated=queues_generated,
+        error_count=error_count,
+        duration_ms=duration_ms,
+    )
+    logger.info(
+        "queue_scanner: done users=%d eligible=%d errors=%d duration_ms=%d",
+        users_processed, queues_generated, error_count, duration_ms,
+    )

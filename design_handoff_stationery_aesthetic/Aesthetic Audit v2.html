@@ -1,0 +1,1521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Offerloop — Aesthetic Refresh v2 · Stationery</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    /* Stationery palette — ivory/cream, warm ink */
+    --paper:      #FDFBF7;                    /* envelope cream */
+    --paper-2:    #F7F3EA;                    /* inner panel, shadow of paper */
+    --surface:    #FFFEFB;                    /* letterhead card, barely whiter */
+    --elev:       #FFFFFF;                    /* raised element */
+    --line:       #E6DFCF;                    /* warm hairline, oxidised */
+    --line-2:     #EFE9DB;                    /* faintest rule */
+    --line-ink:   #2A2620;                    /* printed ink hairline */
+
+    --ink:        #1F1B14;                    /* printer's black, warm */
+    --ink-2:      #4A4437;                    /* body text */
+    --ink-3:      #8A816E;                    /* tertiary, pencil */
+    --ink-4:      #B8AE97;                    /* extra quiet */
+
+    --brand:      #1D3F7A;                    /* navy — stationery, not SaaS blue */
+    --brand-hov:  #15305E;
+    --brand-soft: #E7EAF2;
+    --brand-ink:  #0F2144;
+
+    --accent:     #8B2E1F;                    /* oxblood/letterhead red, used once */
+    --accent-soft:#F4E4DE;
+
+    --signal-pos: #4A6B3A;                    /* ivy/forest */
+    --signal-neg: #8B2E1F;
+
+    /* Type — all free */
+    --sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --display: 'Instrument Serif', 'Times New Roman', Georgia, serif;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    /* Spacing */
+    --s-1: 4px;   --s-2: 8px;   --s-3: 12px;  --s-4: 16px;
+    --s-5: 20px;  --s-6: 24px;  --s-8: 32px;  --s-10: 40px;
+    --s-12: 48px; --s-16: 64px; --s-20: 80px; --s-24: 96px;
+
+    --r-1: 3px;   --r-2: 4px;   --r-3: 6px;   --r-4: 10px;   --r-pill: 999px;
+
+    --sh-1: 0 1px 0 rgba(62,48,24,0.04), 0 1px 2px rgba(62,48,24,0.04);
+    --sh-2: 0 1px 0 rgba(62,48,24,0.04), 0 6px 16px -6px rgba(62,48,24,0.08);
+    --sh-3: 0 1px 0 rgba(62,48,24,0.04), 0 18px 44px -18px rgba(62,48,24,0.18);
+    --sh-inset: inset 0 0 0 1px var(--line), inset 0 0 0 5px var(--paper);
+  }
+
+  *{box-sizing:border-box}
+
+  /* Paper grain — CSS-only, zero assets */
+  html{
+    background:var(--paper);
+    background-image:
+      radial-gradient(circle at 15% 20%, rgba(120,90,40,0.022) 0, transparent 40%),
+      radial-gradient(circle at 85% 70%, rgba(80,60,20,0.018) 0, transparent 45%);
+  }
+  body{
+    margin:0;color:var(--ink);
+    font-family:var(--sans);
+    font-size:15px;line-height:1.55;letter-spacing:-0.005em;
+    font-feature-settings:"ss01","cv11","cv05";
+    position:relative;
+  }
+  /* CSS noise layer — fine grain via SVG data-URI turbulence (inline, no file) */
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:1;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.25  0 0 0 0 0.18  0 0 0 0 0.06  0 0 0 0.035 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    mix-blend-mode:multiply;
+    opacity:0.55;
+  }
+  /* Content sits above noise */
+  .page, .toc{position:relative;z-index:2}
+
+  h1,h2,h3,h4{margin:0;color:var(--ink);font-weight:400}
+  h1{font-family:var(--display);font-size:68px;line-height:1.02;letter-spacing:-0.015em}
+  h1 em{font-style:italic;font-weight:400;color:var(--ink-2)}
+  h2{font-family:var(--display);font-size:36px;line-height:1.1;letter-spacing:-0.012em}
+  h2 em{font-style:italic;color:var(--ink-2)}
+  h3{font-family:var(--sans);font-size:19px;line-height:1.3;letter-spacing:-0.012em;font-weight:600}
+  h4{font-family:var(--mono);font-size:11px;letter-spacing:0.1em;text-transform:uppercase;font-weight:500;color:var(--ink-3)}
+  p{margin:0;color:var(--ink-2)}
+  em.serif{font-family:var(--display);font-style:italic;font-weight:400;color:var(--ink)}
+  .mono{font-family:var(--mono);font-size:11px;letter-spacing:0.04em;color:var(--ink-3)}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-0.01em}
+
+  /* Letterhead header */
+  .letterhead{padding:56px 56px 40px;border-bottom:1px solid var(--line);display:grid;grid-template-columns:auto 1fr auto;gap:48px;align-items:center}
+  .seal{width:72px;height:72px;border:1.5px solid var(--ink);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-direction:column;color:var(--ink);position:relative}
+  .seal::before,.seal::after{content:"";position:absolute;border:1px solid var(--ink);border-radius:50%}
+  .seal::before{inset:4px}
+  .seal::after{inset:-1px;border-color:var(--ink);border-width:1px;opacity:0.15;transform:scale(1.1)}
+  .seal .o{font-family:var(--display);font-size:28px;line-height:1;font-style:italic;margin-top:-3px}
+  .seal .mini{font-family:var(--mono);font-size:7px;letter-spacing:0.18em;margin-top:2px;text-transform:uppercase}
+  .letterhead-center{text-align:center}
+  .letterhead-center .wordmark{font-family:var(--display);font-size:28px;letter-spacing:-0.01em;line-height:1}
+  .letterhead-center .rule{width:80px;height:1px;background:var(--ink);margin:10px auto;position:relative}
+  .letterhead-center .rule::before,.letterhead-center .rule::after{content:"";position:absolute;top:-2px;width:5px;height:5px;border-radius:50%;background:var(--ink)}
+  .letterhead-center .rule::before{left:-10px}
+  .letterhead-center .rule::after{right:-10px}
+  .letterhead-center .sub{font-family:var(--mono);font-size:10px;letter-spacing:0.2em;text-transform:uppercase;color:var(--ink-3)}
+  .letterhead-right{text-align:right;font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--ink-3);line-height:2}
+  .letterhead-right b{color:var(--ink);font-weight:500;display:inline-block;min-width:60px;text-align:left}
+  .letterhead-right .stamp{display:inline-block;padding:6px 12px;border:1.5px solid var(--accent);color:var(--accent);font-family:var(--mono);font-size:9px;letter-spacing:0.16em;transform:rotate(-4deg);margin-top:10px;border-radius:2px}
+
+  /* Table of contents */
+  .toc{background:var(--paper);border-bottom:1px solid var(--line);padding:18px 0}
+  .toc-inner{max-width:1280px;margin:0 auto;padding:0 56px;display:flex;align-items:center;gap:32px}
+  .toc-nav{display:flex;gap:28px;font-family:var(--mono);font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3);margin-left:auto}
+  .toc-nav a{color:var(--ink-3);text-decoration:none;padding:6px 0;border-bottom:1px solid transparent;transition:all .15s}
+  .toc-nav a:hover{color:var(--ink);border-bottom-color:var(--ink)}
+  .toc-brand{font-family:var(--display);font-size:18px;color:var(--ink);letter-spacing:-0.01em}
+  .toc-brand em{font-style:italic;color:var(--ink-2);margin-left:4px}
+
+  /* Page */
+  .page{max-width:1280px;margin:0 auto}
+  .intro{padding:64px 56px 0}
+  .eyebrow{display:flex;align-items:center;gap:12px;color:var(--ink-3);font-family:var(--mono);font-size:10px;letter-spacing:0.14em;text-transform:uppercase;margin-bottom:24px}
+  .eyebrow::before{content:"¶";font-family:var(--display);font-style:italic;font-size:14px;color:var(--accent)}
+
+  .section{margin-top:96px;padding:0 56px;scroll-margin-top:32px}
+  .section-head{display:grid;grid-template-columns:200px 1fr;gap:48px;padding-bottom:32px;border-bottom:1px solid var(--line);margin-bottom:40px;align-items:baseline}
+  .section-head .idx{font-family:var(--mono);font-size:10px;letter-spacing:0.14em;color:var(--ink-3);text-transform:uppercase}
+  .section-head h2{margin-bottom:12px}
+  .section-head p{max-width:680px;font-size:15px}
+
+  /* Reasoning / critique blocks */
+  .note{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-3);padding:20px 24px;position:relative}
+  .note::before{content:"";position:absolute;left:0;top:16px;bottom:16px;width:2px;background:var(--accent)}
+  .note h5{margin:0 0 6px;font-family:var(--sans);font-size:13px;font-weight:600;letter-spacing:-0.005em}
+  .note p{font-size:13px}
+
+  /* Principles */
+  .principles{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--line);border-radius:var(--r-3);background:var(--surface);overflow:hidden}
+  .principle{padding:24px;border-right:1px solid var(--line-2)}
+  .principle:last-child{border-right:none}
+  .principle .pn{font-family:var(--display);font-style:italic;font-size:32px;color:var(--accent);line-height:1;margin-bottom:16px}
+  .principle h5{margin:0 0 8px;font-family:var(--sans);font-size:14px;font-weight:600}
+  .principle p{font-size:13px;line-height:1.5}
+
+  /* Revisions callout grid */
+  .revisions{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:24px}
+  .rev{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-3);padding:20px}
+  .rev .tag{font-family:var(--mono);font-size:9px;letter-spacing:0.14em;text-transform:uppercase;padding:2px 8px;border-radius:var(--r-pill);display:inline-block;margin-bottom:12px;background:var(--paper-2);color:var(--ink-2);border:1px solid var(--line)}
+  .rev .tag.fix{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+  .rev h5{margin:0 0 8px;font-size:14px;font-weight:600}
+  .rev p{font-size:13px;line-height:1.5}
+  .rev p + p{margin-top:8px}
+  .rev .before{color:var(--ink-3);font-size:12px;padding-top:12px;margin-top:12px;border-top:1px dashed var(--line)}
+  .rev .before b{color:var(--ink-2);font-weight:500}
+
+  /* Type specimen */
+  .spec-row{display:grid;grid-template-columns:140px 1fr;gap:40px;padding:32px 0;border-top:1px solid var(--line);align-items:baseline}
+  .spec-row:last-child{border-bottom:1px solid var(--line)}
+  .spec-label{font-family:var(--mono);font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3)}
+  .spec-label b{display:block;color:var(--ink);margin-bottom:4px;font-weight:500;font-size:11px;font-family:var(--sans);text-transform:none;letter-spacing:0.01em}
+  .spec-demo{color:var(--ink)}
+  .spec-demo .caption{margin-top:10px}
+
+  /* Color palette */
+  .palette{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+  .swatch{border:1px solid var(--line);border-radius:var(--r-3);overflow:hidden;background:var(--elev)}
+  .swatch .chip{height:92px;display:flex;align-items:flex-end;padding:10px;color:#fff;font-family:var(--mono);font-size:10px;letter-spacing:0.04em}
+  .swatch .chip.dark{color:var(--ink)}
+  .swatch .meta{padding:10px 12px;font-family:var(--mono);font-size:10px;color:var(--ink-3);border-top:1px solid var(--line);letter-spacing:0.02em}
+  .swatch .meta b{display:block;color:var(--ink);font-weight:500;margin-bottom:2px;font-size:11px;text-transform:uppercase;letter-spacing:0.04em}
+
+  /* Spacing */
+  .sp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:12px}
+  .sp{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-2);padding:14px;text-align:center}
+  .sp .bar{background:var(--ink);height:6px;margin:0 auto 10px;border-radius:1px}
+  .sp .name{font-family:var(--mono);font-size:10px;color:var(--ink);letter-spacing:0.04em}
+  .sp .val{font-family:var(--mono);font-size:9px;color:var(--ink-3);margin-top:2px}
+
+  .radii{display:flex;gap:14px;align-items:flex-end}
+  .ra{background:var(--ink);width:60px;height:60px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px;color:var(--paper);font-family:var(--mono);font-size:10px}
+
+  .shadows{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .sh{background:var(--elev);border-radius:var(--r-3);padding:24px;display:flex;flex-direction:column;gap:4px;border:1px solid var(--line-2)}
+  .sh.s1{box-shadow:var(--sh-1)}
+  .sh.s2{box-shadow:var(--sh-2)}
+  .sh.s3{box-shadow:var(--sh-3)}
+  .sh b{font-size:13px;font-weight:600}
+  .sh span{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+
+  /* Components grid */
+  .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;margin-top:8px}
+  .kit-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-3);padding:24px}
+  .kit-card .kc-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;padding-bottom:12px;border-bottom:1px solid var(--line-2)}
+  .kit-card .kc-ttl{font-family:var(--mono);font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-3)}
+
+  /* Buttons */
+  .btn{font-family:var(--sans);font-size:14px;font-weight:500;padding:9px 16px;border-radius:var(--r-2);border:1px solid transparent;cursor:pointer;display:inline-flex;align-items:center;gap:8px;letter-spacing:-0.005em;transition:all .12s;line-height:1}
+  .btn-p{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+  .btn-p:hover{background:#000}
+  .btn-s{background:var(--elev);color:var(--ink);border-color:var(--line-ink);box-shadow:0 1px 0 rgba(62,48,24,0.05)}
+  .btn-s:hover{background:var(--paper-2)}
+  .btn-t{background:transparent;color:var(--ink-2)}
+  .btn-t:hover{color:var(--ink)}
+  .btn-brand{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .btn-brand:hover{background:var(--brand-hov);border-color:var(--brand-hov)}
+  .btn-xs{font-size:12px;padding:6px 11px}
+  .btn-lg{font-size:15px;padding:12px 20px}
+  .kbd{font-family:var(--mono);font-size:10px;padding:1px 5px;border:1px solid var(--line);border-radius:3px;background:var(--paper);color:var(--ink-3);margin-left:2px}
+
+  /* Input */
+  .input{width:100%;background:var(--elev);border:1px solid var(--line-ink);border-radius:var(--r-2);padding:10px 12px;font-family:var(--sans);font-size:14px;color:var(--ink);line-height:1.4;transition:all .12s;box-shadow:inset 0 1px 0 rgba(62,48,24,0.03)}
+  .input:focus{outline:none;border-color:var(--ink);box-shadow:0 0 0 3px rgba(29,63,122,0.1)}
+  .input-search{display:flex;align-items:center;gap:10px;padding:10px 12px}
+  .input-label{display:block;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-3);margin-bottom:8px}
+
+  /* Badges */
+  .badge{display:inline-flex;align-items:center;gap:6px;font-family:var(--sans);font-size:12px;padding:3px 9px;border-radius:var(--r-pill);border:1px solid var(--line);background:var(--elev);color:var(--ink-2);font-weight:500;letter-spacing:-0.005em}
+  .badge.dot::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
+  .badge-pos{color:var(--signal-pos);background:#EEF2E8;border-color:#D4DDC5}
+  .badge-neg{color:var(--signal-neg);background:var(--accent-soft);border-color:#E8CFC6}
+  .badge-brand{color:var(--brand-ink);background:var(--brand-soft);border-color:#C7CDDC}
+
+  /* Icon ruleset: use only where ambiguous */
+  .ic{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.5;flex-shrink:0}
+
+  /* Applied mockup ============================================== */
+  .mock{background:var(--paper);border:1px solid var(--line-ink);border-radius:var(--r-3);overflow:hidden;box-shadow:var(--sh-2);display:grid;grid-template-columns:232px 1fr;height:620px;position:relative}
+  .mock::after{content:"";position:absolute;inset:4px;border:1px solid var(--line);border-radius:3px;pointer-events:none}
+
+  .mock-side{background:#14110B;color:var(--paper);padding:22px 16px;display:flex;flex-direction:column;gap:2px;position:relative}
+  .mock-side::before{content:"";position:absolute;top:0;right:0;bottom:0;width:1px;background:#2A2418}
+  .mock-brand{padding:4px 8px 20px;margin-bottom:16px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;gap:10px}
+  .mock-brand .seal-sm{width:32px;height:32px;border:1px solid rgba(255,255,255,0.3);border-radius:50%;display:flex;align-items:center;justify-content:center;position:relative}
+  .mock-brand .seal-sm::before{content:"";position:absolute;inset:2px;border:0.5px solid rgba(255,255,255,0.2);border-radius:50%}
+  .mock-brand .seal-sm span{font-family:var(--display);font-style:italic;font-size:16px;color:var(--paper)}
+  .mock-brand .wm{font-family:var(--display);font-size:20px;letter-spacing:-0.01em;color:var(--paper)}
+  .mock-brand .wm em{font-style:italic;color:rgba(255,255,255,0.6)}
+
+  .mock-nav{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--r-2);font-size:13px;color:rgba(255,255,255,0.6);cursor:default}
+  .mock-nav.active{background:rgba(255,255,255,0.06);color:var(--paper)}
+  .mock-nav.active::before{content:"";width:3px;height:14px;background:var(--paper);border-radius:2px;margin-right:-3px;margin-left:-10px}
+  .mock-nav svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.5}
+  .mock-side-hd{font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:0.14em;color:rgba(255,255,255,0.35);padding:20px 10px 6px}
+
+  .mock-upgrade{margin-top:auto;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:var(--r-3);padding:14px}
+  .mock-upgrade .t{font-family:var(--sans);font-size:12px;color:var(--paper);margin-bottom:2px;display:flex;justify-content:space-between}
+  .mock-upgrade .bar{height:3px;background:rgba(255,255,255,0.1);border-radius:2px;margin:8px 0 10px;overflow:hidden}
+  .mock-upgrade .bar i{display:block;height:100%;width:0%;background:var(--paper)}
+  .mock-upgrade .s{font-family:var(--mono);font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:0.04em;margin-bottom:10px}
+
+  .mock-main{display:flex;flex-direction:column;overflow:hidden;background:var(--paper)}
+  .mock-topbar{display:flex;justify-content:space-between;align-items:center;padding:14px 28px;border-bottom:1px solid var(--line)}
+  .mock-breadcrumb{font-family:var(--mono);font-size:10px;color:var(--ink-3);letter-spacing:0.12em;text-transform:uppercase}
+  .mock-breadcrumb b{color:var(--ink);font-weight:500}
+  .mock-breadcrumb span{margin:0 8px;color:var(--ink-4)}
+
+  .mock-content{padding:40px 40px 32px;overflow:auto;flex:1;position:relative}
+
+  /* Hand-drawn underline under italic greeting — single signature gesture */
+  .greet{font-family:var(--display);font-size:38px;letter-spacing:-0.015em;font-weight:400;color:var(--ink);line-height:1.05;margin-bottom:6px}
+  .greet em{font-style:italic;position:relative;display:inline-block;padding-bottom:4px}
+  .greet em::after{
+    content:"";position:absolute;left:-2%;right:-2%;bottom:-2px;height:8px;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 8' preserveAspectRatio='none'><path d='M1 5 Q40 1 80 4 T160 3 T199 5' stroke='%238B2E1F' stroke-width='1.4' fill='none' stroke-linecap='round'/></svg>");
+    background-size:100% 100%;
+    background-repeat:no-repeat;
+    opacity:0.8;
+  }
+  .greet-sub{font-family:var(--mono);font-size:10px;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.14em;margin-bottom:28px}
+  .greet-sub::before{content:"—  "}
+
+  .mock-tabs{display:flex;border-bottom:1px solid var(--line);margin-bottom:24px}
+  .mock-tab{padding:10px 0;margin-right:28px;font-size:13px;color:var(--ink-3);border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;display:flex;align-items:center;gap:8px;font-weight:500}
+  .mock-tab.active{color:var(--ink);border-bottom-color:var(--ink)}
+  .mock-tab .cnt{font-family:var(--mono);font-size:10px;color:var(--ink-3);font-weight:400}
+
+  .mock-query{display:flex;align-items:center;gap:12px;background:var(--elev);border:1px solid var(--line-ink);border-radius:var(--r-2);padding:14px 16px;box-shadow:inset 0 1px 0 rgba(62,48,24,0.03)}
+  .mock-query svg{width:15px;height:15px;stroke:var(--ink-3);fill:none;stroke-width:1.5;flex-shrink:0}
+  .mock-query input{all:unset;flex:1;font-family:var(--sans);font-size:14px;color:var(--ink)}
+  .mock-query input::placeholder{color:var(--ink-3)}
+
+  .mock-suggest{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+  .sug{font-size:12px;padding:5px 11px;border:1px solid var(--line);border-radius:var(--r-pill);color:var(--ink-2);background:var(--elev);cursor:default}
+
+  .mock-cta{margin-top:24px;display:flex;gap:12px;align-items:center}
+
+  .mock-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:28px}
+  .mock-tile{background:var(--elev);border:1px solid var(--line);border-radius:var(--r-3);padding:18px;position:relative}
+  .mock-tile .num-sm{position:absolute;top:14px;right:14px;font-family:var(--mono);font-size:9px;letter-spacing:0.1em;color:var(--ink-4);text-transform:uppercase}
+  .mock-tile b{display:block;font-family:var(--display);font-size:22px;color:var(--ink);font-weight:400;letter-spacing:-0.01em;line-height:1.1;margin-bottom:4px}
+  .mock-tile .sub{font-size:12px;color:var(--ink-2);margin-top:6px}
+  .mock-tile .meta{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:14px;padding-top:10px;border-top:1px solid var(--line-2);letter-spacing:0.04em}
+  .mock-tile .meta b{display:inline;font-family:var(--mono);font-size:10px;font-weight:500;color:var(--ink);letter-spacing:0.04em}
+
+  /* Before/after compare */
+  .compare{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:40px}
+  .cmp{border:1px solid var(--line);border-radius:var(--r-3);overflow:hidden;background:var(--surface)}
+  .cmp-hd{display:flex;justify-content:space-between;align-items:center;padding:12px 18px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-3)}
+  .cmp-hd.old{background:var(--paper-2)}
+  .cmp-hd.new{background:var(--ink);color:var(--paper)}
+  .cmp-hd .tag{padding:2px 8px;border-radius:var(--r-pill);font-size:9px;border:1px solid currentColor}
+  .cmp img{display:block;width:100%;height:auto}
+  .cmp-body{padding:20px;font-size:13px;color:var(--ink-2)}
+  .cmp-body p + p{margin-top:8px}
+
+  /* Signature gesture demo */
+  .signature-demo{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-3);padding:32px 28px}
+  .sig-example{padding:24px 0;border-top:1px solid var(--line-2)}
+  .sig-example:first-of-type{border-top:none;padding-top:0}
+  .sig-example .label{font-family:var(--mono);font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:12px}
+  .sig-ex-1{font-family:var(--display);font-size:32px;letter-spacing:-0.015em;line-height:1.1;color:var(--ink)}
+  .sig-ex-1 em{font-style:italic}
+  .sig-ex-1 em.underlined{position:relative;display:inline-block;padding-bottom:4px}
+  .sig-ex-1 em.underlined::after{content:"";position:absolute;left:-2%;right:-2%;bottom:-2px;height:8px;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 8' preserveAspectRatio='none'><path d='M1 5 Q40 1 80 4 T160 3 T199 5' stroke='%238B2E1F' stroke-width='1.4' fill='none' stroke-linecap='round'/></svg>");background-size:100% 100%;background-repeat:no-repeat;opacity:0.8}
+
+  /* Tokens table */
+  .tokens{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px;margin-top:24px}
+  .tokens th,.tokens td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);color:var(--ink-2)}
+  .tokens th{color:var(--ink-3);font-weight:500;text-transform:uppercase;font-size:10px;letter-spacing:0.12em;background:var(--paper-2)}
+  .tokens td b{color:var(--ink);font-weight:500}
+  .tokens td.sw{padding:0;width:44px}
+  .tokens .chip-sm{width:22px;height:22px;border-radius:3px;border:1px solid var(--line);margin:0 auto;display:block}
+
+  footer{margin:120px 56px 40px;padding-top:32px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:flex-end;font-family:var(--mono);font-size:10px;color:var(--ink-3);letter-spacing:0.08em}
+  footer .sign{font-family:var(--display);font-style:italic;font-size:20px;color:var(--ink);text-transform:none;letter-spacing:-0.01em}
+
+  /* Tweaks panel */
+  .tweaks{position:fixed;right:24px;bottom:24px;background:var(--ink);color:var(--paper);border-radius:var(--r-3);padding:18px;width:280px;font-family:var(--sans);font-size:12px;box-shadow:var(--sh-3);z-index:100;display:none}
+  .tweaks.open{display:block}
+  .tweaks h6{margin:0 0 14px;font-family:var(--mono);font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:rgba(255,255,255,0.6)}
+  .tweak-row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-top:1px solid rgba(255,255,255,0.08);gap:12px}
+  .tweak-row:first-of-type{border-top:none}
+  .tweak-row label{color:rgba(255,255,255,0.85);flex:1}
+  .tweak-row select,.tweak-row input[type=range],.tweak-row input[type=color]{background:transparent;color:var(--paper);border:1px solid rgba(255,255,255,0.2);border-radius:3px;padding:3px 6px;font-size:11px;font-family:var(--mono)}
+  .tweak-row input[type=range]{padding:0}
+  .tweak-row input[type=color]{height:22px;width:44px;padding:0;cursor:pointer}
+
+</style>
+</head>
+<body>
+
+<nav class="toc">
+  <div class="toc-inner">
+    <span class="toc-brand">Offerloop <em>&mdash; v2, stationery</em></span>
+    <div class="toc-nav">
+      <a href="#revisions">Revisions</a>
+      <a href="#principles">Principles</a>
+      <a href="#type">Type</a>
+      <a href="#color">Color</a>
+      <a href="#signature">Signature</a>
+      <a href="#components">Components</a>
+      <a href="#applied">Applied</a>
+    </div>
+  </div>
+</nav>
+
+<header class="letterhead">
+  <div class="seal">
+    <span class="o">O</span>
+    <span class="mini">Est. 2024</span>
+  </div>
+  <div class="letterhead-center">
+    <div class="wordmark">Offerloop</div>
+    <div class="rule"></div>
+    <div class="sub">Aesthetic Refresh · Volume II</div>
+  </div>
+  <div class="letterhead-right">
+    <div><b>Project</b> Product + Marketing</div>
+    <div><b>Revision</b> v2 · Stationery</div>
+    <div><b>Date</b> April 19, 2026</div>
+    <div class="stamp">Proposal · Not Final</div>
+  </div>
+</header>
+
+<div class="page">
+
+  <div class="intro">
+    <div class="eyebrow">A second pass, after notes</div>
+    <h1>Not another <em>AI product</em>.<br/>A letter, opened.</h1>
+    <p style="margin-top:24px;max-width:720px;font-size:16px;line-height:1.55;color:var(--ink-2)">
+      v1 was correct but generic &mdash; warm paper, Geist, Fraunces, hairlines. Tasteful AI slop. v2 commits to a direction
+      <em class="serif">stationery</em>. The language of a letter: cream paper, printer's ink, an engraved seal, a serif italic for the human moments, a hand-drawn underline as the single signature gesture. Free fonts only. No custom icon set. Realistic to ship.
+    </p>
+  </div>
+
+  <!-- REVISIONS ============================================================ -->
+  <section class="section" id="revisions">
+    <div class="section-head">
+      <div class="idx">I &middot; Revisions from v1</div>
+      <div>
+        <h2>What changed, and <em>why</em>.</h2>
+        <p>Six revisions against v1, each responding to a specific concern: licensing cost, scalability, risk of looking amateur, and realistic ROI on custom iconography.</p>
+      </div>
+    </div>
+
+    <div class="revisions">
+      <div class="rev">
+        <span class="tag fix">Fixed</span>
+        <h5>Fonts: Inter + Instrument Serif + JetBrains Mono</h5>
+        <p>All three free. Google Fonts. Inter is not Geist &mdash; battle-tested since 2017, warm enough, carries no "AI product" smell. Instrument Serif has genuine character and the italic is gorgeous.</p>
+        <p class="before"><b>Dropped:</b> Geist, Fraunces, GT Super, Söhne.</p>
+      </div>
+      <div class="rev">
+        <span class="tag fix">Fixed</span>
+        <h5>One signature gesture, everywhere</h5>
+        <p>Serif italic + a hand-drawn oxblood underline, used <em class="serif">only</em> on the page title greeting. Same gesture on every screen. Not a different quirk per surface.</p>
+        <p class="before"><b>Dropped:</b> "One weird thing per screen."</p>
+      </div>
+      <div class="rev">
+        <span class="tag fix">Fixed</span>
+        <h5>No handwritten font</h5>
+        <p>Caveat, Homemade Apple, etc. all look cheap at scale and undermine credibility when a user is emailing a Goldman MD. We use Instrument Serif italic for "personal" moments instead.</p>
+        <p class="before"><b>Dropped:</b> Script/handwriting display font.</p>
+      </div>
+      <div class="rev">
+        <span class="tag fix">Committed</span>
+        <h5>Stationery, not collegiate or yearbook</h5>
+        <p>Collegiate reads as school project. Yearbook reads as nostalgic. Stationery reads as <em class="serif">"I take my professional communication seriously"</em> &mdash; which is exactly the stance Offerloop should take.</p>
+      </div>
+      <div class="rev">
+        <span class="tag fix">Fixed</span>
+        <h5>Keep Lucide. Use fewer icons.</h5>
+        <p>Maintaining a custom icon set across 100+ components has no ROI. Instead: prefer text labels, keep icons only where they disambiguate (search, navigation, status). Same library, less of it.</p>
+        <p class="before"><b>Dropped:</b> hand-drawn custom icons, printer's ornaments as icons.</p>
+      </div>
+      <div class="rev">
+        <span class="tag fix">Fixed</span>
+        <h5>Paper texture: inline SVG noise, zero assets</h5>
+        <p>An <span class="mono">feTurbulence</span> SVG inlined as a data URI, blended in <span class="mono">multiply</span>. Sub-1kb, sharp at any DPI, no loading, no files.</p>
+        <p class="before"><b>Dropped:</b> PNG texture, heavy filters, radial-blob gradients.</p>
+      </div>
+    </div>
+
+    <div style="margin-top:32px;padding:24px 28px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-3);border-left:3px solid var(--accent)">
+      <h5 style="margin:0 0 6px;font-size:13px;font-weight:600;color:var(--ink)">The stance in one sentence</h5>
+      <p style="font-family:var(--display);font-size:20px;line-height:1.35;color:var(--ink);letter-spacing:-0.005em;font-style:italic;max-width:820px">
+        Offerloop isn't an AI tool that writes emails &mdash; it's a letterpress that helps a student write one good letter to someone they already share something with.
+      </p>
+    </div>
+  </section>
+
+  <!-- PRINCIPLES =========================================================== -->
+  <section class="section" id="principles">
+    <div class="section-head">
+      <div class="idx">II &middot; Principles</div>
+      <div>
+        <h2>Four rules, revised for <em>stationery</em>.</h2>
+        <p>Same principles as v1, reframed around the new direction. When in doubt, pick the one that feels more like a thank-you note and less like a dashboard.</p>
+      </div>
+    </div>
+
+    <div class="principles">
+      <div class="principle">
+        <div class="pn">i.</div>
+        <h5>Paper first, pixels second</h5>
+        <p>The UI has <em class="serif">material</em>. Cream paper, printed ink, inset hairlines. Nothing floats in a void.</p>
+      </div>
+      <div class="principle">
+        <div class="pn">ii.</div>
+        <h5>One system, free to ship</h5>
+        <p>Three free typefaces. One brand color. One accent. A 4px grid. Nothing that requires a contract or a licensing audit.</p>
+      </div>
+      <div class="principle">
+        <div class="pn">iii.</div>
+        <h5>Italic for the human moment</h5>
+        <p>Serif italic appears once per screen, always on something a person would say. Never for chrome, labels, or data.</p>
+      </div>
+      <div class="principle">
+        <div class="pn">iv.</div>
+        <h5>Earn every emphasis</h5>
+        <p>Bold, color, and ornament each pick one thing per screen. The oxblood underline is used exactly once. The navy button too.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- TYPE ================================================================= -->
+  <section class="section" id="type">
+    <div class="section-head">
+      <div class="idx">III &middot; Type</div>
+      <div>
+        <h2>Inter for <em>work</em>. Instrument Serif for <em>moments</em>.</h2>
+        <p>Two families. Inter does every piece of UI chrome, body, numeric, label — all of it. Instrument Serif appears on page titles, in callouts, and for the <em class="serif">personal</em> italic. JetBrains Mono handles metadata: timestamps, counts, breadcrumbs.</p>
+      </div>
+    </div>
+
+    <div class="spec-row">
+      <div class="spec-label"><b>Display</b>Instrument Serif 400</div>
+      <div class="spec-demo">
+        <div style="font-family:var(--display);font-size:68px;line-height:1;letter-spacing:-0.015em;font-weight:400">Find 12 warm intros at <em style="font-style:italic;color:var(--ink-2)">McKinsey</em>.</div>
+        <div class="mono caption">H1 · Display · 68/70 · Instrument Serif 400 · italic for emphasis</div>
+      </div>
+    </div>
+
+    <div class="spec-row">
+      <div class="spec-label"><b>Headline</b>Instrument Serif 400</div>
+      <div class="spec-demo">
+        <div style="font-family:var(--display);font-size:36px;line-height:1.12;letter-spacing:-0.012em;font-weight:400">A networking layer, <em style="font-style:italic;color:var(--ink-2)">built on who you already know</em>.</div>
+        <div class="mono caption">H2 · Headline · 36/40 · Instrument Serif 400</div>
+      </div>
+    </div>
+
+    <div class="spec-row">
+      <div class="spec-label"><b>Title</b>Inter 600</div>
+      <div class="spec-demo">
+        <div style="font-family:var(--sans);font-size:19px;line-height:1.3;letter-spacing:-0.012em;font-weight:600">Contacts matched this week</div>
+        <div class="mono caption">H3 · Title · 19/25 · Inter 600</div>
+      </div>
+    </div>
+
+    <div class="spec-row">
+      <div class="spec-label"><b>Body</b>Inter 400</div>
+      <div class="spec-demo">
+        <div style="font-family:var(--sans);font-size:15px;line-height:1.55;max-width:560px">Offerloop maps the alumni graph you already have — resume, school, prior roles — and drafts outreach in <em class="serif">your voice</em>, not in a template's.</div>
+        <div class="mono caption">Body · 15/23 · Inter 400 · color ink-2</div>
+      </div>
+    </div>
+
+    <div class="spec-row">
+      <div class="spec-label"><b>Caption</b>Inter 500</div>
+      <div class="spec-demo">
+        <div style="font-family:var(--sans);font-size:13px;line-height:1.4;font-weight:500;color:var(--ink-2)">3,200+ USC alumni tracked · 13,700+ jobs indexed</div>
+        <div class="mono caption">Caption · 13/18 · Inter 500</div>
+      </div>
+    </div>
+
+    <div class="spec-row">
+      <div class="spec-label"><b>Label</b>JetBrains Mono 500</div>
+      <div class="spec-demo">
+        <div style="font-family:var(--mono);font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-3);font-weight:500">Saved companies · 24 total · Updated today</div>
+        <div class="mono caption">Label · 11/15 · JetBrains Mono 500 · tracking 0.12em · uppercase</div>
+      </div>
+    </div>
+
+    <div class="spec-row">
+      <div class="spec-label"><b>Numeric</b>JetBrains Mono · tnum</div>
+      <div class="spec-demo">
+        <div style="display:flex;gap:40px;align-items:baseline">
+          <div><div class="num" style="font-size:32px;font-weight:400;color:var(--ink)">2,204,876</div><div class="mono caption">Contacts indexed</div></div>
+          <div><div class="num" style="font-size:32px;font-weight:400;color:var(--ink)">+14.3%</div><div class="mono caption">Reply rate, 30d</div></div>
+          <div><div class="num" style="font-size:32px;font-weight:400;color:var(--ink)">0 / 300</div><div class="mono caption">Credits used</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- COLOR ================================================================ -->
+  <section class="section" id="color">
+    <div class="section-head">
+      <div class="idx">IV &middot; Color</div>
+      <div>
+        <h2>Cream paper. Printer's ink. One navy, one oxblood.</h2>
+        <p>Three palettes: <b>paper</b> (the entire surface), <b>ink</b> (everything written), <b>signals</b> (used sparingly, and they mean something). The navy is <em class="serif">stationery navy</em>, not SaaS blue. The red is <em class="serif">letterhead oxblood</em>, used only for the signature underline and rare alerts.</p>
+      </div>
+    </div>
+
+    <h4 style="margin-bottom:16px">Paper — cream surfaces</h4>
+    <div class="palette">
+      <div class="swatch"><div class="chip dark" style="background:#FDFBF7">#FDFBF7</div><div class="meta"><b>paper</b>envelope cream</div></div>
+      <div class="swatch"><div class="chip dark" style="background:#FFFEFB">#FFFEFB</div><div class="meta"><b>surface</b>letterhead</div></div>
+      <div class="swatch"><div class="chip dark" style="background:#F7F3EA">#F7F3EA</div><div class="meta"><b>paper-2</b>inner panel</div></div>
+      <div class="swatch"><div class="chip dark" style="background:#EFE9DB">#EFE9DB</div><div class="meta"><b>line-2</b>faint rule</div></div>
+      <div class="swatch"><div class="chip dark" style="background:#E6DFCF">#E6DFCF</div><div class="meta"><b>line</b>warm hairline</div></div>
+      <div class="swatch"><div class="chip" style="background:#2A2620">#2A2620</div><div class="meta"><b>line-ink</b>printed rule</div></div>
+    </div>
+
+    <h4 style="margin:40px 0 16px">Ink — warm black for text</h4>
+    <div class="palette">
+      <div class="swatch"><div class="chip" style="background:#1F1B14">#1F1B14</div><div class="meta"><b>ink</b>printer's black</div></div>
+      <div class="swatch"><div class="chip" style="background:#4A4437">#4A4437</div><div class="meta"><b>ink-2</b>body</div></div>
+      <div class="swatch"><div class="chip dark" style="background:#8A816E">#8A816E</div><div class="meta"><b>ink-3</b>pencil</div></div>
+      <div class="swatch"><div class="chip dark" style="background:#B8AE97">#B8AE97</div><div class="meta"><b>ink-4</b>quietest</div></div>
+      <div class="swatch"><div class="chip" style="background:#14110B">#14110B</div><div class="meta"><b>sidebar-ink</b>dark nav</div></div>
+      <div class="swatch"><div class="chip dark" style="background:#FFFFFF">#FFFFFF</div><div class="meta"><b>elev</b>pure white</div></div>
+    </div>
+
+    <h4 style="margin:40px 0 16px">Signals — navy &amp; oxblood, used like punctuation</h4>
+    <div class="palette" style="grid-template-columns:repeat(5,1fr)">
+      <div class="swatch"><div class="chip" style="background:#1D3F7A">#1D3F7A</div><div class="meta"><b>brand · navy</b>primary action</div></div>
+      <div class="swatch"><div class="chip" style="background:#15305E">#15305E</div><div class="meta"><b>brand · hover</b></div></div>
+      <div class="swatch"><div class="chip" style="background:#8B2E1F">#8B2E1F</div><div class="meta"><b>accent · oxblood</b>underline + errors</div></div>
+      <div class="swatch"><div class="chip" style="background:#4A6B3A">#4A6B3A</div><div class="meta"><b>signal-pos</b>ivy green</div></div>
+      <div class="swatch"><div class="chip dark" style="background:#F4E4DE">#F4E4DE</div><div class="meta"><b>accent-soft</b>error bg</div></div>
+    </div>
+  </section>
+
+  <!-- SIGNATURE GESTURE ==================================================== -->
+  <section class="section" id="signature">
+    <div class="section-head">
+      <div class="idx">V &middot; Signature gesture</div>
+      <div>
+        <h2>The <em>italic + underline</em>, everywhere, consistently.</h2>
+        <p>Exactly one rule: on every page, the title uses Instrument Serif italic with a single hand-drawn oxblood underline on the meaningful word. Same SVG, same color, same position. It shows up in product screens, marketing, onboarding, emails — the connecting thread.</p>
+      </div>
+    </div>
+
+    <div class="signature-demo">
+      <div class="sig-example">
+        <div class="label">Dashboard greeting</div>
+        <div class="sig-ex-1">Burning the midnight oil, <em class="underlined">Deena</em>.</div>
+      </div>
+      <div class="sig-example">
+        <div class="label">Find screen</div>
+        <div class="sig-ex-1">Who are you <em class="underlined">looking for</em> today?</div>
+      </div>
+      <div class="sig-example">
+        <div class="label">Outbox empty state</div>
+        <div class="sig-ex-1">Nothing sent yet. <em class="underlined">That's okay</em>.</div>
+      </div>
+      <div class="sig-example">
+        <div class="label">Landing hero</div>
+        <div class="sig-ex-1">Write the email your <em class="underlined">network</em> will read.</div>
+      </div>
+      <div class="sig-example">
+        <div class="label">Onboarding step</div>
+        <div class="sig-ex-1">Let's find your <em class="underlined">alumni</em>, first.</div>
+      </div>
+    </div>
+
+    <div class="note" style="margin-top:24px">
+      <h5>The underline, in case anyone asks</h5>
+      <p>Inline SVG, <em class="serif">oxblood</em> stroke, painted as a <span class="mono">background-image</span> on the <span class="mono">em</span>. One declaration, no components, no assets. Reuses across product + marketing + emails. The only "quirk" we maintain — everything else is strict.</p>
+    </div>
+  </section>
+
+  <!-- COMPONENTS =========================================================== -->
+  <section class="section" id="components">
+    <div class="section-head">
+      <div class="idx">VI &middot; Components</div>
+      <div>
+        <h2>Buttons, inputs, badges. <em>Less of each.</em></h2>
+        <p>We keep Lucide icons but prefer text labels. No icon-only buttons except for a canonical five: search, close, menu, chevron, ellipsis. Everything else uses words.</p>
+      </div>
+    </div>
+
+    <div class="cards">
+      <div class="kit-card">
+        <div class="kc-hd"><div class="kc-ttl">Buttons</div><div class="mono">ink · navy · subtle · text</div></div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px">
+          <button class="btn btn-p">Find people</button>
+          <button class="btn btn-brand">Connect Gmail</button>
+          <button class="btn btn-s">Save search</button>
+          <button class="btn btn-t">Cancel</button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px">
+          <button class="btn btn-p btn-lg">Start outreach</button>
+          <button class="btn btn-s btn-xs">Edit</button>
+          <button class="btn btn-p">Submit<span class="kbd">⏎</span></button>
+          <button class="btn btn-s">Dismiss<span class="kbd">esc</span></button>
+        </div>
+        <p style="font-size:12px;color:var(--ink-3);border-top:1px solid var(--line-2);padding-top:12px">Primary is <b style="color:var(--ink)">ink</b>. Navy is reserved for one specific action per surface (Connect Gmail, Upgrade, Start Outreach). Text-first — icons only when ambiguous.</p>
+      </div>
+
+      <div class="kit-card">
+        <div class="kc-hd"><div class="kc-ttl">Inputs</div><div class="mono">single, search, area</div></div>
+        <label class="input-label">Role or keyword</label>
+        <div class="input input-search" style="margin-bottom:12px">
+          <svg class="ic" viewBox="0 0 24 24" style="color:var(--ink-3)"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <span style="color:var(--ink-3);flex:1">USC alumni in Data Science</span>
+          <span class="kbd">⌘K</span>
+        </div>
+        <input class="input" placeholder="Company URL or domain" style="margin-bottom:12px"/>
+        <textarea class="input" rows="2" placeholder="Why are you reaching out?" style="resize:none;font-family:var(--sans)"></textarea>
+      </div>
+
+      <div class="kit-card">
+        <div class="kc-hd"><div class="kc-ttl">Badges &amp; status</div><div class="mono">default · brand · signal</div></div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px">
+          <span class="badge">Default</span>
+          <span class="badge badge-brand">USC · '26</span>
+          <span class="badge badge-pos dot" style="color:var(--signal-pos)">Replied</span>
+          <span class="badge badge-neg dot" style="color:var(--signal-neg)">Bounced</span>
+          <span class="badge">Investment banking</span>
+          <span class="badge">Seattle · WA</span>
+          <span class="badge" style="background:var(--ink);color:var(--paper);border-color:var(--ink)">Elite</span>
+        </div>
+        <p style="font-size:12px;color:var(--ink-3);border-top:1px solid var(--line-2);padding-top:12px">Pill-shaped, 3/9 padding. Dot prefix only for stateful (replied, bounced, sent). No icons.</p>
+      </div>
+
+      <div class="kit-card" style="padding:0;overflow:hidden">
+        <div class="kc-hd" style="padding:14px 20px;border-bottom:1px solid var(--line);margin:0"><div class="kc-ttl">Data row</div><div class="mono">list density</div></div>
+        <div style="display:grid;grid-template-columns:28px 1fr 120px 100px 80px;gap:12px;padding:14px 20px;align-items:center;border-bottom:1px solid var(--line-2)">
+          <div style="width:28px;height:28px;border-radius:50%;background:var(--paper-2);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--ink-2);border:1px solid var(--line)">AK</div>
+          <div><div style="font-size:13px;font-weight:600">Alex Kim</div><div class="mono">Analyst · McKinsey · SF</div></div>
+          <span class="badge badge-pos dot" style="color:var(--signal-pos);justify-self:start">Replied</span>
+          <span class="num" style="font-size:12px;color:var(--ink-2)">+3 days</span>
+          <button class="btn btn-t btn-xs" style="justify-self:end">Draft</button>
+        </div>
+        <div style="display:grid;grid-template-columns:28px 1fr 120px 100px 80px;gap:12px;padding:14px 20px;align-items:center;border-bottom:1px solid var(--line-2)">
+          <div style="width:28px;height:28px;border-radius:50%;background:var(--paper-2);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--ink-2);border:1px solid var(--line)">PS</div>
+          <div><div style="font-size:13px;font-weight:600">Priya Shah</div><div class="mono">Associate · Goldman · NYC</div></div>
+          <span class="badge dot" style="color:var(--ink-3);justify-self:start">Sent</span>
+          <span class="num" style="font-size:12px;color:var(--ink-2)">+1 day</span>
+          <button class="btn btn-t btn-xs" style="justify-self:end">Draft</button>
+        </div>
+        <div style="display:grid;grid-template-columns:28px 1fr 120px 100px 80px;gap:12px;padding:14px 20px;align-items:center">
+          <div style="width:28px;height:28px;border-radius:50%;background:var(--paper-2);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--ink-2);border:1px solid var(--line)">JL</div>
+          <div><div style="font-size:13px;font-weight:600">Jordan Lee</div><div class="mono">Senior PM · Anthropic · SF</div></div>
+          <span class="badge badge-neg dot" style="color:var(--signal-neg);justify-self:start">Bounced</span>
+          <span class="num" style="font-size:12px;color:var(--ink-2)">+5 days</span>
+          <button class="btn btn-t btn-xs" style="justify-self:end">Retry</button>
+        </div>
+      </div>
+    </div>
+
+    <h4 style="margin-top:32px;margin-bottom:0">Tokens — final values</h4>
+    <table class="tokens">
+      <thead><tr><th>Token</th><th>Value</th><th class="sw">&nbsp;</th><th>Note</th></tr></thead>
+      <tbody>
+        <tr><td><b>--paper</b></td><td>#FDFBF7</td><td class="sw"><span class="chip-sm" style="background:#FDFBF7"></span></td><td>Every background, everywhere.</td></tr>
+        <tr><td><b>--surface</b></td><td>#FFFEFB</td><td class="sw"><span class="chip-sm" style="background:#FFFEFB"></span></td><td>Letterhead cards.</td></tr>
+        <tr><td><b>--line</b></td><td>#E6DFCF</td><td class="sw"><span class="chip-sm" style="background:#E6DFCF"></span></td><td>Warm hairline, the workhorse border.</td></tr>
+        <tr><td><b>--ink</b></td><td>#1F1B14</td><td class="sw"><span class="chip-sm" style="background:#1F1B14"></span></td><td>Warm black. Primary text + primary button.</td></tr>
+        <tr><td><b>--brand</b></td><td>#1D3F7A</td><td class="sw"><span class="chip-sm" style="background:#1D3F7A"></span></td><td>Stationery navy. One action per screen.</td></tr>
+        <tr><td><b>--accent</b></td><td>#8B2E1F</td><td class="sw"><span class="chip-sm" style="background:#8B2E1F"></span></td><td>Oxblood. Signature underline + errors.</td></tr>
+        <tr><td><b>--font-sans</b></td><td>Inter</td><td></td><td>Free. Google Fonts.</td></tr>
+        <tr><td><b>--font-display</b></td><td>Instrument Serif</td><td></td><td>Free. Italic carries the character.</td></tr>
+        <tr><td><b>--font-mono</b></td><td>JetBrains Mono</td><td></td><td>Free. For labels + numeric.</td></tr>
+        <tr><td><b>--radius</b></td><td>3 · 4 · 6 · 10 px</td><td></td><td>Inputs/badges · buttons · cards · modals.</td></tr>
+        <tr><td><b>noise</b></td><td>inline SVG turbulence</td><td></td><td>Sub-1kb, mix-blend multiply, opacity 0.55.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- APPLIED ============================================================== -->
+  <section class="section" id="applied">
+    <div class="section-head">
+      <div class="idx">VII &middot; Applied</div>
+      <div>
+        <h2>The Find screen, as a piece of <em>stationery</em>.</h2>
+        <p>Same functionality, same content. New surface, new voice. Paper with grain, a seal in the sidebar, the greeting in italic with the single hand-drawn underline. Navy CTA appears once. Everything else recedes.</p>
+      </div>
+    </div>
+
+    <div class="mock">
+      <aside class="mock-side">
+        <div class="mock-brand">
+          <div class="seal-sm"><span>O</span></div>
+          <div class="wm">Offerloop</div>
+        </div>
+        <div class="mock-nav active">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          Find
+        </div>
+        <div class="mock-nav" style="justify-content:space-between">
+          <span style="display:inline-flex;align-items:center;gap:10px">
+            <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-3-3.87M4 21v-2a4 4 0 013-3.87M16 3.13a4 4 0 010 7.75M8 3.13a4 4 0 000 7.75"/></svg>
+            My Network
+          </span>
+          <span class="num" style="font-size:10px;color:rgba(255,255,255,0.55);letter-spacing:0.04em">12</span>
+        </div>
+        <div class="mock-nav">
+          <svg viewBox="0 0 24 24"><path d="M5 3v4M5 11v10M19 3v10M19 17v4"/><circle cx="5" cy="9" r="2"/><circle cx="19" cy="15" r="2"/></svg>
+          Coffee Chats
+        </div>
+        <div class="mock-nav">
+          <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg>
+          Tracker
+        </div>
+        <div class="mock-nav">
+          <svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="15" rx="2"/><path d="M8 6V3m8 3V3"/></svg>
+          Job Board
+        </div>
+        <div class="mock-side-hd">Resources</div>
+        <div class="mock-nav">
+          <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+          Documentation
+        </div>
+        <div class="mock-nav">
+          <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+          Pricing
+        </div>
+        <div class="mock-upgrade">
+          <div class="t">Credits <span class="num">0 / 300</span></div>
+          <div class="bar"><i></i></div>
+          <div class="s">RESETS 1ST OF MONTH</div>
+          <button class="btn btn-brand btn-xs" style="width:100%;justify-content:center">Upgrade to Elite</button>
+        </div>
+      </aside>
+      <main class="mock-main">
+        <div class="mock-topbar">
+          <div class="mock-breadcrumb">Workspace<span>/</span><b>Find</b><span>/</span>People</div>
+          <div style="display:flex;gap:10px;align-items:center">
+            <button class="btn btn-t btn-xs">Ask Scout <span class="kbd">⌘/</span></button>
+          </div>
+        </div>
+        <div class="mock-content">
+          <div class="greet">Burning the midnight oil, <em>Deena</em>.</div>
+          <div class="greet-sub">Wednesday, April 15 · Week 16 · 12 unread replies</div>
+
+          <div class="mock-tabs">
+            <div class="mock-tab active">People <span class="cnt">2.2M</span></div>
+            <div class="mock-tab">Companies <span class="cnt">410k</span></div>
+            <div class="mock-tab">Hiring managers <span class="cnt">48k</span></div>
+          </div>
+
+          <div class="mock-query">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input placeholder="Try: USC alumni in investment banking at Goldman Sachs"/>
+            <span class="kbd">⌘K</span>
+          </div>
+
+          <div class="mock-suggest">
+            <span class="sug">Software engineers at FAANG in SF</span>
+            <span class="sug">USC alumni in investment banking</span>
+            <span class="sug">Marketing managers at startups in LA</span>
+            <span class="sug">Dartmouth consultants at MBB</span>
+          </div>
+
+          <div class="mock-cta">
+            <button class="btn btn-p btn-lg">Find people</button>
+            <button class="btn btn-brand btn-lg">Connect Gmail for auto-drafts</button>
+            <span style="margin-left:auto;font-family:var(--display);font-style:italic;font-size:15px;color:var(--ink-3)">or upload your résumé for a better match</span>
+          </div>
+
+          <div class="mock-grid">
+            <div class="mock-tile">
+              <div class="num-sm">01</div>
+              <b>Tech &amp; AI</b>
+              <div class="sub">Google · Anthropic · OpenAI</div>
+              <div class="meta"><b>4,200</b> CONTACTS &middot; <b>86</b> ALUMNI</div>
+            </div>
+            <div class="mock-tile">
+              <div class="num-sm">02</div>
+              <b>Finance &amp; Banking</b>
+              <div class="sub">Goldman · JPMorgan · Blackstone</div>
+              <div class="meta"><b>2,100</b> CONTACTS &middot; <b>54</b> ALUMNI</div>
+            </div>
+            <div class="mock-tile">
+              <div class="num-sm">03</div>
+              <b>Entertainment &amp; Media</b>
+              <div class="sub">Netflix · Disney · Warner Bros</div>
+              <div class="meta"><b>1,800</b> CONTACTS &middot; <b>37</b> ALUMNI</div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:24px">
+      <div class="rev">
+        <span class="tag">Before · v1</span>
+        <h5>Warm but generic</h5>
+        <p>v1's cream + Geist + Fraunces read like every Linear-adjacent startup. "Tasteful" but indistinguishable.</p>
+      </div>
+      <div class="rev">
+        <span class="tag fix">After · v2</span>
+        <h5>A physical object</h5>
+        <p>Cream with visible grain, an engraved seal, printer's ink, an italic greeting underlined by a hand. The screen <em class="serif">is</em> the letter.</p>
+      </div>
+      <div class="rev">
+        <span class="tag fix">Shippable</span>
+        <h5>Zero licensing, minimal assets</h5>
+        <p>Three free fonts. No custom icon set. One inline SVG for noise. One inline SVG for the underline. Total new asset weight: ~2kb.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- SPREADSHEETS ========================================================= -->
+  <section class="section" id="spreadsheets">
+    <div class="section-head">
+      <div class="idx">VIII &middot; Spreadsheets</div>
+      <div>
+        <h2>Three spreadsheets. <em>One pattern.</em></h2>
+        <p>The user's saved records live in three lists: <b>People</b>, <b>Companies</b>, <b>Hiring Managers</b>. Same chrome, same gestures, same keyboard shortcuts — different columns. These are <em class="serif">rosters</em>, not pipelines. Email status lives in the Tracker, separately. A contact can sit here for years without ever being emailed.</p>
+      </div>
+    </div>
+
+    <div class="note" style="margin-bottom:24px">
+      <h5>Why three and not one</h5>
+      <p>A person you know at McKinsey is different data from McKinsey itself (HQ, alumni count, industry), and different again from a <em class="serif">hiring manager</em> at McKinsey who's actively posting roles. Conflating them forces empty columns. Keeping them separate lets each view be dense and useful — and the repeated grammar (sticky header, mono labels, same row height, same tab bar) makes switching painless.</p>
+    </div>
+
+    <!-- Switcher -->
+    <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center">
+      <span class="mono" style="margin-right:8px">SHOW:</span>
+      <button class="btn btn-p btn-xs" id="ss-people-btn" onclick="showSheet('people')">People &middot; 124</button>
+      <button class="btn btn-s btn-xs" id="ss-co-btn" onclick="showSheet('companies')">Companies &middot; 38</button>
+      <button class="btn btn-s btn-xs" id="ss-hm-btn" onclick="showSheet('managers')">Hiring Managers &middot; 21</button>
+    </div>
+
+    <div class="mock">
+      <aside class="mock-side">
+        <div class="mock-brand">
+          <div class="seal-sm"><span>O</span></div>
+          <div class="wm">Offerloop</div>
+        </div>
+        <div class="mock-nav">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          Find
+        </div>
+        <div class="mock-nav active" style="justify-content:space-between">
+          <span style="display:inline-flex;align-items:center;gap:10px">
+            <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-3-3.87M4 21v-2a4 4 0 013-3.87M16 3.13a4 4 0 010 7.75M8 3.13a4 4 0 000 7.75"/></svg>
+            My Network
+          </span>
+          <span class="num" style="font-size:10px;color:rgba(255,255,255,0.75);letter-spacing:0.04em">12</span>
+        </div>
+        <div class="mock-nav">
+          <svg viewBox="0 0 24 24"><path d="M5 3v4M5 11v10M19 3v10M19 17v4"/><circle cx="5" cy="9" r="2"/><circle cx="19" cy="15" r="2"/></svg>
+          Coffee Chats
+        </div>
+        <div class="mock-nav">
+          <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg>
+          Tracker
+        </div>
+        <div class="mock-nav">
+          <svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="15" rx="2"/><path d="M8 6V3m8 3V3"/></svg>
+          Job Board
+        </div>
+        <div class="mock-side-hd">Resources</div>
+        <div class="mock-nav">
+          <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+          Documentation
+        </div>
+        <div class="mock-upgrade">
+          <div class="t">Credits <span class="num">0 / 300</span></div>
+          <div class="bar"><i></i></div>
+          <div class="s">RESETS 1ST OF MONTH</div>
+          <button class="btn btn-brand btn-xs" style="width:100%;justify-content:center">Upgrade to Elite</button>
+        </div>
+      </aside>
+      <main class="mock-main">
+        <div class="mock-topbar">
+          <div class="mock-breadcrumb">Workspace<span>/</span><b id="ss-crumb">People</b></div>
+          <div style="display:flex;gap:10px;align-items:center">
+            <button class="btn btn-s btn-xs">Import CSV</button>
+            <button class="btn btn-s btn-xs">Export</button>
+            <button class="btn btn-p btn-xs" id="ss-add">Add person</button>
+          </div>
+        </div>
+        <div class="mock-content" style="padding:36px 40px 32px">
+          <div class="greet" style="font-size:34px" id="ss-title">The <em>people</em> you know.</div>
+          <div class="greet-sub" id="ss-sub">124 contacts &middot; imported from resume, LinkedIn, and manual adds</div>
+
+          <!-- Filter bar -->
+          <div style="display:flex;gap:10px;margin-top:24px;margin-bottom:16px;flex-wrap:wrap" id="ss-filters"></div>
+
+          <!-- PEOPLE SPREADSHEET -->
+          <div id="ss-people" style="background:var(--elev);border:1px solid var(--line);border-radius:var(--r-3);overflow:hidden">
+            <div style="display:grid;grid-template-columns:32px 1.3fr 1fr 1fr 1fr 110px;gap:14px;padding:10px 20px;align-items:center;background:var(--paper-2);border-bottom:1px solid var(--line);font-family:var(--mono);font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-3)">
+              <div><input type="checkbox" style="margin:0"/></div><div>Name</div><div>Role &middot; Company</div><div>Location</div><div>School</div><div>Connection</div>
+            </div>
+            <div style="display:grid;grid-template-columns:32px 1.3fr 1fr 1fr 1fr 110px;gap:14px;padding:12px 20px;align-items:center;border-bottom:1px solid var(--line-2)">
+              <input type="checkbox" style="margin:0"/>
+              <div><div style="font-size:13px;font-weight:600">Alex Kim</div><div class="mono">alex.kim@mckinsey.com</div></div>
+              <div style="font-size:12px;color:var(--ink-2)">Analyst &middot; McKinsey</div>
+              <div style="font-size:12px;color:var(--ink-2)">San Francisco</div>
+              <div><span class="badge badge-brand" style="font-size:11px">USC &middot; '22</span></div>
+              <span class="mono" style="font-size:10px;color:var(--ink-3)">ALUMNI</span>
+            </div>
+            <div style="display:grid;grid-template-columns:32px 1.3fr 1fr 1fr 1fr 110px;gap:14px;padding:12px 20px;align-items:center;border-bottom:1px solid var(--line-2)">
+              <input type="checkbox" style="margin:0"/>
+              <div><div style="font-size:13px;font-weight:600">Priya Shah</div><div class="mono">priya.s@gs.com</div></div>
+              <div style="font-size:12px;color:var(--ink-2)">Associate &middot; Goldman Sachs</div>
+              <div style="font-size:12px;color:var(--ink-2)">New York</div>
+              <div><span class="badge badge-brand" style="font-size:11px">USC &middot; '20</span></div>
+              <span class="mono" style="font-size:10px;color:var(--ink-3)">ALUMNI</span>
+            </div>
+            <div style="display:grid;grid-template-columns:32px 1.3fr 1fr 1fr 1fr 110px;gap:14px;padding:12px 20px;align-items:center;border-bottom:1px solid var(--line-2)">
+              <input type="checkbox" style="margin:0"/>
+              <div><div style="font-size:13px;font-weight:600">Jordan Lee</div><div class="mono">jordan@anthropic.com</div></div>
+              <div style="font-size:12px;color:var(--ink-2)">Senior PM &middot; Anthropic</div>
+              <div style="font-size:12px;color:var(--ink-2)">San Francisco</div>
+              <div><span class="badge" style="font-size:11px">Dartmouth &middot; '19</span></div>
+              <span class="mono" style="font-size:10px;color:var(--ink-3)">PRIOR CO.</span>
+            </div>
+            <div style="display:grid;grid-template-columns:32px 1.3fr 1fr 1fr 1fr 110px;gap:14px;padding:12px 20px;align-items:center;border-bottom:1px solid var(--line-2)">
+              <input type="checkbox" style="margin:0"/>
+              <div><div style="font-size:13px;font-weight:600">Maya Rodriguez</div><div class="mono">m.rodriguez@blackstone.com</div></div>
+              <div style="font-size:12px;color:var(--ink-2)">VP &middot; Blackstone</div>
+              <div style="font-size:12px;color:var(--ink-2)">New York</div>
+              <div><span class="badge badge-brand" style="font-size:11px">USC &middot; '15</span></div>
+              <span class="mono" style="font-size:10px;color:var(--ink-3)">ALUMNI</span>
+            </div>
+            <div style="display:grid;grid-template-columns:32px 1.3fr 1fr 1fr 1fr 110px;gap:14px;padding:12px 20px;align-items:center;border-bottom:1px solid var(--line-2)">
+              <input type="checkbox" style="margin:0"/>
+              <div><div style="font-size:13px;font-weight:600">Theo Nakamura</div><div class="mono">theo.n@openai.com</div></div>
+              <div style="font-size:12px;color:var(--ink-2)">Research &middot; OpenAI</div>
+              <div style="font-size:12px;color:var(--ink-2)">San Francisco</div>
+              <div><span class="badge" style="font-size:11px">Stanford &middot; '21</span></div>
+              <span class="mono" style="font-size:10px;color:var(--ink-3)">INTRO</span>
+            </div>
+            <div style="display:grid;grid-template-columns:32px 1.3fr 1fr 1fr 1fr 110px;gap:14px;padding:12px 20px;align-items:center;border-bottom:1px solid var(--line-2)">
+              <input type="checkbox" style="margin:0"/>
+              <div><div style="font-size:13px;font-weight:600">Emma Davies</div><div class="mono">emma@bain.com</div></div>
+              <div style="font-size:12px;color:var(--ink-2)">Consultant &middot; Bain</div>
+              <div style="font-size:12px;color:var(--ink-2)">Los Angeles</div>
+              <div><span class="badge badge-brand" style="font-size:11px">USC &middot; '23</span></div>
+              <span class="mono" style="font-size:10px;color:var(--ink-3)">ALUMNI</span>
+            </div>
+            <div style="display:grid;grid-template-columns:32px 1.3fr 1fr 1fr 1fr 110px;gap:14px;padding:12px 20px;align-items:center">
+              <input type="checkbox" style="margin:0"/>
+              <div><div style="font-size:13px;font-weight:600">Sam Okafor</div><div class="mono">sam@stripe.com</div></div>
+              <div style="font-size:12px;color:var(--ink-2)">Director &middot; Stripe</div>
+              <div style="font-size:12px;color:var(--ink-2)">New York</div>
+              <div><span class="badge" style="font-size:11px">Georgetown &middot; '18</span></div>
+              <span class="mono" style="font-size:10px;color:var(--ink-3)">MANUAL</span>
+            </div>
+          </div>
+
+          <!-- COMPANIES SPREADSHEET -->
+          <div id="ss-companies" style="display:none;background:var(--elev);border:1px solid var(--line);border-radius:var(--r-3);overflow:hidden">
+            <div style="display:grid;grid-template-columns:32px 1.4fr 1fr 1fr 90px 90px;gap:14px;padding:10px 20px;align-items:center;background:var(--paper-2);border-bottom:1px solid var(--line);font-family:var(--mono);font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-3)">
+              <div><input type="checkbox" style="margin:0"/></div><div>Company</div><div>Industry</div><div>HQ</div><div style="text-align:right">Alumni</div><div style="text-align:right">Size</div>
+            </div>
+            <div style="display:grid;grid-template-columns:32px 1.4fr 1fr 1fr 90px 90px;gap:14px;padding:12px 20px;align-items:center;border-bottom:1px solid var(--line-2)">
+              <input type="checkbox" style="margin:0"/>
+              <div><div style="font-size:13px;font-weight:600">McKinsey &amp; Company</div><div class="mono">mckinsey.com</div></div>
+              <div style="font-size:12px;color:var(--ink-2)">Consulting</div>
+              <div style="font-size:12px;color:var(--ink-2)">New York, NY</div>
+              <span class="num" style="font-size:12px;color:var(--ink);text-align:right">128</span>
+              <span class="num" style="font-size:11px;color:var(--ink-2);text-align:right">45k</span>
+            </div>
+            <div style="display:grid;grid-template-columns:32px 1.4fr 1fr 1fr 90px 90px;gap:14px;padding:12px 20px;align-items:center;border-bottom:1px solid var(--line-2)">
+              <input type="checkbox" style="margin:0"/>
+              <div><div style="font-size:13px;font-weight:600">Goldman Sachs</div><div class="mono">goldmansachs.com</div></div>
+              <div style="font-size:12px;color:var(--ink-2)">Investment Bank</div>
+              <div style="font-size:12px;color:var(--ink-2)">New York, NY</div>
+              <span class="num" style="font-size:12px;color:var(--ink);text-align:right">214</span>
+              <span class="num" style="font-size:11px;color:var(--ink-2);text-align:right">49k</span>
+            </div>
+            <div style="display:grid;grid-template-columns:32px 1.4fr 1fr 1fr 90px 90px;gap:14px;padding:12px 20px;align-items:center;border-bottom:1px solid var(--line-2)">
+              <input type="checkbox" style="margin:0"/>
+              <div><div style="font-size:13px;font-weight:600">Anthropic</div><div class="mono">anthropic.com</div></div>
+              <div style="font-size:12px;color:var(--ink-2)">AI Research</div>
+              <div style="font-size:12px;color:var(--ink-2)">San Francisco, CA</div>
+              <span class="num" style="font-size:12px;color:var(--ink);text-align:right">11</span>
+              <span class="num" style="font-size:11px;color:var(--ink-2);text-align:right">800</span>
+            </div>
+            <div style="display:grid;grid-template-columns:32px 1.4fr 1fr 1fr 90px 90px;gap:14px;padding:12px 20px;align-items:center;border-bottom:1px solid var(--line-2)">
+              <input type="checkbox" style="margin:0"/>
+              <div><div style="font-size:13px;font-weight:600">Blackstone</div><div class="mono">blackstone.com</div></div>
+              <div style="font-size:12px;color:var(--ink-2)">Private Equity</div>
+              <div style="font-size:12px;color:var(--ink-2)">New York, NY</div>
+              <span class="num" style="font-size:12px;color:var(--ink);text-align:right">62</span>
+              <span class="num" style="font-size:11px;color:var(--ink-2);text-align:right">4.7k</span>
+            </div>
+            <div style="display:grid;grid-template-columns:32px 1.4fr 1fr 1fr 90px 90px;gap:14px;padding:12px 20px;align-items:center;border-bottom:1px solid var(--line-2)">
+              <input type="checkbox" style="margin:0"/>
+              <div><div style="font-size:13px;font-weight:600">Stripe</div><div class="mono">stripe.com</div></div>
+              <div style="font-size:12px;color:var(--ink-2)">Fintech</div>
+              <div style="font-size:12px;color:var(--ink-2)">San Francisco, CA</div>
+              <span class="num" style="font-size:12px;color:var(--ink);text-align:right">34</span>
+              <span class="num" style="font-size:11px;color:var(--ink-2);text-align:right">8.5k</span>
+            </div>
+            <div style="display:grid;grid-template-columns:32px 1.4fr 1fr 1fr 90px 90px;gap:14px;padding:12px 20px;align-items:center;border-bottom:1px solid var(--line-2)">
+              <input type="checkbox" style="margin:0"/>
+              <div><div style="font-size:13px;font-weight:600">OpenAI</div><div class="mono">openai.com</div></div>
+              <div style="font-size:12px;color:var(--ink-2)">AI Research</div>
+              <div style="font-size:12px;color:var(--ink-2)">San Francisco, CA</div>
+              <span class="num" style="font-size:12px;color:var(--ink);text-align:right">18</span>
+              <span class="num" style="font-size:11px;color:var(--ink-2);text-align:right">1.7k</span>
+            </div>
+            <div style="display:grid;grid-template-columns:32px 1.4fr 1fr 1fr 90px 90px;gap:14px;padding:12px 20px;align-items:center">
+              <input type="checkbox" style="margin:0"/>
+              <div><div style="font-size:13px;font-weight:600">Bain &amp; Company</div><div class="mono">bain.com</div></div>
+              <div style="font-size:12px;color:var(--ink-2)">Consulting</div>
+              <div style="font-size:12px;color:var(--ink-2)">Boston, MA</div>
+              <span class="num" style="font-size:12px;color:var(--ink);text-align:right">97</span>
+              <span class="num" style="font-size:11px;color:var(--ink-2);text-align:right">19k</span>
+            </div>
+          </div>
+
+          <!-- HIRING MANAGERS SPREADSHEET -->
+          <div id="ss-managers" style="display:none;background:var(--elev);border:1px solid var(--line);border-radius:var(--r-3);overflow:hidden">
+            <div style="display:grid;grid-template-columns:32px 1.2fr 1fr 1.2fr 1fr 80px;gap:14px;padding:10px 20px;align-items:center;background:var(--paper-2);border-bottom:1px solid var(--line);font-family:var(--mono);font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-3)">
+              <div><input type="checkbox" style="margin:0"/></div><div>Name</div><div>Title</div><div>Role hiring for</div><div>Company</div><div style="text-align:right">Posted</div>
+            </div>
+            <div style="display:grid;grid-template-columns:32px 1.2fr 1fr 1.2fr 1fr 80px;gap:14px;padding:12px 20px;align-items:center;border-bottom:1px solid var(--line-2)">
+              <input type="checkbox" style="margin:0"/>
+              <div><div style="font-size:13px;font-weight:600">Rachel Chen</div><div class="mono">rachel.c@stripe.com</div></div>
+              <div style="font-size:12px;color:var(--ink-2)">Engineering Mgr</div>
+              <div style="font-size:12px;color:var(--ink-2)">Sr. SWE &middot; Infra team</div>
+              <div style="font-size:12px;color:var(--ink-2)">Stripe</div>
+              <span class="num" style="font-size:11px;color:var(--ink-2);text-align:right">12d</span>
+            </div>
+            <div style="display:grid;grid-template-columns:32px 1.2fr 1fr 1.2fr 1fr 80px;gap:14px;padding:12px 20px;align-items:center;border-bottom:1px solid var(--line-2)">
+              <input type="checkbox" style="margin:0"/>
+              <div><div style="font-size:13px;font-weight:600">David Patel</div><div class="mono">david@anthropic.com</div></div>
+              <div style="font-size:12px;color:var(--ink-2)">Head of PM</div>
+              <div style="font-size:12px;color:var(--ink-2)">Product Manager &middot; Claude</div>
+              <div style="font-size:12px;color:var(--ink-2)">Anthropic</div>
+              <span class="num" style="font-size:11px;color:var(--ink-2);text-align:right">4d</span>
+            </div>
+            <div style="display:grid;grid-template-columns:32px 1.2fr 1fr 1.2fr 1fr 80px;gap:14px;padding:12px 20px;align-items:center;border-bottom:1px solid var(--line-2)">
+              <input type="checkbox" style="margin:0"/>
+              <div><div style="font-size:13px;font-weight:600">Linda Ortiz</div><div class="mono">l.ortiz@gs.com</div></div>
+              <div style="font-size:12px;color:var(--ink-2)">Recruiting Partner</div>
+              <div style="font-size:12px;color:var(--ink-2)">Associate &middot; IBD</div>
+              <div style="font-size:12px;color:var(--ink-2)">Goldman Sachs</div>
+              <span class="num" style="font-size:11px;color:var(--ink-2);text-align:right">20d</span>
+            </div>
+            <div style="display:grid;grid-template-columns:32px 1.2fr 1fr 1.2fr 1fr 80px;gap:14px;padding:12px 20px;align-items:center;border-bottom:1px solid var(--line-2)">
+              <input type="checkbox" style="margin:0"/>
+              <div><div style="font-size:13px;font-weight:600">James Walsh</div><div class="mono">james.w@mckinsey.com</div></div>
+              <div style="font-size:12px;color:var(--ink-2)">Partner</div>
+              <div style="font-size:12px;color:var(--ink-2)">Summer Analyst &middot; West Coast</div>
+              <div style="font-size:12px;color:var(--ink-2)">McKinsey</div>
+              <span class="num" style="font-size:11px;color:var(--ink-2);text-align:right">8d</span>
+            </div>
+            <div style="display:grid;grid-template-columns:32px 1.2fr 1fr 1.2fr 1fr 80px;gap:14px;padding:12px 20px;align-items:center;border-bottom:1px solid var(--line-2)">
+              <input type="checkbox" style="margin:0"/>
+              <div><div style="font-size:13px;font-weight:600">Natalie Kim</div><div class="mono">natalie@openai.com</div></div>
+              <div style="font-size:12px;color:var(--ink-2)">VP Talent</div>
+              <div style="font-size:12px;color:var(--ink-2)">Research Engineer</div>
+              <div style="font-size:12px;color:var(--ink-2)">OpenAI</div>
+              <span class="num" style="font-size:11px;color:var(--ink-2);text-align:right">2d</span>
+            </div>
+            <div style="display:grid;grid-template-columns:32px 1.2fr 1fr 1.2fr 1fr 80px;gap:14px;padding:12px 20px;align-items:center">
+              <input type="checkbox" style="margin:0"/>
+              <div><div style="font-size:13px;font-weight:600">Marcus Thornton</div><div class="mono">marcus@blackstone.com</div></div>
+              <div style="font-size:12px;color:var(--ink-2)">Senior MD</div>
+              <div style="font-size:12px;color:var(--ink-2)">Analyst &middot; Real Estate</div>
+              <div style="font-size:12px;color:var(--ink-2)">Blackstone</div>
+              <span class="num" style="font-size:11px;color:var(--ink-2);text-align:right">6d</span>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </section>
+
+  <!-- MY NETWORK CLICK-THROUGH =========================================== -->
+  <section class="section" id="mynetwork">
+    <div class="section-head">
+      <div class="idx">IX &middot; My Network (click-through)</div>
+      <div>
+        <h2>Clicking <em>"My Network"</em> opens the People spreadsheet.</h2>
+        <p>No greeting, no underline gesture &mdash; the greeting lives only on Find (the front door). My Network is utilitarian: you came here to work. Breadcrumb does the labelling; tabs mirror Find's IA exactly (People / Companies / Hiring Managers). <b>Find is the ocean. My Network is your Rolodex.</b></p>
+      </div>
+    </div>
+
+    <div class="note" style="margin-bottom:24px">
+      <h5>Flow</h5>
+      <p>Sidebar: Find &rarr; <b>My Network</b> &rarr; Coffee Chats &rarr; Tracker &rarr; Job Board. Click "My Network" &rarr; People tab active by default &rarr; switch tabs in-place to Companies or Hiring Managers. Same URL root (<span class="mono">/my-network</span>), tab is a sub-route (<span class="mono">/my-network/companies</span>).</p>
+    </div>
+
+    <!-- BEFORE -->
+    <h4 class="mono" style="font-size:10px;letter-spacing:0.14em;color:var(--ink-3);margin-bottom:12px">01 &middot; BEFORE CLICK &middot; Find is active</h4>
+    <div class="mock" style="margin-bottom:32px">
+      <aside class="mock-side">
+        <div class="mock-brand">
+          <div class="seal-sm"><span>O</span></div>
+          <div class="wm">Offerloop</div>
+        </div>
+        <div class="mock-nav active"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>Find</div>
+        <div class="mock-nav" style="justify-content:space-between;position:relative">
+          <span style="display:inline-flex;align-items:center;gap:10px"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-3-3.87M4 21v-2a4 4 0 013-3.87M16 3.13a4 4 0 010 7.75M8 3.13a4 4 0 000 7.75"/></svg>My Network</span>
+          <span class="num" style="font-size:10px;color:rgba(255,255,255,0.55);letter-spacing:0.04em">183</span>
+          <span style="position:absolute;right:-44px;top:50%;transform:translateY(-50%);font-family:'Instrument Serif',serif;font-style:italic;color:var(--accent);font-size:15px;white-space:nowrap">&larr; click</span>
+        </div>
+        <div class="mock-nav"><svg viewBox="0 0 24 24"><path d="M5 3v4M5 11v10M19 3v10M19 17v4"/><circle cx="5" cy="9" r="2"/><circle cx="19" cy="15" r="2"/></svg>Coffee Chats</div>
+        <div class="mock-nav"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg>Tracker</div>
+        <div class="mock-nav"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="15" rx="2"/><path d="M8 6V3m8 3V3"/></svg>Job Board</div>
+      </aside>
+      <main class="mock-main" style="min-height:260px">
+        <div class="mock-topbar">
+          <div class="mock-breadcrumb">Workspace<span>/</span><b>Find</b></div>
+        </div>
+        <div class="mock-content" style="padding:32px 40px;display:flex;align-items:center;justify-content:center;color:var(--ink-3);font-family:'Instrument Serif',serif;font-style:italic;font-size:18px">Find screen &mdash; the ocean of people to reach.</div>
+      </main>
+    </div>
+
+    <!-- AFTER: 3 TAB STATES -->
+    <h4 class="mono" style="font-size:10px;letter-spacing:0.14em;color:var(--ink-3);margin-bottom:12px">02 &middot; AFTER CLICK &middot; Three tab states</h4>
+
+    <div style="display:grid;grid-template-columns:1fr;gap:20px">
+
+      <!-- People tab -->
+      <div>
+        <div class="mono" style="font-size:9px;letter-spacing:0.14em;color:var(--ink-3);margin-bottom:6px">A &middot; PEOPLE (default landing tab)</div>
+        <div class="mock">
+          <aside class="mock-side">
+            <div class="mock-brand"><div class="seal-sm"><span>O</span></div><div class="wm">Offerloop</div></div>
+            <div class="mock-nav"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>Find</div>
+            <div class="mock-nav active" style="justify-content:space-between">
+              <span style="display:inline-flex;align-items:center;gap:10px"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-3-3.87M4 21v-2a4 4 0 013-3.87M16 3.13a4 4 0 010 7.75M8 3.13a4 4 0 000 7.75"/></svg>My Network</span>
+              <span class="num" style="font-size:10px;color:rgba(255,255,255,0.75);letter-spacing:0.04em">183</span>
+            </div>
+            <div class="mock-nav"><svg viewBox="0 0 24 24"><path d="M5 3v4M5 11v10M19 3v10M19 17v4"/><circle cx="5" cy="9" r="2"/><circle cx="19" cy="15" r="2"/></svg>Coffee Chats</div>
+            <div class="mock-nav"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg>Tracker</div>
+            <div class="mock-nav"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="15" rx="2"/><path d="M8 6V3m8 3V3"/></svg>Job Board</div>
+          </aside>
+          <main class="mock-main">
+            <div class="mock-topbar">
+              <div class="mock-breadcrumb">Workspace<span>/</span>My Network<span>/</span><b>People</b></div>
+              <div style="display:flex;gap:10px">
+                <button class="btn btn-s btn-xs">Import CSV</button>
+                <button class="btn btn-s btn-xs">Export</button>
+                <button class="btn btn-p btn-xs">Add person</button>
+              </div>
+            </div>
+            <div class="mock-content" style="padding:24px 32px">
+              <div class="mock-tabs" style="margin-top:0;margin-bottom:12px">
+                <div class="mock-tab active"><span>People</span> <span class="cnt">124</span></div>
+                <div class="mock-tab"><span>Companies</span> <span class="cnt">38</span></div>
+                <div class="mock-tab"><span>Hiring Managers</span> <span class="cnt">21</span></div>
+              </div>
+              <div style="background:var(--elev);border:1px solid var(--line);border-radius:var(--r-3);overflow:hidden">
+                <div style="display:grid;grid-template-columns:28px 1.3fr 1fr 1fr 1fr 100px;gap:12px;padding:9px 18px;background:var(--paper-2);border-bottom:1px solid var(--line);font-family:var(--mono);font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-3)"><div></div><div>Name</div><div>Role &middot; Co.</div><div>Location</div><div>School</div><div>Connection</div></div>
+                <div style="display:grid;grid-template-columns:28px 1.3fr 1fr 1fr 1fr 100px;gap:12px;padding:10px 18px;align-items:center;border-bottom:1px solid var(--line-2)"><input type="checkbox" style="margin:0"/><div><div style="font-size:12px;font-weight:600">Alex Kim</div><div class="mono">alex.kim@mckinsey.com</div></div><div style="font-size:11px;color:var(--ink-2)">Analyst &middot; McKinsey</div><div style="font-size:11px;color:var(--ink-2)">San Francisco</div><div><span class="badge badge-brand" style="font-size:10px">USC &middot; '22</span></div><span class="mono" style="font-size:10px;color:var(--ink-3)">ALUMNI</span></div>
+                <div style="display:grid;grid-template-columns:28px 1.3fr 1fr 1fr 1fr 100px;gap:12px;padding:10px 18px;align-items:center;border-bottom:1px solid var(--line-2)"><input type="checkbox" style="margin:0"/><div><div style="font-size:12px;font-weight:600">Priya Shah</div><div class="mono">priya.s@gs.com</div></div><div style="font-size:11px;color:var(--ink-2)">Associate &middot; Goldman</div><div style="font-size:11px;color:var(--ink-2)">New York</div><div><span class="badge badge-brand" style="font-size:10px">USC &middot; '20</span></div><span class="mono" style="font-size:10px;color:var(--ink-3)">ALUMNI</span></div>
+                <div style="display:grid;grid-template-columns:28px 1.3fr 1fr 1fr 1fr 100px;gap:12px;padding:10px 18px;align-items:center;border-bottom:1px solid var(--line-2)"><input type="checkbox" style="margin:0"/><div><div style="font-size:12px;font-weight:600">Jordan Lee</div><div class="mono">jordan@anthropic.com</div></div><div style="font-size:11px;color:var(--ink-2)">Senior PM &middot; Anthropic</div><div style="font-size:11px;color:var(--ink-2)">San Francisco</div><div><span class="badge" style="font-size:10px">Dartmouth &middot; '19</span></div><span class="mono" style="font-size:10px;color:var(--ink-3)">PRIOR CO.</span></div>
+                <div style="display:grid;grid-template-columns:28px 1.3fr 1fr 1fr 1fr 100px;gap:12px;padding:10px 18px;align-items:center"><input type="checkbox" style="margin:0"/><div><div style="font-size:12px;font-weight:600">Maya Rodriguez</div><div class="mono">m.rodriguez@blackstone.com</div></div><div style="font-size:11px;color:var(--ink-2)">VP &middot; Blackstone</div><div style="font-size:11px;color:var(--ink-2)">New York</div><div><span class="badge badge-brand" style="font-size:10px">USC &middot; '15</span></div><span class="mono" style="font-size:10px;color:var(--ink-3)">ALUMNI</span></div>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+
+      <!-- Companies tab -->
+      <div>
+        <div class="mono" style="font-size:9px;letter-spacing:0.14em;color:var(--ink-3);margin-bottom:6px">B &middot; COMPANIES (tab swap, same screen)</div>
+        <div class="mock">
+          <aside class="mock-side">
+            <div class="mock-brand"><div class="seal-sm"><span>O</span></div><div class="wm">Offerloop</div></div>
+            <div class="mock-nav"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>Find</div>
+            <div class="mock-nav active" style="justify-content:space-between">
+              <span style="display:inline-flex;align-items:center;gap:10px"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-3-3.87M4 21v-2a4 4 0 013-3.87M16 3.13a4 4 0 010 7.75M8 3.13a4 4 0 000 7.75"/></svg>My Network</span>
+              <span class="num" style="font-size:10px;color:rgba(255,255,255,0.75);letter-spacing:0.04em">183</span>
+            </div>
+            <div class="mock-nav"><svg viewBox="0 0 24 24"><path d="M5 3v4M5 11v10M19 3v10M19 17v4"/><circle cx="5" cy="9" r="2"/><circle cx="19" cy="15" r="2"/></svg>Coffee Chats</div>
+            <div class="mock-nav"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg>Tracker</div>
+            <div class="mock-nav"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="15" rx="2"/><path d="M8 6V3m8 3V3"/></svg>Job Board</div>
+          </aside>
+          <main class="mock-main">
+            <div class="mock-topbar">
+              <div class="mock-breadcrumb">Workspace<span>/</span>My Network<span>/</span><b>Companies</b></div>
+              <div style="display:flex;gap:10px">
+                <button class="btn btn-s btn-xs">Import CSV</button>
+                <button class="btn btn-s btn-xs">Export</button>
+                <button class="btn btn-p btn-xs">Add company</button>
+              </div>
+            </div>
+            <div class="mock-content" style="padding:24px 32px">
+              <div class="mock-tabs" style="margin-top:0;margin-bottom:12px">
+                <div class="mock-tab"><span>People</span> <span class="cnt">124</span></div>
+                <div class="mock-tab active"><span>Companies</span> <span class="cnt">38</span></div>
+                <div class="mock-tab"><span>Hiring Managers</span> <span class="cnt">21</span></div>
+              </div>
+              <div style="background:var(--elev);border:1px solid var(--line);border-radius:var(--r-3);overflow:hidden">
+                <div style="display:grid;grid-template-columns:28px 1.4fr 1fr 1fr 80px 80px;gap:12px;padding:9px 18px;background:var(--paper-2);border-bottom:1px solid var(--line);font-family:var(--mono);font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-3)"><div></div><div>Company</div><div>Industry</div><div>HQ</div><div style="text-align:right">Alumni</div><div style="text-align:right">Size</div></div>
+                <div style="display:grid;grid-template-columns:28px 1.4fr 1fr 1fr 80px 80px;gap:12px;padding:10px 18px;align-items:center;border-bottom:1px solid var(--line-2)"><input type="checkbox" style="margin:0"/><div><div style="font-size:12px;font-weight:600">McKinsey &amp; Company</div><div class="mono">mckinsey.com</div></div><div style="font-size:11px;color:var(--ink-2)">Consulting</div><div style="font-size:11px;color:var(--ink-2)">New York, NY</div><span class="num" style="font-size:11px;text-align:right">128</span><span class="num" style="font-size:10px;color:var(--ink-2);text-align:right">45k</span></div>
+                <div style="display:grid;grid-template-columns:28px 1.4fr 1fr 1fr 80px 80px;gap:12px;padding:10px 18px;align-items:center;border-bottom:1px solid var(--line-2)"><input type="checkbox" style="margin:0"/><div><div style="font-size:12px;font-weight:600">Goldman Sachs</div><div class="mono">goldmansachs.com</div></div><div style="font-size:11px;color:var(--ink-2)">Investment Bank</div><div style="font-size:11px;color:var(--ink-2)">New York, NY</div><span class="num" style="font-size:11px;text-align:right">214</span><span class="num" style="font-size:10px;color:var(--ink-2);text-align:right">49k</span></div>
+                <div style="display:grid;grid-template-columns:28px 1.4fr 1fr 1fr 80px 80px;gap:12px;padding:10px 18px;align-items:center;border-bottom:1px solid var(--line-2)"><input type="checkbox" style="margin:0"/><div><div style="font-size:12px;font-weight:600">Anthropic</div><div class="mono">anthropic.com</div></div><div style="font-size:11px;color:var(--ink-2)">AI Research</div><div style="font-size:11px;color:var(--ink-2)">San Francisco, CA</div><span class="num" style="font-size:11px;text-align:right">11</span><span class="num" style="font-size:10px;color:var(--ink-2);text-align:right">800</span></div>
+                <div style="display:grid;grid-template-columns:28px 1.4fr 1fr 1fr 80px 80px;gap:12px;padding:10px 18px;align-items:center"><input type="checkbox" style="margin:0"/><div><div style="font-size:12px;font-weight:600">Stripe</div><div class="mono">stripe.com</div></div><div style="font-size:11px;color:var(--ink-2)">Fintech</div><div style="font-size:11px;color:var(--ink-2)">San Francisco, CA</div><span class="num" style="font-size:11px;text-align:right">34</span><span class="num" style="font-size:10px;color:var(--ink-2);text-align:right">8.5k</span></div>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+
+      <!-- Hiring Managers tab -->
+      <div>
+        <div class="mono" style="font-size:9px;letter-spacing:0.14em;color:var(--ink-3);margin-bottom:6px">C &middot; HIRING MANAGERS (tab swap, same screen)</div>
+        <div class="mock">
+          <aside class="mock-side">
+            <div class="mock-brand"><div class="seal-sm"><span>O</span></div><div class="wm">Offerloop</div></div>
+            <div class="mock-nav"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>Find</div>
+            <div class="mock-nav active" style="justify-content:space-between">
+              <span style="display:inline-flex;align-items:center;gap:10px"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-3-3.87M4 21v-2a4 4 0 013-3.87M16 3.13a4 4 0 010 7.75M8 3.13a4 4 0 000 7.75"/></svg>My Network</span>
+              <span class="num" style="font-size:10px;color:rgba(255,255,255,0.75);letter-spacing:0.04em">183</span>
+            </div>
+            <div class="mock-nav"><svg viewBox="0 0 24 24"><path d="M5 3v4M5 11v10M19 3v10M19 17v4"/><circle cx="5" cy="9" r="2"/><circle cx="19" cy="15" r="2"/></svg>Coffee Chats</div>
+            <div class="mock-nav"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg>Tracker</div>
+            <div class="mock-nav"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="15" rx="2"/><path d="M8 6V3m8 3V3"/></svg>Job Board</div>
+          </aside>
+          <main class="mock-main">
+            <div class="mock-topbar">
+              <div class="mock-breadcrumb">Workspace<span>/</span>My Network<span>/</span><b>Hiring Managers</b></div>
+              <div style="display:flex;gap:10px">
+                <button class="btn btn-s btn-xs">Import CSV</button>
+                <button class="btn btn-s btn-xs">Export</button>
+                <button class="btn btn-p btn-xs">Add manager</button>
+              </div>
+            </div>
+            <div class="mock-content" style="padding:24px 32px">
+              <div class="mock-tabs" style="margin-top:0;margin-bottom:12px">
+                <div class="mock-tab"><span>People</span> <span class="cnt">124</span></div>
+                <div class="mock-tab"><span>Companies</span> <span class="cnt">38</span></div>
+                <div class="mock-tab active"><span>Hiring Managers</span> <span class="cnt">21</span></div>
+              </div>
+              <div style="background:var(--elev);border:1px solid var(--line);border-radius:var(--r-3);overflow:hidden">
+                <div style="display:grid;grid-template-columns:28px 1.2fr 1fr 1.2fr 1fr 70px;gap:12px;padding:9px 18px;background:var(--paper-2);border-bottom:1px solid var(--line);font-family:var(--mono);font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-3)"><div></div><div>Name</div><div>Title</div><div>Role hiring</div><div>Company</div><div style="text-align:right">Posted</div></div>
+                <div style="display:grid;grid-template-columns:28px 1.2fr 1fr 1.2fr 1fr 70px;gap:12px;padding:10px 18px;align-items:center;border-bottom:1px solid var(--line-2)"><input type="checkbox" style="margin:0"/><div><div style="font-size:12px;font-weight:600">Rachel Chen</div><div class="mono">rachel.c@stripe.com</div></div><div style="font-size:11px;color:var(--ink-2)">Eng. Manager</div><div style="font-size:11px;color:var(--ink-2)">Sr. SWE &middot; Infra</div><div style="font-size:11px;color:var(--ink-2)">Stripe</div><span class="num" style="font-size:10px;color:var(--ink-2);text-align:right">12d</span></div>
+                <div style="display:grid;grid-template-columns:28px 1.2fr 1fr 1.2fr 1fr 70px;gap:12px;padding:10px 18px;align-items:center;border-bottom:1px solid var(--line-2)"><input type="checkbox" style="margin:0"/><div><div style="font-size:12px;font-weight:600">David Patel</div><div class="mono">david@anthropic.com</div></div><div style="font-size:11px;color:var(--ink-2)">Head of PM</div><div style="font-size:11px;color:var(--ink-2)">Product Manager &middot; Claude</div><div style="font-size:11px;color:var(--ink-2)">Anthropic</div><span class="num" style="font-size:10px;color:var(--ink-2);text-align:right">4d</span></div>
+                <div style="display:grid;grid-template-columns:28px 1.2fr 1fr 1.2fr 1fr 70px;gap:12px;padding:10px 18px;align-items:center;border-bottom:1px solid var(--line-2)"><input type="checkbox" style="margin:0"/><div><div style="font-size:12px;font-weight:600">Linda Ortiz</div><div class="mono">l.ortiz@gs.com</div></div><div style="font-size:11px;color:var(--ink-2)">Recruiting Ptnr</div><div style="font-size:11px;color:var(--ink-2)">Associate &middot; IBD</div><div style="font-size:11px;color:var(--ink-2)">Goldman</div><span class="num" style="font-size:10px;color:var(--ink-2);text-align:right">20d</span></div>
+                <div style="display:grid;grid-template-columns:28px 1.2fr 1fr 1.2fr 1fr 70px;gap:12px;padding:10px 18px;align-items:center"><input type="checkbox" style="margin:0"/><div><div style="font-size:12px;font-weight:600">James Walsh</div><div class="mono">james.w@mckinsey.com</div></div><div style="font-size:11px;color:var(--ink-2)">Partner</div><div style="font-size:11px;color:var(--ink-2)">Summer Analyst</div><div style="font-size:11px;color:var(--ink-2)">McKinsey</div><span class="num" style="font-size:10px;color:var(--ink-2);text-align:right">8d</span></div>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:24px">
+      <div class="rev">
+        <span class="tag fix">Decision</span>
+        <h5>No greeting here</h5>
+        <p>Greeting + italic underline belong only to Find. My Network is utilitarian &mdash; breadcrumb labels, tabs switch, work begins.</p>
+      </div>
+      <div class="rev">
+        <span class="tag fix">Pattern</span>
+        <h5>Tabs mirror Find</h5>
+        <p>People / Companies / Hiring Managers &mdash; exact same labels, order, and component as Find. Users learn once.</p>
+      </div>
+      <div class="rev">
+        <span class="tag fix">Symmetry</span>
+        <h5>Ocean vs. Rolodex</h5>
+        <p>Find searches the world. My Network browses your saved. Same three tabs, different scope. The symmetry is the whole point.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Rollout -->
+  <section class="section">
+    <div class="section-head">
+      <div class="idx">X &middot; Rollout</div>
+      <div>
+        <h2>Four steps. Low risk.</h2>
+        <p>Order is deliberate: tokens before type, type before components, product before marketing.</p>
+      </div>
+    </div>
+
+    <div class="principles">
+      <div class="principle"><div class="pn">01</div><h5>Tokens</h5><p>Replace <span class="mono">index.css</span> variables. Keep Tailwind config. Flag-gated.</p></div>
+      <div class="principle"><div class="pn">02</div><h5>Type</h5><p>Remove Lora, DM Sans, Libre Baskerville, IBM Plex Mono, VanquishBold. Load Inter + Instrument Serif + JetBrains Mono.</p></div>
+      <div class="principle"><div class="pn">03</div><h5>Primitives</h5><p>Rebuild Button, Input, Badge, Card, Tab, Row. Add the <span class="mono">&lt;PageTitle&gt;</span> component with the italic-underline gesture baked in.</p></div>
+      <div class="principle"><div class="pn">04</div><h5>Marketing</h5><p>Landing inherits the system. The letterhead header at the top of this page is a candidate for the real landing hero.</p></div>
+    </div>
+  </section>
+</div>
+
+<footer>
+  <div>Offerloop · Aesthetic refresh · Volume II · Stationery</div>
+  <div class="sign">&mdash; with care</div>
+</footer>
+
+<div class="tweaks" id="tweaks">
+  <h6>Tweaks</h6>
+  <div class="tweak-row">
+    <label>Paper tone</label>
+    <select id="tk-paper">
+      <option value="cream">cream (default)</option>
+      <option value="ivory">ivory (cooler)</option>
+      <option value="manila">manila (warmer)</option>
+      <option value="clean">clean white</option>
+    </select>
+  </div>
+  <div class="tweak-row">
+    <label>Grain strength</label>
+    <input type="range" id="tk-grain" min="0" max="100" value="55" />
+  </div>
+  <div class="tweak-row">
+    <label>Brand color</label>
+    <select id="tk-brand">
+      <option value="navy">stationery navy</option>
+      <option value="forest">forest</option>
+      <option value="oxblood">oxblood</option>
+      <option value="ink">ink only</option>
+    </select>
+  </div>
+  <div class="tweak-row">
+    <label>Accent color</label>
+    <input type="color" id="tk-accent" value="#8B2E1F"/>
+  </div>
+  <div class="tweak-row">
+    <label>Underline gesture</label>
+    <select id="tk-underline">
+      <option value="scribble">hand scribble</option>
+      <option value="straight">straight rule</option>
+      <option value="none">none</option>
+    </select>
+  </div>
+  <div class="tweak-row">
+    <label>Display font</label>
+    <select id="tk-display">
+      <option value="instrument">Instrument Serif</option>
+      <option value="dm-serif">DM Serif Display</option>
+      <option value="inter">Inter (no serif)</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){
+  const tweaks = document.getElementById('tweaks');
+  const DEFAULTS = /*EDITMODE-BEGIN*/{
+    "paperTone": "clean",
+    "grainStrength": 55,
+    "brandColor": "navy",
+    "accentColor": "#8B2E1F",
+    "underlineStyle": "scribble",
+    "displayFont": "instrument"
+  }/*EDITMODE-END*/;
+  let state = {...DEFAULTS};
+
+  const paperMap = {
+    cream:  {paper:'#FDFBF7', surface:'#FFFEFB', paper2:'#F7F3EA', line:'#E6DFCF'},
+    ivory:  {paper:'#FBFAF5', surface:'#FFFFFC', paper2:'#F2EFE6', line:'#E0DACC'},
+    manila: {paper:'#F7EFDE', surface:'#FCF6E9', paper2:'#EEE3C9', line:'#DDCFAE'},
+    clean:  {paper:'#FDFDFD', surface:'#FFFFFF', paper2:'#F4F4F4', line:'#E8E8E8'}
+  };
+  const brandMap = {
+    navy:    {b:'#1D3F7A', h:'#15305E', soft:'#E7EAF2'},
+    forest:  {b:'#2F5D3A', h:'#23472C', soft:'#E2ECDF'},
+    oxblood: {b:'#8B2E1F', h:'#6F2418', soft:'#F4E4DE'},
+    ink:     {b:'#1F1B14', h:'#000000', soft:'#ECE7DB'}
+  };
+
+  function underlineSvg(style, color){
+    const hex = color.replace('#','%23');
+    if(style==='straight'){
+      return `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 8' preserveAspectRatio='none'><rect x='0' y='4' width='200' height='1.4' fill='${hex}'/></svg>")`;
+    }
+    if(style==='none'){ return 'none'; }
+    return `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 8' preserveAspectRatio='none'><path d='M1 5 Q40 1 80 4 T160 3 T199 5' stroke='${hex}' stroke-width='1.4' fill='none' stroke-linecap='round'/></svg>")`;
+  }
+
+  function apply(){
+    const r = document.documentElement.style;
+    const p = paperMap[state.paperTone] || paperMap.cream;
+    r.setProperty('--paper', p.paper);
+    r.setProperty('--surface', p.surface);
+    r.setProperty('--paper-2', p.paper2);
+    r.setProperty('--line', p.line);
+    document.documentElement.style.background = p.paper;
+
+    const b = brandMap[state.brandColor] || brandMap.navy;
+    r.setProperty('--brand', b.b);
+    r.setProperty('--brand-hov', b.h);
+    r.setProperty('--brand-soft', b.soft);
+
+    r.setProperty('--accent', state.accentColor);
+
+    // Noise opacity
+    const noiseOpacity = (state.grainStrength/100).toFixed(2);
+    let style = document.getElementById('noise-override');
+    if(!style){ style = document.createElement('style'); style.id='noise-override'; document.head.appendChild(style); }
+    style.textContent = `body::before{opacity:${noiseOpacity} !important}`;
+
+    // Underline gesture
+    const ul = underlineSvg(state.underlineStyle, state.accentColor);
+    let ulStyle = document.getElementById('underline-override');
+    if(!ulStyle){ ulStyle = document.createElement('style'); ulStyle.id='underline-override'; document.head.appendChild(ulStyle); }
+    ulStyle.textContent = `.greet em::after, .sig-ex-1 em.underlined::after{background-image:${ul} !important}`;
+
+    // Display font
+    let fStyle = document.getElementById('font-override');
+    if(!fStyle){ fStyle = document.createElement('style'); fStyle.id='font-override'; document.head.appendChild(fStyle); }
+    if(state.displayFont==='inter'){
+      fStyle.textContent = `h1,h2,.greet,.sig-ex-1,.mock-tile b,.wordmark,.toc-brand,.seal .o,.mock-brand .wm{font-family:var(--sans) !important;font-weight:600 !important;font-style:normal !important}`;
+    } else if(state.displayFont==='dm-serif'){
+      if(!document.getElementById('dm-serif-load')){
+        const l = document.createElement('link'); l.id='dm-serif-load'; l.rel='stylesheet';
+        l.href='https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&display=swap';
+        document.head.appendChild(l);
+      }
+      fStyle.textContent = `h1,h2,.greet,.sig-ex-1,.mock-tile b,.wordmark,.toc-brand,.seal .o,.mock-brand .wm{font-family:'DM Serif Display',serif !important}`;
+    } else {
+      fStyle.textContent = '';
+    }
+
+    try{ window.parent.postMessage({type:'__edit_mode_set_keys',edits:state},'*'); }catch(e){}
+  }
+
+  document.getElementById('tk-paper').addEventListener('change', e=>{state.paperTone=e.target.value; apply();});
+  document.getElementById('tk-grain').addEventListener('input',  e=>{state.grainStrength=+e.target.value; apply();});
+  document.getElementById('tk-brand').addEventListener('change', e=>{state.brandColor=e.target.value; apply();});
+  document.getElementById('tk-accent').addEventListener('input', e=>{state.accentColor=e.target.value; apply();});
+  document.getElementById('tk-underline').addEventListener('change', e=>{state.underlineStyle=e.target.value; apply();});
+  document.getElementById('tk-display').addEventListener('change', e=>{state.displayFont=e.target.value; apply();});
+
+  window.addEventListener('message', (ev)=>{
+    if(!ev || !ev.data) return;
+    if(ev.data.type==='__activate_edit_mode'){ tweaks.classList.add('open'); }
+    if(ev.data.type==='__deactivate_edit_mode'){ tweaks.classList.remove('open'); }
+  });
+  try{ window.parent.postMessage({type:'__edit_mode_available'},'*'); }catch(e){}
+
+  window.addEventListener('keydown',(e)=>{
+    if((e.key==='t' || e.key==='T') && !/input|textarea/i.test(e.target.tagName)){ tweaks.classList.toggle('open'); }
+  });
+
+  apply();
+
+  // Spreadsheet switcher (People / Companies / Hiring Managers)
+  window.showSheet = function(which){
+    const panes = {people:'ss-people', companies:'ss-companies', managers:'ss-managers'};
+    const btns  = {people:'ss-people-btn', companies:'ss-co-btn', managers:'ss-hm-btn'};
+    const crumbs= {people:'People', companies:'Companies', managers:'Hiring Managers'};
+    const titles= {
+      people:   'The <em>people</em> you know.',
+      companies:'The <em>companies</em> on your list.',
+      managers: 'The <em>hiring managers</em> posting roles.'
+    };
+    const subs  = {
+      people:   '124 contacts · imported from resume, LinkedIn, and manual adds',
+      companies:'38 companies · saved from Find or added by hand',
+      managers: '21 hiring managers · actively posting within the last 30 days'
+    };
+    const addBtns = {people:'Add person', companies:'Add company', managers:'Add manager'};
+    Object.keys(panes).forEach(k=>{
+      const p = document.getElementById(panes[k]);
+      if(p) p.style.display = (k===which?'block':'none');
+      const b = document.getElementById(btns[k]);
+      if(b){ b.classList.remove('btn-p','btn-s'); b.classList.add(k===which?'btn-p':'btn-s'); }
+    });
+    const c = document.getElementById('ss-crumb'); if(c) c.textContent = crumbs[which];
+    const t = document.getElementById('ss-title'); if(t) t.innerHTML = titles[which];
+    const s = document.getElementById('ss-sub');   if(s) s.textContent = subs[which];
+    const a = document.getElementById('ss-add');   if(a) a.textContent = addBtns[which];
+  };
+})();
+</script>
+
+</body>
+</html>

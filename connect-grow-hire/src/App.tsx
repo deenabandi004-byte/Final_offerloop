@@ -14,6 +14,7 @@ import { DynamicGradientBackground } from "./components/background/DynamicGradie
 import { LoadingSkeleton } from "./components/LoadingSkeleton";
 import { ScoutSidePanel } from "./components/ScoutSidePanel";
 import { LoadingContainer } from "./components/ui/LoadingBar";
+import { IS_DEV_PREVIEW } from "./lib/devPreview";
 
 // Keep critical pages non-lazy for faster initial load
 import Index from "./pages/Index";
@@ -39,6 +40,7 @@ const Pricing = React.lazy(() => import("./pages/Pricing"));
 const DocumentationPage = React.lazy(() => import("./pages/DocumentationPage"));
 const JobBoardPage = React.lazy(() => import("./pages/JobBoardPage"));
 const HiringManagerTrackerPage = React.lazy(() => import("./pages/HiringManagerTrackerPage"));
+const MyNetworkPage = React.lazy(() => import("./pages/MyNetworkPage"));
 const NotFound = React.lazy(() => import("./pages/NotFound"));
 const PaymentSuccess = React.lazy(() => import("./pages/PaymentSuccess"));
 // Feature Pages - These are the largest, most important to lazy load
@@ -49,6 +51,7 @@ const EmailTemplatesPage = React.lazy(() => import("./pages/EmailTemplatesPage")
 const InterviewPrepPage = React.lazy(() => import("./pages/InterviewPrepPage"));
 const FirmSearchPage = React.lazy(() => import("./pages/FirmSearchPage"));
 const ApplicationLabPage = React.lazy(() => import("./pages/ApplicationLabPage"));
+const RecruitingTimelinePage = React.lazy(() => import("./pages/RecruitingTimelinePage"));
 const ResumeWorkshopPage = React.lazy(() => import("./pages/ResumeWorkshopPage"));
 const ResumePage = React.lazy(() => import("./pages/ResumePage"));
 const CoverLetterPage = React.lazy(() => import("./pages/CoverLetterPage"));
@@ -94,6 +97,10 @@ const PageLoader = () => (
   </div>
 );
 
+// Phase 3 stationery aesthetic — always-on (shipped).
+// Formerly gated by VITE_FLAG_NEW_AESTHETIC env var during dev preview.
+const NEW_AESTHETIC = true;
+
 // Environment-based logging helper
 const isDev = import.meta.env.DEV;
 const devLog = (...args: any[]) => {
@@ -119,13 +126,19 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
     isSignedOut
   });
 
+  // Dev preview bypass — skip all auth checks in dev mode with ?devpreview=true
+  if (IS_DEV_PREVIEW) {
+    devLog("🔒 [PROTECTED ROUTE] Dev preview bypass active, skipping auth");
+    return <>{children}</>;
+  }
+
   if (isLoading) {
     devLog("🔒 [PROTECTED ROUTE] Still loading auth state, showing loading bar");
     return (
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-        <LoadingContainer 
-          label="Loading Offerloop..." 
-          sublabel="Please wait" 
+        <LoadingContainer
+          label="Loading Offerloop..."
+          sublabel="Please wait"
         />
       </div>
     );
@@ -236,6 +249,8 @@ const AppRoutes: React.FC = () => {
       {/* Protected App Pages - Wrapped in Suspense for lazy loading */}
       <Route path="/dashboard" element={<Navigate to="/find" replace />} />
       <Route path="/find" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><FindPage /></Suspense></ProtectedRoute>} />
+      <Route path="/my-network" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><MyNetworkPage /></Suspense></ProtectedRoute>} />
+      <Route path="/my-network/:tab" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><MyNetworkPage /></Suspense></ProtectedRoute>} />
       <Route path="/contact-search" element={<Navigate to="/find" replace />} />
       <Route path="/tracker" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><NetworkTracker /></Suspense></ProtectedRoute>} />
       <Route path="/outbox" element={<Navigate to="/tracker" replace />} />
@@ -261,7 +276,8 @@ const AppRoutes: React.FC = () => {
       <Route path="/company-tracker" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CompanyTrackerPage /></Suspense></ProtectedRoute>} />
       <Route path="/scout" element={<ProtectedRoute><ScoutRedirect /></ProtectedRoute>} />
       <Route path="/application-lab" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ApplicationLabPage /></Suspense></ProtectedRoute>} />
-      
+      <Route path="/recruiting-timeline" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><RecruitingTimelinePage /></Suspense></ProtectedRoute>} />
+
       {/* Write Pages - Resume & Cover Letter */}
       <Route path="/write/resume" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ResumeWorkshopPage /></Suspense></ProtectedRoute>} />
       <Route path="/write/resume-library" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ResumeWorkshopPage /></Suspense></ProtectedRoute>} />
@@ -371,6 +387,10 @@ const KeyboardShortcutHandler: React.FC = () => {
 
 /* ---------------- App Root ---------------- */
 const App: React.FC = () => {
+  useEffect(() => {
+    document.documentElement.dataset.theme = NEW_AESTHETIC ? 'stationery' : 'legacy';
+  }, []);
+
   return (
     <HelmetProvider>
     <QueryClientProvider client={queryClient}>

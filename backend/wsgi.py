@@ -23,6 +23,7 @@ from .app.routes.users import users_bp
 from .app.routes.outbox import outbox_bp
 from .app.routes.scout import scout_bp
 from .app.routes.firm_search import firm_search_bp
+from .app.routes.school_affinity import school_affinity_bp
 from .app.routes.dashboard import dashboard_bp
 from .app.routes.timeline import timeline_bp
 from .app.routes.search_history import search_history_bp
@@ -174,6 +175,7 @@ def create_app() -> Flask:
     app.register_blueprint(outbox_bp)
     app.register_blueprint(scout_bp)
     app.register_blueprint(firm_search_bp)
+    app.register_blueprint(school_affinity_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(timeline_bp)
     app.register_blueprint(search_history_bp)
@@ -298,10 +300,38 @@ def create_app() -> Flask:
                 _tracker_logger.info("Nudge scanner disabled via NUDGES_ENABLED=false")
 
             # ---- Queue scanner (Agentic Queue Phase 2) ------------------
-            # Intentionally left as a placeholder. The queue scanner will be
-            # wired here by the queue team following the isolation pattern
-            # above. See docs/designs/tracker-daemon-contract.md.
-            # Kill switch: QUEUE_SCANNER_ENABLED (default "true")
+            # Tuesday-gated per docs/designs/tracker-daemon-contract.md.
+            # Isolated: a crash here must NOT block the aggregation scanner.
+            if os.getenv("QUEUE_SCANNER_ENABLED", "true").lower() == "true":
+                try:
+                    with app.app_context():
+                        from .app.services.queue_service import scan_and_generate_queues
+                        scan_and_generate_queues()
+                except Exception:
+                    logging.getLogger("queue_scanner").exception(
+                        "Queue scanner iteration failed"
+                    )
+            else:
+                _tracker_logger.info(
+                    "Queue scanner disabled via QUEUE_SCANNER_ENABLED=false"
+                )
+
+            # ---- Aggregation scanner (AI Flywheel Phase 2) --------------
+            # Sunday 3-9am UTC window, gated internally. Full contact scan
+            # for analytics/email_outcomes segments. See the daemon contract.
+            if os.getenv("AGGREGATION_SCANNER_ENABLED", "true").lower() == "true":
+                try:
+                    with app.app_context():
+                        from .app.services.email_baseline import aggregate_email_outcomes
+                        aggregate_email_outcomes()
+                except Exception:
+                    logging.getLogger("aggregation_scanner").exception(
+                        "Aggregation scanner iteration failed"
+                    )
+            else:
+                _tracker_logger.info(
+                    "Aggregation scanner disabled via AGGREGATION_SCANNER_ENABLED=false"
+                )
 
             time.sleep(SIX_HOURS)
 

@@ -126,7 +126,16 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
         }
       }
 
-      // 2. Transform data
+      // 2. Fill gaps from resume/LinkedIn data
+      let resumeParsed: { university?: string; major?: string } = {};
+      try {
+        resumeParsed = JSON.parse(localStorage.getItem("resumeData") || "{}");
+      } catch { /* ignore */ }
+
+      const academicUniversity = onboardingData.academics.university || resumeParsed.university || "";
+      const academicMajor = onboardingData.academics.major || resumeParsed.major || "";
+
+      // 3. Transform data
       const finalData = {
         profile: {
           fullName: `${onboardingData.profile.firstName} ${onboardingData.profile.lastName}`,
@@ -136,11 +145,12 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
           phone: onboardingData.profile.phone,
           linkedinUrl: onboardingData.profile.linkedinUrl || "",
         },
+        university: academicUniversity,
         academics: {
-          university: onboardingData.academics.university,
-          college: onboardingData.academics.university,
+          university: academicUniversity,
+          college: academicUniversity,
           degree: onboardingData.academics.degree,
-          major: onboardingData.academics.major,
+          major: academicMajor,
           graduationMonth: onboardingData.academics.graduationMonth,
           graduationYear: onboardingData.academics.graduationYear,
         },

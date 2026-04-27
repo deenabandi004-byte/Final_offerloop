@@ -200,6 +200,46 @@ export const firebaseApi = {
     return userData.professionalInfo || null;
   },
 
+  async getUserOnboardingData(uid: string): Promise<{
+    firstName: string;
+    university: string;
+    graduationYear: string;
+    targetIndustries: string[];
+    preferredLocations: string[];
+    dreamCompanies: string[];
+    careerTrack: string;
+    preferredJobRole: string;
+  }> {
+    const userRef = doc(db, 'users', uid);
+    const userSnap = await getDoc(userRef);
+    const d = userSnap.exists() ? userSnap.data() : {} as Record<string, unknown>;
+    const pi = (d.professionalInfo || {}) as Record<string, unknown>;
+    const academics = (d.academics || {}) as Record<string, unknown>;
+    const loc = (d.location || {}) as Record<string, unknown>;
+    const profile = (d.profile || {}) as Record<string, unknown>;
+
+    // Check resumeParsed in Firestore (from uploaded resume)
+    const resumeParsed = (d.resumeParsed || {}) as Record<string, unknown>;
+    const resumeEducation = (resumeParsed.education || {}) as Record<string, unknown>;
+    // Also check localStorage resume data for university
+    let resumeUniversity = '';
+    try {
+      const rd = JSON.parse(localStorage.getItem('resumeData') || '{}');
+      resumeUniversity = rd.university || '';
+    } catch { /* ignore */ }
+
+    return {
+      firstName: (pi.firstName as string) || (d.firstName as string) || (profile.firstName as string) || (d.name as string) || '',
+      university: (pi.university as string) || (academics.university as string) || (d.university as string) || (d.college as string) || (resumeParsed.university as string) || (resumeEducation.university as string) || resumeUniversity || '',
+      graduationYear: (pi.graduationYear as string) || (academics.graduationYear as string) || (d.graduationYear as string) || '',
+      targetIndustries: (pi.targetIndustries as string[]) || (d.industriesOfInterest as string[]) || (d.interests as string[]) || (loc.interests as string[]) || (loc.careerInterests as string[]) || [],
+      preferredLocations: (d.preferredLocations as string[]) || (d.preferredLocation as string[]) || (loc.preferredLocation as string[]) || [],
+      dreamCompanies: (d.dreamCompanies as string[]) || [],
+      careerTrack: (d.careerTrack as string) || '',
+      preferredJobRole: (d.preferredJobRole as string) || (d.preferredJobRolesOrTitles as string) || '',
+    };
+  },
+
   // ----------------
   // CONTACT MANAGEMENT
   // ----------------

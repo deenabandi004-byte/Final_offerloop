@@ -37,6 +37,7 @@ import { COFFEE_CHAT_CREDITS } from "@/lib/constants";
 import { flushSync } from "react-dom";
 import { logActivity, generateCoffeeChatPrepSummary } from "@/utils/activityLogger";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
+import { IS_DEV_PREVIEW } from "@/lib/devPreview";
 import { useSubscription } from "@/hooks/useSubscription";
 import { canUseFeature, getFeatureLimit } from "@/utils/featureAccess";
 import { trackFeatureActionCompleted, trackContentViewed, trackError } from "../lib/analytics";
@@ -67,6 +68,29 @@ const CoffeeChatPrepPage: React.FC = () => {
   
   const hasEnoughCredits = (effectiveUser.credits ?? 0) >= COFFEE_CHAT_CREDITS;
   const hasAccess = hasMonthlyAccess && hasEnoughCredits;
+
+  // Animated placeholder
+  const PLACEHOLDER_EXAMPLES = [
+    'linkedin.com/in/sarah-chen-goldman-sachs',
+    'linkedin.com/in/david-park-mckinsey',
+    'linkedin.com/in/maria-garcia-google',
+    'linkedin.com/in/james-wilson-deloitte',
+    'linkedin.com/in/priya-patel-jpmorgan',
+  ];
+  const [placeholderIdx, setPlaceholderIdx] = useState(0);
+  const [placeholderVisible, setPlaceholderVisible] = useState(true);
+  const [inputFocused, setInputFocused] = useState(false);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPlaceholderVisible(false);
+      setTimeout(() => {
+        setPlaceholderIdx((i) => (i + 1) % PLACEHOLDER_EXAMPLES.length);
+        setPlaceholderVisible(true);
+      }, 300);
+    }, 3500);
+    return () => clearInterval(interval);
+  }, []);
 
   // Coffee Chat Generation State
   const [linkedinUrl, setLinkedinUrl] = useState("");
@@ -590,41 +614,35 @@ const CoffeeChatPrepPage: React.FC = () => {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full text-foreground">
+      <div className="flex min-h-screen w-full font-sans" style={{ background: 'var(--warm-bg, #FEFDFB)' }}>
         <AppSidebar />
 
         <MainContentWrapper>
-          <AppHeader title="" />
+          <AppHeader title="Coffee Chat Prep" />
 
-          <ProGate title="Coffee Chat Prep" description="Get AI-generated talking points, background research, and conversation starters for any professional — just paste their LinkedIn." videoId="D1--4aVisho">
-          <main data-tour="tour-coffee-chat-prep" style={{ background: '#FFFFFF', flex: 1, overflowY: 'auto' }}>
+          <ProGate title="Coffee Chat Prep" description="Get AI-generated talking points, background research, and conversation starters for any professional — just paste their LinkedIn." videoId="D1--4aVisho" bypass={IS_DEV_PREVIEW}>
+          <main data-tour="tour-coffee-chat-prep" style={{ background: 'var(--warm-bg, #FEFDFB)', flex: 1, overflowY: 'auto' }}>
 
-            <div style={{ maxWidth: 640, margin: '0 auto', padding: '0 40px' }}>
+            <div style={{ maxWidth: 800, margin: '0 auto', padding: '0 40px' }}>
 
-              {/* ── Book-aesthetic page header ── */}
-              <div style={{ marginBottom: 32, paddingTop: 44 }}>
+              {/* ── Page header ── */}
+              <div style={{ marginBottom: 28, paddingTop: 24 }}>
                 <h1 style={{
-                  fontSize: 28,
-                  fontWeight: 700,
-                  color: '#0F172A',
-                  letterSpacing: '-.02em',
+                  fontSize: 22,
+                  fontWeight: 600,
+                  color: '#1A1714',
                   lineHeight: 1.2,
-                  marginBottom: 10,
+                  marginBottom: 6,
                   fontFamily: "'Lora', Georgia, serif",
                 }}>
                   Coffee Chat Prep
                 </h1>
-                <div style={{
-                  height: 1.5,
-                  background: 'linear-gradient(90deg, #2563EB, #60A5FA, transparent)',
-                  marginBottom: 10,
-                }} />
                 <p style={{
-                  fontSize: 14,
-                  color: '#94A3B8',
-                  lineHeight: 1.5,
+                  fontSize: 13,
+                  color: 'var(--warm-ink-tertiary, #9C9590)',
+                  lineHeight: 1.6,
                 }}>
-                  Paste a LinkedIn URL and get a personalized prep sheet with company intel, talking points, and smart questions.
+                  Walk into every conversation prepared. We'll research them so you don't have to.
                 </p>
               </div>
 
@@ -647,36 +665,78 @@ const CoffeeChatPrepPage: React.FC = () => {
                   </div>
                 )}
 
+                {/* Personalized greeting */}
+                <p style={{
+                  textAlign: 'center',
+                  fontSize: 16,
+                  color: '#78553A',
+                  fontFamily: "'Lora', Georgia, serif",
+                  fontStyle: 'italic',
+                  marginBottom: 20,
+                }}>
+                  {preps.length > 0
+                    ? `${preps.length} conversation${preps.length === 1 ? '' : 's'} prepared, ${(effectiveUser.name || '').split(' ')[0] || 'there'}.`
+                    : `Let's get you prepared, ${(effectiveUser.name || '').split(' ')[0] || 'there'}.`}
+                </p>
+
                 {/* Input row */}
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: 10,
-                  padding: '8px 0',
-                  borderBottom: '1.5px solid #CBD5E1',
-                  transition: 'border-color .15s',
+                  padding: '14px 18px',
+                  border: '1.5px solid var(--warm-border, #E8E4DE)',
+                  borderRadius: 14,
+                  background: 'var(--warm-surface, #FAF9F6)',
+                  transition: 'all .15s',
                   marginBottom: 12,
                 }}
-                className="focus-within:border-b-[#3B82F6]"
+                className="focus-within:border-[#78553A] focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(120,85,58,0.15)]"
                 >
-                  <Linkedin style={{ width: 16, height: 16, flexShrink: 0, color: '#0A66C2', strokeWidth: 1.5 }} />
-                  <input
-                    type="url"
-                    value={linkedinUrl}
-                    onChange={(e) => setLinkedinUrl(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCoffeeChatSubmit(); } }}
-                    placeholder="Paste a LinkedIn profile URL..."
-                    disabled={coffeeChatLoading || !hasAccess}
-                    style={{
-                      flex: 1,
-                      border: 'none',
-                      background: 'none',
-                      fontSize: 14,
-                      color: '#0F172A',
-                      outline: 'none',
-                      fontFamily: 'inherit',
-                    }}
-                  />
+                  <Linkedin style={{ width: 16, height: 16, flexShrink: 0, color: '#78553A', strokeWidth: 1.5 }} />
+                  <div style={{ flex: 1, position: 'relative' }}>
+                    <input
+                      type="url"
+                      value={linkedinUrl}
+                      onChange={(e) => setLinkedinUrl(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCoffeeChatSubmit(); } }}
+                      onFocus={() => setInputFocused(true)}
+                      onBlur={() => setInputFocused(false)}
+                      placeholder={inputFocused && !linkedinUrl ? PLACEHOLDER_EXAMPLES[placeholderIdx] : undefined}
+                      disabled={coffeeChatLoading || !hasAccess}
+                      style={{
+                        width: '100%',
+                        border: 'none',
+                        background: 'none',
+                        fontSize: 14,
+                        color: '#1A1714',
+                        outline: 'none',
+                        fontFamily: 'inherit',
+                      }}
+                    />
+                    {!linkedinUrl && !inputFocused && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          pointerEvents: 'none',
+                          fontSize: 14,
+                          fontFamily: 'inherit',
+                          lineHeight: 1.5,
+                          color: 'var(--warm-ink-tertiary, #9C9590)',
+                          opacity: placeholderVisible ? 1 : 0,
+                          transition: 'opacity 0.3s ease',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {PLACEHOLDER_EXAMPLES[placeholderIdx]}
+                      </div>
+                    )}
+                  </div>
                   {linkedinUrl && isValidLinkedInUrl(linkedinUrl) && (
                     <div style={{
                       display: 'flex', alignItems: 'center', gap: 4,
@@ -702,12 +762,12 @@ const CoffeeChatPrepPage: React.FC = () => {
                   disabled={!linkedinUrl.trim() || coffeeChatLoading || !hasAccess || (effectiveUser.credits ?? 0) < COFFEE_CHAT_CREDITS}
                   style={{
                     width: '100%',
-                    height: 46,
-                    borderRadius: 3,
-                    background: (!linkedinUrl.trim() || coffeeChatLoading || !hasAccess) ? '#E2E8F0' : '#0F172A',
-                    color: (!linkedinUrl.trim() || coffeeChatLoading || !hasAccess) ? '#94A3B8' : '#DBEAFE',
+                    height: 52,
+                    borderRadius: 12,
+                    background: (coffeeChatLoading || !hasAccess) ? 'var(--warm-border, #E8E4DE)' : '#78553A',
+                    color: (coffeeChatLoading || !hasAccess) ? 'var(--warm-ink-tertiary, #9C9590)' : '#fff',
                     border: 'none',
-                    fontSize: 14,
+                    fontSize: 15,
                     fontWeight: 600,
                     cursor: (!linkedinUrl.trim() || coffeeChatLoading || !hasAccess) ? 'not-allowed' : 'pointer',
                     display: 'flex',
@@ -716,7 +776,6 @@ const CoffeeChatPrepPage: React.FC = () => {
                     gap: 8,
                     transition: 'all .15s',
                     fontFamily: 'inherit',
-                    letterSpacing: '-.01em',
                   }}
                 >
                   {coffeeChatLoading ? (
@@ -730,8 +789,8 @@ const CoffeeChatPrepPage: React.FC = () => {
                 </button>
 
                 {/* Meta row */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 11, color: '#94A3B8' }}>{COFFEE_CHAT_CREDITS} credits · PDF auto-saved</span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 10, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11, color: 'var(--warm-ink-tertiary, #9C9590)' }}>{COFFEE_CHAT_CREDITS} credits · PDF auto-saved</span>
                   {subscription?.resumeFileName ? (
                     <button
                       onClick={() => navigate('/settings')}
@@ -748,7 +807,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                     <button
                       onClick={() => navigate('/settings')}
                       style={{
-                        fontSize: 11, color: '#3B82F6', fontWeight: 500,
+                        fontSize: 11, color: '#78553A', fontWeight: 500,
                         display: 'flex', alignItems: 'center', gap: 3,
                         background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
                       }}
@@ -761,34 +820,38 @@ const CoffeeChatPrepPage: React.FC = () => {
               </div>
 
               {/* ── Tabs ── */}
-              <div style={{ marginBottom: 28 }}>
+              <div style={{ marginBottom: 28, borderBottom: '1px solid var(--warm-border, #E8E4DE)' }}>
                 <div className="relative">
-                  <div className="flex items-center gap-8">
-                    {coffeeChatTabs.map((tab, index) => (
-                      <button
-                        key={tab.id}
-                        ref={(el) => { tabRefs.current[index] = el; }}
-                        onClick={() => setActiveTab(tab.id)}
-                        style={{ color: activeTab === tab.id ? '#0F172A' : '#94A3B8' }}
-                        className={`
-                          relative pb-2.5 text-sm transition-colors duration-150 flex items-center gap-1.5
-                          focus:outline-none focus-visible:outline-none
-                          ${activeTab === tab.id
-                            ? 'font-bold'
-                            : 'font-medium'
-                          }
-                        `}
-                      >
-                        <tab.icon className="w-4 h-4" />
-                        {tab.label}
-                      </button>
-                    ))}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                    {coffeeChatTabs.map((tab, index) => {
+                      const isActive = activeTab === tab.id;
+                      return (
+                        <button
+                          key={tab.id}
+                          ref={(el) => { tabRefs.current[index] = el; }}
+                          onClick={() => setActiveTab(tab.id)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 7,
+                            padding: '14px 28px',
+                            fontSize: 14,
+                            fontWeight: isActive ? 600 : 400,
+                            cursor: 'pointer',
+                            border: 'none',
+                            borderBottom: isActive ? '2px solid #78553A' : '2px solid transparent',
+                            background: 'transparent',
+                            color: isActive ? '#1A1714' : 'var(--warm-ink-tertiary, #9C9590)',
+                            transition: 'all .15s',
+                            fontFamily: 'inherit',
+                          }}
+                        >
+                          <tab.icon style={{ width: 15, height: 15, flexShrink: 0 }} />
+                          {tab.label}
+                        </button>
+                      );
+                    })}
                   </div>
-                  <div className="absolute bottom-0 left-0 right-0 h-[1px]" style={{ background: '#E2E8F0' }} />
-                  <div
-                    className="absolute bottom-0 h-[2px] transition-all duration-200 ease-out" style={{ background: '#0F172A' }}
-                    style={{ left: indicatorStyle.left, width: indicatorStyle.width }}
-                  />
                 </div>
               </div>
 
@@ -805,7 +868,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                             <div style={{
                               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                               padding: '16px 20px',
-                              background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 3,
+                              background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 12,
                             }}>
                               <div className="flex items-center gap-3">
                                 <div style={{
@@ -815,17 +878,17 @@ const CoffeeChatPrepPage: React.FC = () => {
                                   <CheckCircle className="w-4 h-4" style={{ color: '#15803D' }} />
                                 </div>
                                 <div>
-                                  <p style={{ fontSize: 14, fontWeight: 600, color: '#0F172A' }}>
+                                  <p style={{ fontSize: 14, fontWeight: 600, color: '#1A1714' }}>
                                     {coffeeChatResult?.contactData?.firstName} {coffeeChatResult?.contactData?.lastName} — prep sheet ready
                                   </p>
-                                  <p style={{ fontSize: 12, color: '#6B7280' }}>{coffeeChatResult?.contactData?.company}</p>
+                                  <p style={{ fontSize: 12, color: 'var(--warm-ink-tertiary, #9C9590)' }}>{coffeeChatResult?.contactData?.company}</p>
                                 </div>
                               </div>
                               <button
                                 onClick={() => downloadCoffeeChatPDF()}
                                 style={{
-                                  padding: '9px 18px', background: '#0F172A', color: '#DBEAFE',
-                                  fontSize: 13, fontWeight: 600, borderRadius: 3, border: 'none',
+                                  padding: '9px 18px', background: '#78553A', color: '#fff',
+                                  fontSize: 13, fontWeight: 600, borderRadius: 8, border: 'none',
                                   cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit',
                                 }}
                               >
@@ -834,14 +897,14 @@ const CoffeeChatPrepPage: React.FC = () => {
                               </button>
                             </div>
                           ) : coffeeChatStatus === 'failed' ? (
-                            <div className="flex items-center justify-center gap-2 p-4 bg-red-50 border border-red-200 text-red-700" style={{ borderRadius: 3 }}>
+                            <div className="flex items-center justify-center gap-2 p-4 bg-red-50 border border-red-200 text-red-700" style={{ borderRadius: 12 }}>
                               <XCircle className="h-5 w-5" />
                               <span>{coffeeChatProgress || 'Generation failed'}</span>
                             </div>
                           ) : (
                             <div className="space-y-2.5">
                               <SteppedLoadingBar steps={coffeeChatSteps} currentStepId={currentPrepStatus} />
-                              <p style={{ fontSize: 11, color: '#94A3B8', textAlign: 'center' }}>Usually 20-35 seconds</p>
+                              <p style={{ fontSize: 11, color: 'var(--warm-ink-tertiary, #9C9590)', textAlign: 'center' }}>Usually 20-35 seconds</p>
                             </div>
                           )}
                         </div>
@@ -849,62 +912,54 @@ const CoffeeChatPrepPage: React.FC = () => {
 
                       {/* What's included — feature cards */}
                       {coffeeChatStatus !== 'completed' && (
-                        <div style={{ marginTop: 36, marginBottom: 32 }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+                        <div style={{ marginTop: 28, marginBottom: 28 }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }} className="max-sm:!grid-cols-1">
                             {[
                               {
-                                section: 'Section i',
                                 icon: Newspaper,
                                 title: 'Company Intel',
-                                desc: 'Recent news, funding rounds, leadership changes, and industry trends',
-                                iconBg: 'rgba(59,130,246,0.06)',
-                                iconColor: '#3B82F6',
+                                desc: 'Know what they care about right now — news, deals, and shifts in their world',
                               },
                               {
-                                section: 'Section ii',
                                 icon: MessageSquare,
                                 title: 'Talking Points',
-                                desc: 'Shared backgrounds, mutual connections, and common ground to build rapport',
-                                iconBg: 'rgba(37,99,235,0.06)',
-                                iconColor: '#2563EB',
+                                desc: 'Find the overlap between your story and theirs so the conversation flows naturally',
                               },
                               {
-                                section: 'Section iii',
                                 icon: FileText,
                                 title: 'PDF Prep Sheet',
-                                desc: 'Smart questions, career timeline analysis, and conversation starters',
-                                iconBg: 'rgba(37,99,235,0.06)',
-                                iconColor: '#2563EB',
+                                desc: 'A one-pager with smart questions and their career arc — glance at it before you hop on',
                               },
                             ].map((item) => (
                               <div
                                 key={item.title}
                                 style={{
-                                  background: '#FAFBFF',
-                                  border: '1px solid #E2E8F0',
-                                  borderRadius: 3,
+                                  background: '#FFFFFF',
+                                  border: '1px solid var(--warm-border, #E8E4DE)',
+                                  borderTop: '3px solid #78553A',
+                                  borderRadius: 12,
                                   padding: '20px 18px 22px',
-                                  transition: 'transform .18s ease, box-shadow .18s ease',
+                                  transition: 'transform 0.15s, box-shadow 0.15s',
                                 }}
                                 onMouseEnter={(e) => {
-                                  (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)';
-                                  (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 12px rgba(0,0,0,.04)';
+                                  e.currentTarget.style.transform = 'translateY(-2px)';
+                                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(120,85,58,0.12)';
                                 }}
                                 onMouseLeave={(e) => {
-                                  (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)';
-                                  (e.currentTarget as HTMLDivElement).style.boxShadow = 'none';
+                                  e.currentTarget.style.transform = 'translateY(0)';
+                                  e.currentTarget.style.boxShadow = 'none';
                                 }}
                               >
                                 <div style={{
-                                  width: 28, height: 28, borderRadius: 3,
-                                  background: item.iconBg,
+                                  width: 32, height: 32, borderRadius: 8,
+                                  background: 'rgba(120,85,58,0.06)',
                                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                                   marginBottom: 12,
                                 }}>
-                                  <item.icon style={{ width: 14, height: 14, color: item.iconColor }} />
+                                  <item.icon style={{ width: 15, height: 15, color: '#78553A' }} />
                                 </div>
-                                <p style={{ fontSize: 14, fontWeight: 600, color: '#0F172A', marginBottom: 6, letterSpacing: '-.01em', fontFamily: "'Lora', Georgia, serif" }}>{item.title}</p>
-                                <p style={{ fontSize: 12.5, color: '#6B7280', lineHeight: 1.55 }}>{item.desc}</p>
+                                <p style={{ fontSize: 14, fontWeight: 600, color: '#1A1714', marginBottom: 6, fontFamily: "'Lora', Georgia, serif" }}>{item.title}</p>
+                                <p style={{ fontSize: 12, color: 'var(--warm-ink-tertiary, #9C9590)', lineHeight: 1.55 }}>{item.desc}</p>
                               </div>
                             ))}
                           </div>
@@ -913,58 +968,57 @@ const CoffeeChatPrepPage: React.FC = () => {
 
                       {/* Recent Preps from Library */}
                       {recentPreps.length > 0 && coffeeChatStatus !== 'completed' && (
-                        <div style={{ paddingTop: 24, borderTop: '1px solid #EEF2F8' }}>
+                        <div style={{ paddingTop: 24, borderTop: '1px solid #E8E4DE' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                            <h3 style={{ fontSize: 14, fontWeight: 600, color: '#0F172A', fontFamily: "'Lora', Georgia, serif" }}>Recent Prep Sheets</h3>
+                            <h3 style={{ fontSize: 14, fontWeight: 600, color: '#1A1714', fontFamily: "'Lora', Georgia, serif" }}>Recent Prep Sheets</h3>
                             <button
                               onClick={() => setActiveTab('coffee-library')}
                               style={{
-                                fontSize: 12, color: '#3B82F6', fontWeight: 500,
+                                fontSize: 12, color: '#78553A', fontWeight: 500,
                                 background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
                               }}
+                              onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline'; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none'; }}
                             >
                               View all ({preps.length})
                             </button>
                           </div>
 
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }} className="max-sm:!grid-cols-1">
                             {recentPreps.map((prep) => (
                               <div
                                 key={prep.id}
                                 onClick={() => handleLibraryDownload(prep)}
                                 style={{
                                   padding: '14px 16px',
-                                  border: '1px solid #EEF2F8',
-                                  borderRadius: 3,
+                                  border: '1px solid var(--warm-border, #E8E4DE)',
+                                  borderRadius: 12,
                                   cursor: 'pointer',
                                   transition: 'all .15s',
+                                  background: '#FFFFFF',
                                 }}
                                 onMouseEnter={(e) => {
-                                  (e.currentTarget as HTMLDivElement).style.borderColor = '#3B82F6';
-                                  (e.currentTarget as HTMLDivElement).style.boxShadow = '0 2px 8px rgba(59,130,246,.08)';
-                                  (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-1px)';
+                                  (e.currentTarget as HTMLDivElement).style.borderColor = '#78553A';
                                 }}
                                 onMouseLeave={(e) => {
-                                  (e.currentTarget as HTMLDivElement).style.borderColor = '#EEF2F8';
-                                  (e.currentTarget as HTMLDivElement).style.boxShadow = 'none';
-                                  (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)';
+                                  (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--warm-border, #E8E4DE)';
                                 }}
                               >
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
                                   <div style={{
-                                    width: 32, height: 32, borderRadius: 3, background: 'rgba(59,130,246,0.05)',
+                                    width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, #78553A, #A0714F)',
                                     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                                   }}>
-                                    <span style={{ fontSize: 11, fontWeight: 600, color: '#3B82F6' }}>
+                                    <span style={{ fontSize: 11, fontWeight: 600, color: '#fff' }}>
                                       {(prep.contactName || '?').split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
                                     </span>
                                   </div>
                                   <div style={{ flex: 1, minWidth: 0 }}>
-                                    <p style={{ fontSize: 13, fontWeight: 500, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{prep.contactName}</p>
-                                    <p style={{ fontSize: 11, color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{prep.company}</p>
+                                    <p style={{ fontSize: 13, fontWeight: 500, color: '#1A1714', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{prep.contactName}</p>
+                                    <p style={{ fontSize: 11, color: 'var(--warm-ink-tertiary, #9C9590)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{prep.company}</p>
                                   </div>
                                 </div>
-                                <p style={{ fontSize: 11, color: '#94A3B8' }}>
+                                <p style={{ fontSize: 11, color: 'var(--warm-ink-tertiary, #9C9590)' }}>
                                   {prep.createdAt ? new Date(prep.createdAt).toLocaleDateString() : ''}
                                 </p>
                               </div>
@@ -977,24 +1031,22 @@ const CoffeeChatPrepPage: React.FC = () => {
 
                 {/* COFFEE LIBRARY TAB */}
                 <TabsContent value="coffee-library" className="mt-0">
-                  <div className="bg-white overflow-hidden animate-fadeInUp" style={{ animationDelay: '200ms', borderRadius: 3, boxShadow: '0 1px 4px rgba(0,0,0,.03)', border: '1px solid #EEF2F8' }}>
-                    <div className="h-1" style={{ background: '#EEF2F8' }}></div>
-                    
-                    <div className="p-8">
+                  <div>
+                    <div className="p-0">
                       {libraryLoading ? (
                         <LoadingSkeleton variant="card" count={3} />
                       ) : preps.length === 0 ? (
                         <div className="text-center py-12">
-                          <div className="w-16 h-16 flex items-center justify-center mx-auto mb-4" style={{ background: '#FAFBFF', borderRadius: 3 }}>
-                            <Coffee className="h-8 w-8" style={{ color: '#6B7280' }} />
+                          <div style={{ width: 64, height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', background: 'rgba(120,85,58,0.06)', borderRadius: 12 }}>
+                            <Coffee className="h-8 w-8" style={{ color: '#78553A' }} />
                           </div>
-                          <h3 className="text-lg font-semibold mb-2" style={{ color: '#0F172A', fontFamily: "'Lora', Georgia, serif" }}>No preps yet</h3>
-                          <p className="text-sm mb-6" style={{ color: '#6B7280' }}>
+                          <h3 style={{ fontSize: 18, fontWeight: 600, color: '#1A1714', marginBottom: 8, fontFamily: "'Lora', Georgia, serif" }}>No preps yet</h3>
+                          <p style={{ fontSize: 13, color: 'var(--warm-ink-tertiary, #9C9590)', marginBottom: 24 }}>
                             Generate your first coffee chat prep to see it appear here.
                           </p>
                           <button
                             onClick={() => setActiveTab('coffee-chat-prep')}
-                            className="px-6 py-3 font-semibold transition-all" style={{ background: '#0F172A', color: '#DBEAFE', borderRadius: 3 }}
+                            style={{ padding: '10px 24px', fontSize: 14, fontWeight: 600, background: '#78553A', color: '#fff', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
                           >
                             Create Your First Prep
                           </button>
@@ -1003,27 +1055,27 @@ const CoffeeChatPrepPage: React.FC = () => {
                         <div className="space-y-6">
                           {groupedPreps.inProgress.length > 0 && (
                             <section>
-                              <h3 className="text-sm font-semibold uppercase mb-3" style={{ color: '#6B7280' }}>
+                              <h3 style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--warm-ink-tertiary, #9C9590)', marginBottom: 12 }}>
                                 In Progress
                               </h3>
                               <div className="space-y-3">
                                 {groupedPreps.inProgress.map((prep) => (
                                   <div
                                     key={prep.id}
-                                    className="p-4 flex items-center justify-between" style={{ background: '#FAFBFF', border: '1px solid #E2E8F0', borderRadius: 3 }}
+                                    style={{ padding: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--warm-surface, #FAF9F6)', border: '1px solid var(--warm-border, #E8E4DE)', borderRadius: 12 }}
                                   >
                                     <div>
-                                      <p className="font-medium" style={{ color: '#0F172A' }}>{prep.contactName}</p>
-                                      <p className="text-sm" style={{ color: '#6B7280' }}>
+                                      <p style={{ fontWeight: 500, color: '#1A1714' }}>{prep.contactName}</p>
+                                      <p style={{ fontSize: 13, color: 'var(--warm-ink-tertiary, #9C9590)' }}>
                                         {prep.jobTitle} @ {prep.company}
                                       </p>
-                                      <p className="text-xs mt-1" style={{ color: '#94A3B8' }}>
+                                      <p style={{ fontSize: 11, color: 'var(--warm-ink-tertiary, #9C9590)', marginTop: 4 }}>
                                         Requested {prep.createdAt ? new Date(prep.createdAt).toLocaleString() : ""}
                                       </p>
                                     </div>
-                                    <div className="flex items-center gap-2" style={{ color: '#6B7280' }}>
+                                    <div className="flex items-center gap-2" style={{ color: 'var(--warm-ink-tertiary, #9C9590)' }}>
                                       <Loader2 className="w-4 h-4 animate-spin" />
-                                      <span className="text-xs uppercase font-medium">Processing...</span>
+                                      <span style={{ fontSize: 11, fontWeight: 500, textTransform: 'uppercase' }}>Processing...</span>
                                     </div>
                                   </div>
                                 ))}
@@ -1033,24 +1085,25 @@ const CoffeeChatPrepPage: React.FC = () => {
 
                           {groupedPreps.completed.length > 0 && (
                             <section className="space-y-3">
-                              <h3 className="text-sm font-semibold uppercase" style={{ color: '#6B7280' }}>
+                              <h3 style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--warm-ink-tertiary, #9C9590)' }}>
                                 Completed ({groupedPreps.completed.length})
                               </h3>
                               <div className="space-y-3">
                                 {groupedPreps.completed.map((prep) => (
                                   <div
                                     key={prep.id}
-                                    className="p-5 bg-white flex flex-col md:flex-row md:items-center md:justify-between gap-4 transition-shadow" style={{ border: '1px solid #E2E8F0', borderRadius: 3 }}
+                                    className="flex flex-col md:flex-row md:items-center md:justify-between gap-4"
+                                    style={{ padding: 20, background: '#FFFFFF', border: '1px solid var(--warm-border, #E8E4DE)', borderRadius: 12 }}
                                   >
                                     <div className="space-y-2">
                                       <div className="flex items-center gap-2">
                                         <BadgeCheck className="h-5 w-5 text-green-600" />
-                                        <span className="font-semibold" style={{ color: '#0F172A' }}>{prep.contactName}</span>
+                                        <span style={{ fontWeight: 600, color: '#1A1714' }}>{prep.contactName}</span>
                                       </div>
-                                      <p className="text-sm" style={{ color: '#6B7280' }}>
+                                      <p style={{ fontSize: 13, color: '#3B3530' }}>
                                         {prep.jobTitle} @ {prep.company}
                                       </p>
-                                      <div className="flex flex-wrap items-center gap-3 text-xs" style={{ color: '#94A3B8' }}>
+                                      <div className="flex flex-wrap items-center gap-3" style={{ fontSize: 11, color: 'var(--warm-ink-tertiary, #9C9590)' }}>
                                         <span className="flex items-center gap-1">
                                           <Calendar className="h-3 w-3" />
                                           {prep.createdAt ? new Date(prep.createdAt).toLocaleDateString() : "—"}
@@ -1067,7 +1120,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                                     <div className="flex items-center gap-3">
                                       <button
                                         onClick={() => handleLibraryDownload(prep)}
-                                        className="px-4 py-2 text-sm font-medium transition-colors flex items-center gap-2" style={{ background: 'rgba(59,130,246,0.10)', color: '#3B82F6', borderRadius: 3 }}
+                                        style={{ padding: '8px 16px', fontSize: 13, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(120,85,58,0.08)', color: '#78553A', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
                                       >
                                         <Download className="h-4 w-4" />
                                         PDF
@@ -1075,7 +1128,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                                       <Button
                                         size="sm"
                                         variant="ghost"
-                                        className="relative overflow-hidden text-red-500 hover:text-red-600 hover:bg-red-50" style={{ borderRadius: 3 }}
+                                        className="relative overflow-hidden text-red-500 hover:text-red-600 hover:bg-red-50 rounded-lg"
                                         disabled={deletingId === prep.id}
                                         onClick={() => handleLibraryDelete(prep.id)}
                                       >
