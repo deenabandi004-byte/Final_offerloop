@@ -5,6 +5,8 @@ import type { Company } from '@/data/companies';
 import BeehiivPopup from '@/components/BeehiivPopup';
 import offerloopLogo from '../../assets/offerloop_logo2.png';
 import ExitIntentPopup from '@/components/ExitIntentPopup';
+import SEOHead from '@/components/SEOHead';
+import { generateMeta } from '@/utils/generateMeta';
 
 interface Props {
   company: Company;
@@ -117,17 +119,8 @@ const CoffeeChatGuide = ({ company }: Props) => {
 
   return (
     <div className="min-h-screen w-full" style={{ fontFamily: "'DM Sans', system-ui, sans-serif", background: '#FFFFFF' }}>
+      <SEOHead {...generateMeta('coffee-chat', { company: company.name })} ogType="article" />
       <Helmet>
-        <title>Coffee Chat Guide for {company.name} | Questions, Prep &amp; Email | Offerloop</title>
-        <meta name="description" content={`Ace your ${company.name} coffee chat. Get the best questions to ask, prep tips, email templates, and AI-powered coffee chat prep from Offerloop.`} />
-        <link rel="canonical" href={`https://www.offerloop.ai/coffee-chat/${company.slug}`} />
-        <meta property="og:title" content={`Coffee Chat Guide for ${company.name} | Offerloop`} />
-        <meta property="og:description" content={`Coffee chat prep guide for ${company.name}. Questions to ask, request templates, and follow-up tips.`} />
-        <meta property="og:url" content={`https://www.offerloop.ai/coffee-chat/${company.slug}`} />
-        <meta property="og:type" content="article" />
-        <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content={`Coffee Chat Guide for ${company.name} | Offerloop`} />
-        <meta name="twitter:description" content={`Coffee chat prep guide for ${company.name}. Questions to ask, request templates, and follow-up tips.`} />
         <script type="application/ld+json">{JSON.stringify({
           "@context": "https://schema.org",
           "@type": "FAQPage",

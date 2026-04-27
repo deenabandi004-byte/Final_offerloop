@@ -5,6 +5,8 @@ import type { Industry } from '@/data/industries';
 import BeehiivPopup from '@/components/BeehiivPopup';
 import offerloopLogo from '../../assets/offerloop_logo2.png';
 import ExitIntentPopup from '@/components/ExitIntentPopup';
+import SEOHead from '@/components/SEOHead';
+import { generateMeta } from '@/utils/generateMeta';
 
 interface Props {
   industry: Industry;
@@ -96,17 +98,8 @@ const ColdEmailGuide = ({ industry }: Props) => {
 
   return (
     <div className="min-h-screen w-full" style={{ fontFamily: "'DM Sans', system-ui, sans-serif", background: '#FFFFFF' }}>
+      <SEOHead {...generateMeta('cold-email', { industry: industry.name })} ogType="article" />
       <Helmet>
-        <title>Cold Email Templates for {industry.name} | Student Networking Guide | Offerloop</title>
-        <meta name="description" content={`Proven cold email templates for ${industry.name.toLowerCase()} networking. Get responses from professionals at ${industry.top_companies.slice(0, 3).join(', ')}, and more with AI-personalized outreach. Free templates + Offerloop AI.`} />
-        <link rel="canonical" href={`https://www.offerloop.ai/cold-email/${industry.slug}`} />
-        <meta property="og:title" content={`Cold Email Templates for ${industry.name} | Offerloop`} />
-        <meta property="og:description" content={`Proven cold email templates for ${industry.name.toLowerCase()} networking. Free templates for college students.`} />
-        <meta property="og:url" content={`https://www.offerloop.ai/cold-email/${industry.slug}`} />
-        <meta property="og:type" content="article" />
-        <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content={`Cold Email Templates for ${industry.name} | Offerloop`} />
-        <meta name="twitter:description" content={`Proven cold email templates for ${industry.name.toLowerCase()} networking. Free templates for college students.`} />
         <script type="application/ld+json">{JSON.stringify({
           "@context": "https://schema.org",
           "@type": "FAQPage",

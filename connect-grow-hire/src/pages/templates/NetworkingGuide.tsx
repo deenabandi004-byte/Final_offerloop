@@ -5,6 +5,8 @@ import { ArrowRight } from 'lucide-react';
 import type { Company } from '@/data/companies';
 import BeehiivPopup from '@/components/BeehiivPopup';
 import ExitIntentPopup from '@/components/ExitIntentPopup';
+import SEOHead from '@/components/SEOHead';
+import { generateMeta } from '@/utils/generateMeta';
 
 interface Props {
   company: Company;
@@ -72,17 +74,8 @@ const NetworkingGuide = ({ company }: Props) => {
 
   return (
     <div className="min-h-screen w-full" style={{ fontFamily: "'DM Sans', system-ui, sans-serif", background: '#FFFFFF' }}>
+      <SEOHead {...generateMeta('networking', { company: company.name })} ogType="article" />
       <Helmet>
-        <title>How to Network at {company.name} as a College Student | Offerloop</title>
-        <meta name="description" content={`A complete guide to networking at ${company.name} for college students. Learn who to email, what to say, and how to prepare for coffee chats with ${company.name} employees.`} />
-        <link rel="canonical" href={`https://www.offerloop.ai/networking/${company.slug}`} />
-        <meta property="og:title" content={`How to Network at ${company.name} as a College Student | Offerloop`} />
-        <meta property="og:description" content={`Networking guide for ${company.name}. Cold email templates, coffee chat prep, and step-by-step strategy for college students.`} />
-        <meta property="og:url" content={`https://www.offerloop.ai/networking/${company.slug}`} />
-        <meta property="og:type" content="article" />
-        <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content={`How to Network at ${company.name} as a College Student | Offerloop`} />
-        <meta name="twitter:description" content={`Networking guide for ${company.name}. Cold email templates, coffee chat prep, and step-by-step strategy for college students.`} />
         <script type="application/ld+json">{JSON.stringify({
           "@context": "https://schema.org",
           "@type": "FAQPage",

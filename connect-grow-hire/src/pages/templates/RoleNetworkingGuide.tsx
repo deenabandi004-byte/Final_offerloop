@@ -5,6 +5,8 @@ import type { Role } from '@/data/roles';
 import BeehiivPopup from '@/components/BeehiivPopup';
 import offerloopLogo from '../../assets/offerloop_logo2.png';
 import ExitIntentPopup from '@/components/ExitIntentPopup';
+import SEOHead from '@/components/SEOHead';
+import { generateMeta } from '@/utils/generateMeta';
 
 interface Props {
   role: Role;
@@ -136,17 +138,8 @@ const RoleNetworkingGuide = ({ role }: Props) => {
 
   return (
     <div className="min-h-screen w-full" style={{ fontFamily: "'DM Sans', system-ui, sans-serif", background: '#FFFFFF' }}>
+      <SEOHead {...generateMeta('networking', { company: role.name })} ogType="article" />
       <Helmet>
-        <title>How to Network for {role.name} Internships | Student Guide | Offerloop</title>
-        <meta name="description" content={`Land a ${role.name.toLowerCase()} internship through networking. Cold email strategies, coffee chat tips, and AI outreach tools for aspiring ${role.name.toLowerCase()} candidates.`} />
-        <link rel="canonical" href={`https://www.offerloop.ai/networking-for/${role.slug}`} />
-        <meta property="og:title" content={`How to Network for ${role.name} Positions | Offerloop`} />
-        <meta property="og:description" content={`Networking guide for ${role.name} roles at ${role.top_employers.slice(0, 3).join(', ')}, and more.`} />
-        <meta property="og:url" content={`https://www.offerloop.ai/networking-for/${role.slug}`} />
-        <meta property="og:type" content="article" />
-        <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content={`How to Network for ${role.name} Positions | Offerloop`} />
-        <meta name="twitter:description" content={`Networking guide for ${role.name} roles at ${role.top_employers.slice(0, 3).join(', ')}, and more.`} />
         <script type="application/ld+json">{JSON.stringify({
           "@context": "https://schema.org",
           "@type": "FAQPage",

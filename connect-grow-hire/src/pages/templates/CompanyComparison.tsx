@@ -5,6 +5,8 @@ import type { Company } from '@/data/companies';
 import BeehiivPopup from '@/components/BeehiivPopup';
 import offerloopLogo from '../../assets/offerloop_logo2.png';
 import ExitIntentPopup from '@/components/ExitIntentPopup';
+import SEOHead from '@/components/SEOHead';
+import { generateMeta } from '@/utils/generateMeta';
 
 interface Props {
   companyA: Company;
@@ -230,17 +232,8 @@ const CompanyComparison = ({ companyA, companyB }: Props) => {
 
   return (
     <div className="min-h-screen w-full" style={{ fontFamily: "'DM Sans', system-ui, sans-serif", background: '#FFFFFF' }}>
+      <SEOHead title={generateMeta('compare', { slug: `${a.slug}-vs-${b.slug}`, companyA: a.name, companyB: b.name }).title} description={generateMeta('compare', { slug: `${a.slug}-vs-${b.slug}`, companyA: a.name, companyB: b.name }).description} ogType="article" />
       <Helmet>
-        <title>{`${a.name} vs ${b.name}: Which Should You Target for Recruiting? (${new Date().getFullYear()})`}</title>
-        <meta name="description" content={`Compare ${a.name} and ${b.name} for college recruiting — culture, target schools, interview process, and which fits your background best.`} />
-        <link rel="canonical" href={`https://www.offerloop.ai/compare/${a.slug}-vs-${b.slug}`} />
-        <meta property="og:title" content={`${a.name} vs ${b.name}: Which Should You Target for Recruiting? (${new Date().getFullYear()})`} />
-        <meta property="og:description" content={`Compare ${a.name} and ${b.name} for college recruiting — culture, target schools, interview process, and which fits your background best.`} />
-        <meta property="og:url" content={`https://www.offerloop.ai/compare/${a.slug}-vs-${b.slug}`} />
-        <meta property="og:type" content="article" />
-        <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content={`${a.name} vs ${b.name}: Which Should You Target for Recruiting? (${new Date().getFullYear()})`} />
-        <meta name="twitter:description" content={`Compare ${a.name} and ${b.name} for college recruiting — culture, target schools, interview process, and which fits your background best.`} />
         <script type="application/ld+json">{JSON.stringify({
           "@context": "https://schema.org",
           "@type": "FAQPage",

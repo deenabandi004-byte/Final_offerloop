@@ -5,6 +5,8 @@ import { ArrowRight } from 'lucide-react';
 import type { SeoUniversity } from '@/data/seo-universities';
 import BeehiivPopup from '@/components/BeehiivPopup';
 import ExitIntentPopup from '@/components/ExitIntentPopup';
+import SEOHead from '@/components/SEOHead';
+import { generateMeta } from '@/utils/generateMeta';
 
 interface Props {
   university: SeoUniversity;
@@ -40,17 +42,8 @@ const AlumniGuide = ({ university: uni }: Props) => {
 
   return (
     <div className="min-h-screen w-full" style={{ fontFamily: "'DM Sans', system-ui, sans-serif", background: '#FFFFFF' }}>
+      <SEOHead {...generateMeta('alumni', { university: uni.name })} ogType="article" />
       <Helmet>
-        <title>How to Network with {uni.name} Alumni | Offerloop</title>
-        <meta name="description" content={`A complete guide to leveraging ${uni.full_name} alumni for recruiting. Find ${uni.name} alumni at top firms, write effective outreach emails, and build relationships that lead to referrals.`} />
-        <link rel="canonical" href={`https://www.offerloop.ai/alumni/${uni.slug}`} />
-        <meta property="og:title" content={`How to Network with ${uni.name} Alumni | Offerloop`} />
-        <meta property="og:description" content={`${uni.name} alumni networking guide. Email templates, outreach strategy, and tips for college students.`} />
-        <meta property="og:url" content={`https://www.offerloop.ai/alumni/${uni.slug}`} />
-        <meta property="og:type" content="article" />
-        <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content={`How to Network with ${uni.name} Alumni | Offerloop`} />
-        <meta name="twitter:description" content={`${uni.name} alumni networking guide. Email templates, outreach strategy, and tips for college students.`} />
         <script type="application/ld+json">{JSON.stringify({
           "@context": "https://schema.org",
           "@type": "FAQPage",
