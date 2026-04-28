@@ -6,6 +6,8 @@ import remarkGfm from 'remark-gfm';
 import { getPostBySlug } from '@/lib/blog';
 import BeehiivPopup from '@/components/BeehiivPopup';
 import ExitIntentPopup from '@/components/ExitIntentPopup';
+import SEOHead from '@/components/SEOHead';
+import { generateMeta } from '@/utils/generateMeta';
 
 const BlogPost = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -22,10 +24,10 @@ const BlogPost = () => {
     "description": post.description,
     "datePublished": post.date,
     "dateModified": post.date,
-    "url": `https://offerloop.ai/blog/${post.slug}`,
-    "author": { "@type": "Organization", "name": "Offerloop Team", "url": "https://offerloop.ai" },
-    "publisher": { "@type": "Organization", "name": "Offerloop", "url": "https://offerloop.ai" },
-    "mainEntityOfPage": { "@type": "WebPage", "@id": `https://offerloop.ai/blog/${post.slug}` }
+    "url": `https://www.offerloop.ai/blog/${post.slug}`,
+    "author": { "@type": "Organization", "name": "Offerloop Team", "url": "https://www.offerloop.ai" },
+    "publisher": { "@type": "Organization", "name": "Offerloop", "url": "https://www.offerloop.ai" },
+    "mainEntityOfPage": { "@type": "WebPage", "@id": `https://www.offerloop.ai/blog/${post.slug}` }
   };
 
   const faqSchema = post.faqSchema?.length ? {
@@ -40,15 +42,9 @@ const BlogPost = () => {
 
   return (
     <div className="min-h-screen w-full" style={{ fontFamily: "'DM Sans', system-ui, sans-serif", background: '#FFFFFF' }}>
+      <SEOHead {...generateMeta('blog', { slug: post.slug, title: post.title, description: post.description })} ogType="article" />
       <Helmet>
-        <title>{post.title} | Offerloop Blog</title>
-        <meta name="description" content={post.description} />
         <meta name="keywords" content={post.keywords} />
-        <link rel="canonical" href={`https://offerloop.ai/blog/${post.slug}`} />
-        <meta property="og:title" content={`${post.title} | Offerloop Blog`} />
-        <meta property="og:description" content={post.description} />
-        <meta property="og:url" content={`https://offerloop.ai/blog/${post.slug}`} />
-        <meta property="og:type" content="article" />
         <script type="application/ld+json">{JSON.stringify(articleSchema)}</script>
         {faqSchema && <script type="application/ld+json">{JSON.stringify(faqSchema)}</script>}
       </Helmet>
@@ -103,7 +99,7 @@ const BlogPost = () => {
       {/* Footer */}
       <footer className="py-10 px-6" style={{ borderTop: '1px solid #E2E8F0' }}>
         <div className="flex flex-col md:flex-row justify-between items-center gap-4" style={{ maxWidth: '1100px', margin: '0 auto' }}>
-          <p className="text-sm" style={{ color: '#94A3B8' }}>&copy; 2026 Offerloop. All rights reserved.</p>
+          <p className="text-sm" style={{ color: '#94A3B8' }}>&copy; {new Date().getFullYear()} Offerloop. All rights reserved.</p>
           <div className="flex gap-6">
             {[
               { label: 'About', path: '/about' },

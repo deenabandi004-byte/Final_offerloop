@@ -93,8 +93,8 @@ assertEq(blogNoBrand.title, 'Cold Email Tips | Offerloop', 'blog without Offerlo
 
 // --- blog: custom override (how-to-find-professional-email-address) ---
 const blogOverride = generateMeta('blog', { slug: 'how-to-find-professional-email-address', title: 'original' });
-assertContains(blogOverride.title, 'Professional Email Address', 'blog override uses custom title');
-assertContains(blogOverride.description, 'verified emails', 'blog override uses custom description');
+assertContains(blogOverride.title, 'Email Addresses Ethically', 'blog override uses custom title with ethical framing');
+assertContains(blogOverride.description, 'ethically find verified emails', 'blog override uses custom description with ethical framing');
 
 // --- blog: missing fields ---
 const blogEmpty = generateMeta('blog', {});

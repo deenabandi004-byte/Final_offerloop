@@ -53,8 +53,8 @@ const CUSTOM_OVERRIDES: Record<string, { title: string; description: string }> =
 
 const BLOG_OVERRIDES: Record<string, { title: string; description: string }> = {
   'how-to-find-professional-email-address': {
-    title: `How to Find Anyone's Professional Email Address (Free Methods, ${YEAR})`,
-    description: 'The exact methods students use to find verified emails for cold outreach to bankers, consultants, and PE professionals. No paid tools required.',
+    title: `How to Find Professional Email Addresses Ethically (Free Methods, ${YEAR})`,
+    description: 'The exact methods students use to ethically find verified emails for cold outreach to bankers, consultants, and PE professionals — no paid tools required.',
   },
   'cold-email-mckinsey-consultant': {
     title: `How to Cold Email a McKinsey Consultant (Template That Works, ${YEAR})`,
