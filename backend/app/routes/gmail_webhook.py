@@ -473,6 +473,13 @@ def _process_gmail_notification(email_address, history_id):
             )
             logger.info(f"[gmail_webhook] uid={uid} notification updated: unreadReplyCount={unread_count} for contact={contact_id}")
 
+            # Reply Coach: auto-generate a draft reply in the background
+            try:
+                from app.services.reply_coach import spawn_reply_coach
+                spawn_reply_coach(uid, contact_id, contact_data, message_snippet)
+            except Exception as rc_err:
+                logger.warning(f"[gmail_webhook] reply_coach spawn failed for contact={contact_id}: {rc_err}")
+
         # All history delta messages processed successfully — advance the
         # watchHistoryId pointer. On crash/exception above, this line is
         # skipped, and the next webhook replays from last_history_id (safe

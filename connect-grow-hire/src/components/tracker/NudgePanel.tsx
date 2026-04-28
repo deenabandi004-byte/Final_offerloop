@@ -1,12 +1,22 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Bell, X, Send, Clock } from "lucide-react";
-import type { Nudge } from "@/services/api";
+import { ChevronDown, ChevronRight, Bell, X, Send, Clock, MessageSquareReply, Loader2 } from "lucide-react";
+import type { Nudge, ReplyCoachDraft } from "@/services/api";
+
+export interface ReplyDraftItem {
+  contactId: string;
+  contactName: string;
+  company?: string;
+  draft: ReplyCoachDraft;
+}
 
 interface NudgePanelProps {
   nudges: Nudge[];
+  replyDrafts?: ReplyDraftItem[];
   onActOnNudge: (nudge: Nudge) => void;
   onDismissNudge: (nudgeId: string) => void;
   onSelectContact: (contactId: string) => void;
+  onSendReplyDraft?: (contactId: string) => void;
+  isSendingDraft?: string | null;
 }
 
 function timeAgo(dateStr: string): string {
@@ -20,14 +30,19 @@ function timeAgo(dateStr: string): string {
 
 export function NudgePanel({
   nudges,
+  replyDrafts = [],
   onActOnNudge,
   onDismissNudge,
   onSelectContact,
+  onSendReplyDraft,
+  isSendingDraft,
 }: NudgePanelProps) {
   const [open, setOpen] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedDraftId, setExpandedDraftId] = useState<string | null>(null);
 
-  if (nudges.length === 0) return null;
+  const totalCount = nudges.length + replyDrafts.length;
+  if (totalCount === 0) return null;
 
   return (
     <div data-testid="nudge-panel" className="border-b border-gray-100">
@@ -45,12 +60,86 @@ export function NudgePanel({
           Follow-up Suggestions
         </span>
         <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
-          {nudges.length}
+          {totalCount}
         </span>
       </button>
 
       {open && (
         <div className="px-2 pb-2 space-y-1.5">
+          {/* Reply Coach drafts */}
+          {replyDrafts.map((item) => {
+            const isExpanded = expandedDraftId === item.contactId;
+            return (
+              <div
+                key={`reply-${item.contactId}`}
+                className="bg-blue-50/60 border border-blue-200/60 rounded-md px-3 py-2"
+              >
+                <div className="flex items-start gap-2">
+                  <MessageSquareReply className="w-3.5 h-3.5 text-blue-500 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <button
+                      onClick={() => onSelectContact(item.contactId)}
+                      className="text-sm font-medium text-gray-900 hover:text-[#3B82F6] truncate block text-left"
+                    >
+                      {item.contactName}
+                    </button>
+                    {item.company && (
+                      <p className="text-xs text-gray-500 truncate">{item.company}</p>
+                    )}
+                    <p className="text-xs text-blue-600 mt-0.5">
+                      Reply draft ready — {item.draft.replyType}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-2">
+                  {!isExpanded ? (
+                    <button
+                      onClick={() => setExpandedDraftId(item.contactId)}
+                      className="text-[11px] text-blue-700 hover:text-blue-800 font-medium"
+                    >
+                      View suggested reply →
+                    </button>
+                  ) : (
+                    <div className="mt-1">
+                      <div className="bg-white border border-blue-200/50 rounded px-3 py-2 text-xs text-gray-700 leading-relaxed whitespace-pre-line">
+                        {item.draft.body}
+                      </div>
+                      <div className="flex items-center gap-2 mt-2">
+                        {onSendReplyDraft && (
+                          <button
+                            onClick={() => onSendReplyDraft(item.contactId)}
+                            disabled={isSendingDraft === item.contactId}
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded bg-[#3B82F6] text-white hover:bg-[#2563EB] transition-colors disabled:opacity-50"
+                          >
+                            {isSendingDraft === item.contactId ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Send className="w-3 h-3" />
+                            )}
+                            Create Gmail draft
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setExpandedDraftId(null)}
+                          className="text-[11px] text-gray-500 hover:text-gray-700"
+                        >
+                          Collapse
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1 mt-1.5 text-[10px] text-gray-400">
+                  <Clock className="w-3 h-3" />
+                  {timeAgo(item.draft.createdAt)}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Follow-up nudges */}
           {nudges.map((nudge) => {
             const isExpanded = expandedId === nudge.id;
             return (

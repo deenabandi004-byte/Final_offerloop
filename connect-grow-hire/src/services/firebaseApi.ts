@@ -57,6 +57,8 @@ export interface Contact {
   warmthSignals?: string[];
   personalizationLabel?: string;
   personalizationType?: string;
+  briefing?: string;
+  qualityRegenerated?: boolean;
 }
 
 export interface ProfessionalInfo {

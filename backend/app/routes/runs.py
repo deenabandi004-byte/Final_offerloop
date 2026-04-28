@@ -12,14 +12,15 @@ from app.services.prompt_parser import parse_search_prompt_structured
 from flask import Blueprint, request, jsonify
 
 from app.extensions import require_firebase_auth, get_db
-from app.services.reply_generation import batch_generate_emails, PURPOSES_INCLUDE_RESUME, email_body_mentions_resume
+from app.services.reply_generation import batch_generate_emails, PURPOSES_INCLUDE_RESUME, email_body_mentions_resume, regenerate_with_feedback
 from app.services.gmail_client import _load_user_gmail_creds, download_resume_from_url, clear_user_gmail_integration
 from app.services.interview_prep.resume_parser import extract_text_from_pdf_bytes
 from app.routes.gmail_oauth import build_gmail_oauth_url_for_user
 from app.services.auth import check_and_reset_credits, deduct_credits_atomic
 from app.config import TIER_CONFIGS
 from app.utils.exceptions import OfferloopException, InsufficientCreditsError, ExternalAPIError
-from app.utils.warmth_scoring import score_contacts_for_email
+from app.utils.warmth_scoring import score_contacts_for_email, score_and_sort_contacts, build_briefing_line
+from app.utils.email_quality import check_email_quality, has_specificity_signal
 from email_templates import get_template_instructions
 
 # =============================================================================
@@ -425,8 +426,22 @@ def prompt_search():
             except Exception as e:
                 print(f"[Runs] Could not download/extract resume: {e}")
 
-        # Compute warmth scores for email personalization
-        warmth_data = score_contacts_for_email(user_profile, contacts)
+        # 1A: Score, sort by warmth (dream companies first), and attach fields
+        try:
+            contacts = score_and_sort_contacts(user_profile, contacts, search_context=parsed_query_payload)
+            warmth_data = {
+                i: {"tier": c.get("warmth_tier", ""), "score": c.get("warmth_score", 0), "label": c.get("warmth_label", ""), "signals": c.get("warmth_signals", [])}
+                for i, c in enumerate(contacts)
+            }
+        except Exception:
+            warmth_data = score_contacts_for_email(user_profile, contacts, search_context=parsed_query_payload)
+
+        # 1B: Attach briefing lines (deterministic, no LLM)
+        for contact in contacts:
+            signals = contact.get("warmth_signals", [])
+            briefing = build_briefing_line(contact, signals)
+            if briefing:
+                contact["briefing"] = briefing
 
         # Generate emails with resume text
         try:
@@ -469,6 +484,66 @@ def prompt_search():
                         "email_body": body,
                         "attach_resume": attach_resume,
                     })
+
+        # 1E: Silent email quality gate — check + parallel regen for failures
+        try:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            def _quality_check_and_regen(item):
+                """Check one email; regen if needed. Returns (index, was_regenerated)."""
+                contact = item["contact"]
+                subject = item["email_subject"]
+                body = item["email_body"]
+                result = check_email_quality(subject, body, contact)
+                if result["passed"]:
+                    return (item["index"], False)
+                # Attempt regeneration
+                original = {"subject": subject, "body": body}
+                improved = regenerate_with_feedback(contact, user_profile, original, result["failures"])
+                # Compare: pick the one that passes, or the one with fewer failures
+                improved_result = check_email_quality(improved["subject"], improved["body"], contact)
+                if improved_result["passed"] or len(improved_result["failures"]) < len(result["failures"]):
+                    contact["emailSubject"] = improved["subject"]
+                    contact["emailBody"] = improved["body"]
+                    item["email_subject"] = improved["subject"]
+                    item["email_body"] = improved["body"]
+                contact["_qualityRegenerated"] = True
+                return (item["index"], True)
+
+            regen_count = 0
+            if contacts_with_emails:
+                with ThreadPoolExecutor(max_workers=5) as executor:
+                    futures = {executor.submit(_quality_check_and_regen, item): item for item in contacts_with_emails}
+                    for future in as_completed(futures):
+                        try:
+                            _, was_regen = future.result()
+                            if was_regen:
+                                regen_count += 1
+                        except Exception:
+                            pass
+
+            if regen_count > 0:
+                print(f"[Runs] Quality gate: regenerated {regen_count}/{len(contacts_with_emails)} emails")
+
+            # Log quality gate results to Firestore
+            if db and user_id and contacts_with_emails:
+                try:
+                    quality_ref = db.collection("email_quality_logs")
+                    for item in contacts_with_emails:
+                        contact = item["contact"]
+                        qr = check_email_quality(item["email_subject"], item["email_body"], contact)
+                        quality_ref.add({
+                            "userId": user_id,
+                            "contactId": contact.get("pdlId", ""),
+                            "passed": qr["passed"],
+                            "failures": qr["failures"],
+                            "regenerated": bool(contact.get("_qualityRegenerated")),
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                        })
+                except Exception as qlog_err:
+                    print(f"[Runs] Quality log write failed: {qlog_err}")
+        except Exception as qgate_err:
+            print(f"[Runs] Quality gate error (non-blocking): {qgate_err}")
 
         successful_drafts = 0
         user_info = {"name": user_profile.get("name", ""), "email": user_profile.get("email", ""), "phone": "", "linkedin": ""}
@@ -577,10 +652,15 @@ def prompt_search():
                     if contact.get("warmth_score") is not None:
                         contact_doc["warmthScore"] = contact["warmth_score"]
                         contact_doc["warmthTier"] = contact.get("warmth_tier", "")
+                        contact_doc["warmthLabel"] = contact.get("warmth_label", "")
                         contact_doc["warmthSignals"] = contact.get("warmth_signals", [])
                     if contact.get("personalization"):
                         contact_doc["personalizationLabel"] = contact["personalization"].get("label", "")
                         contact_doc["personalizationType"] = contact["personalization"].get("commonality_type", "")
+                    if contact.get("_qualityRegenerated"):
+                        contact_doc["qualityRegenerated"] = True
+                    if contact.get("briefing"):
+                        contact_doc["briefing"] = contact["briefing"]
                     if contact.get("gmailDraftId") or contact.get("gmailDraftUrl"):
                         contact_doc["pipelineStage"] = "draft_created"
                     now_iso = datetime.utcnow().isoformat() + "Z"  # TODO: deprecated in Python 3.12
@@ -614,14 +694,11 @@ def prompt_search():
             for contact in contacts:
                 if contact.get("emailSubject"):
                     body = contact.get("emailBody", "")
-                    company_name = (contact.get("Company") or contact.get("company") or "").lower()
-                    college_name = (contact.get("College") or contact.get("college") or "").lower()
-                    body_lower = body.lower()
-                    has_specificity = (bool(company_name) and company_name in body_lower) or (bool(college_name) and college_name in body_lower)
                     log_event(user_id, "email_generated", {
                         "contact_id": contact.get("pdlId") or "",
                         "email_length": len(body.split()),
-                        "has_specificity_signal": has_specificity,
+                        "has_specificity_signal": has_specificity_signal(body, contact),
+                        "quality_regenerated": bool(contact.get("_qualityRegenerated")),
                     })
         except Exception:
             pass

@@ -783,3 +783,131 @@ def refresh_warmth_scores():
         print(f"[RefreshWarmth] Error: {e}")
         return jsonify({'error': str(e)}), 500
 
+
+# ---------------------------------------------------------------------------
+# Reply Coach endpoints
+# ---------------------------------------------------------------------------
+
+@contacts_bp.route('/<contact_id>/reply-draft', methods=['GET'])
+@require_firebase_auth
+def get_reply_draft(contact_id):
+    """Get or generate a reply draft for a contact."""
+    try:
+        uid = request.firebase_user['uid']
+        from app.services.reply_coach import get_reply_draft as _get_draft
+        draft = _get_draft(uid, contact_id)
+        if draft is None:
+            return jsonify({"error": "No reply context available"}), 404
+        return jsonify(draft)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@contacts_bp.route('/<contact_id>/reply-draft/send', methods=['POST'])
+@require_firebase_auth
+def send_reply_draft(contact_id):
+    """Create a Gmail draft from a reply coach draft."""
+    try:
+        uid = request.firebase_user['uid']
+        db = get_db()
+        data = request.get_json() or {}
+        body = data.get("body", "").strip()
+        if not body:
+            return jsonify({"error": "Reply body is required"}), 400
+
+        # Get contact to find thread
+        contact_ref = db.collection('users').document(uid).collection('contacts').document(contact_id)
+        contact_doc = contact_ref.get()
+        if not contact_doc.exists:
+            return jsonify({"error": "Contact not found"}), 404
+
+        contact_data = contact_doc.to_dict() or {}
+        thread_id = contact_data.get("gmailThreadId")
+        to_email = contact_data.get("email") or contact_data.get("draftToEmail", "")
+        subject = contact_data.get("emailSubject") or contact_data.get("draftSubject", "")
+
+        if not to_email:
+            return jsonify({"error": "No email address for contact"}), 400
+
+        # Create Gmail draft
+        from app.services.gmail_client import _load_user_gmail_creds, _gmail_service
+        creds = _load_user_gmail_creds(uid)
+        if not creds:
+            return jsonify({"error": "Gmail not connected"}), 400
+
+        service = _gmail_service(creds)
+        import base64
+        from email.mime.text import MIMEText
+        msg = MIMEText(body)
+        msg["to"] = to_email
+        msg["subject"] = f"Re: {subject}" if subject and not subject.lower().startswith("re:") else subject
+        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+
+        draft_body = {"message": {"raw": raw}}
+        if thread_id:
+            draft_body["message"]["threadId"] = thread_id
+
+        draft = service.users().drafts().create(userId="me", body=draft_body).execute()
+
+        return jsonify({"draftId": draft.get("id"), "status": "draft_created"})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Auto-Prep endpoint (on-demand fallback)
+# ---------------------------------------------------------------------------
+
+@contacts_bp.route('/<contact_id>/auto-prep', methods=['GET'])
+@require_firebase_auth
+def get_auto_prep(contact_id):
+    """Get auto-prep status for a contact (meeting_scheduled stage)."""
+    try:
+        uid = request.firebase_user['uid']
+        db = get_db()
+
+        # Check for existing coffee chat prep
+        preps_ref = db.collection('users').document(uid).collection('coffee-chat-preps')
+        preps = list(preps_ref.where("contactId", "==", contact_id).order_by("createdAt", direction="DESCENDING").limit(1).stream())
+        if preps:
+            prep_data = preps[0].to_dict()
+            return jsonify({"status": prep_data.get("status", "unknown"), "prepId": preps[0].id})
+
+        # Check pending doc
+        pending_ref = db.collection('users').document(uid).collection('pending_auto_preps').document(contact_id)
+        pending_doc = pending_ref.get()
+        if pending_doc.exists:
+            pending_data = pending_doc.to_dict() or {}
+            status = pending_data.get("status")
+            if status == "pending":
+                created_str = pending_data.get("createdAt", "")
+                if created_str:
+                    try:
+                        from datetime import datetime as dt, timezone as tz
+                        created_dt = dt.fromisoformat(created_str.replace("Z", "+00:00"))
+                        age_minutes = (dt.now(tz.utc) - created_dt).total_seconds() / 60
+                        if age_minutes < 10:
+                            return jsonify({"status": "generating"})
+                    except Exception:
+                        pass
+            # Stale or failed — fall through to trigger
+
+        # No prep exists — trigger on-demand if stage is meeting_scheduled
+        contact_ref = db.collection('users').document(uid).collection('contacts').document(contact_id)
+        contact_doc = contact_ref.get()
+        if not contact_doc.exists:
+            return jsonify({"error": "Contact not found"}), 404
+
+        contact_data = contact_doc.to_dict() or {}
+        if contact_data.get("pipelineStage") != "meeting_scheduled":
+            return jsonify({"status": "not_applicable"})
+
+        # Trigger auto-prep
+        from app.services.outbox_service import trigger_auto_prep
+        result = trigger_auto_prep(uid, contact_id, contact_data)
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+

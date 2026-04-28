@@ -56,6 +56,24 @@ function getPeopleFallbackPlaceholders(schoolShort: string | null): string[] {
   ];
 }
 
+// Title case formatter for display (does not mutate Firestore data)
+const SMALL_WORDS = new Set(['a', 'an', 'and', 'as', 'at', 'but', 'by', 'for', 'if', 'in', 'nor', 'of', 'on', 'or', 'so', 'the', 'to', 'up', 'via', 'vs']);
+function toTitleCase(str: string): string {
+  if (!str) return str;
+  // Skip if already mixed case (not all-upper or all-lower)
+  if (str !== str.toUpperCase() && str !== str.toLowerCase()) return str;
+  return str
+    .toLowerCase()
+    .split(' ')
+    .map((word, i) => {
+      if (i === 0 || !SMALL_WORDS.has(word)) {
+        return word.charAt(0).toUpperCase() + word.slice(1);
+      }
+      return word;
+    })
+    .join(' ');
+}
+
 // LinkedIn URL detection helper
 function isLinkedInUrl(input: string): boolean {
   const trimmed = input.trim();
@@ -220,6 +238,8 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
   const [progressValue, setProgressValue] = useState(0);
   const [searchComplete, setSearchComplete] = useState(false);
   const [lastResults, setLastResults] = useState<any[]>([]);
+  const [expandedEmailIdx, setExpandedEmailIdx] = useState<number | null>(null);
+  const [smartPlaceholder, setSmartPlaceholder] = useState<string | null>(null);
   const [alreadySavedResults, setAlreadySavedResults] = useState<any[]>([]);
   // Backend-provided message for unusual result shapes (e.g. "All N matching contact(s)
   // are already in your tracker..."). Prefer this over hardcoded frontend copy.
@@ -568,6 +588,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
           warmthSignals: c.warmth_signals ?? undefined,
           personalizationLabel: c.personalization?.label ?? undefined,
           personalizationType: c.personalization?.commonality_type ?? undefined,
+          briefing: c.briefing ?? undefined,
         });
 
         // DEBUG: Log first mapped contact to see email fields
@@ -1316,18 +1337,20 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
 
         {/* Personalized suggestion cards — shown above search box */}
         {!searchPrompt.trim() && (
-          <SuggestionChips
-            type="people"
-            uid={user?.uid}
-            onSelect={(prompt) => {
-              setSearchPrompt(prompt);
-              setTimeout(() => { pendingAutoSearch.current = true; }, 0);
-            }}
-            collapsed={suggestionsCollapsed}
-            onCollapse={setSuggestionsCollapsed}
-            hasSearched={hasResults}
-            disabled={isSearching || linkedInLoading}
-          />
+          <>
+            <SuggestionChips
+              type="people"
+              uid={user?.uid}
+              onSelect={(prompt) => {
+                setSearchPrompt(prompt);
+                setTimeout(() => { pendingAutoSearch.current = true; }, 0);
+              }}
+              collapsed={suggestionsCollapsed}
+              onCollapse={setSuggestionsCollapsed}
+              hasSearched={hasResults}
+              disabled={isSearching || linkedInLoading}
+            />
+          </>
         )}
 
         {/* Hero search bar */}
@@ -1674,8 +1697,8 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
 
             {/* Contact cards */}
             {lastResults.length <= 8 && lastResults.map((c: any, i: number) => {
-              const name = [c.FirstName || c.firstName, c.LastName || c.lastName].filter(Boolean).join(' ') || 'Unknown';
-              const title = c.JobTitle || c.jobTitle || c.Title || '';
+              const name = toTitleCase([c.FirstName || c.firstName, c.LastName || c.lastName].filter(Boolean).join(' ') || 'Unknown');
+              const title = toTitleCase(c.JobTitle || c.jobTitle || c.Title || '');
               const company = c.Company || c.company || '';
               const email = c.Email || c.email || '';
               const linkedin = c.LinkedIn || c.linkedinUrl || '';
@@ -1723,71 +1746,119 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span style={{ fontSize: 13, fontWeight: 500, color: '#0F172A' }}>{name}</span>
                       {/* Warmth indicator */}
-                      {c.warmth_tier === 'warm' && (
-                        <span
-                          title={(() => {
-                            const sigs = c.warmth_signals || [];
-                            return sigs.slice(0, 2).map((s: any) => s.detail || s.signal?.replace(/_/g, ' ')).filter(Boolean).join(', ');
-                          })()}
-                          style={{
-                            padding: '1px 6px',
-                            borderRadius: 3,
-                            background: 'rgba(34, 197, 94, 0.10)',
-                            color: '#16A34A',
-                            fontSize: 10,
-                            fontWeight: 600,
-                            fontFamily: "'DM Sans', system-ui, sans-serif",
-                          }}
-                        >
-                          Strong match
-                        </span>
-                      )}
-                      {c.warmth_tier === 'neutral' && (
-                        <span
-                          title={(() => {
-                            const sigs = c.warmth_signals || [];
-                            return sigs.slice(0, 2).map((s: any) => s.detail || s.signal?.replace(/_/g, ' ')).filter(Boolean).join(', ');
-                          })()}
-                          style={{
-                            padding: '1px 6px',
-                            borderRadius: 3,
-                            background: 'rgba(245, 158, 11, 0.10)',
-                            color: '#D97706',
-                            fontSize: 10,
-                            fontWeight: 600,
-                            fontFamily: "'DM Sans', system-ui, sans-serif",
-                          }}
-                        >
-                          Good fit
-                        </span>
-                      )}
+                      {(() => {
+                        const label = c.warmth_label || (c.warmth_tier === 'warm' ? 'Strong match' : c.warmth_tier === 'neutral' ? 'Good fit' : '');
+                        if (!label) return null;
+                        const isRoleMismatch = label === 'Right company, different role';
+                        const isStrong = label === 'Strong fit' || label === 'Strong match';
+                        const tooltipText = (() => {
+                          const sigs = c.warmth_signals || [];
+                          return sigs.slice(0, 2).map((s: any) => s.detail || s.signal?.replace(/_/g, ' ')).filter(Boolean).join(', ');
+                        })();
+                        return (
+                          <span
+                            title={tooltipText}
+                            style={{
+                              padding: '1px 6px',
+                              borderRadius: 3,
+                              background: isStrong
+                                ? 'rgba(34, 197, 94, 0.10)'
+                                : isRoleMismatch
+                                  ? 'rgba(148, 163, 184, 0.15)'
+                                  : 'rgba(245, 158, 11, 0.10)',
+                              color: isStrong
+                                ? '#16A34A'
+                                : isRoleMismatch
+                                  ? '#64748B'
+                                  : '#D97706',
+                              fontSize: 10,
+                              fontWeight: 600,
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                            }}
+                          >
+                            {label}
+                          </span>
+                        );
+                      })()}
                     </div>
                     <div style={{ fontSize: 11, color: '#6B7280', marginTop: 1 }}>
                       {[title, company].filter(Boolean).join(' at ')}
                     </div>
-                    {/* Personalization tag */}
-                    {c.personalization?.label && (
-                      <span
-                        style={{
-                          display: 'inline-block',
-                          marginTop: 3,
-                          padding: '1px 7px',
-                          borderRadius: 3,
-                          fontSize: 10,
-                          fontWeight: 500,
-                          fontFamily: "'DM Sans', system-ui, sans-serif",
-                          background: c.personalization?.commonality_type === 'university' ? 'rgba(59,130,246,0.08)' :
-                                     c.personalization?.commonality_type === 'hometown' ? 'rgba(34,197,94,0.08)' :
-                                     c.personalization?.commonality_type === 'company' ? 'rgba(124,58,237,0.08)' :
-                                     'rgba(107,114,128,0.08)',
-                          color: c.personalization?.commonality_type === 'university' ? '#2563EB' :
-                                 c.personalization?.commonality_type === 'hometown' ? '#16A34A' :
-                                 c.personalization?.commonality_type === 'company' ? '#7C3AED' :
-                                 '#6B7280',
-                        }}
-                      >
-                        {c.personalization.label}
-                      </span>
+                    {/* Briefing line — "Why this person" */}
+                    {c.briefing && (
+                      <div style={{ fontSize: 11, color: '#6B7280', marginTop: 3, lineHeight: 1.3 }}>
+                        {c.briefing}
+                      </div>
+                    )}
+                    {/* 1C: Email preview (collapsed by default) */}
+                    {(c.emailSubject || c.emailBody) && (
+                      <div style={{ marginTop: 6 }}>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setExpandedEmailIdx(expandedEmailIdx === i ? null : i); }}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 4,
+                            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                            fontFamily: 'inherit', fontSize: 11, color: '#3B82F6', fontWeight: 500,
+                          }}
+                        >
+                          <Mail style={{ width: 11, height: 11 }} />
+                          <span style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {c.emailSubject || 'Draft email'}
+                          </span>
+                          <ChevronRight style={{
+                            width: 11, height: 11,
+                            transform: expandedEmailIdx === i ? 'rotate(90deg)' : 'none',
+                            transition: 'transform .15s',
+                          }} />
+                        </button>
+                        {expandedEmailIdx === i && (
+                          <div style={{
+                            marginTop: 6, padding: '8px 10px',
+                            background: '#F8FAFC', borderRadius: 4, border: '0.5px solid #E2E8F0',
+                          }}>
+                            {c.emailSubject && (
+                              <div style={{ fontSize: 12, fontWeight: 600, color: '#0F172A', marginBottom: 4 }}>
+                                {c.emailSubject}
+                              </div>
+                            )}
+                            <div style={{ fontSize: 11, color: '#475569', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                              {c.emailBody}
+                            </div>
+                            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                              {c.gmailDraftUrl && (
+                                <a
+                                  href={c.gmailDraftUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  style={{
+                                    fontSize: 11, fontWeight: 500, color: '#3B82F6',
+                                    display: 'flex', alignItems: 'center', gap: 3,
+                                    textDecoration: 'none',
+                                  }}
+                                >
+                                  <Send style={{ width: 10, height: 10 }} /> Open Draft
+                                </a>
+                              )}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const text = `Subject: ${c.emailSubject || ''}\n\n${c.emailBody || ''}`;
+                                  navigator.clipboard.writeText(text);
+                                  toast({ description: 'Email copied to clipboard' });
+                                }}
+                                style={{
+                                  fontSize: 11, fontWeight: 500, color: '#6B7280',
+                                  background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                                  fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 3,
+                                }}
+                              >
+                                <FileText style={{ width: 10, height: 10 }} /> Copy Email
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
@@ -1819,8 +1890,8 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                   <div style={{ flex: 1, height: 1, background: '#E2E8F0' }} />
                 </div>
                 {alreadySavedResults.map((c: any, i: number) => {
-                  const name = [c.FirstName || c.firstName, c.LastName || c.lastName].filter(Boolean).join(' ') || 'Unknown';
-                  const title = c.Title || c.JobTitle || c.jobTitle || '';
+                  const name = toTitleCase([c.FirstName || c.firstName, c.LastName || c.lastName].filter(Boolean).join(' ') || 'Unknown');
+                  const title = toTitleCase(c.Title || c.JobTitle || c.jobTitle || '');
                   const company = c.Company || c.company || '';
                   const linkedin = c.LinkedIn || c.linkedinUrl || '';
                   const initials = name.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase();

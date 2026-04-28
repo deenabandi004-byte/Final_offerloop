@@ -60,13 +60,20 @@ def _normalize_contact_for_scoring(contact):
     return c
 
 
-def _build_user_comparison_data(user_profile):
+def _build_user_comparison_data(user_profile, search_context=None):
     """
     Normalize user data once per search so each contact scoring is cheap.
 
     Extracts university, major, past companies, career track, dream companies,
     and hometown from ``resumeParsed``, ``academics``, ``goals``, and
     top-level profile fields.
+
+    Parameters
+    ----------
+    search_context : dict, optional
+        Parsed query payload with ``title_variations`` and ``companies``
+        from the search query.  When present, role/title match scoring
+        is enabled.
 
     Returns a dict consumed by ``compute_warmth_score``.
     """
@@ -144,6 +151,13 @@ def _build_user_comparison_data(user_profile):
         "company": "",  # current company not relevant for student users
     }
 
+    # Search query role keywords -------------------------------------------
+    search_titles = []
+    if search_context:
+        for t in search_context.get("title_variations", []):
+            if t:
+                search_titles.append(_normalize(t))
+
     return {
         "university": _normalize(university),
         "university_short": _normalize(university_short),
@@ -154,6 +168,7 @@ def _build_user_comparison_data(user_profile):
         "hometown": _normalize(hometown),
         "resume_text": resume_text,
         "user_info": user_info,
+        "search_titles": search_titles,
     }
 
 
@@ -293,6 +308,42 @@ def _score_career_relevance(comparison, contact):
     return points, signals
 
 
+def _score_role_match(comparison, contact):
+    """
+    Check if the contact's title matches the role keywords from the search query.
+
+    Uses token overlap: tokenize both the search titles and the contact title,
+    then check if any search title token appears in the contact title.
+
+    Returns (points, signals, matched).  ``matched`` is a bool so callers
+    can downgrade contacts that match on company/school but not role.
+    """
+    search_titles = comparison.get("search_titles", [])
+    if not search_titles:
+        # No search context available, skip role matching
+        return 0, [], None  # None means "not evaluated"
+
+    contact_title = _normalize(_get_field(contact, "title", "Title"))
+    if not contact_title:
+        return 0, [], False
+
+    # Tokenize and check overlap
+    contact_tokens = set(contact_title.split())
+    for search_title in search_titles:
+        search_tokens = set(search_title.split())
+        # Match if any meaningful token overlaps (skip very short tokens like "at", "of")
+        meaningful_overlap = search_tokens & contact_tokens - {"at", "of", "in", "the", "a", "an", "and", "or", "for", "to"}
+        if meaningful_overlap:
+            return 15, [{"signal": "role_match", "points": 15,
+                         "detail": search_title}], True
+        # Also check substring: "data scientist" in "senior data scientist"
+        if search_title in contact_title or contact_title in search_title:
+            return 15, [{"signal": "role_match", "points": 15,
+                         "detail": search_title}], True
+
+    return 0, [], False
+
+
 def _score_data_richness(contact):
     """Compute data-richness signals."""
     points = 0
@@ -350,6 +401,41 @@ def _tier_label(score):
     return "cold"
 
 
+def _compute_warmth_label(tier, role_matched, signals):
+    """
+    Build a user-facing label that reflects role match quality.
+
+    Tiers:
+    - role match + warm  → "Strong fit"
+    - role match + neutral → "Good fit"
+    - no role match but dream_company or same_university → "Right company, different role"
+    - role_matched is None (no search context) → fall back to tier-based label
+    - otherwise → "" (no label)
+    """
+    signal_names = {s.get("signal") for s in signals}
+
+    if role_matched is None:
+        # No search query context, use legacy tier-based labels
+        if tier == "warm":
+            return "Strong match"
+        if tier == "neutral":
+            return "Good fit"
+        return ""
+
+    if role_matched:
+        if tier == "warm":
+            return "Strong fit"
+        return "Good fit"
+
+    # Role did NOT match
+    has_company = "dream_company" in signal_names
+    has_school = "same_university" in signal_names
+    if has_company or has_school:
+        return "Right company, different role"
+
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -380,19 +466,27 @@ def compute_warmth_score(user_comparison, contact):
     career_pts, career_signals = _score_career_relevance(user_comparison, contact)
     all_signals.extend(career_signals)
 
+    role_pts, role_signals, role_matched = _score_role_match(user_comparison, contact)
+    all_signals.extend(role_signals)
+
     richness_pts, richness_signals = _score_data_richness(contact)
     all_signals.extend(richness_signals)
 
-    total = identity_pts + career_pts + richness_pts
+    total = identity_pts + career_pts + role_pts + richness_pts
+    tier = _tier_label(total)
+
+    # Build a human-readable label that accounts for role match
+    label = _compute_warmth_label(tier, role_matched, all_signals)
 
     return {
         "score": total,
-        "tier": _tier_label(total),
+        "tier": tier,
+        "label": label,
         "signals": all_signals,
     }
 
 
-def score_and_sort_contacts(user_profile, contacts):
+def score_and_sort_contacts(user_profile, contacts, search_context=None):
     """
     Score every contact against *user_profile* and return them sorted
     descending by score.  Never filters contacts out.
@@ -403,20 +497,24 @@ def score_and_sort_contacts(user_profile, contacts):
         Full user document from Firestore.
     contacts : list[dict]
         Contact records (legacy or PDL format).
+    search_context : dict, optional
+        Parsed query payload with ``title_variations`` and ``companies``.
 
     Returns
     -------
     list[dict]
-        Each contact dict gains ``warmth_score``, ``warmth_tier``, and
-        ``warmth_signals`` keys.  List is sorted highest score first.
+        Each contact dict gains ``warmth_score``, ``warmth_tier``,
+        ``warmth_label``, and ``warmth_signals`` keys.
+        List is sorted highest score first.
     """
-    comparison = _build_user_comparison_data(user_profile)
+    comparison = _build_user_comparison_data(user_profile, search_context)
 
     scored = []
     for contact in contacts:
         result = compute_warmth_score(comparison, contact)
         contact["warmth_score"] = result["score"]
         contact["warmth_tier"] = result["tier"]
+        contact["warmth_label"] = result.get("label", "")
         contact["warmth_signals"] = result["signals"]
         scored.append(contact)
 
@@ -424,7 +522,7 @@ def score_and_sort_contacts(user_profile, contacts):
     return scored
 
 
-def score_contacts_for_email(user_profile, contacts):
+def score_contacts_for_email(user_profile, contacts, search_context=None):
     """
     Score contacts and return warmth data dict keyed by contact index.
 
@@ -441,13 +539,14 @@ def score_contacts_for_email(user_profile, contacts):
         default prompt, never fails).
     """
     try:
-        comparison = _build_user_comparison_data(user_profile)
+        comparison = _build_user_comparison_data(user_profile, search_context)
         warmth_data = {}
         for i, contact in enumerate(contacts):
             result = compute_warmth_score(comparison, contact)
             warmth_data[i] = {
                 "tier": result["tier"],
                 "score": result["score"],
+                "label": result.get("label", ""),
                 "signals": result["signals"],
             }
         return warmth_data
@@ -457,3 +556,69 @@ def score_contacts_for_email(user_profile, contacts):
             "Warmth scoring failed, falling back to default: %s", exc
         )
         return {}
+
+
+# ---------------------------------------------------------------------------
+# Briefing line builder (deterministic, no LLM)
+# ---------------------------------------------------------------------------
+
+# Signals worth mentioning in a briefing line.  Anything not in this set
+# produces too-generic text ("has education data") and gets dropped.
+_MEANINGFUL_SIGNALS = frozenset({
+    "dream_company",
+    "same_university",
+    "same_major",
+    "same_hometown",
+    "same_past_company",
+    "recently_joined",
+    "career_transition",
+    "target_industry_match",
+})
+
+
+def build_briefing_line(contact, warmth_signals):
+    """
+    Build a deterministic one-line explanation of why a contact matters.
+
+    Returns empty string when no meaningful signals exist (caller should
+    not render anything).
+    """
+    if not warmth_signals:
+        return ""
+
+    meaningful = [s for s in warmth_signals if s.get("signal") in _MEANINGFUL_SIGNALS]
+    if not meaningful:
+        return ""
+
+    parts = []
+    for sig in meaningful[:3]:
+        signal = sig.get("signal", "")
+        detail = sig.get("detail", "")
+
+        if signal == "dream_company":
+            company = detail or (contact.get("Company") or contact.get("company") or "")
+            if company:
+                parts.append(f"At your dream company {company}")
+        elif signal == "same_university":
+            uni = detail or (contact.get("College") or "")
+            if uni:
+                parts.append(f"Went to {uni} like you")
+            else:
+                parts.append("Shared university")
+        elif signal == "same_major":
+            parts.append(f"Studied {detail}" if detail else "Same major")
+        elif signal == "same_hometown":
+            parts.append(f"From {detail}" if detail else "Same hometown")
+        elif signal == "same_past_company":
+            parts.append(f"Both worked at {detail}" if detail else "Shared employer")
+        elif signal == "recently_joined":
+            parts.append("Recently joined" + (f" {detail}" if detail else ""))
+        elif signal == "career_transition":
+            parts.append("Career transition match")
+        elif signal == "target_industry_match":
+            parts.append("In your target industry")
+
+    if not parts:
+        return ""
+
+    return ". ".join(parts) + "."

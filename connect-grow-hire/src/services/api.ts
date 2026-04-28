@@ -142,6 +142,14 @@ export interface Contact {
 }
 
 // Recruiter interface (extends Contact but specific to recruiters)
+export interface SearchSuggestion {
+  title: string;
+  company?: string;
+  jobTitle?: string;
+  location?: string;
+  reason: string;
+}
+
 export interface FindHumansReceipt {
   type: 'title_match' | 'location_match';
   label: string;
@@ -380,6 +388,24 @@ export interface Nudge {
   createdAt: string;
   status: "pending" | "read" | "acted_on" | "dismissed";
   actedOn: boolean;
+}
+
+// ================================
+// Reply Coach & Auto-Prep Types
+// ================================
+
+export interface ReplyCoachDraft {
+  body: string;
+  replyType: string;
+  contactId: string;
+  createdAt: string;
+  status: "ready" | "generating";
+}
+
+export interface AutoPrepStatus {
+  status: "ready" | "generating" | "not_available";
+  prepId?: string;
+  createdAt?: string;
 }
 
 // ================================
@@ -1612,6 +1638,33 @@ async generateReplyDraft(contactId: string): Promise<GenerateReplyResult | Error
   });
 }
 
+/** Get auto-generated reply draft (Reply Coach) */
+async getReplyCoachDraft(contactId: string): Promise<ReplyCoachDraft | ErrorResponse> {
+  const headers = await this.getAuthHeaders();
+  return this.makeRequest<ReplyCoachDraft | ErrorResponse>(`/contacts/${contactId}/reply-draft`, {
+    method: 'GET',
+    headers,
+  });
+}
+
+/** Send reply coach draft as Gmail draft */
+async sendReplyCoachDraft(contactId: string): Promise<{ success: boolean; draftId?: string } | ErrorResponse> {
+  const headers = await this.getAuthHeaders();
+  return this.makeRequest<{ success: boolean; draftId?: string } | ErrorResponse>(`/contacts/${contactId}/reply-draft/send`, {
+    method: 'POST',
+    headers,
+  });
+}
+
+/** Get auto-prep status for a contact (Coffee Chat Auto-Prep) */
+async getAutoPrep(contactId: string): Promise<AutoPrepStatus | ErrorResponse> {
+  const headers = await this.getAuthHeaders();
+  return this.makeRequest<AutoPrepStatus | ErrorResponse>(`/contacts/${contactId}/auto-prep`, {
+    method: 'GET',
+    headers,
+  });
+}
+
 
   // ================================
   // Dashboard API
@@ -2260,6 +2313,10 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
       "/queue/preferences",
       { method: "PUT", headers, body: JSON.stringify(updates) }
     );
+  }
+  async getSearchSuggestions(): Promise<{ suggestions: SearchSuggestion[] } | { error: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ suggestions: SearchSuggestion[] }>('/search-suggestions', { method: 'GET', headers });
   }
 }
 

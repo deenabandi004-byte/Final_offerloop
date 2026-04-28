@@ -341,6 +341,11 @@ def update_contact_stage(uid, contact_id, new_stage):
     }
     if new_stage == "meeting_scheduled" and not data.get("meetingScheduledAt"):
         updates["meetingScheduledAt"] = _now_iso()
+        # Auto-prep: trigger coffee chat prep when meeting is first scheduled
+        try:
+            _maybe_trigger_auto_prep(uid, contact_id, data)
+        except Exception as ap_err:
+            logger.warning(f"[outbox] auto-prep trigger failed for contact={contact_id}: {ap_err}")
     if new_stage == "connected" and not data.get("connectedAt"):
         updates["connectedAt"] = _now_iso()
 
@@ -735,3 +740,176 @@ def sync_contact_thread(uid, contact_id):
         data.update(all_updates)
 
     return _contact_to_dict(contact_id, data)
+
+
+# ---------------------------------------------------------------------------
+# Auto-Prep (Coffee Chat) — triggered when meeting_scheduled
+# ---------------------------------------------------------------------------
+
+COFFEE_CHAT_CREDITS = 15
+
+
+def _maybe_trigger_auto_prep(uid, contact_id, contact_data):
+    """Fire-and-forget auto-prep when a meeting is first scheduled.
+
+    Deducts credits before spawning thread, refunds on failure.
+    Pro/Elite only. Skips if no LinkedIn URL on the contact.
+    """
+    import threading as _threading
+
+    db = get_db()
+
+    # Tier check
+    user_doc = db.collection("users").document(uid).get()
+    user_data = user_doc.to_dict() if user_doc.exists else {}
+    tier = user_data.get("subscriptionTier") or user_data.get("tier", "free")
+    if tier not in ("pro", "elite"):
+        logger.info(f"[auto_prep] uid={uid} skipping — tier={tier}")
+        return
+
+    # LinkedIn URL required
+    linkedin_url = contact_data.get("linkedinUrl") or contact_data.get("linkedin_url", "")
+    if not linkedin_url:
+        logger.info(f"[auto_prep] uid={uid} contact={contact_id} skipping — no LinkedIn URL")
+        return
+
+    # Check for existing prep
+    preps = list(
+        db.collection("users").document(uid).collection("coffee-chat-preps")
+        .where("contactId", "==", contact_id)
+        .limit(1)
+        .stream()
+    )
+    if preps:
+        logger.info(f"[auto_prep] uid={uid} contact={contact_id} prep already exists")
+        return
+
+    # Deduct credits
+    from app.services.auth import deduct_credits_atomic
+    success, remaining = deduct_credits_atomic(uid, COFFEE_CHAT_CREDITS, "auto_coffee_chat_prep")
+    if not success:
+        logger.info(f"[auto_prep] uid={uid} insufficient credits")
+        return
+
+    # Write pending doc
+    now_iso = _now_iso()
+    prep_id = f"auto_{contact_id}_{now_iso.replace(':', '-').replace('.', '-')}"
+    db.collection("users").document(uid).collection("pending_auto_preps").document(contact_id).set({
+        "status": "pending",
+        "prepId": prep_id,
+        "contactId": contact_id,
+        "createdAt": now_iso,
+    })
+
+    # Create the prep doc skeleton
+    resume_text = (user_data.get("resumeParsed") or {}).get("rawText", "")
+    db.collection("users").document(uid).collection("coffee-chat-preps").document(prep_id).set({
+        "contactId": contact_id,
+        "linkedinUrl": linkedin_url,
+        "status": "queued",
+        "createdAt": now_iso,
+        "autoTriggered": True,
+    })
+
+    # Spawn background thread
+    def _run():
+        try:
+            from app.routes.coffee_chat_prep import process_coffee_chat_prep_background
+            process_coffee_chat_prep_background(
+                prep_id=prep_id,
+                linkedin_url=linkedin_url,
+                user_id=uid,
+                resume_text=resume_text,
+                extra_context={"contactId": contact_id, "autoTriggered": True},
+                user_profile=user_data,
+                credits_charged=COFFEE_CHAT_CREDITS,
+            )
+            # Clean up pending doc on success
+            db.collection("users").document(uid).collection("pending_auto_preps").document(contact_id).delete()
+            logger.info(f"[auto_prep] uid={uid} contact={contact_id} prep completed")
+        except Exception as exc:
+            logger.error(f"[auto_prep] uid={uid} contact={contact_id} failed: {exc}")
+            try:
+                db.collection("users").document(uid).collection("pending_auto_preps").document(contact_id).set(
+                    {"status": "failed", "error": str(exc)[:200], "updatedAt": _now_iso()},
+                    merge=True,
+                )
+            except Exception:
+                pass
+
+    t = _threading.Thread(target=_run, daemon=True)
+    t.start()
+    logger.info(f"[auto_prep] uid={uid} contact={contact_id} background thread spawned, prep_id={prep_id}")
+
+
+def trigger_auto_prep(uid, contact_id, contact_data):
+    """On-demand auto-prep trigger (called from contacts route fallback)."""
+    db = get_db()
+
+    # Check credits and tier
+    from app.services.auth import deduct_credits_atomic
+    user_doc = db.collection("users").document(uid).get()
+    user_data = user_doc.to_dict() if user_doc.exists else {}
+    tier = user_data.get("subscriptionTier") or user_data.get("tier", "free")
+    if tier not in ("pro", "elite"):
+        return {"status": "tier_required", "message": "Pro or Elite required for auto-prep"}
+
+    linkedin_url = contact_data.get("linkedinUrl") or contact_data.get("linkedin_url", "")
+    if not linkedin_url:
+        return {"status": "no_linkedin", "message": "Contact has no LinkedIn URL"}
+
+    success, remaining = deduct_credits_atomic(uid, COFFEE_CHAT_CREDITS, "auto_coffee_chat_prep")
+    if not success:
+        return {"status": "insufficient_credits", "remaining": remaining}
+
+    now_iso = _now_iso()
+    prep_id = f"auto_{contact_id}_{now_iso.replace(':', '-').replace('.', '-')}"
+    resume_text = (user_data.get("resumeParsed") or {}).get("rawText", "")
+
+    # Create prep doc
+    db.collection("users").document(uid).collection("coffee-chat-preps").document(prep_id).set({
+        "contactId": contact_id,
+        "linkedinUrl": linkedin_url,
+        "status": "queued",
+        "createdAt": now_iso,
+        "autoTriggered": True,
+    })
+
+    # Write pending doc
+    db.collection("users").document(uid).collection("pending_auto_preps").document(contact_id).set({
+        "status": "pending",
+        "prepId": prep_id,
+        "contactId": contact_id,
+        "createdAt": now_iso,
+    })
+
+    # Spawn thread
+    import threading as _threading
+
+    def _run():
+        try:
+            from app.routes.coffee_chat_prep import process_coffee_chat_prep_background
+            process_coffee_chat_prep_background(
+                prep_id=prep_id,
+                linkedin_url=linkedin_url,
+                user_id=uid,
+                resume_text=resume_text,
+                extra_context={"contactId": contact_id, "autoTriggered": True},
+                user_profile=user_data,
+                credits_charged=COFFEE_CHAT_CREDITS,
+            )
+            db.collection("users").document(uid).collection("pending_auto_preps").document(contact_id).delete()
+        except Exception as exc:
+            logger.error(f"[auto_prep] on-demand uid={uid} contact={contact_id} failed: {exc}")
+            try:
+                db.collection("users").document(uid).collection("pending_auto_preps").document(contact_id).set(
+                    {"status": "failed", "error": str(exc)[:200], "updatedAt": _now_iso()},
+                    merge=True,
+                )
+            except Exception:
+                pass
+
+    t = _threading.Thread(target=_run, daemon=True)
+    t.start()
+
+    return {"status": "generating", "prepId": prep_id}

@@ -10,6 +10,8 @@ from app.utils.warmth_scoring import (
     score_and_sort_contacts,
     score_contacts_for_email,
     _build_user_comparison_data,
+    _score_role_match,
+    _compute_warmth_label,
     _tier_label,
     SHARED_IDENTITY_CAP,
     TIER_THRESHOLDS,
@@ -353,3 +355,104 @@ class TestUniversityVariantMatching:
         }
         result = compute_warmth_score(comparison, contact)
         assert self._has_signal(result, "same_university")
+
+
+# ---------------------------------------------------------------------------
+# Role match and warmth label tests
+# ---------------------------------------------------------------------------
+
+class TestRoleMatchAndWarmthLabel:
+    """Tests for _score_role_match and _compute_warmth_label."""
+
+    @pytest.fixture
+    def user_profile_with_dream(self):
+        return {
+            "academics": {"university": "University of Southern California"},
+            "goals": {"dreamCompanies": ["Disney"]},
+        }
+
+    def test_role_match_plus_dream_company_strong_fit(self, user_profile_with_dream):
+        """Role match + dream company + school → 'Strong fit'."""
+        search_ctx = {"title_variations": ["data scientist"]}
+        comparison = _build_user_comparison_data(user_profile_with_dream, search_context=search_ctx)
+        contact = {
+            "title": "Data Scientist",
+            "company": "Disney",
+            "College": "University of Southern California",
+            "headline": "Data Scientist at Disney",
+            "experience": [{"company": {"name": "Disney"}, "title": {"name": "Data Scientist"}}],
+            "educationArray": [{"school": "University of Southern California"}],
+        }
+        result = compute_warmth_score(comparison, contact)
+        assert result["tier"] == "warm"
+        assert result["label"] == "Strong fit"
+        signal_names = [s["signal"] for s in result["signals"]]
+        assert "role_match" in signal_names
+        assert "dream_company" in signal_names
+
+    def test_role_match_only_good_fit(self):
+        """Role match without dream company or school → 'Good fit'."""
+        user = {"goals": {}}
+        search_ctx = {"title_variations": ["software engineer"]}
+        comparison = _build_user_comparison_data(user, search_context=search_ctx)
+        contact = {
+            "title": "Software Engineer",
+            "company": "Random Corp",
+            "headline": "Software Engineer at Random Corp",
+            "experience": [
+                {"company": {"name": "Random Corp"}, "title": {"name": "Software Engineer"}},
+                {"company": {"name": "Prev Co"}, "title": {"name": "Intern"}},
+            ],
+            "educationArray": [{"school": "MIT", "major": "CS"}],
+        }
+        result = compute_warmth_score(comparison, contact)
+        assert result["label"] == "Good fit"
+        signal_names = [s["signal"] for s in result["signals"]]
+        assert "role_match" in signal_names
+
+    def test_role_mismatch_dream_company_different_role(self, user_profile_with_dream):
+        """No role match but dream company → 'Right company, different role'."""
+        search_ctx = {"title_variations": ["data scientist"]}
+        comparison = _build_user_comparison_data(user_profile_with_dream, search_context=search_ctx)
+        contact = {
+            "title": "Marketing Manager",
+            "company": "Disney",
+            "headline": "Marketing Manager at Disney",
+        }
+        result = compute_warmth_score(comparison, contact)
+        assert result["label"] == "Right company, different role"
+        signal_names = [s["signal"] for s in result["signals"]]
+        assert "role_match" not in signal_names
+        assert "dream_company" in signal_names
+
+    def test_no_search_context_legacy_fallback(self, user_profile_with_dream):
+        """Without search_context, labels fall back to tier-based defaults."""
+        comparison = _build_user_comparison_data(user_profile_with_dream)  # no search_context
+        contact = {
+            "title": "Analyst",
+            "company": "Disney",
+            "College": "University of Southern California",
+            "headline": "Analyst at Disney",
+            "experience": [{"company": {"name": "Disney"}, "title": {"name": "Analyst"}}],
+            "educationArray": [{"school": "University of Southern California"}],
+        }
+        result = compute_warmth_score(comparison, contact)
+        # Without search_context, role_matched is None → legacy labels
+        assert result["label"] in ("Strong match", "Good fit", "")
+        signal_names = [s["signal"] for s in result["signals"]]
+        assert "role_match" not in signal_names
+
+    def test_empty_title_variations_no_boost(self):
+        """Empty title_variations list → no role_match signal or points."""
+        user = {"goals": {}}
+        search_ctx = {"title_variations": []}
+        comparison = _build_user_comparison_data(user, search_context=search_ctx)
+        contact = {
+            "title": "Data Scientist",
+            "company": "Google",
+            "headline": "Data Scientist at Google",
+        }
+        pts, signals, matched = _score_role_match(comparison, contact)
+        assert pts == 0
+        assert signals == []
+        assert matched is None  # not evaluated, same as no search context

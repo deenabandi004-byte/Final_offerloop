@@ -1428,3 +1428,94 @@ Return ONLY a JSON object:
             'replyType': 'general'
         }
 
+
+# ---------------------------------------------------------------------------
+# Quality-gate regeneration (GPT-4o-mini, one attempt)
+# ---------------------------------------------------------------------------
+
+def regenerate_with_feedback(contact, user_profile, original_email, failures):
+    """
+    Attempt to fix a low-quality email using GPT-4o-mini.
+
+    Parameters
+    ----------
+    contact : dict
+        Contact record with Company, Title, College, etc.
+    user_profile : dict
+        User's profile data.
+    original_email : dict
+        {"subject": str, "body": str}
+    failures : list[str]
+        Named quality failures from check_email_quality.
+
+    Returns
+    -------
+    dict  {"subject": str, "body": str}
+        Improved email, or original on any error.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    failure_instructions = []
+    for f in failures:
+        if f == "too_short":
+            failure_instructions.append("The email is too short. Add more substance (aim for 80-120 words).")
+        elif f == "too_long":
+            failure_instructions.append("The email is too long. Trim to 100-150 words max.")
+        elif f == "no_specificity":
+            company = contact.get("Company") or contact.get("company") or ""
+            college = contact.get("College") or contact.get("college") or ""
+            failure_instructions.append(
+                f"The email lacks specific references to the recipient. "
+                f"Mention their company ({company}) or school ({college}) naturally."
+            )
+        elif f == "no_clear_ask":
+            failure_instructions.append("The email has no clear ask. Add a specific request like '15 minutes for a quick chat'.")
+        elif f == "weak_subject":
+            failure_instructions.append("The subject line is too generic. Make it specific to the recipient or conversation topic (3-8 words).")
+        elif f == "template_leak":
+            failure_instructions.append("The email contains template placeholders like [Name] or {{}}. Replace with actual values.")
+
+    prompt = f"""Improve this networking email. Fix ONLY the issues listed below. Keep the tone, structure, and intent.
+
+ISSUES TO FIX:
+{chr(10).join(f'- {inst}' for inst in failure_instructions)}
+
+ORIGINAL SUBJECT: {original_email.get('subject', '')}
+
+ORIGINAL BODY:
+{original_email.get('body', '')}
+
+Return ONLY the improved email in this exact format:
+SUBJECT: <improved subject>
+BODY:
+<improved body>"""
+
+    try:
+        from openai import OpenAI
+        client = OpenAI()
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=500,
+            temperature=0.3,
+        )
+        text = response.choices[0].message.content or ""
+
+        # Parse response
+        subject = original_email.get("subject", "")
+        body = original_email.get("body", "")
+
+        if "SUBJECT:" in text and "BODY:" in text:
+            subject_part = text.split("SUBJECT:", 1)[1].split("BODY:", 1)[0].strip()
+            body_part = text.split("BODY:", 1)[1].strip()
+            if subject_part:
+                subject = subject_part
+            if body_part:
+                body = body_part
+
+        return {"subject": subject, "body": body}
+
+    except Exception as e:
+        logger.warning("Quality gate regeneration failed: %s", e)
+        return {"subject": original_email.get("subject", ""), "body": original_email.get("body", "")}
