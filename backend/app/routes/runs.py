@@ -607,6 +607,25 @@ def prompt_search():
                 print(f"⚠️ Error saving contacts (prompt-search): {save_error}")
                 traceback.print_exc()
 
+        # Metrics: log email_generated per contact with email (outside save block
+        # so events fire even if Firestore save fails — emails were already generated)
+        try:
+            from app.utils.metrics_events import log_event
+            for contact in contacts:
+                if contact.get("emailSubject"):
+                    body = contact.get("emailBody", "")
+                    company_name = (contact.get("Company") or contact.get("company") or "").lower()
+                    college_name = (contact.get("College") or contact.get("college") or "").lower()
+                    body_lower = body.lower()
+                    has_specificity = (bool(company_name) and company_name in body_lower) or (bool(college_name) and college_name in body_lower)
+                    log_event(user_id, "email_generated", {
+                        "contact_id": contact.get("pdlId") or "",
+                        "email_length": len(body.split()),
+                        "has_specificity_signal": has_specificity,
+                    })
+        except Exception:
+            pass
+
         # Build lightweight already-saved contact cards (no emails, no credits)
         saved_contact_cards = _build_saved_contact_cards(already_saved_contacts)
 
@@ -623,6 +642,27 @@ def prompt_search():
         }
         if credits_remaining is not None:
             response_data["credits_remaining"] = credits_remaining
+
+        # Metrics: log search_performed
+        try:
+            from app.utils.metrics_events import log_event
+            top_tier = ""
+            if warmth_data:
+                tiers = [v.get("tier", "") for v in warmth_data.values()]
+                for t in ["warm", "neutral", "cold"]:
+                    if t in tiers:
+                        top_tier = t
+                        break
+            log_event(user_id, "search_performed", {
+                "companies": parsed_query_payload.get("companies", []),
+                "titles": parsed_query_payload.get("title_variations", [])[:5],
+                "locations": parsed_query_payload.get("locations", []),
+                "results_count": len(contacts),
+                "top_warmth_tier": top_tier,
+            })
+        except Exception:
+            pass
+
         return jsonify(response_data)
     except (OfferloopException, InsufficientCreditsError, ExternalAPIError):
         raise

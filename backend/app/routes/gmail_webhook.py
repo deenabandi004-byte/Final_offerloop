@@ -7,7 +7,7 @@ import json
 import logging
 import re
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from email.utils import parseaddr
 
 from flask import Blueprint, jsonify, request
@@ -336,6 +336,16 @@ def _process_gmail_notification(email_address, history_id):
 
                 logger.info(f"[gmail_webhook] uid={uid} contact_id={contact_doc.id} UPDATING sent message: stage draft_created->waiting_on_reply, fields={list(update_fields.keys())}")
                 contact_ref.update(update_fields)
+
+                # Metrics: email_actually_sent
+                try:
+                    from app.utils.metrics_events import log_event
+                    log_event(uid, "email_actually_sent", {
+                        "contact_id": contact_doc.id,
+                    })
+                except Exception:
+                    pass
+
                 continue
 
             # Find contact with this thread (reply from contact)
@@ -408,6 +418,24 @@ def _process_gmail_notification(email_address, history_id):
                 updates["replyReceivedAt"] = now_iso
             logger.info(f"[gmail_webhook] uid={uid} contact_id={contact_id} UPDATING reply: stage->replied, hasUnreadReply->True, fields={list(updates.keys())}")
             contact_ref.update(updates)
+
+            # Metrics: reply_received
+            try:
+                from app.utils.metrics_events import log_event
+                hours_since = None
+                draft_at = contact_data.get("draftCreatedAt") or contact_data.get("emailSentAt")
+                if draft_at:
+                    try:
+                        sent_dt = datetime.fromisoformat(str(draft_at).replace("Z", "+00:00"))
+                        hours_since = round((datetime.now(timezone.utc) - sent_dt).total_seconds() / 3600, 1)
+                    except Exception:
+                        pass
+                log_event(uid, "reply_received", {
+                    "contact_id": contact_id,
+                    "hours_since_send": hours_since,
+                })
+            except Exception:
+                pass
 
             # Dismiss any pending nudges for this contact (reply makes follow-up nudges stale)
             try:
