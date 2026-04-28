@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowRight, Menu, X, ChevronDown } from 'lucide-react';
+import { ArrowRight, Menu, X } from 'lucide-react';
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import OfferloopLogo from '@/assets/offerloop_logo2.png';
 import ChromeExtensionPic from '@/assets/Chrome_extensionpic.png';
@@ -12,7 +12,7 @@ import FindCompanyImg from '@/assets/findcompanylandingpage.png';
 import FindHiringManagerImg from '@/assets/findhiringmanagerlandingpage.png';
 import EmailOutreachImg from '@/assets/emailoutreach.png.png';
 import CoffeeChatImg from '@/assets/coffeechatlandingpage.png';
-import FeatureShowcase from '@/components/FeatureShowcase';
+import HeroSearchCTA from '@/components/HeroSearchCTA';
 import ChromeIcon from '@/assets/Google_Chrome_icon.png';
 import LinkedInLogo from '@/assets/LinkedIn_Logo.png';
 import uscLogo from '@/assets/USC-Logo.png';
@@ -28,6 +28,8 @@ import notreDameLogo from '@/assets/Notre Dame logo.png';
 import dartmouthLogo from '@/assets/Dartmouth logo.png';
 import TimeComparison from '@/components/TimeComparison';
 import BulletinBoard from '@/components/BulletinBoard';
+import DavidJiPhoto from '@/assets/David-Ji.jpeg';
+import SarahUcuzogluPhoto from '@/assets/Sarah-Ucuzoglu.jpeg';
 
 const CHROME_EXTENSION_URL = 'https://chromewebstore.google.com/detail/offerloop/aabnjgecmobcnnhkilbeocggbmgilpcl';
 
@@ -40,7 +42,6 @@ const Index = () => {
   const [scrollProgress, setScrollProgress] = useState(0);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [konamiActivated, setKonamiActivated] = useState(false);
-  const [resourcesOpen, setResourcesOpen] = useState(false);
   const heroRef = useRef<HTMLDivElement>(null);
   const dashboardRef = useRef<HTMLDivElement>(null);
 
@@ -229,73 +230,6 @@ const Index = () => {
             <button onClick={() => scrollToSection('testimonials')} className="nav-link text-sm relative" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif", fontWeight: 600 }}>
               Reviews
             </button>
-            <div className="relative" onMouseEnter={() => setResourcesOpen(true)} onMouseLeave={() => setResourcesOpen(false)}>
-              <button className="nav-link text-sm relative flex items-center gap-1" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif", fontWeight: 600 }}>
-                Resources <ChevronDown className="h-3.5 w-3.5" style={{ opacity: 0.6 }} />
-              </button>
-              {resourcesOpen && (
-                <div className="absolute top-full left-1/2 pt-2" style={{ transform: 'translateX(-50%)' }}>
-                  <div className="flex flex-col py-2" style={{ background: 'rgba(255,255,255,0.98)', border: '1px solid rgba(37,99,235,0.1)', boxShadow: '0 4px 24px rgba(37,99,235,0.08)', backdropFilter: 'blur(16px)', minWidth: '220px', borderRadius: 3, maxHeight: '70vh', overflowY: 'auto' }}>
-                    {/* Guides */}
-                    <p className="px-4 pt-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#94A3B8' }}>Guides</p>
-                    {[
-                      { to: '/networking/goldman-sachs', label: 'Networking: Goldman Sachs' },
-                      { to: '/networking/mckinsey', label: 'Networking: McKinsey' },
-                      { to: '/networking/google', label: 'Networking: Google' },
-                      { to: '/coffee-chat/bain', label: 'Coffee Chat: Bain' },
-                      { to: '/coffee-chat/morgan-stanley', label: 'Coffee Chat: Morgan Stanley' },
-                      { to: '/cold-email/investment-banking', label: 'Cold Email: Investment Banking' },
-                      { to: '/cold-email/tech', label: 'Cold Email: Tech' },
-                    ].map((item) => (
-                      <a key={item.to} href={item.to} target="_blank" rel="noopener noreferrer" className="px-4 py-1.5 text-sm font-medium hover:bg-gray-50 transition-colors" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif", textDecoration: 'none' }}>
-                        {item.label}
-                      </a>
-                    ))}
-                    {/* Divider */}
-                    <div className="mx-3 my-2" style={{ borderTop: '1px solid rgba(37,99,235,0.08)' }} />
-                    {/* Alumni */}
-                    <p className="px-4 pt-0.5 pb-1.5 text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#94A3B8' }}>Alumni</p>
-                    {[
-                      { to: '/alumni/stanford', label: 'Stanford' },
-                      { to: '/alumni/usc', label: 'USC' },
-                      { to: '/alumni/berkeley', label: 'UC Berkeley' },
-                      { to: '/alumni/ucla', label: 'UCLA' },
-                      { to: '/alumni/ucsd', label: 'UC San Diego' },
-                      { to: '/alumni/ucdavis', label: 'UC Davis' },
-                      { to: '/alumni/ucsb', label: 'UC Santa Barbara' },
-                      { to: '/alumni/uci', label: 'UC Irvine' },
-                      { to: '/alumni/ucr', label: 'UC Riverside' },
-                      { to: '/alumni/uc-santa-cruz', label: 'UC Santa Cruz' },
-                      { to: '/alumni/uc-merced', label: 'UC Merced' },
-                      { to: '/alumni/harvard', label: 'Harvard' },
-                      { to: '/alumni/nyu', label: 'NYU' },
-                      { to: '/alumni/michigan', label: 'University of Michigan' },
-                      { to: '/alumni/georgetown', label: 'Georgetown' },
-                      { to: '/alumni/upenn', label: 'UPenn' },
-                      { to: '/alumni/notre-dame', label: 'Notre Dame' },
-                      { to: '/alumni/duke', label: 'Duke' },
-                      { to: '/alumni/northwestern', label: 'Northwestern' },
-                    ].map((item) => (
-                      <a key={item.to} href={item.to} target="_blank" rel="noopener noreferrer" className="px-4 py-1.5 text-sm font-medium hover:bg-gray-50 transition-colors" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif", textDecoration: 'none' }}>
-                        {item.label}
-                      </a>
-                    ))}
-                    {/* Divider */}
-                    <div className="mx-3 my-2" style={{ borderTop: '1px solid rgba(37,99,235,0.08)' }} />
-                    {/* Compare */}
-                    <p className="px-4 pt-0.5 pb-1.5 text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#94A3B8' }}>Compare</p>
-                    {[
-                      { to: '/compare/handshake', label: 'Compare: vs Handshake' },
-                      { to: '/compare/linkedin', label: 'Compare: vs LinkedIn' },
-                    ].map((item) => (
-                      <a key={item.to} href={item.to} target="_blank" rel="noopener noreferrer" className="px-4 py-1.5 text-sm font-medium hover:bg-gray-50 transition-colors" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif", textDecoration: 'none' }}>
-                        {item.label}
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
           </nav>
 
           {/* Desktop CTA */}
@@ -340,64 +274,6 @@ const Index = () => {
             <button onClick={() => { scrollToFeatures(); setMobileMenuOpen(false); }} className="text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif" }}>Features</button>
             <button onClick={() => { scrollToSection('extension'); setMobileMenuOpen(false); }} className="text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif" }}>Extension</button>
             <button onClick={() => { scrollToSection('testimonials'); setMobileMenuOpen(false); }} className="text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif" }}>Reviews</button>
-            <div className="border-t mt-1 pt-1" style={{ borderColor: 'rgba(37,99,235,0.08)' }}>
-              {/* Guides */}
-              <p className="px-4 py-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#94A3B8' }}>Guides</p>
-              {[
-                { to: '/networking/goldman-sachs', label: 'Networking: Goldman Sachs' },
-                { to: '/networking/mckinsey', label: 'Networking: McKinsey' },
-                { to: '/networking/google', label: 'Networking: Google' },
-                { to: '/coffee-chat/bain', label: 'Coffee Chat: Bain' },
-                { to: '/coffee-chat/morgan-stanley', label: 'Coffee Chat: Morgan Stanley' },
-                { to: '/cold-email/investment-banking', label: 'Cold Email: Investment Banking' },
-                { to: '/cold-email/tech', label: 'Cold Email: Tech' },
-              ].map((item) => (
-                <a key={item.to} href={item.to} target="_blank" rel="noopener noreferrer" className="block text-left px-4 py-2.5 text-sm font-medium rounded-lg hover:bg-gray-50" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif", textDecoration: 'none' }}>
-                  {item.label}
-                </a>
-              ))}
-              {/* Divider */}
-              <div className="mx-3 my-2" style={{ borderTop: '1px solid rgba(37,99,235,0.08)' }} />
-              {/* Alumni */}
-              <p className="px-4 py-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#94A3B8' }}>Alumni</p>
-              {[
-                { to: '/alumni/stanford', label: 'Stanford' },
-                { to: '/alumni/usc', label: 'USC' },
-                { to: '/alumni/berkeley', label: 'UC Berkeley' },
-                { to: '/alumni/ucla', label: 'UCLA' },
-                { to: '/alumni/ucsd', label: 'UC San Diego' },
-                { to: '/alumni/ucdavis', label: 'UC Davis' },
-                { to: '/alumni/ucsb', label: 'UC Santa Barbara' },
-                { to: '/alumni/uci', label: 'UC Irvine' },
-                { to: '/alumni/ucr', label: 'UC Riverside' },
-                { to: '/alumni/uc-santa-cruz', label: 'UC Santa Cruz' },
-                { to: '/alumni/uc-merced', label: 'UC Merced' },
-                { to: '/alumni/harvard', label: 'Harvard' },
-                { to: '/alumni/nyu', label: 'NYU' },
-                { to: '/alumni/michigan', label: 'University of Michigan' },
-                { to: '/alumni/georgetown', label: 'Georgetown' },
-                { to: '/alumni/upenn', label: 'UPenn' },
-                { to: '/alumni/notre-dame', label: 'Notre Dame' },
-                { to: '/alumni/duke', label: 'Duke' },
-                { to: '/alumni/northwestern', label: 'Northwestern' },
-              ].map((item) => (
-                <a key={item.to} href={item.to} target="_blank" rel="noopener noreferrer" className="block text-left px-4 py-2.5 text-sm font-medium rounded-lg hover:bg-gray-50" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif", textDecoration: 'none' }}>
-                  {item.label}
-                </a>
-              ))}
-              {/* Divider */}
-              <div className="mx-3 my-2" style={{ borderTop: '1px solid rgba(37,99,235,0.08)' }} />
-              {/* Compare */}
-              <p className="px-4 py-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#94A3B8' }}>Compare</p>
-              {[
-                { to: '/compare/handshake', label: 'Compare: vs Handshake' },
-                { to: '/compare/linkedin', label: 'Compare: vs LinkedIn' },
-              ].map((item) => (
-                <a key={item.to} href={item.to} target="_blank" rel="noopener noreferrer" className="block text-left px-4 py-2.5 text-sm font-medium rounded-lg hover:bg-gray-50" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif", textDecoration: 'none' }}>
-                  {item.label}
-                </a>
-              ))}
-            </div>
             <button onClick={() => { navigate('/signin?mode=signup'); setMobileMenuOpen(false); }} className="text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50" style={{ color: '#4A5E80', fontFamily: "'Libre Baskerville', Georgia, serif" }}>Get started</button>
             <div className="border-t mt-2 pt-2" style={{ borderColor: 'rgba(37,99,235,0.08)' }}>
               {user ? (
@@ -411,48 +287,182 @@ const Index = () => {
       )}
 
       {/* Spacer for fixed header */}
-      <div className="h-20" />
+      <div className="h-14" />
 
       {/* ═══════════════ HERO / TITLE PAGE ═══════════════ */}
+      <style>{`
+        @keyframes hero-drift-slow {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          50%      { transform: translate(40px, -30px) scale(1.08); }
+        }
+        @keyframes hero-drift-reverse {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          50%      { transform: translate(-30px, 20px) scale(1.05); }
+        }
+        @keyframes hero-ring-spin {
+          0%   { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        @keyframes hero-particle-float {
+          0%, 100% { transform: translate(0, 0); opacity: 0.25; }
+          50%      { transform: translate(22px, -36px); opacity: 0.7; }
+        }
+        @keyframes hero-sheen-shift {
+          0%   { background-position: -100% 0; }
+          100% { background-position: 200% 0; }
+        }
+      `}</style>
       <section
         ref={heroRef}
-        className="relative px-6 md:px-12"
+        className="relative"
         style={{
-          paddingTop: '120px',
-          paddingBottom: '80px',
-          background: '#E8F1FB',
+          paddingTop: '40px',
+          paddingBottom: '40px',
+          minHeight: 'calc(100vh - 96px)',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          background:
+            'radial-gradient(ellipse 90% 70% at 50% 35%, #EEF4FD 0%, #E5EFFB 60%, #DCE7F7 100%)',
+          overflow: 'hidden',
         }}
       >
+        {/* ─── Ambient depth layers — all non-interactive ─── */}
 
-        <div className="relative mx-auto text-center" style={{ zIndex: 1, maxWidth: 820 }}>
+        {/* Large slow-drifting blue blob behind the headline */}
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: '-18%',
+            left: '-10%',
+            width: '62%',
+            height: '110%',
+            background:
+              'radial-gradient(ellipse at center, rgba(37, 99, 235, 0.16) 0%, rgba(37, 99, 235, 0) 60%)',
+            filter: 'blur(48px)',
+            pointerEvents: 'none',
+            zIndex: 0,
+            animation: 'hero-drift-slow 18s ease-in-out infinite',
+          }}
+        />
+        {/* Warmer indigo blob drifting the other way behind the panel */}
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: '-25%',
+            right: '-15%',
+            width: '66%',
+            height: '130%',
+            background:
+              'radial-gradient(ellipse at center, rgba(129, 140, 248, 0.14) 0%, rgba(129, 140, 248, 0) 65%)',
+            filter: 'blur(56px)',
+            pointerEvents: 'none',
+            zIndex: 0,
+            animation: 'hero-drift-reverse 22s ease-in-out infinite',
+          }}
+        />
 
-          <h1
-            className="hero-fade-up hero-fade-up-delay-1 hero-headline"
-            style={{ fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 'clamp(44px, 6.5vw, 72px)', fontWeight: 400, lineHeight: 1.15, letterSpacing: '-0.02em', color: '#0f2545', marginBottom: 0 }}
-          >
-            Outreach is hard enough.<br /><span style={{ color: '#2563EB' }}>Eliminate the busywork.</span>
-          </h1>
+        {/* Concentric ring decoration behind the Gmail panel */}
+        <svg
+          aria-hidden
+          width="720"
+          height="720"
+          viewBox="0 0 720 720"
+          style={{
+            position: 'absolute',
+            top: '-120px',
+            right: '-220px',
+            pointerEvents: 'none',
+            zIndex: 0,
+            opacity: 0.32,
+            animation: 'hero-ring-spin 120s linear infinite',
+          }}
+        >
+          {[140, 200, 260, 320, 380].map((r) => (
+            <circle
+              key={r}
+              cx="360"
+              cy="360"
+              r={r}
+              fill="none"
+              stroke="rgba(37, 99, 235, 0.08)"
+              strokeWidth="1"
+              strokeDasharray={r === 260 ? '4 8' : undefined}
+            />
+          ))}
+        </svg>
 
-          <p className="hero-fade-up hero-fade-up-delay-3" style={{ fontFamily: "'Inter', sans-serif", fontSize: 18, lineHeight: 1.6, color: '#6B7280', maxWidth: 560, margin: '24px auto 32px' }}>
-            Find verified emails, generate personalized outreach, and track every conversation — all in one place.
-          </p>
+        {/* Dot grid — very faint, just for texture */}
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            inset: 0,
+            backgroundImage:
+              'radial-gradient(rgba(15, 37, 69, 0.055) 1px, transparent 1px)',
+            backgroundSize: '26px 26px',
+            maskImage:
+              'radial-gradient(ellipse 70% 60% at center, black 5%, transparent 90%)',
+            WebkitMaskImage:
+              'radial-gradient(ellipse 70% 60% at center, black 5%, transparent 90%)',
+            pointerEvents: 'none',
+            zIndex: 0,
+          }}
+        />
 
-          {/* CTA Buttons */}
-          <div className="hero-fade-up hero-fade-up-delay-4 flex justify-center">
-            <button
-              onClick={() => navigate('/signin?mode=signup')}
-              style={{ background: '#2563EB', color: '#fff', fontFamily: "'Libre Baskerville', Georgia, serif", fontWeight: 600, borderRadius: '3px', padding: '13px 28px', boxShadow: '0 2px 12px rgba(37,99,235,.25)', border: 'none', cursor: 'pointer', fontSize: '14px', transition: 'background 0.15s ease' }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = '#1D4ED8'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = '#2563EB'; }}
-            >
-              Create account
-            </button>
-          </div>
+        {/* Subtle top highlight line — catches the eye */}
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: '20%',
+            right: '20%',
+            height: 1,
+            background:
+              'linear-gradient(90deg, transparent, rgba(37, 99, 235, 0.25), transparent)',
+            pointerEvents: 'none',
+            zIndex: 0,
+          }}
+        />
 
-          <div style={{ marginTop: 48 }}>
-            <FeatureShowcase />
-          </div>
+        {/* Floating particles — slow-drifting blue dots for living background */}
+        {[
+          { left: '8%',  top: '18%', size: 4, dur: 14, delay: 0 },
+          { left: '22%', top: '68%', size: 3, dur: 11, delay: 1.4 },
+          { left: '38%', top: '12%', size: 5, dur: 16, delay: 0.6 },
+          { left: '52%', top: '78%', size: 3, dur: 13, delay: 2.0 },
+          { left: '66%', top: '22%', size: 4, dur: 15, delay: 0.2 },
+          { left: '74%', top: '58%', size: 3, dur: 12, delay: 1.8 },
+          { left: '88%', top: '32%', size: 5, dur: 17, delay: 0.9 },
+          { left: '14%', top: '42%', size: 3, dur: 13, delay: 2.4 },
+          { left: '92%', top: '78%', size: 4, dur: 14, delay: 1.1 },
+          { left: '44%', top: '52%', size: 3, dur: 15, delay: 0.4 },
+        ].map((p, i) => (
+          <div
+            key={i}
+            aria-hidden
+            style={{
+              position: 'absolute',
+              left: p.left,
+              top: p.top,
+              width: p.size,
+              height: p.size,
+              borderRadius: '50%',
+              background: 'rgba(37, 99, 235, 0.55)',
+              filter: 'blur(0.5px)',
+              pointerEvents: 'none',
+              zIndex: 0,
+              animation: `hero-particle-float ${p.dur}s ease-in-out infinite`,
+              animationDelay: `${p.delay}s`,
+            }}
+          />
+        ))}
 
+        <div className="hero-fade-up hero-fade-up-delay-1 relative" style={{ zIndex: 1 }}>
+          <HeroSearchCTA />
         </div>
       </section>
 
@@ -487,6 +497,129 @@ const Index = () => {
                     <img src={school.logo} alt={school.name} style={{ maxHeight: 44, maxWidth: 120, width: 'auto', height: 'auto', objectFit: 'contain', display: 'block' }} />
                   </div>
                 ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══════════════ FEATURED TESTIMONIALS (Clado-style) ═══════════════ */}
+      <section
+        id="testimonials"
+        style={{
+          background: '#ffffff',
+          padding: '48px 32px 32px',
+        }}
+      >
+        <div style={{ maxWidth: 1240, margin: '0 auto' }}>
+          {/* Two cards side by side */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(500px, 1fr))',
+              gap: 32,
+              alignItems: 'stretch',
+            }}
+          >
+            {[
+              {
+                photo: DavidJiPhoto,
+                quote:
+                  'As an international student, I had no pre-existing network, and Offerloop allowed me to find and connect with professionals that resulted in me landing an offer.',
+                name: 'David Ji',
+                role: 'Incoming FedEx Intern',
+              },
+              {
+                photo: SarahUcuzogluPhoto,
+                quote:
+                  'Automating cold outreach gave me more time spent face to face with professionals who could actually help.',
+                name: 'Sarah Ucuzoglu',
+                role: 'Advisory Intern, PwC',
+              },
+            ].map((t) => (
+              <div
+                key={t.name}
+                style={{
+                  display: 'flex',
+                  background: '#0f2545',
+                  borderRadius: 18,
+                  overflow: 'hidden',
+                  border: '1px solid rgba(15, 37, 69, 0.10)',
+                  boxShadow:
+                    '0 2px 10px rgba(15, 37, 69, 0.08), 0 32px 72px rgba(15, 37, 69, 0.18)',
+                  minHeight: 340,
+                }}
+              >
+                {/* Photo (left) */}
+                <div
+                  style={{
+                    width: 260,
+                    flexShrink: 0,
+                    background: '#0f2545',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <img
+                    src={t.photo}
+                    alt={t.name}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      objectPosition: 'center top',
+                      display: 'block',
+                    }}
+                  />
+                </div>
+
+                {/* Quote card (right) */}
+                <div
+                  style={{
+                    flex: 1,
+                    padding: '40px 40px 32px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    color: '#ffffff',
+                  }}
+                >
+                  <p
+                    style={{
+                      fontFamily: "'Libre Baskerville', Georgia, serif",
+                      fontSize: 20,
+                      lineHeight: 1.55,
+                      color: '#F1F5F9',
+                      margin: 0,
+                      fontWeight: 400,
+                      letterSpacing: '-0.008em',
+                    }}
+                  >
+                    &ldquo;{t.quote}&rdquo;
+                  </p>
+                  <div style={{ marginTop: 28 }}>
+                    <div
+                      style={{
+                        fontFamily: "'Inter', sans-serif",
+                        fontSize: 16,
+                        fontWeight: 700,
+                        color: '#ffffff',
+                        letterSpacing: '-0.01em',
+                      }}
+                    >
+                      {t.name}
+                    </div>
+                    <div
+                      style={{
+                        fontFamily: "'Inter', sans-serif",
+                        fontSize: 13.5,
+                        color: '#94A3B8',
+                        marginTop: 3,
+                      }}
+                    >
+                      {t.role}
+                    </div>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -546,8 +679,37 @@ const Index = () => {
             Prompt the type of person you want to talk to and instantly have personalized emails created in your drafts ready to send. At the same time their information is stored into a networking tracker spreadsheet.
           </p>
 
-          <div style={{ maxWidth: 900, margin: '0 auto', borderRadius: 4, overflow: 'hidden', border: '1px solid #E2E8F0', boxShadow: '0 2px 4px rgba(0,0,0,.03), 0 8px 24px rgba(37,99,235,.06)' }}>
-            <video src={HowItWorksVideo} autoPlay loop muted playsInline className="w-full rounded-xl" style={{ display: 'block' }} />
+          <div style={{ maxWidth: 920, margin: '0 auto', position: 'relative' }}>
+            {/* Soft blue glow underneath the video for extra depth */}
+            <div
+              aria-hidden
+              style={{
+                position: 'absolute',
+                inset: '20px 40px -10px 40px',
+                background:
+                  'radial-gradient(ellipse at center, rgba(37, 99, 235, 0.22), transparent 70%)',
+                filter: 'blur(36px)',
+                pointerEvents: 'none',
+                zIndex: 0,
+              }}
+            />
+            <div
+              style={{
+                position: 'relative',
+                borderRadius: 12,
+                overflow: 'hidden',
+                border: '1px solid rgba(15, 37, 69, 0.10)',
+                boxShadow: `
+                  0 1px 2px rgba(15, 37, 69, 0.04),
+                  0 6px 12px rgba(15, 37, 69, 0.06),
+                  0 18px 36px rgba(37, 99, 235, 0.14),
+                  0 40px 80px rgba(15, 23, 42, 0.18)
+                `,
+                zIndex: 1,
+              }}
+            >
+              <video src={HowItWorksVideo} autoPlay loop muted playsInline className="w-full" style={{ display: 'block' }} />
+            </div>
           </div>
         </div>
       </section>
@@ -577,9 +739,62 @@ const Index = () => {
             Add to Chrome — it's free
           </a>
 
-          <div style={{ maxWidth: 900, margin: '56px auto 0' }}>
-            <div style={{ borderRadius: 4, overflow: 'hidden', border: '1px solid #E2E8F0', boxShadow: '0 2px 4px rgba(0,0,0,.03), 0 8px 24px rgba(37,99,235,.06)' }}>
-              <img src={ChromeExtensionPic} alt="Offerloop Chrome extension on a LinkedIn profile" style={{ width: '100%', display: 'block', objectFit: 'cover', objectPosition: 'top left' }} />
+          {/* Tilted screenshot with depth and hover untilt */}
+          <style>{`
+            .ext-frame {
+              transform: rotateY(-3.5deg) rotateX(2deg);
+              transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+              transform-origin: center center;
+            }
+            .ext-frame-wrap:hover .ext-frame {
+              transform: rotateY(0deg) rotateX(0deg);
+            }
+          `}</style>
+
+          <div
+            className="ext-frame-wrap"
+            style={{
+              maxWidth: 920,
+              margin: '56px auto 0',
+              position: 'relative',
+              perspective: '1600px',
+            }}
+          >
+            {/* Soft blue glow underneath the screenshot for extra depth */}
+            <div
+              aria-hidden
+              style={{
+                position: 'absolute',
+                inset: '20px 40px -10px 40px',
+                background: 'radial-gradient(ellipse at center, rgba(37, 99, 235, 0.22), transparent 70%)',
+                filter: 'blur(36px)',
+                pointerEvents: 'none',
+                zIndex: 0,
+              }}
+            />
+
+            {/* The screenshot itself — tilted */}
+            <div
+              className="ext-frame"
+              style={{
+                position: 'relative',
+                borderRadius: 12,
+                overflow: 'hidden',
+                border: '1px solid rgba(15, 37, 69, 0.10)',
+                boxShadow: `
+                  0 1px 2px rgba(15, 37, 69, 0.04),
+                  0 6px 12px rgba(15, 37, 69, 0.06),
+                  0 18px 36px rgba(37, 99, 235, 0.14),
+                  0 40px 80px rgba(15, 23, 42, 0.18)
+                `,
+                zIndex: 1,
+              }}
+            >
+              <img
+                src={ChromeExtensionPic}
+                alt="Offerloop Chrome extension on a LinkedIn profile"
+                style={{ width: '100%', display: 'block', objectFit: 'cover', objectPosition: 'top left' }}
+              />
             </div>
           </div>
         </div>
@@ -591,16 +806,77 @@ const Index = () => {
       </section>
 
       {/* ═══════════════ CHAPTER III: FEATURES ═══════════════ */}
-      <section id="features" className="relative px-6 md:px-12" style={{ padding: '72px 64px 60px', borderTop: '1px solid #EEF2F8', background: '#E8F1FB' }}>
+      <style>{`
+        .feature-frame {
+          transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+          transform: perspective(1400px) rotateY(0deg) rotateX(0deg);
+        }
+        .feature-row.text-left .feature-frame {
+          transform: perspective(1400px) rotateY(-2deg) rotateX(1.5deg);
+        }
+        .feature-row.text-right .feature-frame {
+          transform: perspective(1400px) rotateY(2deg) rotateX(1.5deg);
+        }
+        .feature-row:hover .feature-frame {
+          transform: perspective(1400px) rotateY(0) rotateX(0) translateY(-4px);
+          box-shadow:
+            0 1px 2px rgba(15, 37, 69, 0.04),
+            0 8px 16px rgba(15, 37, 69, 0.08),
+            0 24px 48px rgba(37, 99, 235, 0.18),
+            0 56px 100px rgba(15, 23, 42, 0.22) !important;
+        }
+      `}</style>
+      <section
+        id="features"
+        className="relative px-6 md:px-12"
+        style={{
+          padding: '96px 64px 88px',
+          borderTop: '1px solid #EEF2F8',
+          background:
+            'radial-gradient(ellipse 90% 60% at 50% 40%, #E8F1FB 0%, #DCE7F7 100%)',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Soft ambient glows behind the section */}
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: '10%',
+            left: '-12%',
+            width: '50%',
+            height: '60%',
+            background:
+              'radial-gradient(ellipse, rgba(37, 99, 235, 0.10), transparent 65%)',
+            filter: 'blur(60px)',
+            pointerEvents: 'none',
+            zIndex: 0,
+          }}
+        />
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            bottom: '5%',
+            right: '-15%',
+            width: '55%',
+            height: '70%',
+            background:
+              'radial-gradient(ellipse, rgba(129, 140, 248, 0.10), transparent 65%)',
+            filter: 'blur(64px)',
+            pointerEvents: 'none',
+            zIndex: 0,
+          }}
+        />
 
         <div style={{ position: 'relative', zIndex: 1, maxWidth: 760, margin: '0 auto', textAlign: 'center' }}>
           <h2 className="reveal" style={{ fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 'clamp(32px, 5vw, 52px)', fontWeight: 400, lineHeight: 1.1, letterSpacing: '-.025em', color: '#0f2545', marginBottom: 0 }}>
-            Everything You Need to Network Smarter
+            Everything You Need to <span style={{ color: '#2563EB' }}>Network Smarter</span>
           </h2>
-          <div style={{ height: 1.5, background: 'linear-gradient(90deg, #2563EB, #60A5FA, transparent)', maxWidth: 200, margin: '10px auto 16px' }} />
+          <div style={{ height: 1.5, background: 'linear-gradient(90deg, transparent, #2563EB, #60A5FA, transparent)', maxWidth: 240, margin: '14px auto 16px' }} />
         </div>
 
-        <div className="max-w-5xl mx-auto" style={{ display: 'flex', flexDirection: 'column', gap: 80, marginTop: 64, position: 'relative', zIndex: 1 }}>
+        <div className="max-w-5xl mx-auto" style={{ display: 'flex', flexDirection: 'column', gap: 112, marginTop: 88, position: 'relative', zIndex: 1 }}>
           {[
             { title: 'Find Hiring Managers', description: "Paste a job posting URL and we'll find the recruiters and hiring managers for that role.", image: FindHiringManagerImg },
             { title: 'Manage Emails', description: "Track every email you've sent, see who opened it, who replied, and who needs a follow-up.", image: EmailOutreachImg },
@@ -609,18 +885,78 @@ const Index = () => {
           ].map((feature, i) => {
             const isTextLeft = i % 2 === 0;
             return (
-              <div key={feature.title} className="reveal" style={{ display: 'flex', flexDirection: isTextLeft ? 'row' : 'row-reverse', alignItems: 'center', gap: 48, flexWrap: 'wrap' }}>
-                <div style={{ flex: '1 1 340px', minWidth: 0 }}>
-                  <h3 style={{ fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 22, fontWeight: 400, color: '#0f2545', marginBottom: 0 }}>
+              <div
+                key={feature.title}
+                className={`reveal feature-row ${isTextLeft ? 'text-left' : 'text-right'}`}
+                style={{
+                  display: 'flex',
+                  flexDirection: isTextLeft ? 'row' : 'row-reverse',
+                  alignItems: 'center',
+                  gap: 64,
+                  flexWrap: 'wrap',
+                }}
+              >
+                {/* Text column */}
+                <div style={{ flex: '1 1 360px', minWidth: 0 }}>
+                  <h3
+                    style={{
+                      fontFamily: "'Libre Baskerville', Georgia, serif",
+                      fontSize: 'clamp(28px, 3.2vw, 38px)',
+                      fontWeight: 400,
+                      lineHeight: 1.1,
+                      letterSpacing: '-0.018em',
+                      color: '#0f2545',
+                      marginBottom: 16,
+                    }}
+                  >
                     {feature.title}
                   </h3>
-                  <div style={{ height: 1, background: 'linear-gradient(90deg, #DBEAFE, transparent)', width: 80, margin: '8px 0 10px' }} />
-                  <p style={{ fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 15, lineHeight: 1.75, color: '#6B7280' }}>
+                  <p
+                    style={{
+                      fontFamily: "'Inter', sans-serif",
+                      fontSize: 17,
+                      lineHeight: 1.65,
+                      color: '#475569',
+                      margin: 0,
+                      maxWidth: 440,
+                    }}
+                  >
                     {feature.description}
                   </p>
                 </div>
-                <div style={{ flex: '1 1 400px', minWidth: 0, maxWidth: 500, borderRadius: 4, overflow: 'hidden', border: '1px solid #E2E8F0', boxShadow: '0 2px 8px rgba(37,99,235,.05)' }}>
-                  <img src={feature.image} alt={feature.title} style={{ width: '100%', display: 'block', objectFit: 'cover' }} />
+
+                {/* Image column with depth + tilt */}
+                <div
+                  style={{
+                    flex: '1 1 460px',
+                    minWidth: 0,
+                    maxWidth: 560,
+                    perspective: '1400px',
+                  }}
+                >
+                  <div
+                    className="feature-frame"
+                    style={{
+                      position: 'relative',
+                      borderRadius: 14,
+                      overflow: 'hidden',
+                      border: '1px solid rgba(15, 37, 69, 0.10)',
+                      boxShadow: `
+                        0 1px 2px rgba(15, 37, 69, 0.04),
+                        0 6px 14px rgba(15, 37, 69, 0.08),
+                        0 22px 44px rgba(37, 99, 235, 0.16),
+                        0 48px 88px rgba(15, 23, 42, 0.20)
+                      `,
+                      background: '#ffffff',
+                      transformStyle: 'preserve-3d',
+                    }}
+                  >
+                    <img
+                      src={feature.image}
+                      alt={feature.title}
+                      style={{ width: '100%', display: 'block', objectFit: 'cover' }}
+                    />
+                  </div>
                 </div>
               </div>
             );
@@ -635,7 +971,7 @@ const Index = () => {
       <footer style={{ background: '#ffffff', borderTop: '1px solid #EEF2F8' }}>
         <div style={{ maxWidth: 1100, margin: '0 auto', padding: '64px 32px 0' }}>
           {/* Top: Logo + Link Columns */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 64, alignItems: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 64, alignItems: 'start' }}>
             {/* Logo */}
             <div>
               <img src={OfferloopLogo} alt="Offerloop" style={{ height: 160, cursor: 'pointer' }} onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} />
@@ -656,6 +992,20 @@ const Index = () => {
                 ) : (
                   <Link key={link.label} to={link.path!} style={{ display: 'block', fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 13, color: '#64748b', textDecoration: 'none', marginBottom: 12, transition: 'color .15s' }} onMouseEnter={(e) => { e.currentTarget.style.color = '#2563EB'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#64748b'; }}>{link.label}</Link>
                 )
+              ))}
+            </div>
+
+            {/* Resources (moved from header nav) */}
+            <div>
+              <p style={{ fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 13, fontWeight: 700, color: '#0f2545', marginBottom: 16 }}>Resources</p>
+              {[
+                { label: 'Networking Guides', path: '/networking/goldman-sachs' },
+                { label: 'Coffee Chat Prep', path: '/coffee-chat/bain' },
+                { label: 'Cold Email Guides', path: '/cold-email/investment-banking' },
+                { label: 'Alumni Directory', path: '/alumni/usc' },
+                { label: 'Compare Offerloop', path: '/compare/linkedin' },
+              ].map((link) => (
+                <Link key={link.label} to={link.path} style={{ display: 'block', fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 13, color: '#64748b', textDecoration: 'none', marginBottom: 12, transition: 'color .15s' }} onMouseEnter={(e) => { e.currentTarget.style.color = '#2563EB'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#64748b'; }}>{link.label}</Link>
               ))}
             </div>
 

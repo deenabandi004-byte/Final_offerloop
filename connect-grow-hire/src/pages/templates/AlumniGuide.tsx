@@ -5,6 +5,8 @@ import { ArrowRight } from 'lucide-react';
 import type { SeoUniversity } from '@/data/seo-universities';
 import BeehiivPopup from '@/components/BeehiivPopup';
 import ExitIntentPopup from '@/components/ExitIntentPopup';
+import SEOHead from '@/components/SEOHead';
+import { generateMeta } from '@/utils/generateMeta';
 
 interface Props {
   university: SeoUniversity;
@@ -40,14 +42,8 @@ const AlumniGuide = ({ university: uni }: Props) => {
 
   return (
     <div className="min-h-screen w-full" style={{ fontFamily: "'DM Sans', system-ui, sans-serif", background: '#FFFFFF' }}>
+      <SEOHead {...generateMeta('alumni', { university: uni.name })} ogType="article" />
       <Helmet>
-        <title>How to Network with {uni.name} Alumni | Offerloop</title>
-        <meta name="description" content={`A complete guide to leveraging ${uni.full_name} alumni for recruiting. Find ${uni.name} alumni at top firms, write effective outreach emails, and build relationships that lead to referrals.`} />
-        <link rel="canonical" href={`https://offerloop.ai/alumni/${uni.slug}`} />
-        <meta property="og:title" content={`How to Network with ${uni.name} Alumni | Offerloop`} />
-        <meta property="og:description" content={`${uni.name} alumni networking guide. Email templates, outreach strategy, and tips for college students.`} />
-        <meta property="og:url" content={`https://offerloop.ai/alumni/${uni.slug}`} />
-        <meta property="og:type" content="article" />
         <script type="application/ld+json">{JSON.stringify({
           "@context": "https://schema.org",
           "@type": "FAQPage",
@@ -261,7 +257,7 @@ const AlumniGuide = ({ university: uni }: Props) => {
       {/* Footer */}
       <footer className="py-10 px-6" style={{ borderTop: '1px solid #E2E8F0' }}>
         <div className="flex flex-col md:flex-row justify-between items-center gap-4" style={{ maxWidth: '1100px', margin: '0 auto' }}>
-          <p className="text-sm" style={{ color: '#94A3B8' }}>&copy; 2026 Offerloop. All rights reserved.</p>
+          <p className="text-sm" style={{ color: '#94A3B8' }}>&copy; {new Date().getFullYear()} Offerloop. All rights reserved.</p>
           <div className="flex gap-6">
             {[
               { label: 'About', path: '/about' },

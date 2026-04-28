@@ -22,6 +22,7 @@ Allow: /
 User-agent: Bytespider
 Allow: /
 
+User-agent: *
 Disallow: /app
 Disallow: /dashboard
 Disallow: /api
@@ -30,4 +31,4 @@ Disallow: /home
 Disallow: /tracker
 Disallow: /settings
 
-Sitemap: https://offerloop.ai/sitemap.xml
+Sitemap: https://www.offerloop.ai/sitemap.xml

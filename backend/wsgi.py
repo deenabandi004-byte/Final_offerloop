@@ -62,6 +62,8 @@ def create_app() -> Flask:
     PRERENDER_TOKEN = os.environ.get("PRERENDER_TOKEN")
     if not PRERENDER_TOKEN:
         app.logger.warning("PRERENDER_TOKEN not set — bot SSR via Prerender.io is disabled")
+    else:
+        app.logger.info(f"PRERENDER_TOKEN loaded: {PRERENDER_TOKEN[:6]}... ({len(PRERENDER_TOKEN)} chars)")
     BOT_AGENTS = [
         'googlebot', 'bingbot', 'yandex', 'duckduckbot', 'slurp',
         'baiduspider', 'facebookexternalhit', 'twitterbot', 'linkedinbot',
@@ -103,6 +105,9 @@ def create_app() -> Flask:
                 },
                 timeout=10
             )
+            if resp.status_code >= 500:
+                app.logger.warning(f"Prerender returned {resp.status_code} for {request.url}, falling through to SPA")
+                return None
             from flask import Response
             return Response(
                 resp.content,
@@ -230,7 +235,7 @@ def create_app() -> Flask:
     @app.route('/')
     def index():
         response = make_response(send_from_directory(app.static_folder, 'index.html'))
-        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Cache-Control'] = 'public, max-age=0, s-maxage=3600, must-revalidate'
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
         return response
@@ -260,7 +265,7 @@ def create_app() -> Flask:
         if os.path.exists(index_path):
             app.logger.info(f"404 handler serving index.html for path: {request.path}")
             response = make_response(send_from_directory(app.static_folder, 'index.html'))
-            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Cache-Control'] = 'public, max-age=0, s-maxage=3600, must-revalidate'
             response.headers['Pragma'] = 'no-cache'
             response.headers['Expires'] = '0'
             return response

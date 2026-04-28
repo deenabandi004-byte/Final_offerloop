@@ -5,6 +5,8 @@ import type { Role } from '@/data/roles';
 import BeehiivPopup from '@/components/BeehiivPopup';
 import offerloopLogo from '../../assets/offerloop_logo2.png';
 import ExitIntentPopup from '@/components/ExitIntentPopup';
+import SEOHead from '@/components/SEOHead';
+import { generateMeta } from '@/utils/generateMeta';
 
 interface Props {
   role: Role;
@@ -136,14 +138,8 @@ const RoleNetworkingGuide = ({ role }: Props) => {
 
   return (
     <div className="min-h-screen w-full" style={{ fontFamily: "'DM Sans', system-ui, sans-serif", background: '#FFFFFF' }}>
+      <SEOHead {...generateMeta('networking', { company: role.name })} ogType="article" />
       <Helmet>
-        <title>How to Network for {role.name} Internships | Student Guide | Offerloop</title>
-        <meta name="description" content={`Land a ${role.name.toLowerCase()} internship through networking. Cold email strategies, coffee chat tips, and AI outreach tools for aspiring ${role.name.toLowerCase()} candidates.`} />
-        <link rel="canonical" href={`https://offerloop.ai/networking-for/${role.slug}`} />
-        <meta property="og:title" content={`How to Network for ${role.name} Positions | Offerloop`} />
-        <meta property="og:description" content={`Networking guide for ${role.name} roles at ${role.top_employers.slice(0, 3).join(', ')}, and more.`} />
-        <meta property="og:url" content={`https://offerloop.ai/networking-for/${role.slug}`} />
-        <meta property="og:type" content="article" />
         <script type="application/ld+json">{JSON.stringify({
           "@context": "https://schema.org",
           "@type": "FAQPage",
@@ -363,7 +359,7 @@ const RoleNetworkingGuide = ({ role }: Props) => {
       {/* Footer */}
       <footer className="py-10 px-6" style={{ borderTop: '1px solid #E2E8F0' }}>
         <div className="flex flex-col md:flex-row justify-between items-center gap-4" style={{ maxWidth: '1100px', margin: '0 auto' }}>
-          <p className="text-sm" style={{ color: '#94A3B8' }}>&copy; 2026 Offerloop. All rights reserved.</p>
+          <p className="text-sm" style={{ color: '#94A3B8' }}>&copy; {new Date().getFullYear()} Offerloop. All rights reserved.</p>
           <div className="flex gap-6">
             {[
               { label: 'About', path: '/about' },
