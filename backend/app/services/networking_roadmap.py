@@ -7,7 +7,7 @@ Uses GPT-4o for generation, cached 7 days in Firestore.
 """
 import logging
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.extensions import get_db
 from app.services.openai_client import get_openai_client
@@ -315,6 +315,83 @@ def _cache_roadmap(db, uid: str, roadmap: dict):
         })
     except Exception as exc:
         logger.warning("Failed to cache roadmap for uid=%s: %s", uid, exc)
+
+
+def compute_roadmap_progress(uid: str) -> dict | None:
+    """
+    Compute progress against the cached roadmap for the current week.
+    Returns None if no roadmap exists or is expired.
+    """
+    roadmap = get_cached_roadmap(uid)
+    if not roadmap:
+        return None
+
+    weeks = roadmap.get("weeks") or []
+    if not weeks:
+        return None
+
+    generated_at = roadmap.get("generatedAt", "")
+    if not generated_at:
+        return None
+
+    try:
+        gen_dt = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+    now = datetime.now(timezone.utc)
+    days_since = (now - gen_dt).days
+    current_week_idx = min(days_since // 7, len(weeks) - 1)
+    current_week = weeks[current_week_idx]
+
+    # Count actual emails sent and replies received this week
+    db = get_db()
+    week_start = gen_dt + timedelta(days=current_week_idx * 7)
+    week_start_iso = week_start.isoformat().replace("+00:00", "Z")
+
+    emails_sent = 0
+    replies_received = 0
+    try:
+        contacts_ref = db.collection("users").document(uid).collection("contacts")
+        # Count emails generated this week
+        email_docs = list(
+            contacts_ref
+            .where("emailGeneratedAt", ">=", week_start_iso)
+            .limit(100)
+            .stream()
+        )
+        emails_sent = len(email_docs)
+
+        # Count replies received this week
+        for doc in email_docs:
+            data = doc.to_dict() or {}
+            if data.get("replyReceivedAt") and data["replyReceivedAt"] >= week_start_iso:
+                replies_received += 1
+    except Exception:
+        pass
+
+    email_target = current_week.get("emailTarget", 6)
+    # Reply target is roughly 20% of email target (realistic networking reply rate)
+    reply_target = max(1, email_target // 5)
+
+    # Determine status
+    email_pct = emails_sent / email_target if email_target else 1.0
+    if email_pct >= 1.0:
+        status = "ahead"
+    elif email_pct >= 0.5:
+        status = "on_track"
+    else:
+        status = "behind"
+
+    return {
+        "currentWeek": current_week_idx + 1,
+        "weekTheme": current_week.get("theme", ""),
+        "emailsSent": emails_sent,
+        "emailTarget": email_target,
+        "repliesReceived": replies_received,
+        "replyTarget": reply_target,
+        "status": status,
+    }
 
 
 def get_cached_roadmap(uid: str) -> dict | None:

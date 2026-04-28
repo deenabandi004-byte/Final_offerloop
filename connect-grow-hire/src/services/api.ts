@@ -2159,6 +2159,17 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
   }
 
   // ================================
+  // Briefing API
+  // ================================
+
+  async getBriefing(): Promise<any> {
+    const headers = await this.getAuthHeaders();
+    const res = await fetch(`${API_BASE_URL}/briefing`, { headers });
+    if (!res.ok) throw new Error(`Briefing fetch failed: ${res.status}`);
+    return res.json();
+  }
+
+  // ================================
   // Nudges API
   // ================================
 

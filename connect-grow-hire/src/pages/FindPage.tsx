@@ -4,7 +4,7 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
-import { Search, Building2, UserCheck } from "lucide-react";
+import { Search, Building2, UserCheck, LayoutDashboard } from "lucide-react";
 import { PageTitle } from "@/components/PageTitle";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
@@ -20,8 +20,10 @@ import { useSchoolTitle } from "@/hooks/useSchoolTitle";
 const ContactSearchPage = React.lazy(() => import("./ContactSearchPage"));
 const FirmSearchPage = React.lazy(() => import("./FirmSearchPage"));
 const RecruiterSpreadsheetPage = React.lazy(() => import("./RecruiterSpreadsheetPage"));
+const MorningBriefingLazy = React.lazy(() => import("@/components/briefing/MorningBriefing").then(m => ({ default: m.MorningBriefing })));
 
 const TABS = [
+  { id: "briefing", label: "Briefing", mobileLabel: "Briefing", icon: LayoutDashboard },
   { id: "people", label: "People", mobileLabel: "People", icon: Search },
   { id: "companies", label: "Companies", mobileLabel: "Companies", icon: Building2 },
   { id: "hiring-managers", label: "Hiring Managers", mobileLabel: "Hiring", icon: UserCheck },
@@ -30,9 +32,10 @@ const TABS = [
 type FindTab = (typeof TABS)[number]["id"];
 
 function resolveTab(raw: string | null): FindTab {
+  if (raw === "people") return "people";
   if (raw === "companies") return "companies";
   if (raw === "hiring-managers") return "hiring-managers";
-  return "people";
+  return "briefing";
 }
 
 const FindPage: React.FC = () => {
@@ -238,6 +241,9 @@ const FindPage: React.FC = () => {
                   </div>
                 }
               >
+                {activeTab === "briefing" && (
+                  <MorningBriefingLazy />
+                )}
                 <div style={{ display: activeTab === "people" ? "block" : "none" }}>
                   <ContactSearchPage embedded hideSubTabs parentEmailTemplate={activeEmailTemplate} isDevPreview={IS_DEV_PREVIEW} />
                 </div>

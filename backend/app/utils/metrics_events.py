@@ -14,6 +14,9 @@ VALID_EVENT_TYPES = {
     "email_actually_sent",
     "reply_received",
     "search_performed",
+    "briefing_viewed",
+    "reply_response_sent",
+    "coffee_chat_prep_used",
 }
 
 

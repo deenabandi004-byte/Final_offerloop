@@ -45,6 +45,7 @@ from .app.routes.queue import queue_bp
 from .app.routes.jobs import jobs_bp
 from .app.routes.extension_logs import extension_logs_bp
 from .app.routes.search_suggestions import search_suggestions_bp
+from .app.routes.briefing import briefing_bp
 from .app.extensions import init_app_extensions
 
 def create_app() -> Flask:
@@ -202,6 +203,7 @@ def create_app() -> Flask:
     app.register_blueprint(jobs_bp)
     app.register_blueprint(extension_logs_bp)
     app.register_blueprint(search_suggestions_bp)
+    app.register_blueprint(briefing_bp)
 
     # --- Debug route to check frontend build (dev only) ---
     @app.route('/api/debug/frontend')

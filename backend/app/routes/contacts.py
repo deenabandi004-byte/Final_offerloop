@@ -849,6 +849,14 @@ def send_reply_draft(contact_id):
 
         draft = service.users().drafts().create(userId="me", body=draft_body).execute()
 
+        # Log reply_response_sent metric
+        from app.utils.metrics_events import log_event
+        log_event(uid, "reply_response_sent", {
+            "contact_id": contact_id,
+            "used_auto_draft": True,
+            "edited_before_send": data.get("edited", False),
+        })
+
         return jsonify({"draftId": draft.get("id"), "status": "draft_created"})
 
     except Exception as e:

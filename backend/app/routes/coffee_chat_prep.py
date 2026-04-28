@@ -455,6 +455,13 @@ def create_coffee_chat_prep():
             )
             thread.start()
 
+            # Log coffee_chat_prep_used metric (manual trigger)
+            from app.utils.metrics_events import log_event
+            log_event(user_id, "coffee_chat_prep_used", {
+                "auto_triggered": False,
+                "contact_id": extra_context.get("contactId", ""),
+            })
+
             # Return immediately with prep_id so frontend can start polling
             prep_data['id'] = prep_id
             prep_data['prepId'] = prep_id

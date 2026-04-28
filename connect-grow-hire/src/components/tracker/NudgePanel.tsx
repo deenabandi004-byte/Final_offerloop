@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Bell, X, Send, Clock, MessageSquareReply, Loader2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { ChevronDown, ChevronRight, Bell, X, Send, Clock, MessageSquareReply, Loader2, Sparkles, Search } from "lucide-react";
 import type { Nudge, ReplyCoachDraft } from "@/services/api";
 
 export interface ReplyDraftItem {
@@ -28,6 +29,56 @@ function timeAgo(dateStr: string): string {
   return `${days}d ago`;
 }
 
+function StuckStudentCard({ nudge, onDismiss }: { nudge: Nudge; onDismiss: (id: string) => void }) {
+  const navigate = useNavigate();
+  const suggestions = (nudge as any).suggestions || [];
+
+  return (
+    <div className="bg-emerald-50/60 border border-emerald-200/60 rounded-md px-3 py-2">
+      <div className="flex items-start gap-2">
+        <Sparkles className="w-3.5 h-3.5 text-emerald-500 mt-0.5 flex-shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-gray-700 leading-relaxed">
+            {nudge.generatedMessage}
+          </p>
+        </div>
+        <button
+          onClick={() => onDismiss(nudge.id)}
+          className="flex-shrink-0 p-1 rounded hover:bg-emerald-200/40 text-gray-400 hover:text-gray-600 transition-colors"
+          title="Dismiss"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {suggestions.length > 0 && (
+        <div className="mt-2 space-y-1.5">
+          {suggestions.map((s: { title: string; company: string; reason: string }, i: number) => (
+            <button
+              key={i}
+              onClick={() => navigate(`/find?tab=people&q=${encodeURIComponent(s.title + " " + s.company)}`)}
+              className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 rounded bg-white border border-emerald-200/50 hover:border-emerald-300 transition-colors"
+            >
+              <Search className="w-3 h-3 text-emerald-500 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <span className="text-xs font-medium text-gray-800 block truncate">
+                  {s.title} at {s.company}
+                </span>
+                <span className="text-[10px] text-gray-500 block truncate">{s.reason}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center gap-1 mt-1.5 text-[10px] text-gray-400">
+        <Clock className="w-3 h-3" />
+        {timeAgo(nudge.createdAt)}
+      </div>
+    </div>
+  );
+}
+
 export function NudgePanel({
   nudges,
   replyDrafts = [],
@@ -41,7 +92,11 @@ export function NudgePanel({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedDraftId, setExpandedDraftId] = useState<string | null>(null);
 
-  const totalCount = nudges.length + replyDrafts.length;
+  // Separate stuck-student nudges from regular follow-up nudges
+  const stuckNudges = nudges.filter((n) => (n as any).type === "stuck_student");
+  const regularNudges = nudges.filter((n) => (n as any).type !== "stuck_student");
+
+  const totalCount = regularNudges.length + replyDrafts.length + stuckNudges.length;
   if (totalCount === 0) return null;
 
   return (
@@ -139,8 +194,13 @@ export function NudgePanel({
             );
           })}
 
+          {/* Stuck-student nudges */}
+          {stuckNudges.map((nudge) => (
+            <StuckStudentCard key={nudge.id} nudge={nudge} onDismiss={onDismissNudge} />
+          ))}
+
           {/* Follow-up nudges */}
-          {nudges.map((nudge) => {
+          {regularNudges.map((nudge) => {
             const isExpanded = expandedId === nudge.id;
             return (
               <div

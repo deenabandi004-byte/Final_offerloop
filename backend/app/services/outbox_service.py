@@ -827,6 +827,12 @@ def _maybe_trigger_auto_prep(uid, contact_id, contact_data):
             # Clean up pending doc on success
             db.collection("users").document(uid).collection("pending_auto_preps").document(contact_id).delete()
             logger.info(f"[auto_prep] uid={uid} contact={contact_id} prep completed")
+            # Log coffee_chat_prep_used metric
+            from app.utils.metrics_events import log_event
+            log_event(uid, "coffee_chat_prep_used", {
+                "auto_triggered": True,
+                "contact_id": contact_id,
+            })
         except Exception as exc:
             logger.error(f"[auto_prep] uid={uid} contact={contact_id} failed: {exc}")
             try:
