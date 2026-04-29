@@ -3,8 +3,10 @@ Email generation and drafting routes
 """
 import os
 import base64
+import logging
+import uuid
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -23,6 +25,80 @@ from app.utils.seniority import classify_seniority
 from app.utils.warmth_scoring import score_contacts_for_email
 from ..extensions import get_db
 from email_templates import get_template_instructions
+
+# === Phase 2 reply attribution (locked in §9.A of the eng review) ===
+# Outbound emails get a tracking ID stamped into the MIME headers AND
+# written synchronously to users/{uid}/outboundDrafts/{trackingId} so
+# the Pub/Sub handler can match replies via In-Reply-To later.
+TRACKING_HEADER = 'X-Offerloop-Tracking-Id'
+
+_emails_logger = logging.getLogger('emails')
+
+
+def _attribution_enabled() -> bool:
+    """Phase 2 reply attribution feature flag — default OFF.
+
+    The MIME header is harmless when off (Gmail just keeps it; nothing
+    reads it). The outboundDrafts write is also gated by this flag so
+    the collection doesn't fill with noise during rollout.
+    """
+    return os.getenv('REPLY_ATTRIBUTION_ENABLED', 'false').lower() == 'true'
+
+
+def _write_outbound_draft(
+    db,
+    uid: str,
+    tracking_id: str,
+    contact_id: str,
+    contact_email: str,
+    generation_metadata: dict,
+) -> None:
+    """Synchronously write an outboundDrafts/{trackingId} doc BEFORE the
+    Gmail draft is created. If the draft creation throws, we update the
+    doc with status='failed' so we can surface the gap later. The doc is
+    the source of truth for sent/reply attribution (§3.4)."""
+    if not _attribution_enabled():
+        return
+    try:
+        ref = (
+            db.collection('users')
+            .document(uid)
+            .collection('outboundDrafts')
+            .document(tracking_id)
+        )
+        ref.set({
+            'trackingId': tracking_id,
+            'contactId': contact_id or None,
+            'contactEmail': (contact_email or '').strip().lower(),
+            'status': 'drafted',
+            'sentMessageId': None,
+            'createdAt': datetime.now(timezone.utc).isoformat(),
+            'sentAt': None,
+            'replyReceivedAt': None,
+            'generationMetadata': generation_metadata or {},
+        }, merge=True)
+    except Exception as exc:  # pragma: no cover — never block email send
+        _emails_logger.warning('outboundDrafts write failed for %s: %s', tracking_id, exc)
+
+
+def _link_draft_to_outbound(db, uid: str, tracking_id: str, draft_id: str, message_id) -> None:
+    """After Gmail returns the draft ID, link the outboundDrafts doc to it
+    so we can clean up if the draft is discarded before send."""
+    if not _attribution_enabled():
+        return
+    try:
+        ref = (
+            db.collection('users')
+            .document(uid)
+            .collection('outboundDrafts')
+            .document(tracking_id)
+        )
+        update = {'draftId': draft_id}
+        if message_id:
+            update['draftMessageId'] = message_id
+        ref.update(update)
+    except Exception as exc:  # pragma: no cover
+        _emails_logger.debug('outboundDrafts link failed for %s: %s', tracking_id, exc)
 
 
 def _persist_warmth_on_send(db, uid, contact_email, warmth_info, job_title):
@@ -445,10 +521,30 @@ def generate_and_draft():
         # Add HTML signature
         html_body += signature_html
 
+        # --- Phase 2 reply attribution: stamp tracking ID into MIME ---
+        # The header is preserved through the draft → send flow by Gmail,
+        # so we can match replies via In-Reply-To later. See §3.4.
+        tracking_id = str(uuid.uuid4())
+        contact_id_for_tracking = c.get("id") or c.get("contactId") or ""
+        # Pre-write the outboundDrafts doc BEFORE Gmail creates the draft —
+        # ensures we can flag failures vs. successful drafts vs. silent drops.
+        _write_outbound_draft(
+            db,
+            uid,
+            tracking_id,
+            contact_id_for_tracking,
+            to_addr,
+            generation_metadata={
+                "templateUsed": (r.get("personalization") or {}).get("commonality_type") or "general",
+                "subject": r["subject"],
+            },
+        )
+
         # --- Build MIME message ---
         msg = MIMEMultipart("mixed")
         msg["to"] = to_addr
         msg["subject"] = r["subject"]
+        msg[TRACKING_HEADER] = tracking_id
 
         alt = MIMEMultipart("alternative")
         alt.attach(MIMEText(body, "plain", "utf-8"))
@@ -492,6 +588,34 @@ def generate_and_draft():
             print(f"📤 [{i}] Draft created: {draft}")
             draft_id = draft.get("id")
             draft_ids.append(draft_id)
+
+            # Link the outboundDrafts doc to the Gmail draft now that we
+            # have the IDs (the message-ID lookup happens below).
+            _link_draft_to_outbound(
+                db, uid, tracking_id, draft_id,
+                draft.get("message", {}).get("id"),
+            )
+
+            # Phase 2 backend event: draft_created. Idempotent on tracking_id
+            # so callers replaying this path don't double-count.
+            try:
+                from app.services.events_service import log_event
+                from app.models.events import EventType
+                log_event(
+                    uid=uid,
+                    event_type=EventType.DRAFT_CREATED,
+                    payload={
+                        "trackingId": tracking_id,
+                        "contactId": contact_id_for_tracking,
+                        "contactEmail": (to_addr or "").strip().lower(),
+                        "draftId": draft_id,
+                        "templateUsed": (r.get("personalization") or {}).get("commonality_type") or "general",
+                    },
+                    idempotency_key=f"draft_created:{tracking_id}",
+                    source="backend",
+                )
+            except Exception as ev_exc:
+                _emails_logger.debug("draft_created event log failed: %s", ev_exc)
             
             # Extract message ID and threadId from draft (Gmail creates a thread when draft is created)
             message_id = draft.get("message", {}).get("id")

@@ -43,6 +43,8 @@ from .app.routes.nudges import nudges_bp
 from .app.routes.queue import queue_bp
 from .app.routes.jobs import jobs_bp
 from .app.routes.extension_logs import extension_logs_bp
+from .app.routes.events import events_bp
+from .app.routes.gmail_pubsub import gmail_pubsub_bp
 from .app.extensions import init_app_extensions
 
 def create_app() -> Flask:
@@ -198,6 +200,9 @@ def create_app() -> Flask:
     app.register_blueprint(queue_bp)
     app.register_blueprint(jobs_bp)
     app.register_blueprint(extension_logs_bp)
+    # Phase 2 personalization data layer
+    app.register_blueprint(events_bp)
+    app.register_blueprint(gmail_pubsub_bp)
 
     # --- Debug route to check frontend build (dev only) ---
     @app.route('/api/debug/frontend')

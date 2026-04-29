@@ -148,11 +148,25 @@ def _process_gmail_notification(email_address, history_id):
                     userId="me",
                     id=msg_id,
                     format="metadata",
-                    metadataHeaders=["From", "To", "Subject"],
+                    metadataHeaders=[
+                        "From", "To", "Subject",
+                        "Message-ID", "In-Reply-To",
+                        "X-Offerloop-Tracking-Id",
+                    ],
                 ).execute()
             except Exception as e:
                 print(f"[gmail_webhook] messages.get error msg={msg_id}: {e}")
                 continue
+
+            # Phase 2 reply attribution (additive, idempotent, gated by
+            # REPLY_ATTRIBUTION_ENABLED). Runs before existing per-contact
+            # logic so the outboundDrafts doc is up to date even if the
+            # subsequent thread/email matching also picks up the message.
+            try:
+                from app.routes.gmail_pubsub import attribute_message
+                attribute_message(uid, msg_resp)
+            except Exception as attr_exc:
+                logger.warning("[gmail_webhook] attribution failed msg=%s: %s", msg_id, attr_exc)
 
             logger.info(f"[gmail_webhook] uid={uid} fetched message msg_id={msg_id} thread_id={thread_id}")
 
