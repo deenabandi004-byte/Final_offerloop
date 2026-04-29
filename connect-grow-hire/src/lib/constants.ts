@@ -48,3 +48,90 @@ export type CoffeeChatHistoryItem = {
   error?: string;
 };
 
+// =============================================================================
+// Phase 1 — Personalization Data Layer controlled vocab
+// =============================================================================
+// Mirror of `backend/app/config.py` (TARGET_INDUSTRIES / TARGET_ROLE_TYPES /
+// OPEN_TO_LOCATIONS). Keep both sides in sync — the backend will reject any
+// value that isn't here once strict-mode validation lands in Phase 3.
+
+export const TARGET_INDUSTRIES = [
+  { value: 'investment_banking', label: 'Investment Banking' },
+  { value: 'consulting', label: 'Consulting' },
+  { value: 'private_equity', label: 'Private Equity' },
+  { value: 'venture_capital', label: 'Venture Capital' },
+  { value: 'hedge_fund', label: 'Hedge Funds' },
+  { value: 'tech_swe', label: 'Tech — Software Engineering' },
+  { value: 'tech_pm', label: 'Tech — Product Management' },
+  { value: 'tech_ds', label: 'Tech — Data Science' },
+  { value: 'big_4_accounting', label: 'Big 4 Accounting' },
+  { value: 'corporate_finance', label: 'Corporate Finance' },
+  { value: 'sales_trading', label: 'Sales & Trading' },
+  { value: 'wealth_management', label: 'Wealth Management' },
+  { value: 'real_estate', label: 'Real Estate' },
+  { value: 'biotech', label: 'Biotech' },
+  { value: 'healthcare', label: 'Healthcare' },
+  { value: 'media_entertainment', label: 'Media & Entertainment' },
+  { value: 'product_design', label: 'Product Design' },
+  { value: 'marketing', label: 'Marketing' },
+  { value: 'startups', label: 'Startups' },
+] as const;
+
+export const TARGET_ROLE_TYPES = [
+  { value: 'analyst', label: 'Analyst' },
+  { value: 'associate', label: 'Associate' },
+  { value: 'consultant', label: 'Consultant' },
+  { value: 'pm', label: 'Product Manager' },
+  { value: 'apm', label: 'Associate PM' },
+  { value: 'swe', label: 'Software Engineer' },
+  { value: 'data_scientist', label: 'Data Scientist' },
+  { value: 'data_analyst', label: 'Data Analyst' },
+  { value: 'researcher', label: 'Researcher' },
+  { value: 'designer', label: 'Designer' },
+  { value: 'trader', label: 'Trader' },
+  { value: 'rotational', label: 'Rotational Program' },
+  { value: 'internship', label: 'Internship' },
+  { value: 'full_time', label: 'Full-time' },
+] as const;
+
+export const OPEN_TO_LOCATIONS = [
+  { value: 'new-york', label: 'New York' },
+  { value: 'sf', label: 'San Francisco' },
+  { value: 'la', label: 'Los Angeles' },
+  { value: 'chicago', label: 'Chicago' },
+  { value: 'boston', label: 'Boston' },
+  { value: 'dc', label: 'Washington DC' },
+  { value: 'seattle', label: 'Seattle' },
+  { value: 'atlanta', label: 'Atlanta' },
+  { value: 'austin', label: 'Austin' },
+  { value: 'miami', label: 'Miami' },
+  { value: 'philadelphia', label: 'Philadelphia' },
+  { value: 'dallas', label: 'Dallas' },
+  { value: 'houston', label: 'Houston' },
+  { value: 'denver', label: 'Denver' },
+  { value: 'remote', label: 'Remote' },
+] as const;
+
+export type TargetIndustryValue = (typeof TARGET_INDUSTRIES)[number]['value'];
+export type TargetRoleTypeValue = (typeof TARGET_ROLE_TYPES)[number]['value'];
+export type OpenToLocationValue = (typeof OPEN_TO_LOCATIONS)[number]['value'];
+
+export const TONE_PREFERENCES = [
+  { value: 'formal', label: 'Formal' },
+  { value: 'casual', label: 'Casual' },
+  { value: 'warm', label: 'Warm' },
+] as const;
+
+export const LENGTH_PREFERENCES = [
+  { value: 'short', label: 'Short' },
+  { value: 'medium', label: 'Medium' },
+] as const;
+
+// =============================================================================
+// Phase 2 — Event logging feature flag
+// =============================================================================
+// `useEventLogger` reads this at runtime. Set via Vite env var so we can
+// flip rollout without a rebuild. Defaults to OFF in production.
+export const EVENTS_LOGGING_ENABLED =
+  (import.meta.env.VITE_EVENTS_LOGGING_ENABLED ?? 'false').toLowerCase() === 'true';
+

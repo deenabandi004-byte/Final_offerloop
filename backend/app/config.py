@@ -250,6 +250,75 @@ PDL_METRO_AREAS = {
 }
 
 # ========================================
+# Personalization Data Layer — controlled vocabularies
+# ========================================
+# These lists are the source of truth for the structured fields written to
+# users/{uid} during Phase 1 onboarding/backfill. The frontend mirror lives
+# in connect-grow-hire/src/lib/constants.ts — keep them in sync. Adding a
+# value here without updating the TS side will silently fail validation
+# on the next user write from the frontend.
+
+TARGET_INDUSTRIES = [
+    'investment_banking',
+    'consulting',
+    'private_equity',
+    'venture_capital',
+    'hedge_fund',
+    'tech_swe',
+    'tech_pm',
+    'tech_ds',
+    'big_4_accounting',
+    'corporate_finance',
+    'sales_trading',
+    'wealth_management',
+    'real_estate',
+    'biotech',
+    'healthcare',
+    'media_entertainment',
+    'product_design',
+    'marketing',
+    'startups',
+]
+
+TARGET_ROLE_TYPES = [
+    'analyst',
+    'associate',
+    'consultant',
+    'pm',
+    'apm',
+    'swe',
+    'data_scientist',
+    'data_analyst',
+    'researcher',
+    'designer',
+    'trader',
+    'rotational',
+    'internship',
+    'full_time',
+]
+
+# Slug values mirror the frontend `OPEN_TO_LOCATIONS` constant. Display
+# names are looked up at the UI layer.
+OPEN_TO_LOCATIONS = [
+    'new-york',
+    'sf',
+    'la',
+    'chicago',
+    'boston',
+    'dc',
+    'seattle',
+    'atlanta',
+    'austin',
+    'miami',
+    'philadelphia',
+    'dallas',
+    'houston',
+    'denver',
+    'remote',
+]
+
+
+# ========================================
 # Validation
 # ========================================
 if not PEOPLE_DATA_LABS_API_KEY:
