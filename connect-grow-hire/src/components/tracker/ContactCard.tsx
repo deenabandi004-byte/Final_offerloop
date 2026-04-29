@@ -1,5 +1,8 @@
 import type { OutboxThread } from "@/services/api";
+import type { AlumniCountData } from "@/types/user";
 import { formatTimeAgo, daysBetween } from "@/lib/formatters";
+import { AlumniCountBadge } from "@/components/AlumniCountBadge";
+import { useEventLogger } from "@/hooks/useEventLogger";
 
 // --- helpers ---
 
@@ -118,17 +121,41 @@ interface ContactCardProps {
   bucket: BucketType;
   isSelected: boolean;
   onClick: () => void;
+  /** Phase 1: alumni count cache lookup. When provided, renders a brand-blue badge
+   *  in the top-right of the card. Clicking the badge invokes onAlumniBadgeClick
+   *  (typically navigates to /find filtered by school × company). */
+  alumniCount?: AlumniCountData | null;
+  onAlumniBadgeClick?: () => void;
 }
 
-export function ContactCard({ contact, bucket, isSelected, onClick }: ContactCardProps) {
+export function ContactCard({
+  contact,
+  bucket,
+  isSelected,
+  onClick,
+  alumniCount,
+  onAlumniBadgeClick,
+}: ContactCardProps) {
   const name = contact.name || contact.email || "Unknown";
   const subtitle = [contact.title, contact.company].filter(Boolean).join(" at ");
   const chip = actionChip(contact, bucket);
   const isReplied = contact.hasUnreadReply || contact.pipelineStage === "replied";
+  const { logEvent } = useEventLogger();
+
+  const handleCardClick = () => {
+    if (contact.contactId || (contact as { id?: string }).id) {
+      logEvent("contact_card_viewed", {
+        contactId: contact.contactId || (contact as { id?: string }).id || "",
+        surface: "tracker",
+        alumniCount: alumniCount?.count ?? undefined,
+      });
+    }
+    onClick();
+  };
 
   return (
     <button
-      onClick={onClick}
+      onClick={handleCardClick}
       className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-[3px] transition-all border-l-[3px] ${stageBorderColor(contact, isSelected)}`}
     >
       {/* avatar */}
@@ -164,6 +191,16 @@ export function ContactCard({ contact, bucket, isSelected, onClick }: ContactCar
           </span>
         )}
       </div>
+
+      {/* alumni count badge (Phase 1) — positioned next to the action chip
+          so it doesn't fight the avatar/name on narrow widths. */}
+      {alumniCount && alumniCount.count != null && alumniCount.count > 0 && (
+        <AlumniCountBadge
+          data={alumniCount}
+          onClick={onAlumniBadgeClick}
+          compact
+        />
+      )}
 
       {/* chip */}
       {chip && (

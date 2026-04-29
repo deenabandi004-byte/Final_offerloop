@@ -1,6 +1,7 @@
 """
 User management routes
 """
+from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
 from app.extensions import require_firebase_auth, get_db
 from app.routes.job_board import (
@@ -9,6 +10,12 @@ from app.routes.job_board import (
     _clear_user_profile_cache,
     _get_cached_user_profile,
 )
+from app.models.users import (
+    PHASE_1_PROMOTED_FIELDS,
+    normalize_company,
+    normalize_school,
+)
+from app.services.alumni_service import get_alumni_count
 from firebase_admin import firestore
 import json
 
@@ -274,4 +281,121 @@ def update_user_preferences():
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+
+# =============================================================================
+# Phase 1 — Personalization Data Layer endpoints
+# =============================================================================
+# - GET /api/users/alumni-count — read-cache lookup for the contact-card badge
+# - GET /api/users/profile-confirm — pull what backfill extracted so the modal
+#       can show extracted vs. user-confirmed values
+# - POST /api/users/profile-confirm — write user-confirmed fields with
+#       source='explicit' so future generations stop using inferred values
+
+# Whitelist of Phase 1 promoted fields the user is allowed to confirm/edit
+# via the profile-confirm modal. Stays in sync with PHASE_1_PROMOTED_FIELDS
+# in models/users.py.
+PROFILE_CONFIRM_WRITABLE_FIELDS = {
+    "school", "schoolNormalized", "major",
+    "graduationYear", "graduationStatus", "gpa",
+    "currentRole", "currentCompany", "currentCompanyNormalized",
+    "targetIndustries", "targetCompanies", "targetRoleTypes",
+    "interestTags", "tonePreference", "lengthPreference",
+    "location", "openToLocations",
+}
+
+
+@users_bp.route('/alumni-count', methods=['GET'])
+@require_firebase_auth
+def alumni_count():
+    """Return the cached alumni count for (school, company[, office]).
+
+    Phase 1 callers: ContactCard top-right badge. Returns 200 + {count, ...}
+    on cache hit, 200 + {count: null, miss: true} on miss. We never trigger
+    a fresh PDL fetch from this endpoint — the Phase 6 sourcing pipeline
+    populates the cache.
+    """
+    school = request.args.get('school', '').strip()
+    company = request.args.get('company', '').strip()
+    office = (request.args.get('office') or '').strip() or None
+
+    if not school or not company:
+        return jsonify({'error': 'school and company are required'}), 400
+
+    data = get_alumni_count(school, company, office)
+    if not data:
+        return jsonify({
+            'count': None,
+            'miss': True,
+            'schoolId': normalize_school(school),
+            'companyId': normalize_company(company),
+        }), 200
+
+    return jsonify(data.to_dict()), 200
+
+
+@users_bp.route('/profile-confirm', methods=['GET', 'POST'])
+@require_firebase_auth
+def profile_confirm():
+    """Profile-confirm modal back-end.
+
+    GET: returns the current user's structured fields plus the
+        `_backfillProvenance` blob so the modal can render extracted values
+        side-by-side with edit fields.
+    POST: writes user-confirmed values. Each field that the user touches
+        is recorded under `_backfillProvenance.{field} = 'explicit'` so the
+        generator knows it can trust them. Sets `profileConfirmedAt`.
+    """
+    uid = request.firebase_user['uid']
+    db = get_db()
+    user_ref = db.collection('users').document(uid)
+
+    if request.method == 'GET':
+        snap = user_ref.get()
+        if not snap.exists:
+            return jsonify({'error': 'user not found'}), 404
+        data = snap.to_dict() or {}
+        out = {field: data.get(field) for field in PHASE_1_PROMOTED_FIELDS}
+        out['_backfillProvenance'] = data.get('_backfillProvenance')
+        out['profileConfirmedAt'] = data.get('profileConfirmedAt')
+        return jsonify(out), 200
+
+    body = request.get_json(silent=True) or {}
+    updates = {}
+    provenance_updates = {}
+
+    for key, value in body.items():
+        if key not in PROFILE_CONFIRM_WRITABLE_FIELDS:
+            continue
+        # Defensive normalization for the slug fields — the frontend
+        # mostly sends display names; we recompute the slug server-side.
+        updates[key] = value
+        provenance_updates[key] = 'explicit'
+
+    # Recompute normalized slugs on every confirm so the user can't end
+    # up with display + slug mismatches.
+    if 'school' in updates:
+        updates['schoolNormalized'] = normalize_school(updates['school'])
+    if 'currentCompany' in updates:
+        updates['currentCompanyNormalized'] = normalize_company(updates['currentCompany'])
+
+    if not updates:
+        return jsonify({'error': 'no writable fields in body'}), 400
+
+    now = datetime.now(timezone.utc).isoformat()
+    updates['profileConfirmedAt'] = now
+    updates['updatedAt'] = now
+    # Merge provenance into the existing blob.
+    snap = user_ref.get()
+    existing_provenance = (snap.to_dict() or {}).get('_backfillProvenance') or {}
+    if not isinstance(existing_provenance, dict):
+        existing_provenance = {}
+    existing_provenance.update(provenance_updates)
+    existing_provenance['confirmedAt'] = now
+    updates['_backfillProvenance'] = existing_provenance
+
+    user_ref.set(updates, merge=True)
+    _clear_user_profile_cache(uid)
+
+    return jsonify({'success': True, 'fieldsWritten': list(provenance_updates.keys())}), 200
 
