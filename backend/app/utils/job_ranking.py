@@ -348,7 +348,7 @@ GPT_RANK_COUNT = 20  # Send only top N to GPT; rest get deterministic scores
 
 
 def rank_with_gpt(jobs: list[dict], profile: dict) -> list[dict]:
-    from backend.app.services.openai_client import client
+    from app.services.openai_client import client
     from openai import RateLimitError
     import json
     import re

@@ -3,7 +3,7 @@ Extension telemetry — receives scraper health logs from the Chrome extension.
 Logs are stored in-memory for the current process and periodically summarized.
 """
 from flask import Blueprint, jsonify, request
-from backend.app.extensions import require_firebase_auth
+from app.extensions import require_firebase_auth
 import logging
 from collections import defaultdict
 from datetime import datetime, timezone

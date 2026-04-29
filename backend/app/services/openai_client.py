@@ -3,7 +3,7 @@ OpenAI and Anthropic client service - email generation and AI operations
 """
 from openai import OpenAI, AsyncOpenAI
 import httpx
-from backend.app.config import OPENAI_API_KEY, CLAUDE_API_KEY
+from app.config import OPENAI_API_KEY, CLAUDE_API_KEY
 
 try:
     import anthropic

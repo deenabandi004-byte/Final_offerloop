@@ -931,8 +931,11 @@ def parse_resume_v2(resume_text: str) -> dict:
     except Exception as e:
         logger.error(f"[ResumeParserV2] Parse failed: {type(e).__name__}: {e}")
         logger.info("[ResumeParserV2] Falling back to legacy parser")
-        from app.utils.users import parse_resume_info_legacy
-        return parse_resume_info_legacy(resume_text)
+        # Note: previous versions of this fallback referenced a
+        # `parse_resume_info_legacy` function that never existed in
+        # app/utils/users.py — the real function is `parse_resume_info`.
+        from app.utils.users import parse_resume_info
+        return parse_resume_info(resume_text)
 
 
 async def _parse_resume_async(resume_text: str) -> dict:

@@ -2,8 +2,8 @@
 Jobs API routes — feed, feedback, and filters.
 """
 from flask import Blueprint, jsonify, request
-from backend.app.extensions import require_firebase_auth, get_db
-from backend.app.utils.job_ranking import (
+from app.extensions import require_firebase_auth, get_db
+from app.utils.job_ranking import (
     prefilter_candidates,
     rank_with_gpt,
     apply_feedback_adjustments,
@@ -297,7 +297,7 @@ def _get_posted_at_ts(job: dict) -> datetime:
 def _background_rerank(uid: str):
     """Re-rank jobs in background thread and update cache."""
     try:
-        from backend.app.extensions import get_db
+        from app.extensions import get_db
         db = get_db()
         now = datetime.now(timezone.utc)
 
