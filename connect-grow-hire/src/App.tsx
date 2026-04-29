@@ -14,6 +14,7 @@ import { DynamicGradientBackground } from "./components/background/DynamicGradie
 import { LoadingSkeleton } from "./components/LoadingSkeleton";
 import { ScoutSidePanel } from "./components/ScoutSidePanel";
 import { LoadingContainer } from "./components/ui/LoadingBar";
+import { useEventLogger } from "./hooks/useEventLogger";
 
 // Keep critical pages non-lazy for faster initial load
 import Index from "./pages/Index";
@@ -344,6 +345,17 @@ const ConditionalBackground: React.FC<{ children: React.ReactNode }> = ({ childr
 };
 
 /* ---------------- Keyboard Shortcut Handler ---------------- */
+/**
+ * Phase 2 event logger host. Mounted once at the app shell so the flush
+ * interval, sendBeacon listeners, and localStorage retry queue are
+ * always active. Individual components import `useEventLogger` to call
+ * `logEvent` — this host just keeps the lifecycle alive.
+ */
+const EventLoggerHost: React.FC = () => {
+  useEventLogger();
+  return null;
+};
+
 const KeyboardShortcutHandler: React.FC = () => {
   const { openPanel, isPanelOpen, togglePanel } = useScout();
 
@@ -388,6 +400,7 @@ const App: React.FC = () => {
                 <Sonner />
                 <ScoutProvider>
                   <TourProvider>
+                    <EventLoggerHost />
                     <KeyboardShortcutHandler />
                     <AppRoutes />
                     <ScoutSidePanel />
