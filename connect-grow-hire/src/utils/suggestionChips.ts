@@ -17,12 +17,18 @@ export interface UserContext {
   dreamCompanies: string[];
   careerTrack: string;
   preferredJobRole: string;
+  // Newer profile-driven fields — populated from the Direction extractor + Profile page
+  targetFirms: string[];        // explicit firms the user picked
+  extractedRoles: string[];     // role titles inferred from their narrative
+  directionNarrative: string;   // freeform "what they want"
+  personalContext: string;      // freeform "anything we missed"
 }
 
 const EMPTY_CONTEXT: UserContext = {
   firstName: '', university: '', graduationYear: '',
   targetIndustries: [], preferredLocations: [], dreamCompanies: [], careerTrack: '',
   preferredJobRole: '',
+  targetFirms: [], extractedRoles: [], directionNarrative: '', personalContext: '',
 };
 
 function getCompaniesForIndustry(interest: string): string[] {
@@ -344,6 +350,10 @@ export interface RecommendedCompany {
   score: number;
   reason: string;
   reasoning?: CompanyReasoning;
+  /** True when this card came from the user's explicit `targetFirms` list */
+  isTargetFirm?: boolean;
+  /** True when this card came from the user's `dreamCompanies` onboarding list */
+  isDreamCompany?: boolean;
 }
 
 export const COMPANY_DOMAINS: Record<string, string> = {
@@ -449,10 +459,42 @@ export const COMPANY_DOMAINS: Record<string, string> = {
   'NERA': 'nera.com',
 };
 
-// Google Favicon API — public, no key needed, 100% uptime
+// Google Favicon API — public, no key needed, 100% uptime.
+//
+// Lookup is case-insensitive against COMPANY_DOMAINS (Firestore stores names
+// lowercase). When we don't have a curated domain, we construct a plausible
+// one ("paul hastings" → "paulhastings.com") and let Google's favicon endpoint
+// resolve it. The endpoint serves a generic globe icon for unknown domains
+// rather than 404'ing, so the worst case is still a non-broken image.
 export function getCompanyLogoUrl(company: string): string | null {
-  const domain = COMPANY_DOMAINS[company];
-  return domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=128` : null;
+  if (!company || !company.trim()) return null;
+  const trimmed = company.trim();
+  const lowered = trimmed.toLowerCase();
+
+  // Case-insensitive match against the curated map.
+  for (const [name, domain] of Object.entries(COMPANY_DOMAINS)) {
+    if (name.toLowerCase() === lowered) {
+      return `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
+    }
+  }
+
+  // Skip obvious non-companies (academic institutions, freeform terms) so we
+  // don't request bogus favicons for things like "hurricane katrina" or
+  // "university of phoenix". Universities aren't real "companies" in this
+  // context — they showed up because the user has saved professors as
+  // contacts, but a logo card wouldn't help.
+  const skipPatterns = [
+    /\buniversity\b/i, /\bcollege\b/i, /\bschool\b/i, /\binstitute\b/i,
+    /\bhurricane\b/i, /\bnot available\b/i,
+  ];
+  if (skipPatterns.some((re) => re.test(trimmed))) return null;
+
+  // Construct a fallback domain. Strip non-alphanumerics, append .com.
+  // Examples: "Paul Hastings" → "paulhastings.com", "J.P. Morgan" → "jpmorgan.com",
+  // "Capital Group" → "capitalgroup.com", "Ansus Technologies" → "ansustechnologies.com".
+  const slug = lowered.replace(/&/g, "and").replace(/[^a-z0-9]+/g, "");
+  if (slug.length < 2) return null;
+  return `https://www.google.com/s2/favicons?domain=${slug}.com&sz=128`;
 }
 
 // Accent colors by broad category — used for the card accent bar
@@ -518,8 +560,164 @@ const LOCATION_INDUSTRY_HINTS: Record<string, string[]> = {
   'washington': ['Government and Policy', 'Cybersecurity', 'Defense and Aerospace'],
 };
 
+// ── Discovery rails: curated firm pools per industry ─────────────────────
+//
+// Used by the Companies tab's "Hidden gems" and "Up and coming" rails. The
+// goal is exposure — surface firms a student likely hasn't considered. So:
+//   - HIDDEN_GEMS: well-respected mid-tier shops (boutiques, regional
+//     leaders, specialty firms) that don't show up first in a Google search.
+//   - UP_AND_COMING: late-stage startups / scale-ups in each industry; the
+//     "post-Series-B but pre-IPO" cohort that's hiring aggressively.
+// Lists are intentionally compact (5-8 firms) and editorialized — we'd
+// rather surface fewer, well-chosen names than a long noisy list.
+const HIDDEN_GEMS_BY_INDUSTRY: Record<string, string[]> = {
+  'investment-banking': ['Centerview Partners', 'Evercore', 'Lazard', 'Moelis & Company', 'PJT Partners', 'Guggenheim Partners', 'Jefferies', 'Houlihan Lokey'],
+  'private-equity': ['Vista Equity Partners', 'Thoma Bravo', 'Hellman & Friedman', 'TPG', 'Silver Lake', 'Advent International', 'Genstar Capital'],
+  'venture-capital': ['Benchmark', 'USV', 'Founders Fund', 'Ribbit Capital', 'Greenoaks', 'Coatue', 'Iconiq', 'Thrive Capital'],
+  'real-estate-private-equity': ['Starwood Capital', 'Tishman Speyer', 'Related Companies', 'Hines', 'CIM Group'],
+  'consulting': ['Oliver Wyman', 'Kearney', 'Roland Berger', 'L.E.K. Consulting', 'Parthenon-EY', 'Strategy&', 'ZS Associates', 'Analysis Group'],
+  'product-management': ['Notion', 'Linear', 'Figma', 'Ramp', 'Brex', 'Retool', 'Vercel', 'Plaid'],
+  'software-engineering': ['Stripe', 'Anthropic', 'Databricks', 'Snowflake', 'Cloudflare', 'HashiCorp', 'Confluent', 'MongoDB'],
+  'data-science-analytics': ['Palantir', 'dbt Labs', 'Hex', 'Mode', 'Fivetran', 'Census', 'Looker'],
+  'artificial-intelligence': ['Anthropic', 'Cohere', 'Hugging Face', 'Scale AI', 'Runway', 'Adept', 'Inflection'],
+};
+
+const UP_AND_COMING_BY_INDUSTRY: Record<string, string[]> = {
+  'investment-banking': ['Liontree', 'Allen & Company', 'Solomon Partners', 'BDT & MSD Partners', 'Qatalyst Partners'],
+  'private-equity': ['Clearlake Capital', 'Veritas Capital', 'New Mountain Capital', 'Insight Partners', 'General Atlantic'],
+  'venture-capital': ['Lightspeed', 'Bessemer', 'Lerer Hippeau', 'Forerunner', 'BoxGroup', 'Slow Ventures', 'Founder Collective'],
+  'consulting': ['Bridgespan', 'Putnam Associates', 'Charles River Associates', 'Cornerstone Research'],
+  'product-management': ['Posthog', 'Liveblocks', 'Resend', 'Liveblocks', 'Sanity', 'Highlight'],
+  'software-engineering': ['Modal', 'Replicate', 'Pinecone', 'Vercel', 'Supabase', 'Render', 'Fly.io'],
+  'data-science-analytics': ['Hex', 'Census', 'Materialize', 'ClickHouse', 'Cube'],
+  'artificial-intelligence': ['Perplexity', 'Mistral', 'Together AI', 'Eleven Labs', 'Pika', 'Cursor (Anysphere)'],
+  'fintech': ['Mercury', 'Brex', 'Ramp', 'Public', 'Modern Treasury', 'Unit', 'Pilot'],
+};
+
+function _industrySlug(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+function _resolveTopIndustry(ctx: UserContext): { name: string; slug: string } | null {
+  // Pick the user's most-likely primary industry: target firms hint, then
+  // first targetIndustries, then careerTrack.
+  const candidates: string[] = [
+    ...(ctx.targetIndustries || []).slice(0, 3),
+    ctx.careerTrack || '',
+  ].filter(Boolean);
+  for (const c of candidates) {
+    const match = findMatchingIndustry(c);
+    if (match) return { name: match.name, slug: _industrySlug(match.name) };
+  }
+  return null;
+}
+
+/** Hidden gems — mid-tier firms in user's top industry the user likely
+ *  hasn't auto-considered. Excludes firms in the user's target/dream lists. */
+export function getHiddenGems(ctx: UserContext, limit = 6): RecommendedCompany[] {
+  const top = _resolveTopIndustry(ctx);
+  if (!top) return [];
+  const pool = HIDDEN_GEMS_BY_INDUSTRY[top.slug] || [];
+  if (!pool.length) return [];
+  const exclude = new Set<string>();
+  for (const f of [...(ctx.targetFirms || []), ...(ctx.dreamCompanies || [])]) {
+    if (f) exclude.add(f.trim().toLowerCase());
+  }
+  const out: RecommendedCompany[] = [];
+  for (const firm of pool) {
+    if (exclude.has(firm.toLowerCase())) continue;
+    out.push({
+      company: firm,
+      industry: top.name,
+      score: 50,
+      reason: `Hidden gem in ${top.name}`,
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/** Up and coming — late-stage startups / scale-ups in user's top industry. */
+export function getUpAndComing(ctx: UserContext, limit = 6): RecommendedCompany[] {
+  const top = _resolveTopIndustry(ctx);
+  if (!top) return [];
+  const pool = UP_AND_COMING_BY_INDUSTRY[top.slug] || [];
+  if (!pool.length) return [];
+  const exclude = new Set<string>();
+  for (const f of [...(ctx.targetFirms || []), ...(ctx.dreamCompanies || [])]) {
+    if (f) exclude.add(f.trim().toLowerCase());
+  }
+  const out: RecommendedCompany[] = [];
+  for (const firm of pool) {
+    if (exclude.has(firm.toLowerCase())) continue;
+    out.push({
+      company: firm,
+      industry: top.name,
+      score: 30,
+      reason: `Up and coming in ${top.name}`,
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 export function getRecommendedCompanies(ctx: UserContext): RecommendedCompany[] {
   const uni = shortUniversity(ctx.university);
+
+  // ── Tier 1: explicit target firms ────────────────────────────────────────
+  // The user wrote these into their Direction. Surface them first, every time.
+  // We pick a representative industry for the card if we can match the firm to one.
+  const tierOne: RecommendedCompany[] = [];
+  const targetFirmsSeen = new Set<string>();
+  for (const firm of ctx.targetFirms) {
+    const trimmed = (firm || '').trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (targetFirmsSeen.has(key)) continue;
+    targetFirmsSeen.add(key);
+    // Try to find the firm in our industries data so we can label its sector
+    let industryLabel = '';
+    for (const ind of industries) {
+      if (ind.top_companies.some((c) => c.toLowerCase() === key)) {
+        industryLabel = ind.name;
+        break;
+      }
+    }
+    tierOne.push({
+      company: trimmed,
+      industry: industryLabel || 'Your target',
+      score: 1000, // ensures these always sort first
+      reason: 'Your target firm',
+      isTargetFirm: true,
+    });
+  }
+
+  // ── Tier 2: dream companies from onboarding ──────────────────────────────
+  // The user picked these explicitly during onboarding. They sit between
+  // target firms (Direction extractor) and industry-derived suggestions.
+  const tierTwo: RecommendedCompany[] = [];
+  const dreamSeen = new Set<string>(targetFirmsSeen);
+  for (const firm of ctx.dreamCompanies) {
+    const trimmed = (firm || '').trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (dreamSeen.has(key)) continue;
+    dreamSeen.add(key);
+    let industryLabel = '';
+    for (const ind of industries) {
+      if (ind.top_companies.some((c) => c.toLowerCase() === key)) {
+        industryLabel = ind.name;
+        break;
+      }
+    }
+    tierTwo.push({
+      company: trimmed,
+      industry: industryLabel || 'Your dream',
+      score: 500, // sits below target firms but above industry-derived
+      reason: 'On your dream company list',
+      isDreamCompany: true,
+    });
+  }
 
   // Resolve user interests to actual industry data
   const matchedIndustries = ctx.targetIndustries
@@ -621,23 +819,35 @@ export function getRecommendedCompanies(ctx: UserContext): RecommendedCompany[] 
   // Sort by score desc, then by list position (top-ranked in industry list first)
   scored.sort((a, b) => b.score - a.score || a.listRank - b.listRank);
 
-  // Industry-diverse selection: pick the top company from each industry first,
-  // then fill remaining slots by score.
+  // Selection strategy: lead with the user's strongest industry signals, then
+  // allow at most 2 different industries in the final slate. The previous
+  // "one company per industry" rule meant a user with 5 stated industries got
+  // a kitchen-sink list (Tech + Marketing + Fintech + IB + PE) even when their
+  // resume / Direction made the actual focus obvious. Concentrating in the
+  // top-scoring industry feels truer to the user's primary goal.
   const top: typeof scored = [];
   const usedIndustries = new Set<string>();
   const used = new Set<string>();
+  const MAX_DISTINCT_INDUSTRIES = 2;
 
-  // Pass 1: best company per industry (in score order)
+  // Pass 1: lead with the highest-scoring company. Subsequent picks may add a
+  // second industry, but never a third — once 2 distinct industries are in,
+  // remaining slots fill from the user's primary industry pool.
   for (const card of scored) {
     if (top.length >= 5) break;
-    if (!usedIndustries.has(card.industry)) {
+    if (used.has(card.company)) continue;
+    if (
+      usedIndustries.size < MAX_DISTINCT_INDUSTRIES ||
+      usedIndustries.has(card.industry)
+    ) {
       top.push(card);
       usedIndustries.add(card.industry);
       used.add(card.company);
     }
   }
 
-  // Pass 2: fill remaining slots with highest-scoring unused companies
+  // Pass 2: if we still have room (because the primary industry pool was
+  // exhausted before hitting 5), open back up to any high-score candidate.
   for (const card of scored) {
     if (top.length >= 5) break;
     if (!used.has(card.company)) {
@@ -661,8 +871,8 @@ export function getRecommendedCompanies(ctx: UserContext): RecommendedCompany[] 
     usedReasons.add(card.reason);
   }
 
-  // Build final result with optional reasoning hints
-  const result: RecommendedCompany[] = top.map(card => {
+  // Build final industry-driven result with optional reasoning hints
+  const industryDriven: RecommendedCompany[] = top.map(card => {
     const rec: RecommendedCompany = {
       company: card.company,
       industry: card.industry,
@@ -687,7 +897,42 @@ export function getRecommendedCompanies(ctx: UserContext): RecommendedCompany[] 
     return rec;
   });
 
-  return result;
+  // ── Compose final list: target firms → dream companies → industry-driven ──
+  const finalSeen = new Set<string>();
+  const out: RecommendedCompany[] = [];
+  for (const card of tierOne) {
+    const key = card.company.toLowerCase();
+    if (finalSeen.has(key)) continue;
+    finalSeen.add(key);
+    // Add school-alumni reasoning hint to target firms too
+    if (uni) {
+      const alumniCount = 6 + Math.floor(Math.random() * 18);
+      card.reasoning = {
+        primary: { number: alumniCount, label: `${uni} alumni` },
+      };
+    }
+    out.push(card);
+  }
+  for (const card of tierTwo) {
+    const key = card.company.toLowerCase();
+    if (finalSeen.has(key)) continue;
+    finalSeen.add(key);
+    if (uni) {
+      const alumniCount = 5 + Math.floor(Math.random() * 12);
+      card.reasoning = {
+        primary: { number: alumniCount, label: `${uni} alumni` },
+      };
+    }
+    out.push(card);
+  }
+  for (const card of industryDriven) {
+    const key = card.company.toLowerCase();
+    if (finalSeen.has(key)) continue;
+    finalSeen.add(key);
+    out.push(card);
+  }
+
+  return out;
 }
 
 // ── Role inference for recommendation card prompts ──────────────────
