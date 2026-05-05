@@ -140,13 +140,15 @@ export function ScoutSidePanel() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useFirebaseAuth();
-  const { 
-    isPanelOpen, 
-    closePanel, 
-    searchHelpContext, 
-    searchHelpResponse, 
+  const {
+    isPanelOpen,
+    closePanel,
+    searchHelpContext,
+    searchHelpResponse,
     setSearchHelpResponse,
-    clearSearchHelp 
+    clearSearchHelp,
+    pendingMessage,
+    clearPendingMessage,
   } = useScout();
   const panelRef = useRef<HTMLDivElement>(null);
   const [isLoadingSearchHelp, setIsLoadingSearchHelp] = useState(false);
@@ -295,6 +297,21 @@ export function ScoutSidePanel() {
       return () => clearTimeout(timer);
     }
   }, [isPanelOpen, inputRef, searchHelpContext]);
+
+  // Auto-send a pending message (e.g. from briefing's "Ask Scout" chips).
+  // Fires once when the panel opens with a pending message; cleared
+  // immediately so subsequent panel opens don't replay the same prompt.
+  useEffect(() => {
+    if (!isPanelOpen || !pendingMessage) return;
+    const msg = pendingMessage;
+    clearPendingMessage();
+    // Defer to next tick so the chat hook is fully wired before send.
+    const t = setTimeout(() => {
+      sendMessage(msg);
+    }, 50);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPanelOpen, pendingMessage]);
   
   // Handle keyboard
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -441,32 +458,85 @@ export function ScoutSidePanel() {
                         </p>
                       </div>
                       
-                      {/* Suggestions list */}
-                      {searchHelpResponse.suggestions.length > 0 && (
+                      {/* Refined-prompt cards — preferred render path. Each card
+                          is a one-click "try this instead" that fills the search
+                          bar and auto-submits. Falls through to the legacy
+                          suggestions list only when refined_prompts is absent. */}
+                      {searchHelpResponse.refined_prompts && searchHelpResponse.refined_prompts.length > 0 ? (
                         <div className="mt-3 space-y-2">
-                          {searchHelpResponse.suggestions.map((suggestion, idx) => (
-                            <div 
+                          {searchHelpResponse.refined_prompts.map((rp, idx) => (
+                            <button
                               key={idx}
-                              className="flex items-center gap-2 px-3 py-2 bg-[#FAFBFF] rounded-xl border border-[#EEF2F8]"
+                              type="button"
+                              onClick={() => {
+                                // Hand the refined prompt off to ContactSearchPage
+                                // via the same auto-populate channel used by the
+                                // legacy Continue button. The page listens to
+                                // 'scout-auto-populate' and reads sessionStorage.
+                                try {
+                                  sessionStorage.setItem(AUTO_POPULATE_KEY, JSON.stringify({
+                                    search_type: 'contact',
+                                    auto_populate: { prompt: rp.prompt, autoSubmit: true },
+                                  }));
+                                } catch {
+                                  // Non-fatal — sessionStorage may be disabled.
+                                }
+                                closePanel();
+                                if (location.pathname !== '/find') {
+                                  navigate('/find');
+                                } else {
+                                  window.dispatchEvent(new CustomEvent('scout-auto-populate'));
+                                }
+                              }}
+                              className="w-full text-left flex flex-col gap-1.5 px-3.5 py-3 bg-white rounded-xl border border-[#EEF2F8] hover:border-[#3B82F6] hover:bg-[#FAFBFF] transition-colors"
                             >
-                              <span className="w-5 h-5 rounded-full bg-[rgba(59,130,246,0.10)] text-[#3B82F6] text-xs font-medium flex items-center justify-center">
-                                {idx + 1}
-                              </span>
-                              <span className="text-sm text-gray-800">{suggestion}</span>
-                            </div>
+                              <div className="flex items-start gap-2">
+                                <span className="w-5 h-5 rounded-full bg-[rgba(59,130,246,0.10)] text-[#3B82F6] text-xs font-medium flex items-center justify-center flex-shrink-0 mt-0.5">
+                                  {idx + 1}
+                                </span>
+                                <span className="text-sm text-gray-900 font-medium leading-snug">
+                                  {rp.prompt}
+                                </span>
+                              </div>
+                              {rp.rationale && (
+                                <span className="text-xs text-gray-500 leading-snug pl-7">
+                                  {rp.rationale}
+                                </span>
+                              )}
+                            </button>
                           ))}
                         </div>
+                      ) : (
+                        searchHelpResponse.suggestions.length > 0 && (
+                          <div className="mt-3 space-y-2">
+                            {searchHelpResponse.suggestions.map((suggestion, idx) => (
+                              <div
+                                key={idx}
+                                className="flex items-center gap-2 px-3 py-2 bg-[#FAFBFF] rounded-xl border border-[#EEF2F8]"
+                              >
+                                <span className="w-5 h-5 rounded-full bg-[rgba(59,130,246,0.10)] text-[#3B82F6] text-xs font-medium flex items-center justify-center">
+                                  {idx + 1}
+                                </span>
+                                <span className="text-sm text-gray-800">{suggestion}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )
                       )}
-                      
-                      {/* Continue button */}
-                      <div className="mt-4">
-                        <button
-                          onClick={handleContinue}
-                          className="px-4 py-2 rounded-xl bg-[#0F172A] text-white text-sm font-medium hover:bg-[#1E293B] transition-colors"
-                        >
-                          Continue
-                        </button>
-                      </div>
+
+                      {/* Continue button — only meaningful for the legacy
+                          structured path (refined_prompts cards self-execute on
+                          click, so the Continue button would be redundant). */}
+                      {(!searchHelpResponse.refined_prompts || searchHelpResponse.refined_prompts.length === 0) && (
+                        <div className="mt-4">
+                          <button
+                            onClick={handleContinue}
+                            className="px-4 py-2 rounded-xl bg-[#0F172A] text-white text-sm font-medium hover:bg-[#1E293B] transition-colors"
+                          >
+                            Continue
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

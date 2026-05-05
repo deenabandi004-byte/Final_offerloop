@@ -244,16 +244,143 @@ def _build_knowledge_prompt() -> str:
     return "\n".join(lines)
 
 
-def _build_system_prompt(user_name: str, tier: str, credits: int, max_credits: int, current_page: str, user_context: Optional[Dict[str, Any]] = None) -> str:
+def _build_user_memory_prompt(user_memory: Optional[Dict[str, Any]]) -> str:
+    """
+    Render the client-provided user_memory block (recent searches, prompts the
+    user already tried and bombed on, school×company combos PDL has failed at)
+    into a system-prompt section. This is what gives Scout cross-session memory:
+    the chat thread is durable, but THIS block carries signals about what the
+    user has already tried OUTSIDE the chat — so Scout doesn't recommend
+    actions that already proved dead.
+    """
+    if not user_memory or not isinstance(user_memory, dict):
+        return ""
+
+    parts: List[str] = []
+
+    recent = user_memory.get("recent_searches") or []
+    if isinstance(recent, list) and recent:
+        lines: List[str] = []
+        for entry in recent[:8]:
+            if not isinstance(entry, dict):
+                continue
+            p = (entry.get("prompt") or "").strip()
+            r = entry.get("results")
+            if not p:
+                continue
+            count_str = f" → {r} results" if isinstance(r, int) else ""
+            lines.append(f"  - \"{p}\"{count_str}")
+        if lines:
+            parts.append("RECENT SEARCHES (most recent first):\n" + "\n".join(lines))
+
+    tried = user_memory.get("tried_prompts_24h") or []
+    if isinstance(tried, list) and tried:
+        lines = [f"  - \"{p}\"" for p in tried[:15] if isinstance(p, str) and p.strip()]
+        if lines:
+            parts.append(
+                "PROMPTS THE USER ALREADY TRIED THIS SESSION AND GOT ZERO RESULTS — "
+                "do not suggest these:\n" + "\n".join(lines)
+            )
+
+    thin = user_memory.get("known_thin_school_company_pairs") or []
+    if isinstance(thin, list) and thin:
+        lines = [f"  - {p}" for p in thin[:20] if isinstance(p, str) and p.strip()]
+        if lines:
+            parts.append(
+                "SCHOOL×COMPANY COMBOS THIS USER HAS ALREADY EXHAUSTED IN PDL — "
+                "don't recommend these pairings:\n" + "\n".join(lines)
+            )
+
+    # Briefing snapshot — lets Scout reference outstanding items concretely.
+    snap = user_memory.get("briefing_snapshot")
+    if isinstance(snap, dict):
+        snap_lines: List[str] = []
+        replies = snap.get("replies") or []
+        if isinstance(replies, list) and replies:
+            names = ", ".join(
+                f"{r.get('contactName')} at {r.get('company')}"
+                if r.get('company')
+                else (r.get('contactName') or '')
+                for r in replies[:5]
+                if isinstance(r, dict) and r.get('contactName')
+            )
+            if names:
+                snap_lines.append(f"  • {len(replies)} reply waiting from: {names}")
+        followups = snap.get("followUps") or []
+        if isinstance(followups, list) and followups:
+            names = ", ".join(
+                f"{f.get('contactName')} ({f.get('daysSinceEmail')}d)"
+                for f in followups[:5]
+                if isinstance(f, dict) and f.get('contactName')
+            )
+            if names:
+                snap_lines.append(f"  • {len(followups)} follow-ups due: {names}")
+        roadmap = snap.get("roadmapProgress") or {}
+        if isinstance(roadmap, dict) and roadmap.get("emailsSent") is not None:
+            snap_lines.append(
+                f"  • This week: {roadmap.get('emailsSent')}/{roadmap.get('emailTarget')} emails sent, "
+                f"{roadmap.get('repliesReceived')}/{roadmap.get('replyTarget')} replies received "
+                f"({roadmap.get('status')})"
+            )
+        pipe = snap.get("pipelineStats") or {}
+        if isinstance(pipe, dict) and pipe.get("totalContacts"):
+            snap_lines.append(
+                f"  • Pipeline: {pipe.get('active', 0)} active / "
+                f"{pipe.get('needsAttention', 0)} needs attention / {pipe.get('done', 0)} done "
+                f"({pipe.get('totalContacts')} total)"
+            )
+        if snap_lines:
+            parts.append(
+                "BRIEFING SNAPSHOT (what's outstanding for this user RIGHT NOW — "
+                "reference these specifically when the user asks 'what should I do today' "
+                "or similar):\n" + "\n".join(snap_lines)
+            )
+
+    if not parts:
+        return ""
+    return "\n\nUSER MEMORY (cross-session signals from local activity):\n" + "\n\n".join(parts)
+
+
+def _build_system_prompt(user_name: str, tier: str, credits: int, max_credits: int, current_page: str, user_context: Optional[Dict[str, Any]] = None, user_memory: Optional[Dict[str, Any]] = None) -> str:
     """Build the complete system prompt for Scout assistant."""
     knowledge = _build_knowledge_prompt()
     user_context_section = _build_user_context_prompt(user_context) if user_context else ""
+    user_memory_section = _build_user_memory_prompt(user_memory)
+
+    # Diagnostic so we can confirm user_context flowed through. The number of
+    # populated keys + whether the rendered section is non-empty tells us
+    # whether the LLM is being given the data — if these print zero/empty and
+    # Scout still claims access, that's a Firestore read issue, not a prompt
+    # issue. If these print real values and Scout STILL gaslights, that's an
+    # LLM compliance problem to harden the prompt against.
+    try:
+        ctx_keys = list((user_context or {}).keys())
+        print(f"[ScoutPrompt] user_context keys: {ctx_keys} | rendered_len={len(user_context_section)}")
+    except Exception:
+        pass
+
+    # The user_context section can be empty if the user has zero profile data.
+    # In that case we don't want the "you HAVE the profile" framing dangling
+    # without anything below it — that's worse than no framing. Render the
+    # access-rule preamble ONLY when the section actually carries data.
+    profile_access_rule = ""
+    if user_context_section.strip():
+        profile_access_rule = (
+            "\n\nCRITICAL RULE — PROFILE ACCESS: You have full visibility into the user's "
+            "profile (academics, goals, target firms, location, resume, recent searches, "
+            "saved contacts, coffee chat preps). The data is rendered in the USER PROFILE "
+            "& RECENT ACTIVITY section below. NEVER say \"I can't view your profile\", "
+            "\"I can't access your profile\", \"I don't have visibility into...\", or any "
+            "variation of that. If a specific field is empty, say so plainly (\"I don't see "
+            "a target industry on your profile yet\"). Do NOT ask the user to share "
+            "information that's already in their profile below."
+        )
 
     routes_list = "\n".join([f"  {route}" for route in ROUTE_KEYWORDS.keys()])
 
     return f"""You are Scout, the built-in assistant for Offerloop — a networking platform that helps college students connect with professionals for career opportunities.
 
-CRITICAL RULE: When users mention "contacts at Google", "contacts from Goldman", "my contacts at [any company]", or similar — they ALWAYS mean their saved networking contacts on Offerloop at that company. NEVER interpret this as Google Contacts, Gmail contacts, or phone contacts. This is the #1 most common query you receive. Always search/show their saved Offerloop contacts.
+CRITICAL RULE: When users mention "contacts at Google", "contacts from Goldman", "my contacts at [any company]", or similar — they ALWAYS mean their saved networking contacts on Offerloop at that company. NEVER interpret this as Google Contacts, Gmail contacts, or phone contacts. This is the #1 most common query you receive. Always search/show their saved Offerloop contacts.{profile_access_rule}
 
 ## Who you are
 You're a knowledgeable teammate, not a help doc. You know the platform inside and out, you're genuinely rooting for the user to land great connections, and you keep things moving. You're direct, a little warm, and never patronizing. Think: a friend who happens to know every feature.
@@ -337,6 +464,7 @@ USER CONTEXT:
 
 {knowledge}
 {user_context_section}
+{user_memory_section}
 
 AVAILABLE ROUTES FOR NAVIGATION:
 {routes_list}
@@ -376,7 +504,10 @@ def _build_user_context_prompt(user_context: Dict[str, Any]) -> str:
     if not user_context:
         return ""
 
-    parts = ["\n\n## YOUR USER'S PROFILE (use this data proactively)"]
+    # The top-of-prompt CRITICAL RULE — PROFILE ACCESS handles the gaslighting
+    # guard. Here we just need the data section; keep the header simple and
+    # let the rule above carry the behavioral weight.
+    parts = ["\n\n## USER PROFILE & RECENT ACTIVITY"]
 
     academics = user_context.get("academics")
     if academics:
@@ -440,6 +571,52 @@ def _build_user_context_prompt(user_context: Dict[str, Any]) -> str:
         top = contacts.get("top_companies", [])
         top_str = ", ".join([f"{c['name']} ({c['count']})" for c in top[:5]])
         parts.append(f"- Saved contacts: {total} total. Top companies: {top_str}")
+        recent = contacts.get("recent") or []
+        if recent:
+            recent_lines = []
+            for r in recent[:5]:
+                bits = [r.get("name") or ""]
+                role_co = " ".join(filter(None, [r.get("title"), "at" if r.get("company") else "", r.get("company")]))
+                if role_co:
+                    bits.append(f"({role_co.strip()})")
+                if r.get("stage"):
+                    bits.append(f"[{r['stage']}]")
+                recent_lines.append("  • " + " ".join(b for b in bits if b))
+            parts.append("- Recently saved contacts:\n" + "\n".join(recent_lines))
+
+    rs = user_context.get("recent_searches")
+    if rs:
+        rs_lines = []
+        for s in rs[:5]:
+            p = s.get("prompt", "")
+            r = s.get("results")
+            count_str = f" → {r} results" if isinstance(r, int) else ""
+            if p:
+                rs_lines.append(f'  • "{p}"{count_str}')
+        if rs_lines:
+            parts.append("- Recent searches (Firestore-backed):\n" + "\n".join(rs_lines))
+
+    ccp = user_context.get("recent_coffee_chat_preps")
+    if ccp:
+        ccp_lines = []
+        for c in ccp[:5]:
+            target = " ".join(filter(None, [c.get("name"), "at" if c.get("company") else "", c.get("company")]))
+            if target.strip():
+                ccp_lines.append(f"  • {target.strip()}")
+        if ccp_lines:
+            parts.append("- Coffee chat preps generated:\n" + "\n".join(ccp_lines))
+
+    age = user_context.get("account_age_days")
+    if isinstance(age, (int, float)):
+        if age < 1:
+            tenure = "new today"
+        elif age < 7:
+            tenure = f"{int(age)} days into using the platform"
+        elif age < 30:
+            tenure = f"{int(age // 7)} weeks into using the platform"
+        else:
+            tenure = f"{int(age // 30)} months into using the platform"
+        parts.append(f"- Tenure: {tenure}")
 
     if len(parts) <= 1:
         return ""
@@ -451,7 +628,9 @@ def _build_user_context_prompt(user_context: Dict[str, Any]) -> str:
     parts.append('- "Find me contacts at Rivian" → Use their preferred location and target role from goals')
     parts.append('- "Write an email for a data engineer" → Use their email template style and resume context')
     parts.append('- "What companies should I target?" → Reference their dream companies and target industries')
+    parts.append('- "Look at my profile" → Read the data above and respond — do NOT ask them to share what\'s there')
     parts.append("Only ask follow-up questions when the profile genuinely doesn't have the needed information.")
+    parts.append("If the user references a person they're prepping for or just saved, reference them by name from the lists above.")
 
     return "\n".join(parts)
 
@@ -650,6 +829,7 @@ class ScoutAssistantService:
         credits: int = 0,
         max_credits: int = 300,
         user_context: Optional[Dict[str, Any]] = None,
+        user_memory: Optional[Dict[str, Any]] = None,
         uid: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Handle a chat message from the user."""
@@ -667,7 +847,7 @@ class ScoutAssistantService:
         # Detect intent for smart tool routing
         intent = _detect_intent(message)
 
-        # Build system prompt with user context
+        # Build system prompt with user context + memory
         system_prompt = _build_system_prompt(
             user_name=user_name,
             tier=tier,
@@ -675,6 +855,7 @@ class ScoutAssistantService:
             max_credits=max_credits,
             current_page=current_page,
             user_context=user_context,
+            user_memory=user_memory,
         )
 
         # Build messages list
@@ -962,6 +1143,7 @@ class ScoutAssistantService:
         credits: int = 0,
         max_credits: int = 300,
         user_context: Optional[Dict[str, Any]] = None,
+        user_memory: Optional[Dict[str, Any]] = None,
         uid: Optional[str] = None,
         queue: "asyncio.Queue[Optional[Dict[str, Any]]]" = None,
     ) -> None:
@@ -1003,6 +1185,7 @@ class ScoutAssistantService:
         system_prompt = _build_system_prompt(
             user_name=user_name, tier=tier, credits=credits,
             max_credits=max_credits, current_page=current_page, user_context=user_context,
+            user_memory=user_memory,
         )
 
         messages = [{"role": "system", "content": system_prompt}]
@@ -1513,6 +1696,156 @@ Return JSON: {{"strategy": "A brief strategy summary", "suggestions": ["suggesti
                 "action": None,
             }
     
+    async def _handle_prompt_refinement_help(
+        self,
+        *,
+        prompt_text: str,
+        parsed_query: Dict[str, Any],
+        broadened_dimensions: List[str],
+        retry_level_used: int,
+        tried_prompts: Optional[List[str]] = None,
+        user_name: str,
+    ) -> Dict[str, Any]:
+        """
+        Generate refined natural-language prompts for a failed contact search.
+        Inputs include what the backend already tried (broadened_dimensions,
+        retry_level_used) so suggestions don't repeat ground we already covered.
+        """
+        # Pull richest signal we have so the LLM can reason about *why* the
+        # original search came up thin.
+        companies_meta = parsed_query.get("companies") or []
+        company_names = [c.get("name") for c in companies_meta if isinstance(c, dict) and c.get("name")]
+        schools = parsed_query.get("schools") or []
+        locations = parsed_query.get("locations") or []
+        title_variations = parsed_query.get("title_variations") or []
+        industries = parsed_query.get("industries") or []
+
+        already_tried_lines = []
+        if broadened_dimensions:
+            label_map = {"title": "broadened the role", "industry": "dropped the industry filter",
+                         "location": "dropped the location filter", "company": "dropped the company filter"}
+            tried = [label_map.get(d, d) for d in broadened_dimensions]
+            already_tried_lines.append(f"Backend already {', then '.join(tried)} — still empty.")
+        if retry_level_used >= 5:
+            already_tried_lines.append("Even searching school-only returned no alumni in this role family.")
+
+        context_block = []
+        if company_names: context_block.append(f"Companies: {', '.join(company_names)}")
+        if schools: context_block.append(f"Schools: {', '.join(schools)}")
+        if locations: context_block.append(f"Locations: {', '.join(locations)}")
+        if title_variations: context_block.append(f"Titles tried: {', '.join(title_variations[:6])}")
+        if industries: context_block.append(f"Industries: {', '.join(industries)}")
+
+        system_prompt = """You are Scout, helping a college student refine a natural-language people-search prompt that returned zero results from People Data Labs (PDL).
+
+YOUR JOB
+Generate exactly 3 alternative natural-language search prompts the student should try. Each prompt must be:
+- Self-contained (works as a standalone PDL search)
+- Specific enough to be routable (mentions a concrete company OR concrete role family)
+- A meaningful CHANGE from the original — not just rewording
+- Sorted from most-likely-to-succeed to least
+
+PRINCIPLES (use these to pick alternatives)
+1. PDL coverage gaps you should WORK AROUND:
+   - International schools (Bocconi, HEC, INSEAD) × US-centric firms (Goldman, JPMorgan, MBB) often yield zero. Suggest the student try EU/regional firms with strong school pipelines (Mediobanca, Rothschild, Lazard for Bocconi; Kearney, Roland Berger, Oliver Wyman for European consulting).
+   - Boutique/small firms have thin PDL coverage — pivot to bulge-bracket or top-tier alternates.
+2. If a specific company was already tried and broadened past, REMOVE the company and search by school + role family ("Bocconi alumni in consulting").
+3. If a specific location was tried and broadened past, REMOVE the location.
+4. If only a school was specified, suggest school + role-family or school + concrete-firm pairings the school is known for.
+5. Each suggestion needs a one-sentence rationale grounded in school/firm/region pipelines — not generic.
+
+OUTPUT FORMAT (strict JSON)
+{
+  "message": "1-2 sentences acknowledging the miss and framing the suggestions in Scout's voice. Direct, warm, never apologetic.",
+  "refined_prompts": [
+    {"prompt": "<full natural-language search prompt>", "rationale": "<one specific sentence>"},
+    {"prompt": "...", "rationale": "..."},
+    {"prompt": "...", "rationale": "..."}
+  ]
+}
+
+VOICE: direct, warm, no fluff. Don't say "I'm sorry" or "unfortunately." Lead with what to try.
+"""
+
+        user_message_parts = [f'Original prompt: "{prompt_text}"']
+        if context_block:
+            user_message_parts.append("Parsed signals:\n  " + "\n  ".join(context_block))
+        if already_tried_lines:
+            user_message_parts.append("What the backend already tried:\n  " + "\n  ".join(already_tried_lines))
+        # Forbid resurrecting prompts the user has already run and seen fail in
+        # this session. Without this, Scout cheerfully recommends the very
+        # query the user just clicked through and bombed on.
+        cleaned_tried: List[str] = []
+        if tried_prompts:
+            seen = set()
+            for tp in tried_prompts:
+                key = tp.strip().lower()
+                if key and key != prompt_text.strip().lower() and key not in seen:
+                    seen.add(key)
+                    cleaned_tried.append(tp.strip())
+            cleaned_tried = cleaned_tried[:30]
+        if cleaned_tried:
+            forbidden_block = "\n  ".join(f'- "{p}"' for p in cleaned_tried)
+            user_message_parts.append(
+                "DO NOT suggest any of these — the user already ran them in this session "
+                "and they returned zero results:\n  " + forbidden_block
+            )
+        user_message_parts.append("Generate 3 refined prompts that are NOT in the forbidden list above.")
+        user_message = "\n\n".join(user_message_parts)
+
+        response = await asyncio.wait_for(
+            self._get_openai().chat.completions.create(
+                model=self.DEFAULT_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message},
+                ],
+                temperature=0.6,
+                max_tokens=600,
+                response_format={"type": "json_object"},
+            ),
+            timeout=12,
+        )
+        parsed = json.loads(response.choices[0].message.content or "{}")
+        refined = parsed.get("refined_prompts") or []
+        # Belt-and-suspenders: even if the LLM ignored the forbidden list,
+        # filter it post-hoc. Match is case/whitespace-insensitive.
+        forbidden_set = {p.strip().lower() for p in cleaned_tried}
+        forbidden_set.add(prompt_text.strip().lower())
+        clean_refined: List[Dict[str, str]] = []
+        for r in refined:
+            if not isinstance(r, dict):
+                continue
+            p = (r.get("prompt") or "").strip()
+            why = (r.get("rationale") or "").strip()
+            if not p or len(p) < 6:
+                continue
+            if p.lower() in forbidden_set:
+                continue
+            clean_refined.append({"prompt": p, "rationale": why})
+            if len(clean_refined) >= 3:
+                break
+
+        message = (parsed.get("message") or "").strip() or (
+            f"That combo came up empty in our database. Here are three angles I'd try next:"
+        )
+
+        # Surface a flat suggestions list (titles only) for backwards compat
+        # with the legacy ScoutSidePanel render path.
+        legacy_suggestions = [r["prompt"] for r in clean_refined]
+
+        return {
+            "message": message,
+            "suggestions": legacy_suggestions,
+            "refined_prompts": clean_refined,
+            "auto_populate": {
+                # Top suggestion seeds the auto-populate fallback path.
+                "prompt": clean_refined[0]["prompt"] if clean_refined else prompt_text,
+            },
+            "search_type": "contact",
+            "action": "retry_search",
+        }
+
     async def _handle_contact_search_help(
         self,
         *,
@@ -1521,6 +1854,28 @@ Return JSON: {{"strategy": "A brief strategy summary", "suggestions": ["suggesti
         user_name: str,
     ) -> Dict[str, Any]:
         """Generate help for failed contact search."""
+        # The new natural-language prompt path: when the frontend sends the raw
+        # prompt + parsed_query + retry chain context, we generate refined
+        # natural-language prompts the user can re-run with one click. Falls
+        # through to the legacy structured path if `prompt` isn't present.
+        prompt_text = (failed_search_params.get("prompt") or "").strip()
+        if prompt_text:
+            try:
+                return await self._handle_prompt_refinement_help(
+                    prompt_text=prompt_text,
+                    parsed_query=failed_search_params.get("parsed_query") or {},
+                    broadened_dimensions=failed_search_params.get("broadened_dimensions") or [],
+                    retry_level_used=int(failed_search_params.get("retry_level_used") or 0),
+                    tried_prompts=[
+                        p for p in (failed_search_params.get("tried_prompts") or [])
+                        if isinstance(p, str) and p.strip()
+                    ],
+                    user_name=user_name,
+                )
+            except Exception as exc:
+                print(f"[ScoutAssistant] Prompt-refinement path failed, falling back to legacy: {type(exc).__name__}: {exc}")
+                # Fall through to legacy flow with empty structured fields.
+
         job_title = failed_search_params.get("job_title", "")
         company = failed_search_params.get("company", "")
         location = failed_search_params.get("location", "")
