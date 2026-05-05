@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   MessageSquareReply,
@@ -9,10 +9,12 @@ import {
   Mail,
   Sparkles,
   ChevronRight,
+  ArrowUpRight,
+  TrendingUp,
 } from "lucide-react";
 import { apiService } from "@/services/api";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
-import { RoadmapProgress } from "./RoadmapProgress";
+import { useScout } from "@/contexts/ScoutContext";
 
 interface BriefingReply {
   contactId: string;
@@ -64,44 +66,476 @@ interface BriefingData {
   };
 }
 
-function SectionHeader({ icon: Icon, title, count, color }: {
-  icon: React.ElementType;
-  title: string;
-  count?: number;
-  color: string;
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function timeOfDayGreeting(): string {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+/**
+ * Compute "what changed since last visit" by diffing current counts against a
+ * localStorage snapshot from the previous render. Returns either a phrase like
+ * "2 new replies, 1 new follow-up" or an empty string for no positive change.
+ */
+function buildWhatsNew(data: BriefingData): { text: string; sinceLabel: string } | null {
+  const KEY = "ofl_briefing_last_seen";
+  let prev: { replies: number; followUps: number; total: number; ts: number } | null = null;
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (raw) prev = JSON.parse(raw);
+  } catch {}
+  const currentTotal = data.pipelineStats?.totalContacts || 0;
+  const current = {
+    replies: data.replies.length,
+    followUps: data.followUps.length,
+    total: currentTotal,
+    ts: Date.now(),
+  };
+  // Always update the snapshot for next visit.
+  try {
+    localStorage.setItem(KEY, JSON.stringify(current));
+  } catch {}
+  if (!prev) return null;
+
+  const newReplies = Math.max(0, current.replies - prev.replies);
+  const newFollowUps = Math.max(0, current.followUps - prev.followUps);
+  const newContacts = Math.max(0, current.total - prev.total);
+  if (newReplies === 0 && newFollowUps === 0 && newContacts === 0) return null;
+
+  const parts: string[] = [];
+  if (newReplies > 0) parts.push(`${newReplies} new ${newReplies === 1 ? "reply" : "replies"}`);
+  if (newFollowUps > 0) parts.push(`${newFollowUps} new follow-up${newFollowUps === 1 ? "" : "s"}`);
+  if (newContacts > 0) parts.push(`${newContacts} new contact${newContacts === 1 ? "" : "s"} saved`);
+
+  // Phrase the time gap
+  const gapMs = current.ts - (prev.ts || current.ts);
+  const gapH = Math.round(gapMs / (60 * 60 * 1000));
+  let sinceLabel: string;
+  if (gapH < 1) sinceLabel = "since you were just here";
+  else if (gapH < 24) sinceLabel = `since ${gapH} hour${gapH === 1 ? "" : "s"} ago`;
+  else if (gapH < 48) sinceLabel = "since yesterday";
+  else sinceLabel = `since ${Math.round(gapH / 24)} days ago`;
+
+  return { text: parts.join(" · "), sinceLabel };
+}
+
+/**
+ * Pick the single most-actionable next step the user should take, based on
+ * whatever the briefing data says. Used as the "Today's focus" hero card.
+ */
+function pickTodayFocus(data: BriefingData): {
+  label: string;
+  caption: string;
+  onClick: () => void;
+  navigate: ReturnType<typeof useNavigate>;
+} | null {
+  // Filled in by the caller — placeholder shape.
+  return null;
+}
+
+// ── Sub-components ─────────────────────────────────────────────────────────
+
+function HeroCard({
+  number,
+  unit,
+  caption,
+  onClick,
+  loading,
+}: {
+  number: number | string;
+  unit: string;
+  caption: string;
+  onClick?: () => void;
+  loading?: boolean;
 }) {
+  const interactive = !!onClick && !loading;
+  // When the "number" is actually a text label (e.g. "Find more contacts"),
+  // we drop to a smaller font + tighter weight so it doesn't dwarf the rest of
+  // the card. Numbers stay big as the focal element; text titles read like a
+  // headline.
+  const isNumeric = typeof number === "number";
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-      <Icon style={{ width: 14, height: 14, color }} />
-      <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>{title}</span>
-      {count !== undefined && count > 0 && (
-        <span style={{
-          fontSize: 10, fontWeight: 700,
-          padding: "2px 6px", borderRadius: 10,
-          background: color + "18", color,
-        }}>
-          {count}
-        </span>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!interactive}
+      style={{
+        flex: 1,
+        textAlign: "left",
+        padding: "16px 18px",
+        background: "var(--warm-surface, #FAFBFF)",
+        border: "1px solid var(--line, #E8E4DE)",
+        borderRadius: 8,
+        cursor: interactive ? "pointer" : "default",
+        transition: "border-color .15s, background .15s",
+        position: "relative",
+        minHeight: 108,
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+      }}
+      onMouseEnter={(e) => {
+        if (!interactive) return;
+        e.currentTarget.style.borderColor = "#5B7799";
+        e.currentTarget.style.background = "white";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = "var(--line, #E8E4DE)";
+        e.currentTarget.style.background = "var(--warm-surface, #FAFBFF)";
+      }}
+    >
+      <span
+        style={{
+          fontSize: 10,
+          fontWeight: 500,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          color: "var(--ink-3, #8A8F9A)",
+          fontFamily: "'JetBrains Mono', monospace",
+        }}
+      >
+        {unit}
+      </span>
+      <span
+        style={{
+          fontSize: isNumeric ? 28 : 16,
+          fontWeight: isNumeric ? 600 : 500,
+          color: "var(--ink, #0F172A)",
+          lineHeight: isNumeric ? 1 : 1.25,
+          fontFamily: "'Inter', system-ui, sans-serif",
+          letterSpacing: isNumeric ? "-0.02em" : "-0.01em",
+        }}
+      >
+        {loading ? "—" : number}
+      </span>
+      <span
+        style={{
+          fontSize: 12,
+          color: "var(--ink-3, #8A8F9A)",
+          lineHeight: 1.4,
+          marginTop: 2,
+        }}
+      >
+        {caption}
+      </span>
+      {interactive && (
+        <ArrowUpRight
+          style={{
+            position: "absolute",
+            top: 14,
+            right: 14,
+            width: 12,
+            height: 12,
+            color: "var(--ink-3, #8A8F9A)",
+            opacity: 0.4,
+          }}
+        />
       )}
+    </button>
+  );
+}
+
+function PipelineBar({
+  active,
+  needsAttention,
+  done,
+  total,
+  onClick,
+}: {
+  active: number;
+  needsAttention: number;
+  done: number;
+  total: number;
+  onClick: () => void;
+}) {
+  if (total === 0) return null;
+  const activePct = (active / total) * 100;
+  const needsPct = (needsAttention / total) * 100;
+  const donePct = (done / total) * 100;
+  // Muted palette — a touch of blue lives in the "active" segment so the
+  // pipeline still has some life, while the rest stays in warm/cool greys.
+  const COLORS = {
+    active: "#5B7799",       // muted slate-blue (the one bit of color)
+    needs: "#A8A29E",        // warm-grey-400
+    done: "#94A3B8",         // slate-400 (lightest, for completed)
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        background: "var(--warm-surface, #FAFBFF)",
+        border: "1px solid var(--line, #E8E4DE)",
+        borderRadius: 8,
+        padding: "14px 18px",
+        cursor: "pointer",
+        textAlign: "left",
+        width: "100%",
+        transition: "border-color .15s, background .15s",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = "#5B7799";
+        e.currentTarget.style.background = "white";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = "var(--line, #E8E4DE)";
+        e.currentTarget.style.background = "var(--warm-surface, #FAFBFF)";
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 500,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "var(--ink-3, #8A8F9A)",
+            fontFamily: "'JetBrains Mono', monospace",
+          }}
+        >
+          PIPELINE
+        </span>
+        <span style={{ fontSize: 11, color: "var(--ink-3, #8A8F9A)" }}>
+          {total} total
+        </span>
+      </div>
+      <div
+        style={{
+          display: "flex",
+          height: 6,
+          borderRadius: 2,
+          overflow: "hidden",
+          background: "var(--line, #F0F0ED)",
+          marginBottom: 10,
+        }}
+      >
+        {active > 0 && (
+          <div style={{ width: `${activePct}%`, background: COLORS.active }} title={`${active} active`} />
+        )}
+        {needsAttention > 0 && (
+          <div style={{ width: `${needsPct}%`, background: COLORS.needs }} title={`${needsAttention} needs attention`} />
+        )}
+        {done > 0 && (
+          <div style={{ width: `${donePct}%`, background: COLORS.done }} title={`${done} done`} />
+        )}
+      </div>
+      <div style={{ display: "flex", gap: 16, fontSize: 11, color: "var(--ink-2, #4A4F5B)" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ width: 6, height: 6, borderRadius: 1, background: COLORS.active }} />
+          {active} active
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ width: 6, height: 6, borderRadius: 1, background: COLORS.needs }} />
+          {needsAttention} needs attention
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ width: 6, height: 6, borderRadius: 1, background: COLORS.done }} />
+          {done} done
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function WeeklyProgress({
+  emailsSent,
+  emailTarget,
+  repliesReceived,
+  replyTarget,
+  status,
+}: {
+  emailsSent: number;
+  emailTarget: number;
+  repliesReceived: number;
+  replyTarget: number;
+  status: "ahead" | "on_track" | "behind";
+}) {
+  const emailPct = Math.min((emailsSent / Math.max(emailTarget, 1)) * 100, 100);
+  const replyPct = Math.min((repliesReceived / Math.max(replyTarget, 1)) * 100, 100);
+  const statusLabel = status === "ahead" ? "Ahead of plan" : status === "behind" ? "Behind plan" : "On track";
+  return (
+    <div
+      style={{
+        background: "var(--warm-surface, #FAFBFF)",
+        border: "1px solid var(--line, #E8E4DE)",
+        borderRadius: 8,
+        padding: "14px 18px",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 500,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "var(--ink-3, #8A8F9A)",
+            fontFamily: "'JetBrains Mono', monospace",
+          }}
+        >
+          THIS WEEK
+        </span>
+        <span style={{ fontSize: 11, color: "var(--ink-3, #8A8F9A)" }}>
+          {statusLabel}
+        </span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div>
+          <div style={{ fontSize: 11, color: "var(--ink-3, #8A8F9A)", marginBottom: 4 }}>
+            Emails sent
+          </div>
+          <div style={{ fontSize: 18, fontWeight: 600, color: "var(--ink, #0F172A)", lineHeight: 1 }}>
+            {emailsSent}
+            <span style={{ fontSize: 12, fontWeight: 400, color: "var(--ink-3, #8A8F9A)" }}>
+              {" "}/ {emailTarget}
+            </span>
+          </div>
+          <div style={{ height: 3, background: "var(--line, #F0F0ED)", borderRadius: 1, marginTop: 6, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${emailPct}%`, background: "#5B7799", transition: "width .4s" }} />
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: "var(--ink-3, #8A8F9A)", marginBottom: 4 }}>
+            Replies received
+          </div>
+          <div style={{ fontSize: 18, fontWeight: 600, color: "var(--ink, #0F172A)", lineHeight: 1 }}>
+            {repliesReceived}
+            <span style={{ fontSize: 12, fontWeight: 400, color: "var(--ink-3, #8A8F9A)" }}>
+              {" "}/ {replyTarget}
+            </span>
+          </div>
+          <div style={{ height: 3, background: "var(--line, #F0F0ED)", borderRadius: 1, marginTop: 6, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${replyPct}%`, background: "#94A3B8", transition: "width .4s" }} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AskScoutChips({
+  data,
+  onAsk,
+}: {
+  data: BriefingData;
+  onAsk: (q: string) => void;
+}) {
+  // Build chip prompts dynamically from the briefing state. The questions
+  // get auto-sent to Scout, which sees the full briefing snapshot in user_memory
+  // and can answer with concrete references.
+  const chips = useMemo<string[]>(() => {
+    const out: string[] = [];
+    if (data.replies.length > 0) {
+      const first = data.replies[0];
+      out.push(
+        first?.contactName
+          ? `Help me reply to ${first.contactName}${first.company ? ` at ${first.company}` : ""}`
+          : `Help me draft replies to my ${data.replies.length} waiting messages`,
+      );
+    }
+    if (data.followUps.length > 0) {
+      out.push(`What should I say in my follow-ups today?`);
+    }
+    out.push(`What should I focus on right now?`);
+    if (data.pipelineStats.totalContacts < 5) {
+      out.push(`Find me alumni I should reach out to`);
+    } else {
+      out.push(`Find me more contacts like the ones I've saved`);
+    }
+    return out.slice(0, 4);
+  }, [data]);
+
+  // Muted blue for Scout-area accents — present but never pops.
+  const SCOUT_BLUE = "#5B7799";
+  return (
+    <div
+      style={{
+        background: "var(--warm-surface, #FAFBFF)",
+        border: "1px solid var(--line, #E8E4DE)",
+        borderRadius: 8,
+        padding: "14px 18px",
+      }}
+    >
+      <div style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 7 }}>
+        <span
+          style={{
+            width: 5,
+            height: 5,
+            borderRadius: 1,
+            background: SCOUT_BLUE,
+            display: "inline-block",
+          }}
+        />
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 500,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: SCOUT_BLUE,
+            fontFamily: "'JetBrains Mono', monospace",
+          }}
+        >
+          ASK SCOUT
+        </span>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {chips.map((q) => (
+          <button
+            key={q}
+            type="button"
+            onClick={() => onAsk(q)}
+            style={{
+              padding: "7px 12px",
+              fontSize: 12,
+              fontWeight: 400,
+              color: "var(--ink-2, #4A4F5B)",
+              background: "white",
+              border: "1px solid var(--line, #E8E4DE)",
+              borderRadius: 6,
+              cursor: "pointer",
+              transition: "border-color .12s, color .12s, background .12s",
+              fontFamily: "inherit",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = SCOUT_BLUE;
+              e.currentTarget.style.color = SCOUT_BLUE;
+              e.currentTarget.style.background = "rgba(91,119,153,0.04)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "var(--line, #E8E4DE)";
+              e.currentTarget.style.color = "var(--ink-2, #4A4F5B)";
+              e.currentTarget.style.background = "white";
+            }}
+          >
+            {q}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
 
 function EmptyWelcome({ onGoToSearch }: { onGoToSearch: () => void }) {
   return (
-    <div style={{
-      padding: "32px 24px",
-      textAlign: "center",
-      borderRadius: 12,
-      border: "1px solid var(--line)",
-      background: "var(--surface)",
-    }}>
+    <div
+      style={{
+        padding: "32px 24px",
+        textAlign: "center",
+        borderRadius: 12,
+        border: "1px solid var(--line)",
+        background: "var(--surface)",
+      }}
+    >
       <Sparkles style={{ width: 28, height: 28, color: "#3B82F6", margin: "0 auto 12px" }} />
       <h3 style={{ fontSize: 16, fontWeight: 600, margin: "0 0 8px", color: "var(--ink)" }}>
-        Your briefing updates as you network
+        Your briefing fills in as you network
       </h3>
       <p style={{ fontSize: 13, color: "var(--ink-3)", margin: "0 0 20px", lineHeight: 1.5 }}>
-        Once you start reaching out to contacts, you'll see replies, follow-ups, and progress here.
+        Once you start reaching out to contacts, you'll see replies, follow-ups, and weekly progress here.
       </p>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 280, margin: "0 auto" }}>
         <button
@@ -137,21 +571,38 @@ function EmptyWelcome({ onGoToSearch }: { onGoToSearch: () => void }) {
   );
 }
 
+// ── Main component ─────────────────────────────────────────────────────────
+
 export function MorningBriefing() {
   const [data, setData] = useState<BriefingData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const navigate = useNavigate();
   const { user } = useFirebaseAuth();
+  const { openPanelWithMessage } = useScout();
 
   useEffect(() => {
     if (!user?.uid) return;
     setLoading(true);
-    apiService.getBriefing()
-      .then(setData)
+    apiService
+      .getBriefing()
+      .then((d) => {
+        setData(d);
+        // Snapshot for Scout's user_memory so chats from any page can reference
+        // outstanding briefing items. 6h freshness window is enforced by the
+        // reader in useScoutChat.
+        try {
+          localStorage.setItem(
+            "ofl_briefing_snapshot",
+            JSON.stringify({ ts: Date.now(), data: d }),
+          );
+        } catch {}
+      })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, [user?.uid]);
+
+  const whatsNew = useMemo(() => (data ? buildWhatsNew(data) : null), [data]);
 
   if (loading) {
     return (
@@ -175,6 +626,11 @@ export function MorningBriefing() {
     navigate(`/find?${params.toString()}`, { replace: true });
   };
 
+  const goToTracker = (filter?: "replies" | "followups") => {
+    const url = filter ? `/tracker?filter=${filter}` : "/tracker";
+    navigate(url);
+  };
+
   const goToContact = (contactId: string) => {
     navigate(`/tracker?contact=${contactId}`);
   };
@@ -185,189 +641,203 @@ export function MorningBriefing() {
   }
 
   const isPro = data.meta.tier === "pro" || data.meta.tier === "elite";
+  const firstName = (user as any)?.firstName || (user as any)?.name?.split(" ")?.[0] || "";
+
+  // Today's focus — the single most actionable next step.
+  let focusTitle: string;
+  let focusCaption: string;
+  let focusOnClick: () => void;
+  if (data.replies.length > 0) {
+    const first = data.replies[0];
+    focusTitle = first.contactName || "Reply";
+    focusCaption = first.company
+      ? `replied · at ${first.company}`
+      : "replied — draft a response";
+    focusOnClick = () => goToContact(first.contactId);
+  } else if (data.followUps.length > 0) {
+    const first = data.followUps[0];
+    focusTitle = first.contactName || "Follow up";
+    focusCaption = `follow up · ${first.daysSinceEmail}d since last email`;
+    focusOnClick = () => goToContact(first.contactId);
+  } else if (data.deadlines.length > 0 && data.deadlines[0].urgency === "urgent") {
+    focusTitle = data.deadlines[0].event;
+    focusCaption = `${data.deadlines[0].industry} · in your calendar`;
+    focusOnClick = () => goToSearch();
+  } else if (!data.meta.hasContacts) {
+    focusTitle = "Find first contact";
+    focusCaption = "build your pipeline";
+    focusOnClick = () => goToSearch();
+  } else {
+    focusTitle = "Find more contacts";
+    focusCaption = "your inbox is quiet — keep building";
+    focusOnClick = () => goToSearch();
+  }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20, paddingTop: 8 }}>
-      {/* Skip to search link */}
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <button
-          onClick={goToSearch}
-          style={{
-            fontSize: 12, color: "var(--ink-3)", background: "none", border: "none",
-            cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
-          }}
-        >
-          Skip to search <ChevronRight style={{ width: 11, height: 11 }} />
-        </button>
+    <div style={{ display: "flex", flexDirection: "column", gap: 18, paddingTop: 8 }}>
+      {/* Greeting strip */}
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+        <div>
+          <h2
+            style={{
+              fontSize: 18,
+              fontWeight: 600,
+              color: "var(--ink, #0F172A)",
+              margin: 0,
+              lineHeight: 1.3,
+              fontFamily: "'Inter', system-ui, sans-serif",
+              letterSpacing: "-0.01em",
+            }}
+          >
+            {timeOfDayGreeting()}{firstName ? `, ${firstName}` : ""}.
+          </h2>
+          <p
+            style={{
+              fontSize: 13,
+              color: "var(--ink-3, #8A8F9A)",
+              margin: "2px 0 0",
+              lineHeight: 1.4,
+            }}
+          >
+            {whatsNew
+              ? `${whatsNew.text} ${whatsNew.sinceLabel}.`
+              : data.replies.length + data.followUps.length > 0
+                ? "Here's what's outstanding."
+                : "Inbox is quiet — let's queue up the next moves."}
+          </p>
+        </div>
       </div>
 
-      {/* Section 1: Replies */}
-      {data.replies.length > 0 && (
-        <div style={{
-          borderLeft: "3px solid #3B82F6",
-          padding: "12px 16px",
-          borderRadius: 8,
-          background: "var(--surface)",
-          border: "1px solid var(--line)",
-          borderLeftColor: "#3B82F6",
-          borderLeftWidth: 3,
-        }}>
-          <SectionHeader icon={MessageSquareReply} title="Replies waiting" count={data.replies.length} color="#3B82F6" />
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {data.replies.map((reply) => (
-              <button
-                key={reply.contactId}
-                onClick={() => goToContact(reply.contactId)}
-                style={{
-                  display: "flex", flexDirection: "column", gap: 2,
-                  padding: "8px 12px", borderRadius: 6,
-                  border: "1px solid var(--line)", background: "white",
-                  cursor: "pointer", textAlign: "left", width: "100%",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 13, fontWeight: 500, color: "var(--ink)" }}>
-                    {reply.contactName}
-                  </span>
-                  {reply.company && (
-                    <span style={{ fontSize: 11, color: "var(--ink-3)" }}>at {reply.company}</span>
-                  )}
-                </div>
-                {reply.snippet && (
-                  <span style={{ fontSize: 12, color: "var(--ink-2)", lineHeight: 1.4 }}>
-                    "{reply.snippet.slice(0, 80)}{reply.snippet.length > 80 ? "..." : ""}"
-                  </span>
-                )}
-                {isPro && reply.replyDraftBody && (
-                  <span style={{ fontSize: 11, color: "#3B82F6", marginTop: 2 }}>
-                    Reply draft ready
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
+      {/* Hero row — 3 cards */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+          gap: 12,
+        }}
+      >
+        <HeroCard
+          number={data.replies.length}
+          unit="REPLIES"
+          caption={
+            data.replies.length === 0
+              ? "no waiting replies"
+              : data.replies.length === 1
+                ? "waiting · draft a response"
+                : "waiting · draft responses"
+          }
+          onClick={data.replies.length > 0 ? () => goToTracker("replies") : undefined}
+        />
+        <HeroCard
+          number={data.followUps.length}
+          unit="FOLLOW-UPS"
+          caption={
+            data.followUps.length === 0
+              ? "all caught up"
+              : data.followUps.length === 1
+                ? "due to send"
+                : "due to send"
+          }
+          onClick={data.followUps.length > 0 ? () => goToTracker("followups") : undefined}
+        />
+        <HeroCard
+          number={focusTitle}
+          unit="TODAY'S FOCUS"
+          caption={focusCaption}
+          onClick={focusOnClick}
+        />
+      </div>
+
+      {/* Pipeline visualization */}
+      {data.meta.hasContacts && data.pipelineStats && (
+        <PipelineBar
+          active={data.pipelineStats.active}
+          needsAttention={data.pipelineStats.needsAttention}
+          done={data.pipelineStats.done}
+          total={data.pipelineStats.totalContacts}
+          onClick={() => goToTracker()}
+        />
       )}
 
-      {/* Section 2: Follow-ups due */}
-      {data.followUps.length > 0 && (
-        <div style={{
-          padding: "12px 16px",
-          borderRadius: 8,
-          background: "var(--surface)",
-          border: "1px solid var(--line)",
-          borderLeftColor: "#F59E0B",
-          borderLeftWidth: 3,
-        }}>
-          <SectionHeader icon={Clock} title="Follow-ups due" count={data.followUps.length} color="#F59E0B" />
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {data.followUps.map((fu) => (
-              <button
-                key={fu.contactId}
-                onClick={() => goToContact(fu.contactId)}
-                style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: "8px 12px", borderRadius: 6,
-                  border: "1px solid var(--line)", background: "white",
-                  cursor: "pointer", textAlign: "left", width: "100%",
-                }}
-              >
-                <div>
-                  <span style={{ fontSize: 13, fontWeight: 500, color: "var(--ink)" }}>
-                    {fu.contactName}
-                  </span>
-                  {fu.company && (
-                    <span style={{ fontSize: 11, color: "var(--ink-3)", marginLeft: 6 }}>
-                      at {fu.company}
-                    </span>
-                  )}
-                </div>
-                <span style={{ fontSize: 11, color: "var(--ink-3)", flexShrink: 0 }}>
-                  {fu.daysSinceEmail}d ago
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
+      {/* Weekly progress (Pro/Elite when roadmap available) */}
+      {isPro && data.roadmapProgress && (
+        <WeeklyProgress
+          emailsSent={data.roadmapProgress.emailsSent}
+          emailTarget={data.roadmapProgress.emailTarget}
+          repliesReceived={data.roadmapProgress.repliesReceived}
+          replyTarget={data.roadmapProgress.replyTarget}
+          status={data.roadmapProgress.status}
+        />
       )}
 
-      {/* Section 3: Recruiting deadlines */}
+      {/* Ask Scout chips — context-grounded */}
+      <AskScoutChips data={data} onAsk={openPanelWithMessage} />
+
+      {/* Recruiting calendar — pushed below, smaller, fully muted */}
       {data.deadlines.length > 0 && (
-        <div style={{
-          padding: "12px 16px",
-          borderRadius: 8,
-          background: "var(--surface)",
-          border: "1px solid var(--line)",
-          borderLeftColor: "#EF4444",
-          borderLeftWidth: 3,
-        }}>
-          <SectionHeader icon={CalendarClock} title="Recruiting calendar" color="#EF4444" />
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div
+          style={{
+            background: "var(--warm-surface, #FAFBFF)",
+            border: "1px solid var(--line, #E8E4DE)",
+            borderRadius: 8,
+            padding: "14px 18px",
+          }}
+        >
+          <div style={{ marginBottom: 10 }}>
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 500,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: "var(--ink-3, #8A8F9A)",
+                fontFamily: "'JetBrains Mono', monospace",
+              }}
+            >
+              CALENDAR
+            </span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
             {data.deadlines.map((d, i) => (
               <div
                 key={i}
                 style={{
-                  display: "flex", alignItems: "center", gap: 8,
-                  padding: "6px 0", fontSize: 12, color: "var(--ink-2)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  fontSize: 12,
+                  color: "var(--ink-2, #4A4F5B)",
                 }}
               >
-                <span style={{
-                  fontSize: 10, fontWeight: 600, textTransform: "uppercase",
-                  padding: "2px 6px", borderRadius: 4,
-                  background: d.urgency === "urgent" ? "#FEE2E2" : d.urgency === "upcoming" ? "#FEF3C7" : "#F3F4F6",
-                  color: d.urgency === "urgent" ? "#DC2626" : d.urgency === "upcoming" ? "#D97706" : "#6B7280",
-                }}>
+                <span
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 500,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.06em",
+                    padding: "2px 6px",
+                    borderRadius: 3,
+                    background:
+                      d.urgency === "urgent"
+                        ? "rgba(120, 53, 15, 0.06)"
+                        : d.urgency === "upcoming"
+                          ? "rgba(120, 53, 15, 0.04)"
+                          : "rgba(15, 23, 42, 0.04)",
+                    color:
+                      d.urgency === "urgent"
+                        ? "#7C2D12"
+                        : d.urgency === "upcoming"
+                          ? "#78350F"
+                          : "var(--ink-3, #8A8F9A)",
+                    fontFamily: "'JetBrains Mono', monospace",
+                  }}
+                >
                   {d.urgency}
                 </span>
                 <span>{d.event}</span>
               </div>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* Section 4: Roadmap progress (Pro/Elite) */}
-      {isPro && data.roadmapProgress && (
-        <div style={{
-          padding: "12px 16px",
-          borderRadius: 8,
-          background: "var(--surface)",
-          border: "1px solid var(--line)",
-          borderLeftColor: "#10B981",
-          borderLeftWidth: 3,
-        }}>
-          <SectionHeader icon={Target} title="Roadmap progress" color="#10B981" />
-          <RoadmapProgress data={data.roadmapProgress} />
-        </div>
-      )}
-
-      {/* Pro/Elite CTA for roadmap if not available */}
-      {isPro && !data.roadmapProgress && data.meta.hasContacts && (
-        <div style={{
-          padding: "12px 16px",
-          borderRadius: 8,
-          background: "var(--surface)",
-          border: "1px dashed var(--line)",
-          textAlign: "center",
-        }}>
-          <Target style={{ width: 16, height: 16, color: "#10B981", margin: "0 auto 6px" }} />
-          <p style={{ fontSize: 12, color: "var(--ink-3)", margin: 0 }}>
-            Generate your networking roadmap to track weekly progress
-          </p>
-        </div>
-      )}
-
-      {/* Pipeline stats summary */}
-      {data.meta.hasContacts && (
-        <div style={{
-          display: "flex", justifyContent: "center", gap: 16,
-          padding: "8px 0", fontSize: 11, color: "var(--ink-3)",
-        }}>
-          <span>{data.pipelineStats.active} active</span>
-          <span style={{ color: "var(--line)" }}>|</span>
-          <span>{data.pipelineStats.needsAttention} needs attention</span>
-          <span style={{ color: "var(--line)" }}>|</span>
-          <span>{data.pipelineStats.done} done</span>
         </div>
       )}
     </div>
