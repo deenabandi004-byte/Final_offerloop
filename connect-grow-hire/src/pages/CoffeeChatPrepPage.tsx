@@ -687,7 +687,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                   padding: '14px 18px',
                   border: '1.5px solid var(--warm-border, #E8E4DE)',
                   borderRadius: 14,
-                  background: 'var(--warm-surface, #FAF9F6)',
+                  background: 'var(--warm-surface, #FAFBFF)',
                   transition: 'all .15s',
                   marginBottom: 12,
                 }}
@@ -1062,7 +1062,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                                 {groupedPreps.inProgress.map((prep) => (
                                   <div
                                     key={prep.id}
-                                    style={{ padding: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--warm-surface, #FAF9F6)', border: '1px solid var(--warm-border, #E8E4DE)', borderRadius: 12 }}
+                                    style={{ padding: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--warm-surface, #FAFBFF)', border: '1px solid var(--warm-border, #E8E4DE)', borderRadius: 12 }}
                                   >
                                     <div>
                                       <p style={{ fontWeight: 500, color: '#1A1714' }}>{prep.contactName}</p>

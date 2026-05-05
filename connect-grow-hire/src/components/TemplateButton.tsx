@@ -20,53 +20,40 @@ export const TemplateButton: React.FC<TemplateButtonProps> = ({ template, onClic
         display: "inline-flex",
         alignItems: "center",
         gap: 0,
-        padding: "9px 14px",
-        border: "1px solid var(--ink)",
+        padding: "8px 12px",
+        border: "1px solid var(--line, #E5E5E0)",
         borderRadius: 10,
         background: "var(--paper)",
         cursor: "pointer",
         fontFamily: "inherit",
         transition: "all .15s",
+        color: "var(--ink, #111318)",
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = "var(--accent)";
-        e.currentTarget.style.boxShadow = "var(--shadow-sm)";
+        e.currentTarget.style.borderColor = "var(--brand-blue, #3B82F6)";
+        e.currentTarget.style.color = "var(--brand-blue, #3B82F6)";
+        e.currentTarget.style.boxShadow = "0 0 0 3px rgba(59,130,246,0.08)";
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = "var(--ink)";
+        e.currentTarget.style.borderColor = "var(--line, #E5E5E0)";
+        e.currentTarget.style.color = "var(--ink, #111318)";
         e.currentTarget.style.boxShadow = "none";
       }}
     >
-      <Mail style={{ width: 13, height: 13, color: "var(--ink-2)", marginRight: 8 }} />
-      <span
-        style={{
-          fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 10,
-          textTransform: "uppercase",
-          letterSpacing: "0.14em",
-          color: "var(--ink-3)",
-        }}
-      >
-        Email
+      <Mail style={{ width: 13, height: 13, color: "currentColor", opacity: 0.7, marginRight: 8 }} />
+      <span style={{ fontSize: 12, color: "currentColor", opacity: 0.6, marginRight: 6 }}>
+        Email template
       </span>
-      <span
-        style={{
-          width: 1,
-          height: 14,
-          background: "var(--line)",
-          margin: "0 10px",
-        }}
-      />
-      <span style={{ fontSize: 12, color: "var(--ink)", fontWeight: 500 }}>
+      <span style={{ fontSize: 12, color: "currentColor", fontWeight: 500 }}>
         {purpose}
       </span>
-      <span style={{ margin: "0 4px", fontSize: 11, color: "var(--ink-3)" }}>
+      <span style={{ margin: "0 4px", fontSize: 11, color: "currentColor", opacity: 0.55 }}>
         &middot;
       </span>
-      <span style={{ fontSize: 12, color: "var(--ink)", fontWeight: 500 }}>
+      <span style={{ fontSize: 12, color: "currentColor", fontWeight: 500 }}>
         {style}
       </span>
-      <ChevronDown style={{ width: 12, height: 12, color: "var(--ink-3)", marginLeft: 8 }} />
+      <ChevronDown style={{ width: 12, height: 12, color: "currentColor", opacity: 0.6, marginLeft: 8 }} />
     </button>
   );
 };

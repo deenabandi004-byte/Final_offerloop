@@ -57,6 +57,9 @@ const ResumePage = React.lazy(() => import("./pages/ResumePage"));
 const CoverLetterPage = React.lazy(() => import("./pages/CoverLetterPage"));
 // New Lovable Onboarding Flow
 const OnboardingFlow = React.lazy(() => import("./pages/OnboardingFlow").then(m => ({ default: m.OnboardingFlow })));
+// Dev-only preview routes (no auth) for design iteration on the new Profile page
+// and onboarding flow. See docs/PROFILE_ONBOARDING_SPEC.md.
+const ProfilePreview = React.lazy(() => import("./pages/ProfilePreview"));
 const DataStats = React.lazy(() => import("./pages/DataStats"));
 // SEO Landing Pages
 const CompareHandshake = React.lazy(() => import("./pages/CompareHandshake"));
@@ -246,9 +249,29 @@ const AppRoutes: React.FC = () => {
       />
       <Route path="/onboarding/*" element={<Navigate to="/onboarding" replace />} />
 
+      {/* Dev preview routes — no auth, no protection. For visual iteration only.
+          See docs/PROFILE_ONBOARDING_SPEC.md. */}
+      <Route
+        path="/dev/profile-preview"
+        element={
+          <Suspense fallback={<PageLoader />}>
+            <ProfilePreview />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/dev/onboarding-preview"
+        element={
+          <Suspense fallback={<PageLoader />}>
+            <OnboardingFlow onComplete={() => { /* preview only — no save */ }} />
+          </Suspense>
+        }
+      />
+
       {/* Protected App Pages - Wrapped in Suspense for lazy loading */}
       <Route path="/dashboard" element={<Navigate to="/find" replace />} />
       <Route path="/find" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><FindPage /></Suspense></ProtectedRoute>} />
+      <Route path="/profile" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ProfilePreview /></Suspense></ProtectedRoute>} />
       <Route path="/my-network" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><MyNetworkPage /></Suspense></ProtectedRoute>} />
       <Route path="/my-network/:tab" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><MyNetworkPage /></Suspense></ProtectedRoute>} />
       <Route path="/contact-search" element={<Navigate to="/find" replace />} />

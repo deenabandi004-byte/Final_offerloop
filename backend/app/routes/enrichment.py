@@ -1,15 +1,22 @@
 """
 Enrichment routes - autocomplete, job title enrichment, and LinkedIn profile enrichment
 """
+import logging
 from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify
 import traceback
 
+logger = logging.getLogger(__name__)
+
 from app.extensions import require_firebase_auth, get_db
 from app.services.pdl_client import get_autocomplete_suggestions, enrich_job_title_with_pdl
+from app.services.resume_parser import extract_text_from_file
+from app.services.resume_capabilities import is_valid_resume_file, get_file_extension
+from app.utils.users import parse_resume_info
 from app.utils.linkedin_enrichment import (
     normalize_linkedin_url,
     enrich_linkedin_with_fallback,
+    get_enrichment_tiers,
     llm_enrich_profile,
     merge_linkedin_into_resume_parsed,
 )
@@ -142,8 +149,16 @@ def enrich_linkedin_for_onboarding():
         # Check for cached enrichment (per-user, keyed by uid via user_ref)
         # Only return cache if the stored URL matches the requested URL.
         # This prevents returning stale data if the user changes their LinkedIn URL.
-        user_doc = user_ref.get()
-        user_data = user_doc.to_dict() if user_doc.exists else {}
+        # If Firestore is transiently unreachable, skip the cache check and proceed
+        # to a fresh enrichment rather than failing the entire request.
+        user_data = {}
+        try:
+            user_doc = user_ref.get(timeout=8.0)
+            user_data = user_doc.to_dict() if user_doc.exists else {}
+        except Exception as cache_err:
+            logger.warning(
+                f"[LinkedIn Enrich] Firestore cache read failed (proceeding with fresh enrichment): {cache_err}"
+            )
 
         if user_data.get('linkedinEnrichmentData') and user_data.get('linkedinUrl') == normalized:
             cached_parsed = user_data.get('linkedinResumeParsed', {})
@@ -169,15 +184,48 @@ def enrich_linkedin_for_onboarding():
                 },
             })
 
-        # Run enrichment chain: PDL → Bright Data
-        raw_data, source = enrich_linkedin_with_fallback(normalized)
-        if not raw_data:
-            return jsonify({'success': False, 'enriched': False, 'error': 'Could not fetch LinkedIn profile'}), 200
+        # Loop through scrape-first tiers (Jina → Bright Data → PDL), running LLM
+        # structuring on each tier's output and falling through if the structured
+        # result lacks a usable name (e.g. Jina was served a LinkedIn login wall).
+        # Self-enrichment for college students: direct scrapes win when they work,
+        # PDL is the floor.
+        raw_data = None
+        source = ""
+        linkedin_parsed = None
+        attempted_sources = []
 
-        # LLM structuring
-        linkedin_parsed = llm_enrich_profile(raw_data, source)
-        if not linkedin_parsed or not linkedin_parsed.get('name'):
-            return jsonify({'success': False, 'enriched': False, 'error': 'Failed to structure profile data'}), 200
+        for tier in get_enrichment_tiers(prefer_scrape=True):
+            try:
+                tier_data, tier_source = tier(normalized)
+            except Exception as tier_err:
+                logger.warning(f"[LinkedIn Enrich] Tier raised: {tier_err}")
+                continue
+            if not tier_data:
+                continue
+
+            attempted_sources.append(tier_source)
+            structured = llm_enrich_profile(tier_data, tier_source)
+            if structured and structured.get('name'):
+                raw_data = tier_data
+                source = tier_source
+                linkedin_parsed = structured
+                break
+
+            logger.info(
+                f"[LinkedIn Enrich] {tier_source} returned data but LLM extracted no name "
+                f"(likely login wall / blocked); trying next tier"
+            )
+
+        if not raw_data or not linkedin_parsed:
+            tried = ', '.join(attempted_sources) if attempted_sources else 'no sources'
+            return jsonify({
+                'success': False,
+                'enriched': False,
+                'error': (
+                    'Could not extract profile data — LinkedIn may be blocking automated access '
+                    f'for this profile (tried: {tried}).'
+                ),
+            }), 200
 
         # Write enrichment metadata to Firestore
         enrichment_update = {
@@ -198,7 +246,15 @@ def enrich_linkedin_for_onboarding():
             # No resume — LinkedIn becomes the resumeParsed
             enrichment_update['resumeParsed'] = linkedin_parsed
 
-        user_ref.set(enrichment_update, merge=True)
+        try:
+            user_ref.set(enrichment_update, merge=True, timeout=15.0)
+        except Exception as write_err:
+            logger.error(f"[LinkedIn Enrich] Firestore write failed: {write_err}")
+            return jsonify({
+                'success': False,
+                'enriched': False,
+                'error': 'Enrichment fetched but could not save — please retry.',
+            }), 200
 
         # Extract profile + academics for frontend auto-fill
         edu = linkedin_parsed.get('education', {}) if isinstance(linkedin_parsed, dict) else {}
@@ -257,4 +313,467 @@ def _handle_merge_only(user_ref):
         print(f"[LinkedIn Merge] Error: {e}")
         traceback.print_exc()
         return jsonify({'success': False, 'merged': False, 'error': 'Merge failed'}), 200
+
+
+# ── School hometown lookup ──────────────────────────────────────────────────
+#
+# The frontend's static SCHOOL_HOMETOWN_LOCATION map only covers ~30 elite-tier
+# schools. For everything else — international schools (Bocconi, LSE, HEC),
+# regional US schools (Louisville, Ball State, Adams State, etc.), community
+# colleges — we ask an LLM where the school's primary campus is and cache
+# the result in Firestore so it only costs us one OpenAI call ever.
+
+@enrichment_bp.route('/school/lookup', methods=['GET'])
+@require_firebase_auth
+def school_lookup():
+    """Resolve a school name → primary campus location. Cached forever."""
+    import json as _json
+    import re as _re_inner
+
+    school = (request.args.get('school') or '').strip()
+    if not school:
+        return jsonify({'error': 'school param required'}), 400
+    if len(school) > 200:
+        school = school[:200]
+
+    cache_key = _re_inner.sub(r'[^a-z0-9]+', '_', school.lower()).strip('_')[:128]
+    if not cache_key:
+        return jsonify({'error': 'invalid school name'}), 400
+
+    db = get_db()
+    cache_ref = db.collection('school_hometown_cache').document(cache_key)
+
+    # Cache hit
+    try:
+        snap = cache_ref.get(timeout=6.0)
+        if snap.exists:
+            data = snap.to_dict() or {}
+            if data.get('formatted'):
+                return jsonify(data)
+    except Exception as cache_err:
+        logger.warning(f"[School Lookup] cache read failed: {cache_err}")
+
+    # Cache miss → LLM lookup
+    try:
+        try:
+            from app.services.openai_client import client as openai_client
+        except ImportError:
+            from backend.app.services.openai_client import client as openai_client
+        if not openai_client:
+            return jsonify({'error': 'LLM unavailable'}), 503
+
+        prompt = (
+            "You are a geography lookup. Return JSON with the primary campus "
+            "location of the university or school named below.\n\n"
+            "Schema: {\"city\": \"City Name\", \"state_or_region\": \"State or Region (US: full state name; international: leave empty if not applicable)\", \"country\": \"Country\", \"valid\": true/false}\n\n"
+            "Rules:\n"
+            "- If the school is real, set valid=true.\n"
+            "- If you cannot identify the school with high confidence, set valid=false and leave fields empty.\n"
+            "- For US schools, use full state name (\"California\", not \"CA\").\n"
+            "- For international, leave state_or_region empty unless the school is in a clearly named region (\"Lombardy\", \"Ontario\").\n"
+            "- Output ONLY the JSON object.\n\n"
+            f"School: {school}"
+        )
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "system", "content": prompt}],
+            temperature=0.0,
+            max_tokens=200,
+            response_format={"type": "json_object"},
+        )
+        content = response.choices[0].message.content.strip()
+        parsed = _json.loads(content)
+
+        if not parsed.get('valid') or not parsed.get('city'):
+            result = {'valid': False, 'formatted': '', 'city': '', 'state_or_region': '', 'country': ''}
+        else:
+            city = (parsed.get('city') or '').strip()
+            country = (parsed.get('country') or '').strip()
+            state = (parsed.get('state_or_region') or '').strip()
+            if country and country.lower() in ('united states', 'usa', 'us'):
+                # US format: "City, ST"
+                state_abbr = _state_abbr(state)
+                formatted = f"{city}, {state_abbr}" if state_abbr else city
+            elif country:
+                formatted = f"{city}, {country}"
+            else:
+                formatted = city
+            result = {
+                'valid': True,
+                'formatted': formatted,
+                'city': city,
+                'state_or_region': state,
+                'country': country,
+            }
+
+        try:
+            cache_ref.set(result, merge=True, timeout=8.0)
+        except Exception as cache_err:
+            logger.warning(f"[School Lookup] cache write failed: {cache_err}")
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"[School Lookup] {e}")
+        return jsonify({'error': str(e), 'valid': False, 'formatted': ''}), 200
+
+
+_STATE_ABBR_MAP = {
+    'alabama': 'AL', 'alaska': 'AK', 'arizona': 'AZ', 'arkansas': 'AR',
+    'california': 'CA', 'colorado': 'CO', 'connecticut': 'CT', 'delaware': 'DE',
+    'florida': 'FL', 'georgia': 'GA', 'hawaii': 'HI', 'idaho': 'ID',
+    'illinois': 'IL', 'indiana': 'IN', 'iowa': 'IA', 'kansas': 'KS',
+    'kentucky': 'KY', 'louisiana': 'LA', 'maine': 'ME', 'maryland': 'MD',
+    'massachusetts': 'MA', 'michigan': 'MI', 'minnesota': 'MN', 'mississippi': 'MS',
+    'missouri': 'MO', 'montana': 'MT', 'nebraska': 'NE', 'nevada': 'NV',
+    'new hampshire': 'NH', 'new jersey': 'NJ', 'new mexico': 'NM', 'new york': 'NY',
+    'north carolina': 'NC', 'north dakota': 'ND', 'ohio': 'OH', 'oklahoma': 'OK',
+    'oregon': 'OR', 'pennsylvania': 'PA', 'rhode island': 'RI', 'south carolina': 'SC',
+    'south dakota': 'SD', 'tennessee': 'TN', 'texas': 'TX', 'utah': 'UT',
+    'vermont': 'VT', 'virginia': 'VA', 'washington': 'WA', 'west virginia': 'WV',
+    'wisconsin': 'WI', 'wyoming': 'WY', 'district of columbia': 'DC',
+}
+
+
+def _state_abbr(state: str) -> str:
+    if not state:
+        return ''
+    return _STATE_ABBR_MAP.get(state.strip().lower(), state.strip())
+
+
+# ── School detection from free-text prompt ──────────────────────────────────
+#
+# Frontend SCHOOL_ALIASES has elite tier (USC, NYU, MIT...). universities.ts
+# has 1019 US entries — missing University of Louisville, Bocconi, LSE, IE,
+# HEC, IIT Bombay, and ~thousands of others.
+#
+# This endpoint asks an LLM "did the user mention a school here?", handles
+# typos ("louiville" → University of Louisville), accepts international and
+# regional schools, and returns canonical name + city in one round-trip.
+# Cached by prompt-hash in Firestore so repeated queries don't re-spend.
+
+@enrichment_bp.route('/search/detect-school', methods=['POST'])
+@require_firebase_auth
+def detect_school():
+    """LLM-backed school detection for prompts our static lexicon misses."""
+    import json as _json
+    import hashlib as _hashlib
+
+    payload = request.get_json() or {}
+    prompt = (payload.get('prompt') or '').strip()
+    if len(prompt) < 8 or len(prompt) > 500:
+        return jsonify({'detected': False})
+
+    cache_key = _hashlib.sha256(prompt.lower().encode('utf-8')).hexdigest()[:32]
+    db = get_db()
+    cache_ref = db.collection('school_detect_cache').document(cache_key)
+
+    try:
+        snap = cache_ref.get(timeout=6.0)
+        if snap.exists:
+            return jsonify(snap.to_dict() or {'detected': False})
+    except Exception as cache_err:
+        logger.warning(f"[Detect School] cache read failed: {cache_err}")
+
+    try:
+        try:
+            from app.services.openai_client import client as openai_client
+        except ImportError:
+            from backend.app.services.openai_client import client as openai_client
+        if not openai_client:
+            return jsonify({'detected': False})
+
+        system_prompt = (
+            "Identify if the user's networking-search prompt mentions a specific "
+            "university, college, or school. Tolerate typos (louiville → "
+            "University of Louisville). Tolerate abbreviations the user might use "
+            "(u of l, ttu, asu, etc.). Recognize international schools (Bocconi, "
+            "LSE, IE Business School, HEC Paris, IIT Bombay, NUS, etc.).\n\n"
+            "Output JSON ONLY:\n"
+            "{\n"
+            "  \"detected\": true|false,\n"
+            "  \"school\": \"Canonical full school name\" or null,\n"
+            "  \"matched\": \"the substring from the user's prompt that suggested this school\" or null,\n"
+            "  \"city\": \"Primary campus city\" or null,\n"
+            "  \"state_or_region\": \"US state full name; or international region (empty if none)\" or null,\n"
+            "  \"country\": \"Country\" or null\n"
+            "}\n\n"
+            "Rules:\n"
+            "- detected=false unless you're confident a school is named.\n"
+            "- For US schools: use full state name; for international, leave state_or_region empty unless explicit.\n"
+            "- Output ONLY the JSON object.\n"
+        )
+        user_msg = f"Prompt: {prompt}"
+
+        response = openai_client.chat.completions.create(
+            model='gpt-4o-mini',
+            messages=[
+                {'role': 'system', 'content': system_prompt},
+                {'role': 'user', 'content': user_msg},
+            ],
+            temperature=0.0,
+            max_tokens=250,
+            response_format={'type': 'json_object'},
+        )
+        parsed = _json.loads(response.choices[0].message.content.strip())
+
+        if not parsed.get('detected') or not parsed.get('school'):
+            result = {'detected': False, 'formatted': '', 'school': '', 'matched': ''}
+        else:
+            city = (parsed.get('city') or '').strip()
+            country = (parsed.get('country') or '').strip()
+            state = (parsed.get('state_or_region') or '').strip()
+            if country and country.lower() in ('united states', 'usa', 'us'):
+                state_abbr = _state_abbr(state)
+                formatted = f"{city}, {state_abbr}" if (city and state_abbr) else city
+            elif country and city:
+                formatted = f"{city}, {country}"
+            else:
+                formatted = city or ''
+            result = {
+                'detected': True,
+                'school': (parsed.get('school') or '').strip(),
+                'matched': (parsed.get('matched') or '').strip(),
+                'city': city,
+                'state_or_region': state,
+                'country': country,
+                'formatted': formatted,
+            }
+
+        try:
+            cache_ref.set(result, merge=True, timeout=8.0)
+        except Exception as cache_err:
+            logger.warning(f"[Detect School] cache write failed: {cache_err}")
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"[Detect School] {e}")
+        return jsonify({'detected': False, 'error': str(e)}), 200
+
+
+# ── Direction extraction ────────────────────────────────────────────────────
+#
+# Takes the user's free-text career narrative ("I'm good with numbers but hate
+# spreadsheets, like talking to people…") and returns structured chips:
+# industries, roles, firms, locations, and recruiting cycle. The chips become
+# the receipt the user sees and edits below the textarea on the Profile page.
+#
+# Conservative by design — better to leave a slot empty than hallucinate.
+
+DIRECTION_EXTRACTION_PROMPT = """You are a career-direction interpreter for college students recruiting for internships and full-time roles. Read their narrative and produce a complete, opinionated picture of where they're aimed.
+
+YOUR JOB IS TO INTERPRET, NOT JUST EXTRACT.
+
+The student is describing their strengths, interests, and preferences in plain English. Combine stated AND implied signals. Don't just match surface keywords — synthesize.
+
+EXAMPLES OF SYNTHESIS:
+- "Good with people" + "finance experience" + "startup vibe" → FinTech, Venture Capital, Sales / BD, Tech — Startup; roles: Growth Analyst, Business Development Analyst, Product Manager, VC Analyst, Customer Success Associate.
+- "Numbers but hate spreadsheets" + "talking to people" → Sales / BD, Tech — Startup, Marketing, Consulting (Strategy); roles: Account Executive, Sales Development Representative, Strategy Analyst, Customer Success Associate, Growth Analyst.
+- "Want to ship fast" + "small team" + "AI" → Tech — Startup, AI / ML, Developer Tools; roles: Product Engineer, Forward-Deployed Engineer, Software Engineer, ML Engineer, Founding Engineer.
+- "Math major, intellectually rigorous, like markets" → Quant Trading, Hedge Funds, Investment Banking; roles: Quant Researcher, Trading Analyst, Equity Research Analyst, Investment Banking Analyst.
+
+OUTPUT QUALITY BAR:
+- 3–5 industries — broad enough to give the student a real picture, specific enough to be useful. Cover plausible adjacent fits, not just one literal match.
+- 4–6 specific entry-level / new-grad role titles — concrete job titles a student would search for, e.g., "Investment Banking Analyst" not "finance role". Mix conventional and adjacent roles.
+- An empty list is acceptable ONLY if the narrative truly contains no signal in that dimension (e.g., student didn't mention any firms by name → firms: []).
+- Bias toward expanding the student's view: if they say "BD at a tech company", also consider Account Executive, Customer Success Associate, Growth Analyst — the related roles they may not have named.
+
+CRITICAL RULES:
+1. Output ONLY valid JSON. No markdown, no preamble, no explanation.
+2. Industries MUST come from this list (use exact strings):
+   ["Investment Banking", "Consulting (MBB)", "Consulting (Big 4)", "Consulting (Strategy)",
+    "Tech — Big", "Tech — Startup", "Private Equity", "Venture Capital", "Hedge Funds",
+    "Quant Trading", "FinTech", "Healthcare", "AI / ML", "Developer Tools", "Marketing",
+    "Sales / BD", "Product Management", "Real Estate", "Energy", "Media & Entertainment",
+    "Government / Policy", "Nonprofit"]
+3. Roles can be free-form but should be STANDARD job-title strings a student would see on a posting. Don't make up creative titles.
+4. Firms — only company names the user explicitly mentioned by name. Don't invent.
+5. Locations — only cities/regions the user mentioned. Don't invent.
+6. recruitingCycle — one of "summer-sa", "fulltime", "off-cycle", "exploring", or null.
+7. cycleYear — number only if user mentions a year (e.g., "2027"). Else null.
+
+OUTPUT SCHEMA:
+{
+  "industries": ["string"],
+  "roles": ["string"],
+  "firms": ["string"],
+  "locations": ["string"],
+  "recruitingCycle": "summer-sa | fulltime | off-cycle | exploring | null",
+  "cycleYear": null
+}
+
+NARRATIVE:
+"""
+
+
+@enrichment_bp.route('/extract-direction', methods=['POST'])
+@require_firebase_auth
+def extract_direction():
+    """LLM-extract industries/roles/firms/locations/cycle from a career narrative."""
+    import json as _json
+    try:
+        try:
+            from app.services.openai_client import client as openai_client
+        except ImportError:
+            from backend.app.services.openai_client import client as openai_client
+        if not openai_client:
+            return jsonify({'success': False, 'error': 'LLM unavailable'}), 503
+
+        data = request.get_json() or {}
+        narrative = (data.get('narrative') or '').strip()
+        if len(narrative) < 8:
+            return jsonify({'success': False, 'error': 'Narrative too short — write at least a sentence.'}), 400
+
+        response = openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "system", "content": DIRECTION_EXTRACTION_PROMPT + narrative}],
+            temperature=0.3,
+            max_tokens=700,
+            response_format={"type": "json_object"},
+        )
+        content = response.choices[0].message.content.strip()
+        extracted = _json.loads(content)
+
+        # Light sanity-clean: strings only, dedupe
+        def _strs(v):
+            if not isinstance(v, list):
+                return []
+            seen = set()
+            out = []
+            for item in v:
+                if isinstance(item, str) and item.strip():
+                    s = item.strip()
+                    if s.lower() not in seen:
+                        out.append(s)
+                        seen.add(s.lower())
+            return out
+
+        clean = {
+            'industries': _strs(extracted.get('industries')),
+            'roles': _strs(extracted.get('roles')),
+            'firms': _strs(extracted.get('firms')),
+            'locations': _strs(extracted.get('locations')),
+            'recruitingCycle': extracted.get('recruitingCycle') if extracted.get('recruitingCycle') in ('summer-sa', 'fulltime', 'off-cycle', 'exploring') else None,
+            'cycleYear': extracted.get('cycleYear') if isinstance(extracted.get('cycleYear'), (int, float)) else None,
+        }
+        return jsonify({'success': True, 'extracted': clean})
+
+    except Exception as e:
+        logger.error(f"[Extract Direction] {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ── LinkedIn PDF upload ─────────────────────────────────────────────────────
+#
+# LinkedIn lets every user export their own profile as a PDF directly from the
+# site (More menu → Save to PDF). The PDF is a clean, full-text export of
+# everything visible: about, all experience with bullets, education, skills,
+# certifications, recommendations, etc. It's the most reliable LinkedIn data
+# source we have because it bypasses LinkedIn's anti-scrape defenses entirely
+# (the user is exporting their own data with their own session).
+#
+# We reuse the existing resume parsing pipeline (PDF → text → structured)
+# and store the result under LinkedIn-specific fields.
+
+@enrichment_bp.route('/parse-linkedin-pdf', methods=['POST'])
+@require_firebase_auth
+def parse_linkedin_pdf():
+    """Parse a LinkedIn-exported PDF, store under linkedin* fields, merge into resume."""
+    try:
+        from datetime import datetime as _dt
+        from firebase_admin import storage as fb_storage
+
+        uid = request.firebase_user['uid']
+        db = get_db()
+        user_ref = db.collection('users').document(uid)
+
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'No PDF file provided'}), 400
+        file = request.files['file']
+        if not file.filename:
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+        if not is_valid_resume_file(file.filename, file.mimetype):
+            return jsonify({'success': False, 'error': 'Please upload a PDF, DOC, or DOCX file.'}), 400
+
+        ext = get_file_extension(file.filename, file.mimetype)
+        text = extract_text_from_file(file, ext)
+        if not text or len(text) < 200:
+            return jsonify({'success': False, 'error': 'Could not extract text from this PDF.'}), 400
+
+        parsed = parse_resume_info(text)
+        if not parsed or not parsed.get('name'):
+            return jsonify({
+                'success': False,
+                'error': 'Could not identify a profile in this PDF. Make sure it is a LinkedIn profile export.',
+            }), 400
+
+        # Upload PDF to Storage at resumes/{uid}/linkedin/* (existing storage rule prefix)
+        pdf_url = None
+        try:
+            bucket = fb_storage.bucket()
+            blob = bucket.blob(f'resumes/{uid}/linkedin/{int(_dt.now().timestamp())}-{file.filename}')
+            file.seek(0)
+            blob.upload_from_file(file, content_type='application/pdf')
+            blob.make_public()
+            pdf_url = blob.public_url
+        except Exception as e:
+            logger.warning(f"[LinkedIn PDF] Storage upload failed (continuing): {e}")
+
+        # Build update — LinkedIn-specific fields, resumeParsed merged if a resume already exists
+        update = {
+            'linkedinResumeParsed': parsed,
+            'linkedinEnrichmentSource': 'user_pdf',
+            'linkedinEnrichedAt': datetime.now(timezone.utc).isoformat(),
+            'linkedinPdfUrl': pdf_url or '',
+            'linkedinPdfFileName': file.filename,
+        }
+
+        # If the PDF surfaced a LinkedIn URL and the user doesn't have one stored, capture it
+        try:
+            existing_doc = user_ref.get(timeout=8.0)
+            existing = existing_doc.to_dict() if existing_doc.exists else {}
+        except Exception as e:
+            logger.warning(f"[LinkedIn PDF] Pre-read failed: {e}")
+            existing = {}
+
+        contact = parsed.get('contact') or {}
+        extracted_url = (contact.get('linkedin') or '').strip()
+        if extracted_url and not existing.get('linkedinUrl'):
+            normalized = extracted_url if extracted_url.startswith('http') else f'https://{extracted_url}'
+            update['linkedinUrl'] = normalized
+
+        # Merge the LinkedIn-derived data into resumeParsed (resume primary)
+        if isinstance(existing.get('resumeParsed'), dict) and existing['resumeParsed'].get('name'):
+            try:
+                merged = merge_linkedin_into_resume_parsed(existing['resumeParsed'], parsed)
+                update['resumeParsed'] = merged
+            except Exception as e:
+                logger.warning(f"[LinkedIn PDF] Merge failed: {e}")
+        else:
+            update['resumeParsed'] = parsed
+
+        try:
+            user_ref.set(update, merge=True, timeout=15.0)
+        except Exception as write_err:
+            logger.error(f"[LinkedIn PDF] Firestore write failed: {write_err}")
+            return jsonify({
+                'success': False,
+                'error': 'Parsed your PDF but could not save — please retry.',
+            }), 200
+
+        return jsonify({
+            'success': True,
+            'enriched': True,
+            'source': 'user_pdf',
+            'profile': {
+                'name': parsed.get('name', ''),
+            },
+        })
+
+    except Exception as e:
+        logger.error(f"[LinkedIn PDF] Unhandled: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': 'Internal error'}), 500
+
 

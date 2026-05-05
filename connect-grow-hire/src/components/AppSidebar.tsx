@@ -12,7 +12,7 @@ import {
   Tag,
   FileText,
   Users,
-  CalendarRange,
+  User,
 } from "lucide-react";
 import CupIcon from "@/assets/sidebaricons/icons8-cup-48.png";
 import MailIcon from "@/assets/sidebaricons/icons8-important-mail-48.png";
@@ -41,8 +41,8 @@ import { cn } from "@/lib/utils";
 // ── Icon helpers ────────────────────────────────────────────────────────────
 
 const IMG_FILTER_ACTIVE =
-  "brightness(0) saturate(100%) invert(14%) sepia(20%) saturate(1200%) hue-rotate(190deg) brightness(30%) contrast(105%)";
-const IMG_FILTER_INACTIVE = "brightness(0) saturate(100%) invert(100%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(100%) contrast(100%) opacity(0.5)";
+  "brightness(0) saturate(100%) invert(63%) sepia(57%) saturate(1188%) hue-rotate(193deg) brightness(101%) contrast(96%)";
+const IMG_FILTER_INACTIVE = "brightness(0) saturate(100%) invert(100%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(100%) contrast(100%) opacity(0.55)";
 
 type NavItemDef = {
   title: string;
@@ -58,29 +58,34 @@ type NavItemDef = {
   | { LucideIcon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; iconSrc?: never }
 );
 
-// CSS filter generators — cool blue/indigo family, vivid
+// CSS filter generators — vivid hues for PNG sidebar icons
 const ICON_FILTERS: Record<string, string> = {
   blue:      "brightness(0) saturate(100%) invert(60%) sepia(90%) saturate(800%) hue-rotate(190deg) brightness(115%) contrast(95%)",
   sky:       "brightness(0) saturate(100%) invert(70%) sepia(60%) saturate(700%) hue-rotate(175deg) brightness(115%) contrast(95%)",
   indigo:    "brightness(0) saturate(100%) invert(55%) sepia(70%) saturate(800%) hue-rotate(210deg) brightness(115%) contrast(95%)",
   slate:     "brightness(0) saturate(100%) invert(65%) sepia(40%) saturate(600%) hue-rotate(190deg) brightness(120%) contrast(90%)",
   brown:     "brightness(0) saturate(100%) invert(35%) sepia(40%) saturate(600%) hue-rotate(350deg) brightness(110%) contrast(90%)",
+  amber:     "brightness(0) saturate(100%) invert(86%) sepia(34%) saturate(900%) hue-rotate(338deg) brightness(101%) contrast(96%)",
+  emerald:   "brightness(0) saturate(100%) invert(73%) sepia(86%) saturate(361%) hue-rotate(101deg) brightness(96%) contrast(91%)",
+  rose:      "brightness(0) saturate(100%) invert(60%) sepia(82%) saturate(2358%) hue-rotate(316deg) brightness(101%) contrast(98%)",
+  violet:    "brightness(0) saturate(100%) invert(65%) sepia(43%) saturate(956%) hue-rotate(213deg) brightness(98%) contrast(101%)",
+  teal:      "brightness(0) saturate(100%) invert(78%) sepia(67%) saturate(285%) hue-rotate(122deg) brightness(102%) contrast(91%)",
 };
 
 // Group 1 — main nav
 const mainNavItems: NavItemDef[] = [
-  { title: "Find", url: "/find", iconSrc: MagnifyingGlassIcon },
-  { title: "My Network", url: "/my-network", LucideIcon: Users },
-  { title: "Coffee Chat Prep", url: "/coffee-chat-prep", iconSrc: CupIcon, dataTour: "tour-coffee-chat-prep" },
-  { title: "Tracker", url: "/tracker", iconSrc: MailIcon, dataTour: "tour-track-email" },
-  { title: "Job Board", url: "/job-board", iconSrc: BriefcaseIcon },
-  { title: "Timeline", url: "/recruiting-timeline", LucideIcon: CalendarRange },
+  { title: "Find", url: "/find", iconSrc: MagnifyingGlassIcon, iconColor: "blue" },
+  { title: "Profile", url: "/profile", LucideIcon: User, iconColor: "#818CF8" },
+  { title: "My Network", url: "/my-network", LucideIcon: Users, iconColor: "#A78BFA" },
+  { title: "Coffee Chat Prep", url: "/coffee-chat-prep", iconSrc: CupIcon, iconColor: "amber", dataTour: "tour-coffee-chat-prep" },
+  { title: "Tracker", url: "/tracker", iconSrc: MailIcon, iconColor: "rose", dataTour: "tour-track-email" },
+  { title: "Job Board", url: "/job-board", iconSrc: BriefcaseIcon, iconColor: "emerald" },
 ];
 
 // Utility nav — bottom of sidebar
 const utilityNavItems: NavItemDef[] = [
-  { title: "Pricing", url: "/pricing", LucideIcon: Tag },
-  { title: "Documentation", url: "/documentation", LucideIcon: FileText },
+  { title: "Pricing", url: "/pricing", LucideIcon: Tag, iconColor: "#FCD34D" },
+  { title: "Documentation", url: "/documentation", LucideIcon: FileText, iconColor: "#5EEAD4" },
 ];
 
 
@@ -100,13 +105,13 @@ const NAV_PY = "11px";
 const NAV_GAP = "10px";
 const NAV_RADIUS = "8px";
 
-const ACTIVE_BG = "rgba(255,255,255,1)";
-const ACTIVE_SHADOW = "none";
-const ACTIVE_COLOR = "#1B2A44";
-const INACTIVE_ICON = "rgba(255,255,255,.50)";
-const INACTIVE_LABEL = "rgba(255,255,255,.55)";
-const HOVER_BG = "rgba(255,255,255,.08)";
-const HOVER_LABEL = "rgba(255,255,255,.85)";
+const ACTIVE_BG = "rgba(59,130,246,0.18)";
+const ACTIVE_SHADOW = "inset 2px 0 0 #60A5FA";
+const ACTIVE_COLOR = "#60A5FA";
+const INACTIVE_ICON = "rgba(255,255,255,.55)";
+const INACTIVE_LABEL = "rgba(255,255,255,.70)";
+const HOVER_BG = "rgba(255,255,255,.06)";
+const HOVER_LABEL = "rgba(255,255,255,.92)";
 
 // ── Component ───────────────────────────────────────────────────────────────
 
@@ -513,19 +518,21 @@ export function AppSidebar() {
                 }}
                 className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-[6px] transition-all"
                 style={{
-                  background: "#FFFFFF",
-                  color: "var(--brand, #1B2A44)",
+                  background: "#3B82F6",
+                  color: "#FFFFFF",
                   fontFamily: "var(--font-body)",
                   fontWeight: 600,
                   border: "none",
+                  boxShadow: "0 1px 2px rgba(15,23,42,0.25), inset 0 1px 0 rgba(255,255,255,0.18)",
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.opacity = "0.9";
+                  e.currentTarget.style.background = "#2563EB";
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.opacity = "1";
+                  e.currentTarget.style.background = "#3B82F6";
                 }}
               >
+                <Zap className="h-4 w-4" style={{ color: "#FCD34D", fill: "#FCD34D" }} />
                 <span>Upgrade Plan</span>
               </button>
             </div>
@@ -539,18 +546,19 @@ export function AppSidebar() {
                   }}
                   className="w-full flex items-center justify-center p-2 rounded-[6px] transition-all"
                   style={{
-                    background: "#FFFFFF",
-                    color: "var(--brand, #1B2A44)",
+                    background: "#3B82F6",
+                    color: "#FFFFFF",
                     border: "none",
+                    boxShadow: "0 1px 2px rgba(15,23,42,0.25), inset 0 1px 0 rgba(255,255,255,0.18)",
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.opacity = "0.9";
+                    e.currentTarget.style.background = "#2563EB";
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.opacity = "1";
+                    e.currentTarget.style.background = "#3B82F6";
                   }}
                 >
-                  <Zap className="h-5 w-5" />
+                  <Zap className="h-5 w-5" style={{ color: "#FCD34D", fill: "#FCD34D" }} />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">

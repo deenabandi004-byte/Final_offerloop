@@ -1,12 +1,22 @@
 """
 LinkedIn profile enrichment utilities.
 
-Enrichment chain: PDL → Bright Data → graceful skip.
-LLM enrichment layer structures raw data into resumeParsed format.
+Two enrichment chains:
+
+- Default (`prefer_scrape=False`): PDL → Bright Data — used for *contact lookups*
+  where the target is an established professional (good PDL coverage).
+- Self-enrichment (`prefer_scrape=True`): Jina → Bright Data → PDL — used for
+  the *user's own* LinkedIn during onboarding/profile. Most users are college
+  students with thin PDL records, so direct page scrapes via Jina yield far
+  richer data (full work history, skills, projects, certifications) than PDL.
+
+LLM enrichment layer structures raw data into resumeParsed format
+(source-specific prompts: PDL / Bright Data / Jina markdown).
 Merge logic combines LinkedIn data with existing resume data.
 """
 import json
 import logging
+import os
 import re
 from typing import Optional
 
@@ -99,11 +109,120 @@ def normalize_linkedin_url(url: str) -> str | None:
     return None
 
 
+# ── Enrichment tier helpers ─────────────────────────────────────────────────
+
+def fetch_linkedin_jina(linkedin_url: str) -> dict | None:
+    """
+    Fetch a public LinkedIn profile page via Jina Reader.
+    Returns a wrapper dict { "markdown": str, "url": str } or None.
+    Jina returns a markdown rendering of the page; LLM structures it downstream.
+    """
+    try:
+        import requests
+    except Exception as e:
+        logger.warning(f"[Jina] requests library unavailable: {e}")
+        return None
+
+    jina_url = f"https://r.jina.ai/{linkedin_url}"
+    headers = {}
+    api_key = os.getenv("JINA_API_KEY")
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    try:
+        response = requests.get(jina_url, headers=headers, timeout=20)
+    except Exception as e:
+        logger.warning(f"[Jina] HTTP exception for {linkedin_url}: {e}")
+        return None
+
+    if response.status_code != 200:
+        logger.warning(f"[Jina] HTTP {response.status_code} for {linkedin_url}")
+        return None
+
+    content = response.text or ""
+    if len(content) < 200:
+        logger.warning(f"[Jina] Empty / too-short response for {linkedin_url}")
+        return None
+
+    # Cap to avoid token blowups when the LLM structures it
+    if len(content) > 25000:
+        content = content[:25000] + "\n... [truncated]"
+
+    return {"markdown": content, "url": linkedin_url}
+
+
+def _try_pdl(url: str) -> tuple[dict | None, str]:
+    try:
+        try:
+            from app.services.pdl_client import enrich_linkedin_profile
+        except ImportError:
+            from backend.app.services.pdl_client import enrich_linkedin_profile
+        result = enrich_linkedin_profile(url)
+        if result:
+            logger.info(f"[Enrichment] PDL returned data for: {url}")
+            return result, "pdl"
+    except Exception as e:
+        logger.warning(f"[Enrichment] PDL failed: {e}")
+    return None, ""
+
+
+def _try_brightdata(url: str) -> tuple[dict | None, str]:
+    try:
+        try:
+            from app.services.bright_data_client import fetch_linkedin_profile_brightdata
+        except ImportError:
+            from backend.app.services.bright_data_client import fetch_linkedin_profile_brightdata
+        result = fetch_linkedin_profile_brightdata(url)
+        if result:
+            logger.info(f"[Enrichment] Bright Data returned data for: {url}")
+            return result, "brightdata"
+    except Exception as e:
+        logger.warning(f"[Enrichment] Bright Data failed: {e}")
+    return None, ""
+
+
+def _try_jina(url: str) -> tuple[dict | None, str]:
+    try:
+        result = fetch_linkedin_jina(url)
+        if result:
+            logger.info(f"[Enrichment] Jina returned data for: {url}")
+            return result, "jina"
+    except Exception as e:
+        logger.warning(f"[Enrichment] Jina failed: {e}")
+    return None, ""
+
+
 # ── Enrichment chain ────────────────────────────────────────────────────────
 
-def enrich_linkedin_with_fallback(linkedin_url: str) -> tuple[dict | None, str]:
+def get_enrichment_tiers(prefer_scrape: bool = False):
     """
-    Try PDL first, then Bright Data.
+    Return the ordered list of tier functions for LinkedIn enrichment.
+    Each tier function takes a normalized URL and returns (raw_data, source).
+    Exposed so callers can loop through and validate the LLM-structured output
+    of each tier, falling through if a tier returns content the LLM can't parse
+    (e.g. a LinkedIn login wall served to Jina).
+    """
+    if prefer_scrape:
+        return [_try_jina, _try_brightdata, _try_pdl]
+    return [_try_pdl, _try_brightdata]
+
+
+def enrich_linkedin_with_fallback(
+    linkedin_url: str, prefer_scrape: bool = False
+) -> tuple[dict | None, str]:
+    """
+    Try a tiered enrichment chain.
+
+    prefer_scrape=False (default): PDL → Bright Data
+        Use for contact lookups (the user is researching an established
+        professional whose record PDL has rich coverage of).
+
+    prefer_scrape=True: Jina → Bright Data → PDL
+        Use for the user's own LinkedIn during onboarding/profile. Most users
+        are college students whose PDL records are thin. Direct LinkedIn page
+        scrapes (via Jina markdown rendering) yield richer education, work,
+        skill, and project history. PDL is kept as a last resort.
+
     Returns (raw_data, source) or (None, "").
     """
     normalized = normalize_linkedin_url(linkedin_url)
@@ -111,33 +230,16 @@ def enrich_linkedin_with_fallback(linkedin_url: str) -> tuple[dict | None, str]:
         logger.warning(f"[Enrichment] Invalid LinkedIn URL: {linkedin_url}")
         return None, ""
 
-    # Tier 1: PDL
-    try:
-        try:
-            from app.services.pdl_client import enrich_linkedin_profile
-        except ImportError:
-            from backend.app.services.pdl_client import enrich_linkedin_profile
-        pdl_result = enrich_linkedin_profile(normalized)
-        if pdl_result:
-            logger.info(f"[Enrichment] PDL returned data for: {normalized}")
-            return pdl_result, "pdl"
-        logger.info(f"[Enrichment] PDL returned no data, trying Bright Data")
-    except Exception as e:
-        logger.warning(f"[Enrichment] PDL failed: {e}, trying Bright Data")
+    chain = (
+        [_try_jina, _try_brightdata, _try_pdl]
+        if prefer_scrape
+        else [_try_pdl, _try_brightdata]
+    )
 
-    # Tier 2: Bright Data
-    try:
-        try:
-            from app.services.bright_data_client import fetch_linkedin_profile_brightdata
-        except ImportError:
-            from backend.app.services.bright_data_client import fetch_linkedin_profile_brightdata
-        bd_result = fetch_linkedin_profile_brightdata(normalized)
-        if bd_result:
-            logger.info(f"[Enrichment] Bright Data returned data for: {normalized}")
-            return bd_result, "brightdata"
-        logger.info(f"[Enrichment] Bright Data returned no data")
-    except Exception as e:
-        logger.warning(f"[Enrichment] Bright Data failed: {e}")
+    for tier in chain:
+        result, source = tier(normalized)
+        if result:
+            return result, source
 
     return None, ""
 
@@ -275,6 +377,64 @@ OUTPUT SCHEMA (follow exactly):
 SOURCE DATA (Bright Data LinkedIn scrape):
 """
 
+LLM_PROMPT_JINA = """You are a data extraction assistant. The source below is a markdown-rendered scrape of a public LinkedIn profile page (via Jina Reader). Extract structured data into the exact JSON schema below.
+
+CRITICAL RULES:
+1. Output ONLY valid JSON. No markdown, no preamble, no explanation.
+2. Only include information explicitly present in the source data.
+3. Copy company names, titles, and dates VERBATIM from the source.
+4. For experience bullets: include up to 3 bullets per role IF the source contains achievement / responsibility lines clearly under that role. If the rendered page only shows role titles without descriptions, leave bullets empty. Do NOT invent or paraphrase.
+5. For skills: extract from the Skills section, About section, and clearly mentioned tech in roles. Categorize into technical/tools/soft_skills/languages.
+6. For career_interests: career_interests MUST be populated — infer from headline, current title, industry, education major, and About section. Always return at least 1-2.
+7. For objective: generate a one-line professional summary from the headline (the line under the name) and About section.
+8. For extracurriculars: extract clubs, organizations, leadership roles, volunteer work mentioned anywhere on the page (Activities, Volunteer, About).
+9. For projects: include items the user explicitly lists under Projects, with a one-line description if present.
+10. For certifications: items under Licenses & Certifications.
+11. If a field has no data, use null for strings or [] for arrays.
+
+OUTPUT SCHEMA (follow exactly):
+{
+  "name": "string",
+  "contact": {
+    "email": "string or null",
+    "phone": null,
+    "linkedin": "string or null",
+    "location": "string or null"
+  },
+  "objective": "string or null",
+  "education": {
+    "university": "string or null",
+    "degree": "string or null",
+    "major": "string or null",
+    "graduation": "string or null",
+    "gpa": "string or null"
+  },
+  "experience": [
+    {
+      "title": "string",
+      "company": "string",
+      "dates": "start_date - end_date",
+      "location": "string or null",
+      "bullets": []
+    }
+  ],
+  "skills": {
+    "technical": [],
+    "tools": [],
+    "soft_skills": [],
+    "languages": []
+  },
+  "projects": [],
+  "extracurriculars": [],
+  "certifications": [],
+  "awards": [],
+  "career_interests": []
+}
+
+SOURCE DATA (Jina Reader markdown of the LinkedIn profile):
+"""
+
+
 LLM_PROMPT_PDL = """You are a data extraction assistant. Given a LinkedIn profile enriched by People Data Labs, extract structured data into the exact JSON schema below.
 
 CRITICAL RULES:
@@ -349,22 +509,34 @@ def llm_enrich_profile(raw_data: dict, source: str) -> dict:
         # Select prompt based on source
         if source == "pdl":
             system_prompt = LLM_PROMPT_PDL
+        elif source == "jina":
+            system_prompt = LLM_PROMPT_JINA
         else:
             system_prompt = LLM_PROMPT_BRIGHTDATA
 
-        # Serialize raw data, truncate if extremely large (unlikely but safe)
-        raw_json = json.dumps(raw_data, default=str, ensure_ascii=False)
-        if len(raw_json) > 50000:
-            # Truncate activity array if too large
-            truncated = dict(raw_data)
-            if 'activity' in truncated and isinstance(truncated['activity'], list):
-                truncated['activity'] = truncated['activity'][:10]
-            raw_json = json.dumps(truncated, default=str, ensure_ascii=False)
+        # Build the source-data payload string
+        if source == "jina":
+            # Jina returns a markdown wrapper; pass the markdown directly so the LLM
+            # reads it as page content rather than a JSON object.
+            if isinstance(raw_data, dict):
+                content_str = raw_data.get("markdown", "") or ""
+            else:
+                content_str = str(raw_data)
+            if len(content_str) > 50000:
+                content_str = content_str[:50000] + "\n... [truncated]"
+        else:
+            content_str = json.dumps(raw_data, default=str, ensure_ascii=False)
+            if len(content_str) > 50000:
+                # Truncate activity array if too large
+                truncated = dict(raw_data) if isinstance(raw_data, dict) else {}
+                if 'activity' in truncated and isinstance(truncated['activity'], list):
+                    truncated['activity'] = truncated['activity'][:10]
+                content_str = json.dumps(truncated, default=str, ensure_ascii=False)
 
         response = openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": system_prompt + raw_json},
+                {"role": "system", "content": system_prompt + content_str},
             ],
             temperature=0.0,
             max_tokens=4000,
