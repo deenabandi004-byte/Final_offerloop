@@ -355,7 +355,7 @@ export default function EmailTemplatesPage() {
                           fontWeight: 500,
                           borderRadius: 8,
                           border: isActive ? '1.5px solid #1A1714' : '1px solid var(--warm-border, #E8E4DE)',
-                          background: isActive ? '#1A1714' : 'var(--warm-surface, #FAF9F6)',
+                          background: isActive ? '#1A1714' : 'var(--warm-surface, #FAFBFF)',
                           color: isActive ? '#fff' : '#3B3530',
                           cursor: 'pointer',
                           transition: 'all .15s',
@@ -381,7 +381,7 @@ export default function EmailTemplatesPage() {
                             fontWeight: 500,
                             borderRadius: 8,
                             border: isActive ? '1.5px solid #1A1714' : '1px solid var(--warm-border, #E8E4DE)',
-                            background: isActive ? '#1A1714' : 'var(--warm-surface, #FAF9F6)',
+                            background: isActive ? '#1A1714' : 'var(--warm-surface, #FAFBFF)',
                             color: isActive ? '#fff' : '#3B3530',
                             cursor: 'pointer',
                             transition: 'all .15s',
@@ -433,7 +433,7 @@ export default function EmailTemplatesPage() {
                   padding: '16px 20px',
                   marginBottom: 28,
                   cursor: isMakeYourOwn ? 'default' : 'pointer',
-                  background: isMakeYourOwn ? '#FFFFFF' : 'var(--warm-surface, #FAF9F6)',
+                  background: isMakeYourOwn ? '#FFFFFF' : 'var(--warm-surface, #FAFBFF)',
                   transition: 'all .15s',
                 }}
               >
@@ -512,7 +512,7 @@ export default function EmailTemplatesPage() {
                 width: '100%',
                 borderRadius: 12,
                 border: '1px solid var(--warm-border, #E8E4DE)',
-                background: 'var(--warm-surface, #FAF9F6)',
+                background: 'var(--warm-surface, #FAFBFF)',
                 padding: '16px 20px',
                 marginBottom: 28,
                 opacity: 0.6,
@@ -546,7 +546,7 @@ export default function EmailTemplatesPage() {
                           fontWeight: 500,
                           borderRadius: 8,
                           border: isActive ? '1.5px solid #1A1714' : '1px solid var(--warm-border, #E8E4DE)',
-                          background: isActive ? '#1A1714' : 'var(--warm-surface, #FAF9F6)',
+                          background: isActive ? '#1A1714' : 'var(--warm-surface, #FAFBFF)',
                           color: isActive ? '#fff' : '#3B3530',
                           cursor: 'pointer',
                           transition: 'all .15s',
@@ -569,7 +569,7 @@ export default function EmailTemplatesPage() {
                           fontWeight: 500,
                           borderRadius: 8,
                           border: isActive ? '1.5px solid #1A1714' : '1px solid var(--warm-border, #E8E4DE)',
-                          background: isActive ? '#1A1714' : 'var(--warm-surface, #FAF9F6)',
+                          background: isActive ? '#1A1714' : 'var(--warm-surface, #FAFBFF)',
                           color: isActive ? '#fff' : '#3B3530',
                           cursor: 'pointer',
                           transition: 'all .15s',
@@ -660,7 +660,7 @@ export default function EmailTemplatesPage() {
               {/* Preview */}
               <div style={{
                 borderLeft: '3px solid var(--warm-border, #E8E4DE)',
-                background: 'var(--warm-surface, #FAF9F6)',
+                background: 'var(--warm-surface, #FAFBFF)',
                 borderRadius: '0 12px 12px 0',
                 padding: '16px 20px',
               }}>

@@ -122,7 +122,7 @@ export const RecentTrojanSearches: React.FC<RecentTrojanSearchesProps> = ({ scho
           border-top: 1px solid #EFEDE8 !important;
         }
         .recent-search-row:hover {
-          background: var(--paper-2, #F7F7F5) !important;
+          background: var(--paper-2, #FAFBFF) !important;
         }
         .recent-search-row:focus-visible {
           outline: 2px solid var(--st-accent, #1B2A44);

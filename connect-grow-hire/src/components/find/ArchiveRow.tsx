@@ -38,7 +38,7 @@ export const ArchiveRow: React.FC<ArchiveRowProps> = ({
         transition: "background .12s",
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.background = "var(--paper-2, #F7F7F5)";
+        e.currentTarget.style.background = "var(--paper-2, #FAFBFF)";
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.background = "transparent";

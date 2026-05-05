@@ -51,7 +51,7 @@ export function SmartSuggestions({ onSelect, disabled, hidden }: SmartSuggestion
               padding: "8px 14px",
               borderRadius: 10,
               border: "1px solid var(--warm-border, #E8E4DE)",
-              background: "var(--warm-surface, #FAF9F6)",
+              background: "var(--warm-surface, #FAFBFF)",
               cursor: disabled ? "not-allowed" : "pointer",
               opacity: disabled ? 0.5 : 1,
               transition: "all .15s",

@@ -108,7 +108,7 @@ export const PromptGallery: React.FC<PromptGalleryProps> = ({ ctx, onSelect, onU
             fontSize: 13,
             color: 'var(--ink-2, #4A4F57)',
             padding: '10px 14px',
-            background: 'var(--paper-2, #FAFAF8)',
+            background: 'var(--paper-2, #FAFBFF)',
             border: '1px solid var(--line, #E5E3DE)',
             borderRadius: 6,
             marginBottom: 12,

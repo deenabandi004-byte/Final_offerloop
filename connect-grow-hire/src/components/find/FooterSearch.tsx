@@ -35,7 +35,7 @@ export const FooterSearch: React.FC<FooterSearchProps> = ({
         marginTop: 20,
         transition: "border-color .15s",
       }}
-      className="focus-within:border-[var(--accent)]"
+      className="focus-within:border-[#3B82F6]"
     >
       <Search
         style={{
@@ -67,7 +67,7 @@ export const FooterSearch: React.FC<FooterSearchProps> = ({
           style={{
             fontSize: 12,
             fontWeight: 500,
-            color: "var(--accent, #1B2A44)",
+            color: "var(--brand-blue, #3B82F6)",
             background: "none",
             border: "none",
             cursor: "pointer",

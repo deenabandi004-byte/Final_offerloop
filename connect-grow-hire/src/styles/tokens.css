@@ -11,7 +11,7 @@
   --ink-3: #8A8F9A;
 
   --paper: #FFFFFF;          /* main canvas */
-  --paper-2: #F7F7F5;        /* card fills, subtle surfaces */
+  --paper-2: #FAFBFF;        /* card fills, subtle surfaces — faint blue tint to match Profile */
   --elev: #FFFFFF;
 
   --line: #E5E5E0;

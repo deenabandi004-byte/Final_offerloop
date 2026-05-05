@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ChevronDown, ChevronUp, ArrowRight } from 'lucide-react';
+import { ChevronDown, ChevronUp, ArrowRight, Star } from 'lucide-react';
 import posthog from '@/lib/posthog';
 import { firebaseApi } from '@/services/firebaseApi';
 import {
@@ -17,7 +17,7 @@ function CompanyLogo({ company }: { company: string; accentColor?: string }) {
 
   const tileStyle: React.CSSProperties = {
     width: 32, height: 32, borderRadius: 3,
-    background: 'var(--paper-2, #FAFAF8)',
+    background: 'var(--paper-2, #FAFBFF)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
   };
 
@@ -84,7 +84,7 @@ function FallbackChips({
               cursor: 'pointer', transition: 'all .12s', fontFamily: 'inherit',
               maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               border: `1px solid ${isSelected ? '#3B82F6' : 'var(--warm-border, #E8E4DE)'}`,
-              background: isSelected ? '#3B82F6' : 'var(--warm-surface, #FAF9F6)',
+              background: isSelected ? '#3B82F6' : 'var(--warm-surface, #FAFBFF)',
               color: isSelected ? '#fff' : 'var(--warm-ink-secondary, #6B6560)',
             }}
             onMouseEnter={e => {
@@ -97,7 +97,7 @@ function FallbackChips({
             onMouseLeave={e => {
               if (!isSelected) {
                 (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--warm-border, #E8E4DE)';
-                (e.currentTarget as HTMLButtonElement).style.background = 'var(--warm-surface, #FAF9F6)';
+                (e.currentTarget as HTMLButtonElement).style.background = 'var(--warm-surface, #FAFBFF)';
                 (e.currentTarget as HTMLButtonElement).style.color = 'var(--warm-ink-secondary, #6B6560)';
               }
             }}
@@ -139,7 +139,7 @@ const SuggestionChips: React.FC<SuggestionChipsProps> = ({
     }
   }, [loaded, userCtx]);
 
-  const schoolColor = 'var(--accent, #1B2A44)';
+  const schoolColor = 'var(--brand-blue, #3B82F6)';
 
   // Auto-collapse after first search
   useEffect(() => {
@@ -271,7 +271,7 @@ const SuggestionChips: React.FC<SuggestionChipsProps> = ({
                 style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   padding: isFirst ? '14px 14px 14px 14px' : '10px 14px',
-                  background: 'var(--warm-surface, #FAF9F6)',
+                  background: 'var(--warm-surface, #FAFBFF)',
                   borderTop: '1px solid var(--warm-border, #E8E4DE)',
                   borderRight: '1px solid var(--warm-border, #E8E4DE)',
                   borderBottom: '1px solid var(--warm-border, #E8E4DE)',
@@ -295,7 +295,7 @@ const SuggestionChips: React.FC<SuggestionChipsProps> = ({
                 }}
                 onMouseLeave={e => {
                   const el = e.currentTarget as HTMLButtonElement;
-                  el.style.background = 'var(--warm-surface, #FAF9F6)';
+                  el.style.background = 'var(--warm-surface, #FAFBFF)';
                   el.style.borderTop = '1px solid var(--warm-border, #E8E4DE)';
                   el.style.borderRight = '1px solid var(--warm-border, #E8E4DE)';
                   el.style.borderBottom = '1px solid var(--warm-border, #E8E4DE)';
@@ -340,9 +340,15 @@ const SuggestionChips: React.FC<SuggestionChipsProps> = ({
     );
   }
 
-  // Build subtitle from profile
+  // Build subtitle from profile — prefer richer signals if present
   const uni = shortUniversity(userCtx.university);
-  const subtitleParts = [uni, userCtx.targetIndustries[0], userCtx.preferredLocations[0]].filter(Boolean);
+  const targetFirmHint =
+    userCtx.targetFirms && userCtx.targetFirms.length > 0
+      ? `${userCtx.targetFirms.length} target firm${userCtx.targetFirms.length === 1 ? '' : 's'}`
+      : '';
+  const industryHint = userCtx.targetIndustries[0] || '';
+  const locHint = userCtx.preferredLocations[0] || '';
+  const subtitleParts = [uni, industryHint, targetFirmHint || locHint].filter(Boolean);
   const subtitle = subtitleParts.join(' · ');
 
   const visibleCards = showMore ? recommendations : recommendations.slice(0, 5);
@@ -402,26 +408,61 @@ const SuggestionChips: React.FC<SuggestionChipsProps> = ({
                 flex: '0 0 160px', width: 160,
                 borderRadius: 3, overflow: 'hidden',
                 background: 'var(--elev, #FFFFFF)',
-                border: '1px solid var(--line, #E8E8E8)',
+                border: rec.isTargetFirm
+                  ? '1px solid rgba(37, 99, 235, 0.35)'
+                  : '1px solid var(--line, #E8E8E8)',
                 cursor: 'pointer', textAlign: 'left',
                 transition: 'all .2s ease',
                 fontFamily: 'inherit', padding: 0,
-                boxShadow: 'inset 0 -1px 0 var(--line, #E8E8E8), 0 1px 2px rgba(26,29,35,0.03)',
+                boxShadow: rec.isTargetFirm
+                  ? 'inset 0 -1px 0 rgba(37, 99, 235, 0.18), 0 1px 2px rgba(37, 99, 235, 0.08)'
+                  : 'inset 0 -1px 0 var(--line, #E8E8E8), 0 1px 2px rgba(26,29,35,0.03)',
                 animationDelay: `${idx * 60}ms`,
+                position: 'relative',
               }}
               onMouseEnter={e => {
                 const el = e.currentTarget as HTMLButtonElement;
-                el.style.borderColor = 'var(--accent, #8B2E1F)';
+                el.style.borderColor = 'var(--brand-blue, #3B82F6)';
                 el.style.boxShadow = 'inset 0 -1px 0 var(--line, #E8E8E8), 0 2px 6px rgba(26,29,35,0.06)';
                 el.style.transform = 'translateY(-1px)';
               }}
               onMouseLeave={e => {
                 const el = e.currentTarget as HTMLButtonElement;
-                el.style.borderColor = 'var(--line, #E8E8E8)';
-                el.style.boxShadow = 'inset 0 -1px 0 var(--line, #E8E8E8), 0 1px 2px rgba(26,29,35,0.03)';
+                el.style.borderColor = rec.isTargetFirm
+                  ? 'rgba(37, 99, 235, 0.35)'
+                  : 'var(--line, #E8E8E8)';
+                el.style.boxShadow = rec.isTargetFirm
+                  ? 'inset 0 -1px 0 rgba(37, 99, 235, 0.18), 0 1px 2px rgba(37, 99, 235, 0.08)'
+                  : 'inset 0 -1px 0 var(--line, #E8E8E8), 0 1px 2px rgba(26,29,35,0.03)';
                 el.style.transform = 'translateY(0)';
               }}
             >
+              {/* "Yours" pin for explicit target firms */}
+              {rec.isTargetFirm && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 8,
+                    right: 8,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 3,
+                    padding: '2px 6px',
+                    borderRadius: 100,
+                    background: 'rgba(37, 99, 235, 0.10)',
+                    color: '#2563EB',
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 8.5,
+                    fontWeight: 600,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    pointerEvents: 'none',
+                  }}
+                >
+                  <Star style={{ width: 8, height: 8, fill: '#2563EB' }} strokeWidth={0} />
+                  Yours
+                </div>
+              )}
               {/* Card body */}
               <div style={{ padding: '12px 14px 14px' }}>
                 {/* Logo */}
@@ -486,7 +527,7 @@ const SuggestionChips: React.FC<SuggestionChipsProps> = ({
 
                 {/* CTA */}
                 <div style={{
-                  fontSize: 11, color: 'var(--accent, #1B2A44)', fontWeight: 500,
+                  fontSize: 11, color: 'var(--brand-blue, #3B82F6)', fontWeight: 500,
                   display: 'flex', alignItems: 'center', gap: 4,
                 }}>
                   {ctaLabel}
@@ -515,16 +556,6 @@ const SuggestionChips: React.FC<SuggestionChipsProps> = ({
         </button>
       )}
 
-      {/* Whisper label — left-aligned to match search input below */}
-      <div style={{ marginTop: 18 }}>
-        <span style={{
-          fontSize: 12, color: 'var(--ink-3, #8A8F96)',
-          fontFamily: "'Instrument Serif', Georgia, serif",
-          fontStyle: 'italic', fontWeight: 400,
-        }}>
-          Have someone in mind?
-        </span>
-      </div>
     </div>
   );
 };
