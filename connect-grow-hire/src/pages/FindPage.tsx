@@ -14,7 +14,6 @@ import { EliteGateModal } from "@/components/EliteGateModal";
 import { NoSchoolEmptyState } from "@/components/NoSchoolEmptyState";
 import { IS_DEV_PREVIEW, DEV_MOCK_USER } from "@/lib/devPreview";
 import { getUniversityShortName } from "@/lib/universityUtils";
-import { PersonalizationStrip } from "@/components/personalization/PersonalizationStrip";
 import { useSchoolTitle } from "@/hooks/useSchoolTitle";
 
 const ContactSearchPage = React.lazy(() => import("./ContactSearchPage"));
@@ -145,16 +144,12 @@ const FindPage: React.FC = () => {
           <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
             {/* Page title */}
             <div style={{ flexShrink: 0 }}>
-              <div style={{ maxWidth: 800, margin: '0 auto', padding: '24px 40px 8px' }}>
-                {isCompaniesTab && userUniversity && (
-                  <PersonalizationStrip
-                    firstName={userFirstName}
-                    university={userUniversity}
-                  />
-                )}
+              <div style={{ maxWidth: 800, margin: '0 auto', padding: '14px 40px 6px' }}>
                 <PageTitle
+                  align="center"
+                  noScribble
                   lead={isCompaniesTab ? schoolTitle.lead : undefined}
-                  accent={isCompaniesTab ? schoolTitle.accent : "meet?"}
+                  accent={isCompaniesTab ? schoolTitle.accent.replace(/\.$/, '') : "meet?"}
                 >
                   {isCompaniesTab ? undefined : "Who do you want to"}
                 </PageTitle>
@@ -164,7 +159,7 @@ const FindPage: React.FC = () => {
             {/* Tab bar */}
             <div style={{ borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
               <div style={{ maxWidth: 800, margin: "0 auto", padding: "0 40px" }}>
-                <div style={{ display: "flex", gap: 0 }}>
+                <div style={{ display: "flex", gap: 0, justifyContent: "center" }}>
                   {TABS.map((tab) => {
                     const isActive = activeTab === tab.id;
                     return (
@@ -181,10 +176,10 @@ const FindPage: React.FC = () => {
                           fontWeight: isActive ? 500 : 400,
                           cursor: "pointer",
                           border: "none",
-                          borderBottom: isActive ? "2px solid var(--accent)" : "2px solid transparent",
+                          borderBottom: isActive ? "2px solid var(--brand-blue, #3B82F6)" : "2px solid transparent",
                           marginBottom: -1,
                           background: "transparent",
-                          color: isActive ? "var(--ink)" : "var(--ink-3)",
+                          color: isActive ? "var(--brand-blue, #3B82F6)" : "var(--ink-3)",
                           transition: "all .15s",
                           fontFamily: "inherit",
                         }}

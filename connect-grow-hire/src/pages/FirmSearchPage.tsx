@@ -43,7 +43,7 @@ import { getUniversityShortName } from "@/lib/universityUtils";
 import { ArchiveList, type ArchiveItem } from "@/components/find/ArchiveList";
 import { FooterSearch } from "@/components/find/FooterSearch";
 import { ScoutNote } from "@/components/personalization/ScoutNote";
-import { getRecommendedCompanies, type UserContext } from "@/utils/suggestionChips";
+import { getRecommendedCompanies, getHiddenGems, getUpAndComing, type UserContext } from "@/utils/suggestionChips";
 import { firebaseApi } from "@/services/firebaseApi";
 
 // Session storage key for Scout auto-populate
@@ -154,9 +154,15 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
 
   const showAnimatedPlaceholder = !query && !inputFocused;
 
-  // Archive list state (personalized landing state)
+  // Archive list state (personalized landing state) — three rails of company
+  // recommendations. Primary = top picks; hidden gems = mid-tier in user's
+  // industry; up and coming = late-stage startups in user's industry.
   const [archiveItems, setArchiveItems] = useState<ArchiveItem[]>([]);
+  const [hiddenGemItems, setHiddenGemItems] = useState<ArchiveItem[]>([]);
+  const [upAndComingItems, setUpAndComingItems] = useState<ArchiveItem[]>([]);
   const [archiveSchoolName, setArchiveSchoolName] = useState<string | null>(null);
+  const [topIndustryName, setTopIndustryName] = useState<string | null>(null);
+  const [archiveBuilt, setArchiveBuilt] = useState(false);
   const archiveLoadedRef = useRef(false);
 
   // Build archive list from user profile data
@@ -165,67 +171,133 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
     archiveLoadedRef.current = true;
 
     const buildArchive = async () => {
+      // Defaults — used if onboarding fails partway. Guarantees we always end
+      // with SOMETHING in archiveItems so the spinner never hangs forever.
+      let onboarding: any = {
+        university: null,
+        firstName: null,
+        graduationYear: null,
+        targetIndustries: [],
+        preferredLocations: [],
+        dreamCompanies: [],
+        careerTrack: null,
+        preferredJobRole: null,
+      };
       try {
-        const onboarding = await firebaseApi.getUserOnboardingData(user.uid);
-        const schoolShort = getUniversityShortName(onboarding.university);
-        setArchiveSchoolName(schoolShort || onboarding.university || null);
-
-        const ctx: UserContext = {
-          firstName: onboarding.firstName,
-          university: onboarding.university,
-          graduationYear: onboarding.graduationYear,
-          targetIndustries: onboarding.targetIndustries,
-          preferredLocations: onboarding.preferredLocations,
-          dreamCompanies: onboarding.dreamCompanies,
-          careerTrack: onboarding.careerTrack,
-          preferredJobRole: onboarding.preferredJobRole,
-        };
-
-        const recs = getRecommendedCompanies(ctx);
-
-        // Try to enrich with school affinity data for the top industry
-        let affinityMap: Record<string, number> = {};
-        if (onboarding.university && onboarding.targetIndustries.length > 0) {
-          try {
-            const field = onboarding.targetIndustries[0];
-            const result = await apiService.getSchoolAffinity(onboarding.university, field);
-            if (result.companies) {
-              for (const c of result.companies) {
-                affinityMap[c.company_name.toLowerCase()] = c.alumni_count;
-              }
-            }
-          } catch { /* affinity is optional enrichment */ }
-        }
-
-        const items: ArchiveItem[] = recs.slice(0, 12).map((rec) => {
-          const alumniCount = affinityMap[rec.company.toLowerCase()];
-          const school = schoolShort || onboarding.university || 'your school';
-          let sentence: string;
-          if (alumniCount && alumniCount > 0) {
-            sentence = `${alumniCount} ${school} alumni work here in ${rec.industry} roles.`;
-          } else {
-            sentence = `A strong fit based on your ${rec.industry} interest.`;
-          }
-          return {
-            company: rec.company,
-            sentence,
-            sector: rec.industry,
-          };
-        });
-
-        setArchiveItems(items);
+        onboarding = await firebaseApi.getUserOnboardingData(user.uid);
       } catch (err) {
-        console.error('Failed to build archive list:', err);
+        console.error('[Archive] onboarding fetch failed, using defaults:', err);
       }
+
+      const schoolShort = getUniversityShortName(onboarding.university);
+      setArchiveSchoolName(schoolShort || onboarding.university || null);
+
+      const ctx: UserContext = {
+        firstName: onboarding.firstName || '',
+        university: onboarding.university || '',
+        graduationYear: onboarding.graduationYear || '',
+        targetIndustries: onboarding.targetIndustries || [],
+        preferredLocations: onboarding.preferredLocations || [],
+        dreamCompanies: onboarding.dreamCompanies || [],
+        careerTrack: onboarding.careerTrack || '',
+        preferredJobRole: onboarding.preferredJobRole || '',
+        targetFirms: (onboarding as any).targetFirms || [],
+        extractedRoles: (onboarding as any).extractedRoles || [],
+        directionNarrative: (onboarding as any).directionNarrative || '',
+        personalContext: (onboarding as any).personalContext || '',
+      };
+
+      // Local recommendations are profile-aware (target industries, dream
+      // companies, locations all flow into the ranking). Affinity from the
+      // backend is optional enrichment; we never block on it.
+      const recs = getRecommendedCompanies(ctx);
+
+      // Optional affinity enrichment, raced against a 4s timeout. Backend can
+      // get bogged down by other workloads (nudge scanner, re-rank) and we
+      // refuse to leave the user staring at a spinner because of it.
+      const TIMEOUT_MS = 4000;
+      let affinityMap: Record<string, number> = {};
+      if (onboarding.university && (onboarding.targetIndustries || []).length > 0) {
+        try {
+          const field = onboarding.targetIndustries[0];
+          const affinityCall = apiService.getSchoolAffinity(onboarding.university, field);
+          const timeout = new Promise<{ companies?: any[] }>((resolve) =>
+            setTimeout(() => resolve({}), TIMEOUT_MS),
+          );
+          const result = await Promise.race([affinityCall, timeout]);
+          if ((result as any)?.companies) {
+            for (const c of (result as any).companies) {
+              affinityMap[c.company_name.toLowerCase()] = c.alumni_count;
+            }
+          }
+        } catch {
+          /* affinity is optional — ignore failure */
+        }
+      }
+
+      const buildItem = (rec: any): ArchiveItem => {
+        const alumniCount = affinityMap[rec.company.toLowerCase()];
+        const school = schoolShort || onboarding.university || 'your school';
+        let sentence: string;
+        if (alumniCount && alumniCount > 0) {
+          sentence = `${alumniCount} ${school} alumni work here in ${rec.industry} roles.`;
+        } else if (rec.isTargetFirm) {
+          sentence = `Your target firm — ${rec.industry !== 'Your target' ? rec.industry : 'pulled from your Direction'}.`;
+        } else if (rec.isDreamCompany) {
+          sentence = `On your dream company list${rec.industry && rec.industry !== 'Your dream' ? ` — ${rec.industry}` : ''}.`;
+        } else if (rec.reason) {
+          sentence = `${rec.reason}.`;
+        } else {
+          sentence = `Top ${rec.industry} employer.`;
+        }
+        return { company: rec.company, sentence, sector: rec.industry };
+      };
+
+      // Rail 1: primary picks (existing behavior, capped at 6)
+      const primarySeen = new Set<string>();
+      const primaryItems: ArchiveItem[] = [];
+      for (const r of recs) {
+        const k = r.company.toLowerCase();
+        if (primarySeen.has(k)) continue;
+        primarySeen.add(k);
+        primaryItems.push(buildItem(r));
+        if (primaryItems.length >= 6) break;
+      }
+
+      // Rail 2: hidden gems — mid-tier firms in user's top industry that
+      // aren't already shown as primary picks.
+      const hiddenRecs = getHiddenGems(ctx, 8).filter(
+        (r) => !primarySeen.has(r.company.toLowerCase()),
+      );
+      const hidden: ArchiveItem[] = hiddenRecs.slice(0, 6).map(buildItem);
+
+      // Rail 3: up and coming — late-stage startups in user's top industry.
+      const upRecs = getUpAndComing(ctx, 8).filter(
+        (r) => !primarySeen.has(r.company.toLowerCase()) &&
+               !hiddenRecs.some((h) => h.company.toLowerCase() === r.company.toLowerCase()),
+      );
+      const upcoming: ArchiveItem[] = upRecs.slice(0, 5).map(buildItem);
+
+      // Store the top industry name so the rail headings can reference it.
+      const topIndustryStr = (onboarding.targetIndustries || [])[0]
+        || onboarding.careerTrack
+        || '';
+      if (topIndustryStr) setTopIndustryName(topIndustryStr);
+
+      setArchiveItems(primaryItems);
+      setHiddenGemItems(hidden);
+      setUpAndComingItems(upcoming);
+      setArchiveBuilt(true);
     };
 
     buildArchive();
   }, [user?.uid]);
 
-  // Validation
-  const hasIndustry = /\b(tech(nology)?|fintech|finance|banking|consulting|healthcare|pharma|biotech|energy|legal|law|real estate|insurance|media|advertising|marketing|retail|e-?commerce|education|edtech|telecom|manufacturing|automotive|aerospace|defense|crypto|blockchain|saas|ai|artificial intelligence|machine learning|data|analytics|cybersecurity|cloud|devops|enterprise|logistics|supply chain|food|agri(culture)?|hospitality|travel|gaming|entertainment|sports|venture capital|private equity|investment|wealth management|asset management|accounting|audit|tax|compliance|government|nonprofit|sustainability|cleantech|construction|architecture|design|fashion|beauty|fitness|wellness|startup|b2b|b2c|marketplace|platform|software|engineering|recruiting|staffing|hr|human resources)\b/i.test(query);
-  const hasLocation = /\b(in\s+\w+|located|based in|remote|nationwide|global|worldwide)\b/i.test(query);
-  const isValidQuery = query.length > 20 && hasLocation;
+  // Validation — discovery-first. Any non-trivial query (3+ chars) is a valid
+  // search. The previous rule required 20+ chars AND a location keyword,
+  // which made "Apple" or "fintech in NYC" fail. The Companies tab is for
+  // exploration; we don't want to gatekeep behind sentence-shaped prompts.
+  const isValidQuery = query.trim().length >= 3;
 
   // Refresh credits when batch size changes to update UI warnings
   useEffect(() => {
@@ -868,25 +940,105 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
                           {/* Scout note */}
                           {archiveSchoolName && (
                             <ScoutNote>
-                              We'll start where {archiveSchoolName} alumni have landed before.
+                              Three rails of companies worth exploring — alumni picks,
+                              hidden gems, and what's up and coming. Click any to find
+                              people there.
                             </ScoutNote>
                           )}
 
-                          {/* Archive list */}
-                          {archiveItems.length > 0 ? (
-                            <ArchiveList
-                              items={archiveItems}
-                              onSelect={(company) => {
-                                setQuery(company);
-                                handleSearch(company);
-                              }}
-                            />
-                          ) : (
-                            /* Loading placeholder while archive builds */
+                          {/* Three rails of recommendations — primary picks,
+                              hidden gems, up and coming. Clicking a card
+                              jumps to the People tab with the company
+                              prefilled, since discovery → "find people there"
+                              is the natural next step from this surface. */}
+                          {!archiveBuilt ? (
                             <div style={{ padding: '32px 0', textAlign: 'center' }}>
                               <Loader2 className="w-5 h-5 animate-spin mx-auto" style={{ color: 'var(--ink-3)' }} />
                               <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 8 }}>
                                 Building your recommendations...
+                              </p>
+                            </div>
+                          ) : (archiveItems.length + hiddenGemItems.length + upAndComingItems.length) > 0 ? (
+                            (() => {
+                              // Click handler shared across rails: navigate to
+                              // People tab with company prefilled. Auto-add
+                              // the company to the localStorage "exploring"
+                              // watch list so My Network > Companies can show
+                              // it as something the user is investigating.
+                              const exploreCompany = (company: string) => {
+                                try {
+                                  const raw = localStorage.getItem('ofl_exploring_companies') || '[]';
+                                  const list: Array<{ name: string; ts: number }> = JSON.parse(raw);
+                                  const filtered = list.filter((e) => e.name.toLowerCase() !== company.toLowerCase());
+                                  filtered.unshift({ name: company, ts: Date.now() });
+                                  localStorage.setItem('ofl_exploring_companies', JSON.stringify(filtered.slice(0, 50)));
+                                } catch {
+                                  // Non-fatal — localStorage may be disabled.
+                                }
+                                navigate(`/find?tab=people&company=${encodeURIComponent(company)}`);
+                              };
+                              const RailHeading = ({ label }: { label: string }) => (
+                                <div style={{ marginBottom: 8, marginTop: 4 }}>
+                                  <span
+                                    style={{
+                                      fontSize: 10,
+                                      fontWeight: 500,
+                                      letterSpacing: '0.08em',
+                                      textTransform: 'uppercase',
+                                      color: 'var(--ink-3, #8A8F9A)',
+                                      fontFamily: "'JetBrains Mono', monospace",
+                                    }}
+                                  >
+                                    {label}
+                                  </span>
+                                </div>
+                              );
+                              return (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                                  {archiveItems.length > 0 && (
+                                    <div>
+                                      <RailHeading
+                                        label={
+                                          archiveSchoolName
+                                            ? `Where ${archiveSchoolName} alumni have landed`
+                                            : 'Top picks for you'
+                                        }
+                                      />
+                                      <ArchiveList items={archiveItems} onSelect={exploreCompany} />
+                                    </div>
+                                  )}
+                                  {hiddenGemItems.length > 0 && (
+                                    <div>
+                                      <RailHeading
+                                        label={
+                                          topIndustryName
+                                            ? `Hidden gems in ${topIndustryName}`
+                                            : 'Hidden gems'
+                                        }
+                                      />
+                                      <ArchiveList items={hiddenGemItems} onSelect={exploreCompany} />
+                                    </div>
+                                  )}
+                                  {upAndComingItems.length > 0 && (
+                                    <div>
+                                      <RailHeading
+                                        label={
+                                          topIndustryName
+                                            ? `Up and coming in ${topIndustryName}`
+                                            : 'Up and coming'
+                                        }
+                                      />
+                                      <ArchiveList items={upAndComingItems} onSelect={exploreCompany} />
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()
+                          ) : (
+                            <div style={{ padding: '24px 0 8px', textAlign: 'center' }}>
+                              <p style={{ fontSize: 13, color: 'var(--ink-3, #8A8F9A)' }}>
+                                Add target industries to your profile to see personalized recommendations,
+                                or search for a company below.
                               </p>
                             </div>
                           )}
@@ -916,7 +1068,7 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
                                 padding: '16px 20px',
                                 border: '1.5px solid var(--warm-border, #E8E4DE)',
                                 borderRadius: 14,
-                                background: 'var(--warm-surface, #FAF9F6)',
+                                background: 'var(--warm-surface, #FAFBFF)',
                                 transition: 'all .15s',
                                 minHeight: 110,
                               }}
@@ -1033,14 +1185,14 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
                               height: 52,
                               borderRadius: 12,
                               background: isSearching ? '#E2E8F0'
-                                : !query.trim() ? 'transparent'
+                                : !query.trim() ? 'var(--brand-blue-subtle, rgba(59,130,246,0.04))'
                                 : (!isValidQuery || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm) || (effectiveUser.credits ?? 0) === 0) ? '#E2E8F0'
                                 : '#2563EB',
                               color: isSearching ? '#94A3B8'
-                                : !query.trim() ? '#6B6560'
+                                : !query.trim() ? 'var(--brand-blue, #3B82F6)'
                                 : (!isValidQuery || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm) || (effectiveUser.credits ?? 0) === 0) ? '#94A3B8'
                                 : '#fff',
-                              border: !query.trim() && !isSearching ? '1.5px solid #D5D0C9' : '1.5px solid transparent',
+                              border: !query.trim() && !isSearching ? '1.5px solid var(--brand-blue, #3B82F6)' : '1.5px solid transparent',
                               fontSize: 15,
                               fontWeight: 600,
                               cursor: isSearching ? 'not-allowed' : 'pointer',
@@ -1065,10 +1217,10 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
                             )}
                           </button>
 
-                          {/* Validation feedback */}
+                          {/* Hint when query is too short — don't gatekeep with industry/location anymore. */}
                           {query && !isValidQuery && (
                             <p style={{ fontSize: 11, color: '#94A3B8', marginTop: 10, textAlign: 'center' }}>
-                              Include an industry and location for best results
+                              Type at least a few characters to search
                             </p>
                           )}
 

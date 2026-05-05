@@ -1,5 +1,4 @@
 import React from "react";
-import { SchoolSeal } from "./SchoolSeal";
 import { getUniversityShortName } from "@/lib/universityUtils";
 
 interface PersonalizationStripProps {
@@ -27,7 +26,6 @@ export const PersonalizationStrip: React.FC<PersonalizationStripProps> = ({
         padding: "0 0 16px",
       }}
     >
-      <SchoolSeal university={university} size={24} />
       <span
         style={{
           fontSize: 12,
