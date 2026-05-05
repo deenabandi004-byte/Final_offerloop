@@ -386,9 +386,8 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
                 if pre_edu.get("major") and not user_info.get("major"):
                     user_info["major"] = pre_edu["major"]
                 if pre_edu.get("graduation") and not user_info.get("year"):
-                    import re as _re
                     grad = pre_edu["graduation"]
-                    year_match = _re.search(r'20\d{2}', str(grad))
+                    year_match = re.search(r'20\d{2}', str(grad))
                     user_info["year"] = year_match.group() if year_match else grad
         
         # Never leave name blank — use profile, then Auth display name, never "Student" if we have a real name
@@ -425,6 +424,67 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
         sender_university_short = get_university_shorthand(user_info.get('university', ''))
         sender_name = (user_info.get('name') or '').strip() or 'Student'
         sender_firstname = sender_name.split()[0] if sender_name else 'Student'
+
+        # ── Sender status: current student vs recent grad vs alum ──────────────
+        # The LLM must NEVER call a current student a "fellow alum" — that's a fabrication.
+        # Derive status from graduation year + today's date so the prompt steers correctly.
+        from datetime import datetime as _dt
+        _today = _dt.now()
+        sender_grad_year_int = None
+        _year_str = str(user_info.get('year') or '').strip()
+        _ym = re.search(r'20\d{2}', _year_str)
+        if _ym:
+            try:
+                sender_grad_year_int = int(_ym.group())
+            except ValueError:
+                sender_grad_year_int = None
+        if sender_grad_year_int is None:
+            sender_status = 'unknown'
+        elif sender_grad_year_int > _today.year or (sender_grad_year_int == _today.year and _today.month < 6):
+            sender_status = 'current_student'  # hasn't graduated yet
+        elif sender_grad_year_int >= _today.year - 1:
+            sender_status = 'recent_grad'      # graduated within ~18 months
+        else:
+            sender_status = 'alum'
+
+        # Friendly school identity term — used to build openers that work for current
+        # students AND alumni without reaching for the word "alum" when it's wrong.
+        SCHOOL_NICKNAMES = {
+            'USC': 'Trojan', 'UCLA': 'Bruin', 'Stanford': 'Cardinal', 'Cal': 'Bear',
+            'Berkeley': 'Bear', 'UC Berkeley': 'Bear', 'Michigan': 'Wolverine',
+            'Notre Dame': 'Domer', 'Penn': 'Quaker', 'UPenn': 'Quaker',
+            'Cornell': 'Big Red', 'Yale': 'Yalie', 'Harvard': 'Crimson Cantab',
+            'NYU': 'Violet', 'Columbia': 'Lion', 'MIT': 'Beaver',
+            'Duke': 'Blue Devil', 'Northwestern': 'Wildcat', 'Georgetown': 'Hoya',
+            'CMU': 'Tartan', 'Vanderbilt': 'Commodore', 'Emory': 'Eagle',
+            'Boston College': 'Eagle', 'Boston University': 'Terrier',
+            'UCSD': 'Triton', 'UC Santa Barbara': 'Gaucho', 'UCSB': 'Gaucho',
+            'UT Austin': 'Longhorn',
+        }
+        sender_school_nickname = SCHOOL_NICKNAMES.get(sender_university_short or '', '')
+
+        # Hometown — pulled from resume parsed location for hometown-match openers
+        sender_hometown = ''
+        try:
+            _rp = (user_profile or {}).get('resumeParsed') or {}
+            _contact = _rp.get('contact') or {}
+            sender_hometown = (_contact.get('location') or '').strip()
+        except Exception:
+            sender_hometown = ''
+        # Fall back to top-level user_info location if available
+        if not sender_hometown:
+            sender_hometown = (user_info.get('location') or '').strip()
+
+        # Personal context (hobbies, interests, hometown narrative) from Profile page
+        sender_personal_context = ''
+        if user_profile:
+            sender_personal_context = (
+                user_profile.get('personalContext')
+                or user_profile.get('careerGoals')
+                or ''
+            ).strip()
+            if len(sender_personal_context) > 600:
+                sender_personal_context = sender_personal_context[:600] + '…'
         
         # Build personalized context for each contact
         # Track strong connections for resume gating
@@ -474,7 +534,27 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
             personalization_note = ""
             has_strong_connection = False
             if commonality_type == 'university':
-                personalization_note = f"Both attended {sender_university_short} - emphasize the alumni connection naturally"
+                # Status-aware phrasing: never call a current student an "alum"
+                if sender_status == 'current_student':
+                    personalization_note = (
+                        f"The sender is a CURRENT {sender_university_short} student "
+                        f"(graduating {sender_grad_year_int or 'soon'}), and the contact attended "
+                        f"{sender_university_short}. Emphasize the school connection naturally — "
+                        f"phrases like \"as a current {sender_university_short} student\", "
+                        f"\"fellow {sender_school_nickname or 'student'}\", or \"{sender_university_short} '"
+                        f"{(str(sender_grad_year_int)[-2:] if sender_grad_year_int else '')}\" "
+                        "work well. Do NOT use \"fellow alum\" or imply the sender has graduated."
+                    )
+                elif sender_status == 'recent_grad':
+                    personalization_note = (
+                        f"Both attended {sender_university_short}. The sender graduated recently "
+                        f"({sender_grad_year_int}); reference the shared school naturally. "
+                        f"\"{sender_university_short} alum\" or \"fellow {sender_school_nickname or 'grad'}\" both work."
+                    )
+                else:
+                    personalization_note = (
+                        f"Both attended {sender_university_short} - emphasize the alumni connection naturally"
+                    )
                 has_strong_connection = True
             elif commonality_type == 'hometown':
                 hometown = commonality_details.get('hometown', '')
@@ -814,15 +894,34 @@ CONTACTS:
             # Build tone guidance driven by the dominant warmth tier
             dominant_tier = max(tier_counts, key=tier_counts.get) if any(tier_counts.values()) else "cold"
 
-            warmth_tone_guide = """
+            # Sender-status-aware example openers — prevents the LLM from saying
+            # "fellow alum" when the sender is still a student.
+            _uni_label = sender_university_short or '[University]'
+            _nick = sender_school_nickname or 'student'
+            if sender_status == 'current_student':
+                _warm_example = (
+                    f'"As a current {_uni_label} student, I came across..." '
+                    f'OR "Hey from a fellow {_nick}..."'
+                )
+            elif sender_status == 'recent_grad':
+                _warm_example = (
+                    f'"As a recent {_uni_label} grad, I would love to..."'
+                )
+            else:
+                _warm_example = (
+                    f'"As a fellow {_uni_label} alum, I would love to..."'
+                )
+
+            warmth_tone_guide = f"""
 ===== RELATIONSHIP-BASED TONE =====
 
 Adjust tone based on each contact's Warmth level:
 
-WARM contacts (alumni, shared employer, shared hometown):
+WARM contacts (school connection, shared employer, shared hometown):
 - Conversational, friendly tone. Lead with the shared connection.
 - 100-150 words. You already have a reason to reach out, so be direct.
-- Example opener: "As a fellow [University] alum, I'd love to..."
+- Example opener: {_warm_example}
+- IMPORTANT: respect the sender's actual status. If the sender is marked as a CURRENT STUDENT below, NEVER write "fellow alum" or imply they've graduated. Use phrases that fit their real status.
 
 NEUTRAL contacts (same industry, career track match, dream company):
 - Professional but personable. Reference a specific aspect of their work.
@@ -840,11 +939,39 @@ For ALL contacts:
 - Ask ONE thoughtful question (not forced two-question structure).
 - If the contact has work history or education data, reference something specific.
 
-DEFAULT TONE: Most contacts in this batch are {dominant_tier_upper}. Lean toward {dominant_tone} unless the individual contact's warmth tag says otherwise.
-""".replace("{dominant_tier_upper}", dominant_tier.upper()).replace(
-                "{dominant_tone}",
+DEFAULT TONE: Most contacts in this batch are {dominant_tier.upper()}. Lean toward {{"warm": "a conversational, friendly style", "neutral": "a professional but personable style", "cold": "a concise, respectful style"}}[dominant_tier] unless the individual contact's warmth tag says otherwise.
+""".replace(
+                '{{"warm": "a conversational, friendly style", "neutral": "a professional but personable style", "cold": "a concise, respectful style"}}[dominant_tier]',
                 {"warm": "a conversational, friendly style", "neutral": "a professional but personable style", "cold": "a concise, respectful style"}[dominant_tier],
             )
+
+            # ── About-the-sender block — surfaces personalization signals to the LLM ──
+            sender_status_label = {
+                'current_student': f'CURRENT {sender_university_short or ""} STUDENT (graduating {sender_grad_year_int or "soon"})',
+                'recent_grad': f'RECENT {sender_university_short or ""} GRADUATE ({sender_grad_year_int or ""})',
+                'alum': f'{sender_university_short or ""} ALUM ({sender_grad_year_int or ""})',
+                'unknown': '(graduation year unknown)',
+            }.get(sender_status, '')
+
+            sender_status_block = f"""
+===== ABOUT THE SENDER (use these facts; never invent) =====
+
+- Name: {sender_name}
+- Status: {sender_status_label}
+- School: {sender_university_short or 'Not specified'}{f' (school nickname: {sender_school_nickname})' if sender_school_nickname else ''}
+{f'- Hometown / Location: {sender_hometown}' if sender_hometown else ''}
+{f'- Personal context (hobbies, interests, background): {sender_personal_context}' if sender_personal_context else ''}
+
+CRITICAL FACTS YOU MUST RESPECT:
+- If status says CURRENT STUDENT, the sender HAS NOT GRADUATED. Never say "fellow alum", "as an alum", "after I graduated", or imply work experience the sender doesn't have.
+- Never invent shared schools, employers, or backgrounds. If a contact's data doesn't show a connection to the sender, write the email as a non-shared outreach.
+- Never invent the contact's prior schools or companies. Only reference what's explicitly in their data.
+
+COMMON-GROUND DISCOVERY (warm-cold conversion):
+- If the sender's hometown matches the contact's hometown or the contact's location, mention it once, naturally. ("Saw you're also from {sender_hometown or '[hometown]'} — small world.")
+- If the sender's personal context mentions a specific interest (sport, hobby, organization, school club) and the contact's profile clearly mentions the same, weave it in once. NEVER fabricate the contact's interests.
+- One shared signal per email max. Don't pile them up.
+"""
 
             # Industry tone calibration
             industry_vocabulary = ""
@@ -857,7 +984,7 @@ DEFAULT TONE: Most contacts in this batch are {dominant_tier_upper}. Lean toward
                 elif any(w in interests_lower for w in ["tech", "software", "engineer", "product", "data", "google", "meta"]):
                     industry_vocabulary = "\nINDUSTRY TONE: Tech - be casual and specific. Reference technical projects, product launches, engineering challenges."
 
-            requirements_block = f"""{warmth_tone_guide}{industry_vocabulary}
+            requirements_block = f"""{sender_status_block}{warmth_tone_guide}{industry_vocabulary}
 
 ===== EMAIL STRUCTURE =====
 
@@ -889,7 +1016,23 @@ Return ONLY valid JSON:
 {{"0": {{"subject": "...", "body": "..."}}, "1": {{"subject": "...", "body": "..."}}, ...}}"""
 
             prompt = build_template_prompt(context_block, template_instructions or "", requirements_block)
-            system_content = "You write natural, personalized networking emails for college students. You adapt your tone based on the relationship warmth: conversational for alumni/shared connections, professional for industry matches, concise for cold outreach. You never use forced opener patterns. Each email feels individually written, not templated. You end every email with a sign-off and the sender's name. Use proper apostrophes. Never use placeholders."
+            system_content = (
+                "You write natural, personalized networking emails for college students. "
+                "You adapt your tone based on the relationship warmth: conversational for shared "
+                "connections (school, hometown, employer), professional for industry matches, concise "
+                "for cold outreach. You never use forced opener patterns. Each email feels "
+                "individually written, not templated. You end every email with a sign-off and the "
+                "sender's name. Use proper apostrophes. Never use placeholders.\n\n"
+                "FACTUAL DISCIPLINE — non-negotiable: "
+                "(a) Respect the sender's actual status. If the sender is a CURRENT STUDENT, never "
+                "write \"fellow alum\" or imply they've graduated; use phrasing like \"current "
+                "[School] student\" or the school nickname (Trojan, Bruin, Bear, etc.) instead. "
+                "(b) Never invent the contact's schools, companies, or background. Only reference "
+                "facts present in the contact's data. "
+                "(c) Common ground (shared hometown, shared school, shared interest from the "
+                "sender's personal context) gets ONE natural mention if clearly verifiable. "
+                "Otherwise omit. Never fabricate shared connections."
+            )
 
         # Try Claude first, then GPT, then static fallback
         import unicodedata

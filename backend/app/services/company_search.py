@@ -210,27 +210,16 @@ IMPORTANT: Be as lenient as possible. If the query mentions any industry-related
             
             parsed = json.loads(result_text)
             
-            # Validate required fields
-            missing_fields = []
-            if not parsed.get("industry"):
-                missing_fields.append("industry")
-            if not parsed.get("location"):
-                missing_fields.append("location")
-            
-            if missing_fields:
-                # If this is the last attempt, return error
-                if attempt == max_retries - 1:
-                    result = {
-                        "success": False,
-                        "parsed": parsed,
-                        "error": f"Missing required fields: {', '.join(missing_fields)}. Please include the industry (e.g., investment banking, consulting, venture capital) and location (e.g., New York, San Francisco Bay Area) in your search. You can also add keywords like 'healthcare M&A' or 'technology focused' to narrow results.",
-                        "missing_fields": missing_fields
-                    }
-                    return json.dumps(result)  # Serialize for caching
-                # Otherwise, retry with a more explicit prompt
-                print(f"⚠️ Attempt {attempt + 1}: Missing fields {missing_fields}, retrying with more explicit prompt...")
-                current_prompt = system_prompt + f"\n\nRETRY: The previous attempt missed: {', '.join(missing_fields)}. Please re-examine the query more carefully and extract these fields if at all possible."
-                continue
+            # Validate parsed fields. Discovery-first behavior: a query with
+            # just a company name ("Apple") or just an industry ("fintech") or
+            # just a location ("NYC") should still return useful results.
+            # Industry/location are nice-to-have signals but never required —
+            # the downstream search will fall back to looser SerpAPI queries
+            # when fields are missing.
+            if not parsed.get("industry") and not parsed.get("location") and not parsed.get("keywords"):
+                # No structured signal at all — pass through the raw query as
+                # a keyword so downstream search has SOMETHING to work with.
+                parsed["keywords"] = [prompt.strip()] if prompt and prompt.strip() else []
             
             # Normalize industry to lowercase for mapping
             if parsed.get("industry"):

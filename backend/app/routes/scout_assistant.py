@@ -20,7 +20,11 @@ from app.utils.async_runner import run_async
 scout_assistant_bp = Blueprint("scout_assistant", __name__, url_prefix="/api/scout-assistant")
 
 # User context cache — avoids 2 Firestore reads per message within 5 minutes
-_user_context_cache = TTLCache(maxsize=500, ttl=300)
+# 60s TTL: profile rarely changes, but recent_searches / recent_coffee_chat_preps
+# / contacts.recent are activity-driven and feel stale at 5 min. 1 minute is the
+# sweet spot — Scout reflects what the user just did without re-querying every
+# turn of a single conversation.
+_user_context_cache = TTLCache(maxsize=500, ttl=60)
 
 
 def _fetch_user_context(uid: str) -> dict:
@@ -119,7 +123,7 @@ def _fetch_user_context(uid: str) -> dict:
         if summary_parts:
             user_context["resume_summary"] = " | ".join(summary_parts)
 
-    # Contacts summary (count + top companies)
+    # Contacts summary (count + top companies + 5 most recent for naming)
     try:
         contacts_ref = db.collection("users").document(uid).collection("contacts").limit(50)
         contacts_docs = contacts_ref.get()
@@ -131,12 +135,96 @@ def _fetch_user_context(uid: str) -> dict:
                 if comp:
                     companies[comp] = companies.get(comp, 0) + 1
             top_companies = sorted(companies.items(), key=lambda x: -x[1])[:5]
+            # Recent named contacts so Scout can say "you saved Riya Dhir at JPMorgan
+            # last week" instead of just dumping aggregate counts.
+            def _ts_of(c):
+                t = c.get("savedAt") or c.get("createdAt") or c.get("addedAt")
+                try:
+                    return t.timestamp() if hasattr(t, "timestamp") else 0
+                except Exception:
+                    return 0
+            recent = sorted(contacts, key=_ts_of, reverse=True)[:5]
+            recent_named = []
+            for c in recent:
+                first = (c.get("FirstName") or c.get("firstName") or "").strip()
+                last = (c.get("LastName") or c.get("lastName") or "").strip()
+                title = (c.get("Title") or c.get("JobTitle") or c.get("jobTitle") or "").strip()
+                comp = (c.get("Company") or c.get("company") or c.get("job_company_name") or "").strip()
+                stage = (c.get("stage") or c.get("status") or "").strip()
+                if first or last or comp:
+                    recent_named.append({
+                        "name": f"{first} {last}".strip() or "(unnamed)",
+                        "title": title,
+                        "company": comp,
+                        "stage": stage,
+                    })
             user_context["contacts_summary"] = {
                 "total": len(contacts),
                 "top_companies": [{"name": name, "count": count} for name, count in top_companies],
+                "recent": recent_named,
             }
     except Exception as e:
         print(f"[ScoutAssistant] Failed to fetch contacts summary: {e}")
+
+    # Recent search history — what the user has been looking for lately. The
+    # client also passes this in user_memory (localStorage), but pulling from
+    # Firestore here means Scout knows about searches done on other devices.
+    try:
+        history_ref = (
+            db.collection("users").document(uid).collection("searchHistory")
+            .limit(10)
+        )
+        history_docs = history_ref.get()
+        history_items = []
+        for d in history_docs:
+            if not d.exists:
+                continue
+            data = d.to_dict() or {}
+            prompt = (data.get("prompt") or data.get("query") or "").strip()
+            if not prompt:
+                continue
+            history_items.append({
+                "prompt": prompt[:140],
+                "results": data.get("resultCount") or data.get("count"),
+            })
+        if history_items:
+            user_context["recent_searches"] = history_items[:8]
+    except Exception as e:
+        print(f"[ScoutAssistant] Failed to fetch search history: {e}")
+
+    # Recent coffee chat / interview prep — signals the user is actively
+    # preparing for specific people, which Scout should reference.
+    try:
+        ccp_ref = (
+            db.collection("users").document(uid).collection("coffee-chat-preps")
+            .limit(5)
+        )
+        ccp_docs = ccp_ref.get()
+        ccp_items = []
+        for d in ccp_docs:
+            if not d.exists:
+                continue
+            data = d.to_dict() or {}
+            target = (data.get("contactName") or data.get("targetName")
+                      or data.get("name") or "").strip()
+            comp = (data.get("contactCompany") or data.get("company") or "").strip()
+            if target or comp:
+                ccp_items.append({"name": target, "company": comp})
+        if ccp_items:
+            user_context["recent_coffee_chat_preps"] = ccp_items
+    except Exception as e:
+        print(f"[ScoutAssistant] Failed to fetch coffee chat preps: {e}")
+
+    # Account age — gives Scout a sense of whether this is a brand-new user
+    # ("welcome to Offerloop") or a repeat user ("you've been here a while").
+    try:
+        created = user_data.get("createdAt") or user_data.get("created_at")
+        if created and hasattr(created, "timestamp"):
+            from datetime import datetime, timezone
+            age_days = (datetime.now(timezone.utc).timestamp() - created.timestamp()) / 86400
+            user_context["account_age_days"] = round(age_days, 1)
+    except Exception:
+        pass
 
     _user_context_cache[uid] = user_context
     return user_context
@@ -189,6 +277,13 @@ def scout_assistant_chat():
     conversation_history = payload.get("conversation_history", [])
     current_page = (payload.get("current_page") or "/home")[:200]
     user_info = payload.get("user_info", {})
+    # user_memory: client-derived signals (recent searches, tried-and-failed
+    # prompts, school×company combos exhausted in PDL). Cross-session context
+    # the chat thread itself doesn't capture. Validated/sanitized in the
+    # service when rendered into the system prompt.
+    user_memory = payload.get("user_memory") or {}
+    if not isinstance(user_memory, dict):
+        user_memory = {}
 
     # Validate conversation_history: cap entries, cap content length, validate roles
     VALID_ROLES = {"user", "assistant"}
@@ -215,14 +310,15 @@ def scout_assistant_chat():
 
     # Try to get user info from Firebase context if available
     uid = None
-    if hasattr(g, "firebase_user"):
-        firebase_user = g.firebase_user
+    if hasattr(request, "firebase_user"):
+        firebase_user = request.firebase_user
         uid = firebase_user.get("uid")
         if not user_name or user_name == "there":
             user_name = firebase_user.get("name", firebase_user.get("email", "").split("@")[0])
 
     # Fetch rich user context from Firestore
     user_context = _fetch_user_context(uid) if uid else {}
+    print(f"[ScoutChat] uid={uid!r} user_context_keys={list(user_context.keys())}")
 
     try:
         result = run_async(
@@ -235,6 +331,7 @@ def scout_assistant_chat():
                 credits=credits,
                 max_credits=max_credits,
                 user_context=user_context,
+                user_memory=user_memory,
                 uid=uid,
             )
         )
@@ -275,6 +372,9 @@ def scout_assistant_chat_stream():
     conversation_history = payload.get("conversation_history", [])
     current_page = (payload.get("current_page") or "/home")[:200]
     user_info = payload.get("user_info", {})
+    user_memory = payload.get("user_memory") or {}
+    if not isinstance(user_memory, dict):
+        user_memory = {}
 
     # Sanitize conversation history
     VALID_ROLES = {"user", "assistant"}
@@ -299,8 +399,8 @@ def scout_assistant_chat_stream():
     max_credits = user_info.get("max_credits", 300)
 
     uid = None
-    if hasattr(g, "firebase_user"):
-        firebase_user = g.firebase_user
+    if hasattr(request, "firebase_user"):
+        firebase_user = request.firebase_user
         uid = firebase_user.get("uid")
         if not user_name or user_name == "there":
             user_name = firebase_user.get("name", firebase_user.get("email", "").split("@")[0])
@@ -332,6 +432,7 @@ def scout_assistant_chat_stream():
                             credits=credits,
                             max_credits=max_credits,
                             user_context=user_context,
+                            user_memory=user_memory,
                             uid=uid,
                             queue=async_queue,
                         )
@@ -450,8 +551,8 @@ def scout_search_help():
     user_name = user_info.get("name", "there")
     
     # Try to get user info from Firebase context if available
-    if hasattr(g, "firebase_user"):
-        firebase_user = g.firebase_user
+    if hasattr(request, "firebase_user"):
+        firebase_user = request.firebase_user
         if not user_name or user_name == "there":
             user_name = firebase_user.get("name", firebase_user.get("email", "").split("@")[0])
     
