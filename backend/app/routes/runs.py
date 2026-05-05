@@ -276,7 +276,28 @@ def prompt_search():
 
         # Fetch contacts
         contacts, retry_level_used, already_saved_contacts = search_contacts_from_prompt(parsed, pdl_fetch_count, exclude_keys=seen_contact_set, user_profile=user_data)
-        search_broadened = retry_level_used >= 2  # Title/industry filters were dropped
+        search_broadened = retry_level_used >= 1  # Any broadening at all
+
+        # Surface which dimensions were dropped at the rung that succeeded so the
+        # frontend can render an honest "we expanded by..." banner. Mirrors the
+        # rungs in search_contacts_from_prompt:
+        #   0: full query (no broadening)
+        #   1: broadened title (synonyms)
+        #   2: dropped title + industry
+        #   3: dropped title + industry + location
+        #   4: dropped title + industry + location + company (school + role family)
+        #   5: school only
+        broadened_dimensions: list[str] = []
+        if retry_level_used >= 1:
+            broadened_dimensions.append("title")
+        if retry_level_used >= 2:
+            broadened_dimensions.append("industry")
+        if retry_level_used >= 3:
+            broadened_dimensions.append("location")
+        if retry_level_used >= 4:
+            broadened_dimensions.append("company")
+        if retry_level_used >= 5:
+            broadened_dimensions = ["title", "industry", "location", "company"]
 
         def _build_saved_contact_cards(raw_already_saved):
             cards = []
@@ -716,6 +737,8 @@ def prompt_search():
             "credits_used": credits_used,
             "parsed_query": parsed_query_payload,
             "search_broadened": search_broadened,
+            "retry_level_used": retry_level_used,
+            "broadened_dimensions": broadened_dimensions,
         }
         if credits_remaining is not None:
             response_data["credits_remaining"] = credits_remaining

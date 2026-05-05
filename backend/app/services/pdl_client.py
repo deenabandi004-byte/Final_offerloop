@@ -5,6 +5,7 @@ import requests
 import json
 import hashlib
 import re
+import time
 from functools import lru_cache
 from datetime import datetime
 import requests.exceptions
@@ -2737,8 +2738,19 @@ def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:
     Uses same patterns as es_title_block, try_metro_search_optimized (location, company, schools).
     Returns query_obj ready for execute_pdl_search.
 
-    retry_level: 0=full query; 1=simplify title; 2=drop title+industry; 3=drop title+industry+location.
-    Company and school filters are never dropped (user's core intent).
+    retry_level (rungs from tightest to broadest):
+      0 = full query (title + location + company + school + industry)
+      1 = simplify title via role-family expansion; keep everything else
+      2 = drop title + industry; keep location + company + school
+      3 = drop title + industry + location; keep company + school
+      4 = DROP company; keep school + role-family expansion (catches the
+          "international school × US firm" PDL coverage gap, e.g. Bocconi × Morgan
+          Stanley returns 0 but Bocconi alums in IB more broadly returns plenty)
+      5 = floor — school only (any reachable alum). Last resort before giving up.
+
+    Company is dropped at level 4+; school filter is the only thing that survives
+    to level 5. The user's intent is "find someone from my network" — at the floor
+    we ensure they at least see SOMEONE from the school they care about.
     """
     must = []
 
@@ -2785,8 +2797,20 @@ def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:
     elif retry_level == 2:
         # Retry 2: no title filter (any role at company + school)
         pass
-    else:
+    elif retry_level == 3:
         # Retry 3: no title, no location (handled below)
+        pass
+    elif retry_level == 4:
+        # Retry 4: re-introduce broadened title (school × role family, no company)
+        # Use case: international school × US firm where PDL coverage is thin.
+        # Bocconi × Morgan Stanley returns 0; Bocconi alumni in IB roles broadly
+        # is the right rescue path — keep their role intent, ditch the specific firm.
+        if titles:
+            expanded_titles = _expand_titles_for_broadening(titles)
+            title_clauses = [{"match_phrase": {"job_title": t}} for t in expanded_titles]
+            must.append({"bool": {"should": title_clauses}})
+    else:
+        # Retry 5: school-only floor — any reachable alum
         pass
 
     # ---- Location block (skip when retry_level >= 3) ----
@@ -2821,11 +2845,14 @@ def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:
             loc_block = {"bool": {"must": location_must}}
             must.append(loc_block)
 
-    # ---- Company block: never dropped ----
+    # ---- Company block: dropped at retry_level >= 4 ----
+    # The "international school × US firm" PDL coverage gap is the main motivator —
+    # at level 4 we try to find ANY alum of the school in the role family (no firm
+    # constraint) so users get someone reachable instead of zero results.
     # P1 FIX: Clean company names via PDL cleaner API before querying (e.g. "JP Morgan" → "JPMorgan Chase & Co.")
     companies = parsed_prompt.get("companies") or []
     company_names = [c.get("name", "").strip() for c in companies if isinstance(c, dict) and c.get("name")]
-    if company_names:
+    if retry_level < 4 and company_names:
         company_clauses = []
         for name in company_names:
             # Clean company name for better PDL matching
@@ -3110,14 +3137,30 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
     companies_from_prompt = parsed_prompt.get("companies") or []
     schools_from_prompt = parsed_prompt.get("schools") or []
 
-    for attempt in range(4):
+    # Hard wall-time cap on the entire retry chain. PDL roundtrips run ~1.5-2.5s
+    # each in practice, so 4s only fit 2 rungs and starved the most-useful broad
+    # rungs (level 4 = drop company; level 5 = school floor). 9s lets the chain
+    # reach level 4 reliably without making failed searches feel hung. Level 0
+    # always runs; subsequent rungs only fire if budget remains.
+    RETRY_WALL_TIME_BUDGET_SEC = 9.0
+    retry_start_time = time.time()
+
+    for attempt in range(6):
         if attempt >= 1:
+            elapsed = time.time() - retry_start_time
+            if elapsed > RETRY_WALL_TIME_BUDGET_SEC:
+                print(f"[PDL Retry] Wall-time cap hit at attempt {attempt} (elapsed={elapsed:.2f}s > budget={RETRY_WALL_TIME_BUDGET_SEC}s) — stopping retry chain")
+                break
             if attempt == 1:
                 print(f"[PDL Retry] Attempt 1: broaden title via role-family match_phrase expansion; keep company + school + location")
             elif attempt == 2:
                 print(f"[PDL Retry] Attempt 2: drop title + industry filters (keep company + school + location)")
-            else:
+            elif attempt == 3:
                 print(f"[PDL Retry] Attempt 3: drop title + industry + location (keep company + school only)")
+            elif attempt == 4:
+                print(f"[PDL Retry] Attempt 4: drop company; keep school + broadened role family (international-school × US-firm gap rescue)")
+            else:
+                print(f"[PDL Retry] Attempt 5: floor — school only (any reachable alum)")
         query_obj = build_query_from_prompt(parsed_prompt, retry_level=attempt)
         raw_contacts, status_code = execute_pdl_search(
             headers=headers,
@@ -3136,9 +3179,18 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
 
         attempt_filtered = []
         attempt_dropped = 0
+        # At retry levels 4+ we intentionally dropped the company filter from
+        # the query, so post-validation can't require a company match either —
+        # otherwise everything would get dropped. Strip the company expectation
+        # when evaluating contacts at those broader rungs.
+        effective_parsed = parsed_prompt
+        effective_target_company = target_company
+        if attempt >= 4:
+            effective_parsed = {**parsed_prompt, "companies": []}
+            effective_target_company = None
         for contact in raw_contacts:
             key = get_contact_identity(contact)
-            matches, _ = _contact_matches_prompt_criteria(contact, parsed_prompt, target_company)
+            matches, _ = _contact_matches_prompt_criteria(contact, effective_parsed, effective_target_company)
             if not matches:
                 attempt_dropped += 1
                 continue
