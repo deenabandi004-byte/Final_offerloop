@@ -446,13 +446,17 @@ def _check_student_activity(db, uid: str, user_data: dict):
     Creates a stuck_student nudge with suggestions if trigger conditions met.
     Deduplicates by synthetic contactId per subtype.
     """
-    created_at_str = user_data.get("createdAt", "")
-    if not created_at_str:
+    created_at_raw = user_data.get("createdAt")
+    if not created_at_raw:
         return
 
     try:
-        created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
-    except (ValueError, TypeError):
+        # createdAt may be a Firestore timestamp object or an ISO string
+        if hasattr(created_at_raw, 'timestamp'):
+            created_at = created_at_raw.replace(tzinfo=timezone.utc) if created_at_raw.tzinfo is None else created_at_raw
+        else:
+            created_at = datetime.fromisoformat(str(created_at_raw).replace("Z", "+00:00"))
+    except Exception:
         return
 
     if created_at.tzinfo is None:

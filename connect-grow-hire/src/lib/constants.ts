@@ -38,6 +38,14 @@ export const TIER_CONFIGS = {
   },
 } as const;
 
+// Agent feature (Elite-only)
+export const AGENT_CONFIG = {
+  maxContactsPerWeek: 15,
+  maxCreditsPerWeek: 150,
+  minCreditBalance: 20,
+  enabledTiers: ["elite"] as const,
+} as const;
+
 export type CoffeeChatHistoryItem = {
   id: string;
   contactName: string;

@@ -148,26 +148,31 @@ def _build_job_clause(job_titles: List[str], strict: bool, require_fallback: boo
         return {
             "bool": {
                 "should": [{"match_phrase": {"job_title": t}} for t in titles[:8]],
-                "minimum_should_match": 1,
             }
         }
 
     # Loose: tokenize the primary title but require most tokens to match
+    # PDL doesn't support minimum_should_match — use must for required tokens
     primary = titles[0]
     tokens = [t.strip() for t in primary.replace(",", " ").split() if t.strip()]
     if not tokens:
         return {"match": {"job_title": primary}}
 
-    should = [{"match": {"job_title": t}} for t in tokens[:4]]
+    # Require most tokens via must, add title variations as optional boosters via should
+    required_count = max(1, len(tokens) - 1)
+    must_tokens = tokens[:required_count]
+    optional_tokens = tokens[required_count:]
+
+    must_clauses = [{"match": {"job_title": t}} for t in must_tokens]
+    should_clauses = [{"match": {"job_title": t}} for t in optional_tokens]
     # Also add other title variations as phrase matches (broadens recall)
     for t in titles[1:5]:
-        should.append({"match_phrase": {"job_title": t}})
-    return {
-        "bool": {
-            "should": should,
-            "minimum_should_match": max(1, len(tokens) - 1),
-        }
-    }
+        should_clauses.append({"match_phrase": {"job_title": t}})
+
+    query: dict = {"bool": {"must": must_clauses}}
+    if should_clauses:
+        query["bool"]["should"] = should_clauses
+    return query
 
 
 _INTERNATIONAL_INDICATORS = {

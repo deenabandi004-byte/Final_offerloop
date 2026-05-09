@@ -46,6 +46,7 @@ from .app.routes.jobs import jobs_bp
 from .app.routes.extension_logs import extension_logs_bp
 from .app.routes.search_suggestions import search_suggestions_bp
 from .app.routes.briefing import briefing_bp
+from .app.routes.agent import agent_bp
 from .app.extensions import init_app_extensions
 
 def create_app() -> Flask:
@@ -204,6 +205,7 @@ def create_app() -> Flask:
     app.register_blueprint(extension_logs_bp)
     app.register_blueprint(search_suggestions_bp)
     app.register_blueprint(briefing_bp)
+    app.register_blueprint(agent_bp)
 
     # --- Debug route to check frontend build (dev only) ---
     @app.route('/api/debug/frontend')
@@ -496,6 +498,85 @@ def create_app() -> Flask:
         _watchdog_logger.info("Daemon watchdog registered (first check in ~10 minutes)")
     else:
         _watchdog_logger.info("Daemon watchdog disabled via WATCHDOG_ENABLED=false")
+
+    # ---- Agent daemon thread (every 1 hour) ─────────────────────────────────
+    #
+    # Separate thread (NOT a 4th scanner) per daemon contract.
+    # Scans active agents and runs cycles where nextCycleAt <= now.
+    _agent_logger = logging.getLogger("agent_daemon")
+
+    def _agent_daemon_loop():
+        ONE_HOUR = 3600
+        _agent_logger.info("Agent daemon thread started (interval=1 hour)")
+        # Boot stabilization delay
+        time.sleep(600)
+        while True:
+            try:
+                with app.app_context():
+                    from .app.services.agent_service import run_due_agent_cycles
+                    run_due_agent_cycles()
+            except Exception:
+                _agent_logger.exception("Agent daemon failed")
+            time.sleep(ONE_HOUR)
+
+    if os.getenv("AGENT_DAEMON_ENABLED", "true").lower() == "true":
+        agent_thread = threading.Thread(target=_agent_daemon_loop, daemon=True)
+        agent_thread.start()
+        _agent_logger.info("Agent daemon registered (first run in ~10 minutes)")
+    else:
+        _agent_logger.info("Agent daemon disabled via AGENT_DAEMON_ENABLED=false")
+
+    # ---- Agent follow-up daemon (every 1 hour) ───────────────────────────────
+    #
+    # Separate from the main agent daemon. Only scans for stale outreach
+    # (emails sent 7+ days ago with no reply) and queues follow-up nudges.
+    _followup_logger = logging.getLogger("agent_followup_daemon")
+
+    def _agent_followup_loop():
+        ONE_HOUR = 3600
+        _followup_logger.info("Agent followup daemon started (interval=1 hour)")
+        time.sleep(600)  # boot stabilization
+        while True:
+            try:
+                with app.app_context():
+                    from .app.services.agent_service import run_followup_scan
+                    run_followup_scan()
+            except Exception:
+                _followup_logger.exception("Agent followup daemon failed")
+            time.sleep(ONE_HOUR)
+
+    if os.getenv("AGENT_FOLLOWUP_ENABLED", "true").lower() == "true":
+        followup_thread = threading.Thread(target=_agent_followup_loop, daemon=True)
+        followup_thread.start()
+        _followup_logger.info("Agent followup daemon registered (first run in ~10 minutes)")
+    else:
+        _followup_logger.info("Agent followup daemon disabled via AGENT_FOLLOWUP_ENABLED=false")
+
+    # ---- Agent daily digest daemon (every 24 hours) ─────────────────────────
+    #
+    # Sends a daily summary email via each user's own Gmail OAuth.
+    # Separate from the agent cycle daemon.
+    _digest_logger = logging.getLogger("agent_digest_daemon")
+
+    def _agent_digest_loop():
+        TWENTY_FOUR_HOURS = 86400
+        _digest_logger.info("Agent digest daemon started (interval=24h)")
+        time.sleep(3600)  # boot stabilization — 1 hour
+        while True:
+            try:
+                with app.app_context():
+                    from .app.services.agent_service import send_daily_digests
+                    send_daily_digests()
+            except Exception:
+                _digest_logger.exception("Agent digest daemon failed")
+            time.sleep(TWENTY_FOUR_HOURS)
+
+    if os.getenv("AGENT_DIGEST_ENABLED", "true").lower() == "true":
+        digest_thread = threading.Thread(target=_agent_digest_loop, daemon=True)
+        digest_thread.start()
+        _digest_logger.info("Agent digest daemon registered (first run in ~1 hour)")
+    else:
+        _digest_logger.info("Agent digest daemon disabled via AGENT_DIGEST_ENABLED=false")
 
     return app
 

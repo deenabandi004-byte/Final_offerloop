@@ -178,6 +178,25 @@ def _gmail_service(creds):
     return build("gmail", "v1", credentials=creds)
 
 
+def send_email_for_user(uid: str, to: str, subject: str, body_html: str) -> dict:
+    """Send an email via user's Gmail OAuth credentials (appears as from themselves)."""
+    creds = _load_user_gmail_creds(uid)
+    if not creds:
+        raise ValueError(f"No Gmail credentials for uid={uid}")
+
+    service = _gmail_service(creds)
+    if not service:
+        raise ValueError(f"Failed to build Gmail service for uid={uid}")
+
+    message = MIMEText(body_html, "html")
+    message["to"] = to
+    message["subject"] = subject
+    raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
+    return service.users().messages().send(
+        userId="me", body={"raw": raw}
+    ).execute()
+
+
 def start_gmail_watch(uid):
     """
     Start Gmail push notifications watch for the user. Saves watchHistoryId, watchExpiration,
@@ -967,16 +986,22 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
             gmail_account_email = user_email or os.getenv("DEFAULT_FROM_EMAIL", "noreply@offerloop.ai")
         
         print(f"[GmailClient] Creating {tier.capitalize()} Gmail draft for contact {contact.get('FirstName', 'Unknown')}")
-        
-        # Get the best available email address
+
+        # Get the best available email address — prefer work/verified over personal
         recipient_email = None
-        
-        if contact.get('PersonalEmail') and contact['PersonalEmail'] != 'Not available' and '@' in contact['PersonalEmail']:
-            recipient_email = contact['PersonalEmail']
-        elif contact.get('WorkEmail') and contact['WorkEmail'] != 'Not available' and '@' in contact['WorkEmail']:
+        source = None
+
+        if contact.get('WorkEmail') and contact['WorkEmail'] != 'Not available' and '@' in contact['WorkEmail']:
             recipient_email = contact['WorkEmail']
+            source = 'WorkEmail'
         elif contact.get('Email') and '@' in contact['Email'] and not contact['Email'].endswith('@domain.com'):
             recipient_email = contact['Email']
+            source = 'Email'
+        elif contact.get('PersonalEmail') and contact['PersonalEmail'] != 'Not available' and '@' in contact['PersonalEmail']:
+            recipient_email = contact['PersonalEmail']
+            source = 'PersonalEmail'
+
+        print(f"[GmailDraft] Recipient for {contact.get('FirstName')} {contact.get('LastName')}: selected={recipient_email} (source={source}) | WorkEmail={contact.get('WorkEmail', 'n/a')} | Email={contact.get('Email', 'n/a')} | PersonalEmail={contact.get('PersonalEmail', 'n/a')}")
         
         if not recipient_email:
             print(f"[GmailClient] No valid email found for contact - creating mock draft")
@@ -1280,14 +1305,21 @@ def create_drafts_batch(contacts_with_emails, gmail_service, resume_bytes=None, 
         email_subject = clean_email_text(item['email_subject'])
         email_body = clean_email_text(item['email_body'])
 
-        # Get recipient email
+        # Get recipient email — prefer work/verified over personal
         recipient_email = None
-        if contact.get('PersonalEmail') and contact['PersonalEmail'] != 'Not available' and '@' in contact['PersonalEmail']:
-            recipient_email = contact['PersonalEmail']
-        elif contact.get('WorkEmail') and contact['WorkEmail'] != 'Not available' and '@' in contact['WorkEmail']:
+        source = None
+        if contact.get('WorkEmail') and contact['WorkEmail'] != 'Not available' and '@' in contact['WorkEmail']:
             recipient_email = contact['WorkEmail']
+            source = 'WorkEmail'
         elif contact.get('Email') and '@' in contact['Email']:
             recipient_email = contact['Email']
+            source = 'Email'
+        elif contact.get('PersonalEmail') and contact['PersonalEmail'] != 'Not available' and '@' in contact['PersonalEmail']:
+            recipient_email = contact['PersonalEmail']
+            source = 'PersonalEmail'
+
+        if recipient_email:
+            print(f"[GmailDraft] Batch recipient for {contact.get('FirstName')} {contact.get('LastName')}: selected={recipient_email} (source={source})")
 
         if not recipient_email:
             return None, None

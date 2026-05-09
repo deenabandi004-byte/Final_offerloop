@@ -57,12 +57,12 @@ class TestQueryBuilding:
         assert "match_phrase" in s
 
     def test_02_multiple_roles(self):
-        """Multiple roles generate should clause with minimum_should_match."""
+        """Multiple roles generate should clause for title matching."""
         q = _build_query(self._filters(roles=["SDE", "Software Engineer", "Software Dev"]), self.STRICT)
         s = qs(q)
         assert "sde" in s
         assert "software engineer" in s
-        assert "minimum_should_match" in s
+        assert "should" in s
 
     def test_03_no_roles_no_company(self):
         """No roles and no company generates exists fallback."""

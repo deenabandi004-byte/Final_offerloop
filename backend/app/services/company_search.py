@@ -132,13 +132,13 @@ def _cached_parse_firm_search_prompt_impl(normalized_query: str) -> str:
     client = get_openai_client()
     prompt = normalized_query  # Use normalized query as the actual prompt
     
-    system_prompt = """You are a search query parser for a professional networking platform. 
+    system_prompt = """You are a search query parser for a professional networking platform.
 Extract structured information from natural language queries about finding companies/firms.
 
 You must extract:
 1. industry (REQUIRED) - The type of business/industry. Must be one of:
    - "investment banking"
-   - "real estate private equity" 
+   - "real estate private equity"
    - "venture capital"
    - "private equity"
    - "consulting"
@@ -150,8 +150,9 @@ You must extract:
    If the user mentions something similar, map it to the closest option.
    BE LENIENT - if the query mentions "firms", "companies", or industry-related terms, try to infer the industry.
    If the query mentions "VC", "PE", "IB", "MBB", etc., map to the appropriate industry.
+   If the user names a specific company (e.g. "Goldman Sachs"), infer the industry from that company.
 
-2. location (REQUIRED) - City, state, region, or country. Examples:
+2. location (OPTIONAL) - City, state, region, or country. Examples:
    - "New York, NY"
    - "San Francisco Bay Area"
    - "Los Angeles"
@@ -171,11 +172,12 @@ You must extract:
    - ["technology", "growth equity"]
    - ["real estate", "hospitality"]
    Extract any specific sectors, deal types, or specializations mentioned.
+   If the user named a specific company, include the company name as a keyword.
 
 Respond with ONLY valid JSON in this exact format:
 {
     "industry": "string or null",
-    "location": "string or null", 
+    "location": "string or null",
     "size": "small|mid|large|none",
     "keywords": ["array", "of", "strings"]
 }
@@ -1021,6 +1023,63 @@ def transform_serp_company_to_firm(company: Dict[str, Any]) -> Optional[Dict[str
 # MAIN SEARCH FUNCTION - Combines parsing + SERP search
 # =============================================================================
 
+ADJACENT_INDUSTRIES = {
+    "investment banking": ["private equity", "venture capital", "asset management", "hedge fund"],
+    "private equity": ["investment banking", "venture capital", "hedge fund", "consulting"],
+    "venture capital": ["private equity", "investment banking", "software engineering"],
+    "consulting": ["private equity", "accounting", "investment banking"],
+    "hedge fund": ["asset management", "investment banking", "private equity"],
+    "asset management": ["hedge fund", "investment banking", "private equity"],
+    "software engineering": ["product management", "venture capital"],
+    "product management": ["software engineering", "consulting"],
+    "accounting": ["consulting", "investment banking"],
+    "real estate private equity": ["private equity", "investment banking"],
+}
+
+NEARBY_LOCATIONS = {
+    "new york": ["Boston", "Philadelphia", "Connecticut"],
+    "san francisco": ["Silicon Valley", "San Jose", "Oakland"],
+    "los angeles": ["Orange County", "San Diego", "Santa Monica"],
+    "chicago": ["Milwaukee", "Indianapolis"],
+    "boston": ["New York", "Connecticut"],
+    "dallas": ["Houston", "Austin"],
+    "houston": ["Dallas", "Austin"],
+    "atlanta": ["Charlotte", "Nashville"],
+    "miami": ["Fort Lauderdale", "Tampa"],
+    "washington": ["Baltimore", "Northern Virginia"],
+    "seattle": ["Portland", "San Francisco"],
+}
+
+
+def _build_firm_search_suggestions(parsed: dict, location: str, firms_found: int, limit: int) -> list:
+    """Build actionable suggestions when firm search returns sparse results."""
+    suggestions = []
+    industry = (parsed.get("industry") or "").lower()
+    loc = (location or "").lower()
+
+    # Suggest adjacent industries
+    if industry in ADJACENT_INDUSTRIES:
+        for adj in ADJACENT_INDUSTRIES[industry][:2]:
+            suggestions.append({
+                "type": "broaden_query",
+                "label": f"Try {adj} firms" + (f" in {parsed.get('location', '')}" if parsed.get("location") else ""),
+                "query": f"{adj} firms" + (f" in {parsed.get('location', '')}" if parsed.get("location") else ""),
+            })
+
+    # Suggest nearby locations
+    for loc_key, nearby in NEARBY_LOCATIONS.items():
+        if loc_key in loc:
+            for nearby_city in nearby[:2]:
+                suggestions.append({
+                    "type": "broaden_query",
+                    "label": f"Try {industry} in {nearby_city}",
+                    "query": f"{industry} firms in {nearby_city}",
+                })
+            break
+
+    return suggestions[:4]
+
+
 def search_firms(prompt: str, limit: int = 20, search_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Main entry point for firm search.
@@ -1061,18 +1120,18 @@ def search_firms(prompt: str, limit: int = 20, search_id: Optional[str] = None) 
         }
     
     parsed = parse_result["parsed"]
-    
+
     # Step 2: Normalize location
     if search_id:
         update_search_progress(search_id, current=1, step="Normalizing location...")
     location = normalize_location(parsed.get("location", ""))
-    
+
     # Step 3: Search using SERP API + ChatGPT (bulletproof search handles fallbacks internally)
     from app.services.serp_client import search_companies_with_serp
-    
+
     if search_id:
         update_search_progress(search_id, current=2, step="Generating firm names...")
-    
+
     search_result = search_companies_with_serp(
         industry=parsed["industry"],
         location=location,
@@ -1095,10 +1154,18 @@ def search_firms(prompt: str, limit: int = 20, search_id: Optional[str] = None) 
         "location": parsed["location"],
         "locationNormalized": location,
         "size": parsed.get("size", "none"),
-        "keywords": parsed.get("keywords", [])
+        "keywords": parsed.get("keywords", []),
+        "location_defaulted": parsed.get("location_defaulted", False),
     }
     search_result["fallbackApplied"] = fallback_applied
-    
+
+    # Add adjacent suggestions when results are sparse
+    firms_found = len(search_result.get("firms", []))
+    if firms_found < limit * 0.5:
+        suggestions = _build_firm_search_suggestions(parsed, location, firms_found, limit)
+        if suggestions:
+            search_result["suggestions"] = suggestions
+
     return search_result
 
 

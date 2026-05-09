@@ -200,10 +200,17 @@ def _build_scout_sentence(company_name: str, sector: str, user_ctx: dict, alumni
     school = _short_university(user_ctx.get("university", ""))
     major = user_ctx.get("major", "your field")
 
-    # R5: sector-only fallback (default)
-    headline = f"A {sector.lower()} company on your radar — tight fit for your {major} coursework."
-    detail = f"No tracked {school} alumni here yet — but the sector and location match your profile."
-    short = f"Tight fit for your {major} coursework."
+    # R5: sector-only fallback (default) — vary by company name hash
+    r5_shorts = [
+        f"{sector} company that recruits {major} students.",
+        f"Strong {sector.lower()} presence — relevant to your {major} background.",
+        f"Actively hiring in {sector.lower()} roles that match your profile.",
+        f"Well-known {sector.lower()} employer with {major}-relevant teams.",
+        f"{sector} firm aligned with your career interests.",
+    ]
+    short = r5_shorts[hash(company_name) % len(r5_shorts)]
+    headline = f"{company_name} — {short}"
+    detail = f"No tracked {school} alumni here yet — but the sector and location match your profile." if school else f"The sector matches your profile."
     rung = "R5"
     stat_value = "—"
     stat_label = "on your radar"

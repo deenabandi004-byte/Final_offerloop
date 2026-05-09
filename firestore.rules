@@ -118,6 +118,31 @@ service cloud.firestore {
       match /cover_letter_library/{docId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
+
+      // Agent settings (config)
+      match /settings/{docId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Agent actions (live activity feed)
+      match /agent_actions/{actionId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Agent cycles (cycle progress)
+      match /agent_cycles/{cycleId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Agent jobs
+      match /agent_jobs/{jobId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Agent companies
+      match /agent_companies/{companyId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+      }
     }
     
     // Default: deny all other access

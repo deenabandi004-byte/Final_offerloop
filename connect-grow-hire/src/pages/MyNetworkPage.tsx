@@ -931,6 +931,9 @@ const ManagersTable: React.FC<{ rows: ManagerRow[] }> = ({ rows }) => {
   );
 };
 
+const capitalizeName = (s: string) =>
+  s.replace(/\b[a-z]/g, c => c.toUpperCase()).replace(/\.[a-z]/g, c => c.toUpperCase());
+
 // ── Main Page ────────────────────────────────────────────────────────────────
 
 const MyNetworkPage: React.FC = () => {

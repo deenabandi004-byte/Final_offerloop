@@ -161,6 +161,14 @@ def _get_deadlines(user_data: dict) -> list:
 @require_firebase_auth
 def get_briefing():
     """Morning briefing aggregation endpoint."""
+    try:
+        return _get_briefing_inner()
+    except Exception as e:
+        logger.exception("Briefing endpoint error: %s", e)
+        return jsonify({"error": "Internal server error", "detail": str(e)}), 500
+
+
+def _get_briefing_inner():
     uid = request.firebase_user['uid']
     db = get_db()
 
@@ -170,13 +178,18 @@ def get_briefing():
     tier = user_data.get("subscriptionTier") or user_data.get("tier", "free")
 
     # Determine if new user (for empty states)
-    created_at = user_data.get("createdAt", "")
+    created_at = user_data.get("createdAt")
     is_new_user = False
     if created_at:
         try:
-            created_dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+            # createdAt may be a Firestore timestamp object or an ISO string
+            if hasattr(created_at, 'timestamp'):
+                # Firestore DatetimeWithNanoseconds
+                created_dt = created_at.replace(tzinfo=timezone.utc) if created_at.tzinfo is None else created_at
+            else:
+                created_dt = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
             is_new_user = (datetime.now(timezone.utc) - created_dt).days <= 7
-        except (ValueError, TypeError):
+        except Exception:
             pass
 
     # Aggregate all sections

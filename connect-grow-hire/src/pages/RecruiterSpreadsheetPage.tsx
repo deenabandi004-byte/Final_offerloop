@@ -1,13 +1,13 @@
 // src/pages/RecruiterSpreadsheetPage.tsx
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import RecruiterSpreadsheet from '@/components/RecruiterSpreadsheet';
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
-import { db, storage } from '@/lib/firebase';
+import { db, storage, auth } from '@/lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { toast } from "@/hooks/use-toast";
@@ -15,21 +15,24 @@ import { ACCEPTED_RESUME_TYPES, isValidResumeFile } from "@/utils/resumeFileType
 import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { VideoDemo } from "@/components/VideoDemo";
 import { ProGate } from "@/components/ProGate";
-import { apiService, type Recruiter } from "@/services/api";
+import { apiService, type Recruiter, type FeedJob } from "@/services/api";
 import { StickyCTA } from "@/components/StickyCTA";
 import { firebaseApi, type Recruiter as FirebaseRecruiter } from "../services/firebaseApi";
 import {
-  Users, Link, Building2, Briefcase, MapPin, FileText, CheckCircle,
-  Mail, Sparkles, Check, ArrowRight, ClipboardList, Loader2, Upload, ChevronDown, ChevronUp
+  Users, Link, CheckCircle,
+  ArrowRight, Loader2, Upload, ChevronDown, ChevronUp
 } from "lucide-react";
-import type { FeedJob } from "@/services/api";
-import { getCompanyLogoUrl } from "@/utils/suggestionChips";
+import {
+  getCompanyLogoUrl, getRecommendedCompanies,
+  type RecommendedCompany, type UserContext, isContextEmpty,
+} from "@/utils/suggestionChips";
 import { DEV_MOCK_USER } from "@/lib/devPreview";
 
 const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: boolean }> = ({ embedded = false, isDevPreview = false }) => {
   const { user: authUser } = useFirebaseAuth();
   const user = isDevPreview ? DEV_MOCK_USER as any : authUser;
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('find-hiring-managers');
 
   // Resume state
@@ -51,9 +54,12 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
   const [managersFound, setManagersFound] = useState(0);
   const [showManualEntry, setShowManualEntry] = useState(false);
 
-  // Recent jobs for chips
+  // Job feed chips + profile-based fallback
   const [recentJobs, setRecentJobs] = useState<FeedJob[]>([]);
-  const [jobsLoading, setJobsLoading] = useState(false);
+  const [recommendations, setRecommendations] = useState<RecommendedCompany[]>([]);
+  const [chipsCollapsed, setChipsCollapsed] = useState(false);
+  const [hmSuggestions, setHmSuggestions] = useState<any[]>([]);
+
 
   // Ref for original button to track visibility
   const originalButtonRef = useRef<HTMLButtonElement>(null);
@@ -111,14 +117,14 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
     loadSavedResume();
   }, [loadSavedResume]);
 
-  // Fetch recent job feed for chips
+  // Fetch job feed for chips, fallback to profile-based recommendations
   useEffect(() => {
     if (!user?.uid || isDevPreview) return;
     let cancelled = false;
-    setJobsLoading(true);
+
+    // Try job feed first
     apiService.getJobFeed().then(data => {
       if (cancelled) return;
-      // Combine top_jobs and new_matches, deduplicate, take first 8
       const all = [...(data.top_jobs || []), ...(data.new_matches || [])];
       const seen = new Set<string>();
       const unique: FeedJob[] = [];
@@ -130,11 +136,26 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
         if (unique.length >= 8) break;
       }
       setRecentJobs(unique);
-    }).catch(() => {
-      // Silently fail — chips are optional
-    }).finally(() => {
-      if (!cancelled) setJobsLoading(false);
-    });
+    }).catch(() => {});
+
+    // Also fetch profile-based recommendations as fallback
+    firebaseApi.getUserOnboardingData(user.uid).then(data => {
+      if (cancelled) return;
+      const ctx: UserContext = {
+        firstName: data.firstName,
+        university: data.university,
+        graduationYear: data.graduationYear,
+        targetIndustries: data.targetIndustries,
+        preferredLocations: data.preferredLocations,
+        dreamCompanies: data.dreamCompanies,
+        careerTrack: data.careerTrack,
+        preferredJobRole: data.preferredJobRole,
+      };
+      if (!isContextEmpty(ctx)) {
+        setRecommendations(getRecommendedCompanies(ctx));
+      }
+    }).catch(() => {});
+
     return () => { cancelled = true; };
   }, [user?.uid]);
 
@@ -209,6 +230,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
     if (!canSearch || !user) return;
     setIsSearching(true);
     setProgress(0);
+    setHmSuggestions([]);
 
     // Simulate progress
     const progressInterval = setInterval(() => {
@@ -410,11 +432,17 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
             : `${savedCount} saved to tracker.`,
         });
       } else {
+        const fallbackMsg = (response as any).fallback_message || (response as any).fallbackMessage || "";
         toast({
           title: "No hiring managers found",
-          description: "Try adjusting your search criteria or company name.",
+          description: fallbackMsg || "Try adjusting your search criteria or company name.",
           variant: "default",
+          duration: 7000,
         });
+        // Store suggestions for UI rendering
+        if ((response as any).suggestions?.length) {
+          setHmSuggestions((response as any).suggestions);
+        }
       }
 
       setIsSearching(false);
@@ -454,32 +482,6 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
               {/* Header Section — only when standalone */}
               {!embedded && (
               <div className="w-full px-3 py-6 sm:px-6 sm:py-12 !pb-0" style={{ maxWidth: '900px', margin: '0 auto' }}>
-                <h1
-                  className="text-[28px] sm:text-[42px]"
-                  style={{
-                    fontFamily: "'Lora', Georgia, serif",
-                    fontWeight: 400,
-                    letterSpacing: '-0.025em',
-                    color: '#0F172A',
-                    textAlign: 'center',
-                    marginBottom: '10px',
-                    lineHeight: 1.1,
-                  }}
-                >
-                  Find Hiring Managers
-                </h1>
-                <p
-                  style={{
-                    fontFamily: "'DM Sans', system-ui, sans-serif",
-                    fontSize: '16px',
-                    color: '#6B7280',
-                    textAlign: 'center',
-                    marginBottom: '28px',
-                    lineHeight: 1.5,
-                  }}
-                >
-                  Paste a job posting URL and we'll find the recruiters and hiring managers for that role.
-                </p>
                 <div style={{ display: 'flex', justifyContent: 'center' }}>
                   <VideoDemo videoId="TIERqtjc1tk" />
                 </div>
@@ -502,145 +504,20 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                         disabled={isSearching || isUploadingResume}
                       />
 
-                      {/* Recent Job Chips */}
-                      {recentJobs.length > 0 && !jobPostingUrl && !isSearching && (
-                        <div style={{ marginBottom: 18 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                            <span style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>
-                              From your job board
-                            </span>
-                          </div>
-                          <div style={{ fontSize: 11.5, color: '#64748B', marginBottom: 10 }}>
-                            Find the hiring manager for a role you're interested in
-                          </div>
-                          <div
-                            style={{
-                              display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4,
-                              scrollbarWidth: 'none',
-                            }}
-                          >
-                            {recentJobs.map(job => {
-                              const accentColors = ['#3B82F6', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#06B6D4', '#EC4899', '#6366F1'];
-                              const accent = accentColors[Math.abs(job.company.charCodeAt(0)) % accentColors.length];
-                              // Logo priority: feed logo → domain map → guessed domain favicon
-                              const domainGuess = job.company.toLowerCase().replace(/[^a-z0-9]/g, '') + '.com';
-                              const logoUrl = job.employer_logo || getCompanyLogoUrl(job.company) || `https://www.google.com/s2/favicons?domain=${domainGuess}&sz=128`;
-                              const initial = job.company.charAt(0).toUpperCase();
-
-                              return (
-                                <button
-                                  key={job.job_id}
-                                  type="button"
-                                  onClick={() => {
-                                    setJobPostingUrl(job.apply_url);
-                                    setCompany(job.company);
-                                    setJobTitle(job.title);
-                                    setLocation(job.location || '');
-                                  }}
-                                  style={{
-                                    flex: '0 0 148px', width: 148,
-                                    borderRadius: 3, overflow: 'hidden',
-                                    background: '#FAFBFF', border: '1px solid #E2E8F0',
-                                    cursor: 'pointer', textAlign: 'left',
-                                    transition: 'border-color .15s, box-shadow .15s, transform .15s',
-                                    fontFamily: 'inherit', padding: 0,
-                                  }}
-                                  onMouseEnter={e => {
-                                    const el = e.currentTarget as HTMLButtonElement;
-                                    el.style.borderColor = '#93C5FD';
-                                    el.style.boxShadow = '0 2px 8px rgba(59,130,246,0.10)';
-                                    el.style.transform = 'scale(1.02)';
-                                  }}
-                                  onMouseLeave={e => {
-                                    const el = e.currentTarget as HTMLButtonElement;
-                                    el.style.borderColor = '#E2E8F0';
-                                    el.style.boxShadow = 'none';
-                                    el.style.transform = 'scale(1)';
-                                  }}
-                                >
-                                  {/* Accent bar */}
-                                  <div style={{ height: 3, background: accent }} />
-
-                                  {/* Card body */}
-                                  <div style={{ padding: '10px 12px 12px' }}>
-                                    {/* Logo */}
-                                    <div style={{ marginBottom: 8 }}>
-                                      {logoUrl ? (
-                                        <img
-                                          src={logoUrl}
-                                          alt=""
-                                          style={{ width: 32, height: 32, borderRadius: 3, objectFit: 'contain', background: '#fff' }}
-                                          onError={e => {
-                                            (e.currentTarget as HTMLImageElement).style.display = 'none';
-                                            const fallback = e.currentTarget.nextElementSibling as HTMLElement;
-                                            if (fallback) fallback.style.display = 'flex';
-                                          }}
-                                        />
-                                      ) : null}
-                                      <div style={{
-                                        width: 32, height: 32, borderRadius: 3,
-                                        background: `${accent}18`, color: accent,
-                                        fontSize: 13, fontWeight: 600,
-                                        display: logoUrl ? 'none' : 'flex',
-                                        alignItems: 'center', justifyContent: 'center',
-                                      }}>
-                                        {initial}
-                                      </div>
-                                    </div>
-
-                                    {/* Company name */}
-                                    <div style={{
-                                      fontSize: 13, fontWeight: 500, color: '#0F172A',
-                                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                                      marginBottom: 3,
-                                    }}>
-                                      {job.company}
-                                    </div>
-
-                                    {/* Job title */}
-                                    <div style={{
-                                      fontSize: 11, color: '#64748B', lineHeight: 1.35,
-                                      display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-                                      overflow: 'hidden', minHeight: 30,
-                                      marginBottom: 8,
-                                    }}>
-                                      {job.title}
-                                    </div>
-
-                                    {/* CTA */}
-                                    <div style={{ fontSize: 11, color: '#3B82F6', fontWeight: 500 }}>
-                                      Find hiring manager →
-                                    </div>
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-
-                          {/* Divider */}
-                          <div style={{
-                            display: 'flex', alignItems: 'center', gap: 12, marginTop: 14,
-                          }}>
-                            <div style={{ flex: 1, height: 1, background: '#E2E8F0' }} />
-                            <span style={{ fontSize: 11, color: '#94A3B8', whiteSpace: 'nowrap' }}>or paste a job URL</span>
-                            <div style={{ flex: 1, height: 1, background: '#E2E8F0' }} />
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Search input */}
-                      <div style={{ marginBottom: 14 }}>
+                      {/* Natural language prompt input */}
+                      {/* Job URL input */}
+                      <div style={{ marginTop: 20, marginBottom: 16 }}>
                         <div
                           style={{
                             display: 'flex',
                             alignItems: 'flex-start',
                             gap: 10,
                             padding: '16px 20px',
-                            border: '1.5px solid transparent',
+                            border: '1.5px solid var(--warm-border, #E8E4DE)',
                             borderRadius: 14,
-                            background: '#F0F7FF',
+                            background: 'var(--warm-surface, #FAF9F6)',
                             transition: 'all .15s',
-                            minHeight: 110,
+                            minHeight: 56,
                           }}
                           className="focus-within:border-[#2563EB] focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(37,99,235,0.12)]"
                         >
@@ -673,25 +550,369 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                         </div>
                       </div>
 
+                      {/* Job/recommendation cards — below search box, like People tab */}
+                      {!jobPostingUrl.trim() && !isSearching && (() => {
+                        const hasJobs = recentJobs.length > 0;
+                        const hasRecs = recommendations.length > 0;
+                        if (!hasJobs && !hasRecs) return null;
+
+                        if (chipsCollapsed) {
+                          return (
+                            <button
+                              onClick={() => setChipsCollapsed(false)}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 4,
+                                padding: '4px 10px', fontSize: 11, color: 'var(--warm-ink-tertiary, #9C9590)',
+                                background: 'none', border: '1px solid var(--warm-border, #E8E4DE)', borderRadius: 100,
+                                cursor: 'pointer', transition: 'all .12s', fontFamily: 'inherit',
+                                marginBottom: 16,
+                              }}
+                              onMouseEnter={e => { e.currentTarget.style.color = '#3B82F6'; e.currentTarget.style.borderColor = '#3B82F6'; }}
+                              onMouseLeave={e => { e.currentTarget.style.color = 'var(--warm-ink-tertiary, #9C9590)'; e.currentTarget.style.borderColor = 'var(--warm-border, #E8E4DE)'; }}
+                            >
+                              Suggestions
+                              <ChevronDown style={{ width: 12, height: 12 }} />
+                            </button>
+                          );
+                        }
+
+                        return (
+                          <div style={{ marginTop: 24 }}>
+                            {/* Header row */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                              <span style={{
+                                fontSize: 10, fontWeight: 500, color: 'var(--ink-3, #8A8F9A)',
+                                letterSpacing: '0.14em', textTransform: 'uppercase' as const,
+                                fontFamily: "'JetBrains Mono', monospace",
+                                display: 'flex', alignItems: 'center', gap: 6,
+                              }}>
+                                <span style={{ color: 'var(--accent, #1B2A44)', fontSize: 11 }}>&#9670;</span>
+                                {hasJobs ? 'From your job board' : 'Recommended for you'}
+                              </span>
+                              <button
+                                onClick={() => setChipsCollapsed(true)}
+                                style={{
+                                  fontSize: 11, color: 'var(--warm-ink-tertiary, #9C9590)', background: 'none', border: 'none',
+                                  cursor: 'pointer', fontFamily: 'inherit', display: 'inline-flex',
+                                  alignItems: 'center', gap: 3, padding: 0,
+                                }}
+                                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#3B82F6'; }}
+                                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--warm-ink-tertiary, #9C9590)'; }}
+                              >
+                                Collapse
+                                <ChevronUp style={{ width: 12, height: 12 }} />
+                              </button>
+                            </div>
+
+                            {/* Subtitle */}
+                            <div style={{ fontSize: 11.5, color: 'var(--warm-ink-secondary, #6B6560)', marginBottom: 14 }}>
+                              {hasJobs ? 'Click a role to find the hiring manager behind it' : 'Click a company to find hiring managers there'}
+                            </div>
+
+                            {/* Horizontal scroll card row */}
+                            <div
+                              style={{
+                                display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 6,
+                                scrollbarWidth: 'none',
+                              }}
+                            >
+                              {hasJobs ? (
+                                recentJobs.map((job, idx) => {
+                                  const domainGuess = job.company.toLowerCase().replace(/[^a-z0-9]/g, '') + '.com';
+                                  const logoUrl = job.employer_logo || getCompanyLogoUrl(job.company) || `https://www.google.com/s2/favicons?domain=${domainGuess}&sz=128`;
+                                  const initial = job.company.charAt(0).toUpperCase();
+
+                                  return (
+                                    <button
+                                      key={job.job_id}
+                                      type="button"
+                                      onClick={() => {
+                                        setJobPostingUrl(job.apply_url);
+                                        setCompany(job.company);
+                                        setJobTitle(job.title);
+                                        setLocation(job.location || '');
+                                        setChipsCollapsed(true);
+                                      }}
+                                      className="suggestion-row-enter"
+                                      style={{
+                                        flex: '0 0 160px', width: 160,
+                                        borderRadius: 3, overflow: 'hidden',
+                                        background: 'var(--elev, #FFFFFF)',
+                                        border: '1px solid var(--line, #E8E8E8)',
+                                        cursor: 'pointer', textAlign: 'left',
+                                        transition: 'all .2s ease',
+                                        fontFamily: 'inherit', padding: 0,
+                                        boxShadow: 'inset 0 -1px 0 var(--line, #E8E8E8), 0 1px 2px rgba(26,29,35,0.03)',
+                                        animationDelay: `${idx * 60}ms`,
+                                      }}
+                                      onMouseEnter={e => {
+                                        const el = e.currentTarget as HTMLButtonElement;
+                                        el.style.borderColor = 'var(--accent, #1B2A44)';
+                                        el.style.boxShadow = 'inset 0 -1px 0 var(--line, #E8E8E8), 0 2px 6px rgba(26,29,35,0.06)';
+                                        el.style.transform = 'translateY(-1px)';
+                                      }}
+                                      onMouseLeave={e => {
+                                        const el = e.currentTarget as HTMLButtonElement;
+                                        el.style.borderColor = 'var(--line, #E8E8E8)';
+                                        el.style.boxShadow = 'inset 0 -1px 0 var(--line, #E8E8E8), 0 1px 2px rgba(26,29,35,0.03)';
+                                        el.style.transform = 'translateY(0)';
+                                      }}
+                                    >
+                                      <div style={{ padding: '12px 14px 14px' }}>
+                                        <div style={{ marginBottom: 10 }}>
+                                          {logoUrl ? (
+                                            <img
+                                              src={logoUrl}
+                                              alt=""
+                                              style={{
+                                                width: 32, height: 32, borderRadius: 3,
+                                                objectFit: 'contain', background: 'var(--paper-2, #FAFAF8)',
+                                              }}
+                                              onError={e => {
+                                                (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                                const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                                                if (fallback) fallback.style.display = 'flex';
+                                              }}
+                                            />
+                                          ) : null}
+                                          <div style={{
+                                            width: 32, height: 32, borderRadius: 3,
+                                            background: 'var(--paper-2, #FAFAF8)',
+                                            color: 'var(--ink-2, #4A5058)',
+                                            fontSize: 13, fontWeight: 600,
+                                            display: logoUrl ? 'none' : 'flex',
+                                            alignItems: 'center', justifyContent: 'center',
+                                          }}>
+                                            {initial}
+                                          </div>
+                                        </div>
+
+                                        <div style={{
+                                          fontSize: 13.5, fontWeight: 500, color: '#1A1714',
+                                          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                          marginBottom: 4,
+                                        }}>
+                                          {job.company}
+                                        </div>
+
+                                        <div style={{
+                                          fontSize: 11, color: 'var(--ink-2, #4A4F5B)', lineHeight: 1.4,
+                                          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                                          overflow: 'hidden', minHeight: 30,
+                                          marginBottom: (job.match_score && job.match_score > 0) || job.location ? 6 : 10,
+                                        }}>
+                                          {job.title}
+                                        </div>
+
+                                        {((job.match_score && job.match_score > 0) || job.location) && (
+                                          <div style={{
+                                            fontSize: 11, padding: '6px 8px',
+                                            background: 'var(--paper, #FFFFFF)',
+                                            borderLeft: '2px solid var(--accent, #1B2A44)',
+                                            borderRadius: '0 4px 4px 0',
+                                            marginBottom: 10,
+                                            lineHeight: 1.4,
+                                          }}>
+                                            {job.match_score && job.match_score > 0 && (
+                                              <>
+                                                <span style={{
+                                                  fontFamily: "'JetBrains Mono', monospace",
+                                                  fontWeight: 600,
+                                                  color: 'var(--accent, #1B2A44)',
+                                                }}>
+                                                  {job.match_score}%
+                                                </span>
+                                                {' '}
+                                                <span style={{ color: 'var(--ink-2, #4A4F5B)' }}>match</span>
+                                              </>
+                                            )}
+                                            {job.match_score && job.match_score > 0 && job.location && (
+                                              <span style={{ color: 'var(--ink-3, #8A8F9A)', margin: '0 4px' }}>&middot;</span>
+                                            )}
+                                            {job.location && (
+                                              <em style={{
+                                                fontFamily: "'Instrument Serif', Georgia, serif",
+                                                fontStyle: 'italic',
+                                                color: 'var(--ink-2, #4A4F5B)',
+                                              }}>
+                                                {job.location}
+                                              </em>
+                                            )}
+                                          </div>
+                                        )}
+
+                                        <div style={{
+                                          fontSize: 11, color: 'var(--accent, #1B2A44)', fontWeight: 500,
+                                          display: 'flex', alignItems: 'center', gap: 4,
+                                        }}>
+                                          Find hiring manager
+                                          <ArrowRight style={{ width: 11, height: 11, opacity: 0.7 }} />
+                                        </div>
+                                      </div>
+                                    </button>
+                                  );
+                                })
+                              ) : (
+                                recommendations.slice(0, 8).map((rec, idx) => {
+                                  const logoUrl = getCompanyLogoUrl(rec.company);
+                                  const initial = rec.company.charAt(0).toUpperCase();
+
+                                  return (
+                                    <button
+                                      key={rec.company}
+                                      type="button"
+                                      onClick={() => {
+                                        setCompany(rec.company);
+                                        setShowManualEntry(true);
+                                        setChipsCollapsed(true);
+                                      }}
+                                      className="suggestion-row-enter"
+                                      style={{
+                                        flex: '0 0 160px', width: 160,
+                                        borderRadius: 3, overflow: 'hidden',
+                                        background: 'var(--elev, #FFFFFF)',
+                                        border: '1px solid var(--line, #E8E8E8)',
+                                        cursor: 'pointer', textAlign: 'left',
+                                        transition: 'all .2s ease',
+                                        fontFamily: 'inherit', padding: 0,
+                                        boxShadow: 'inset 0 -1px 0 var(--line, #E8E8E8), 0 1px 2px rgba(26,29,35,0.03)',
+                                        animationDelay: `${idx * 60}ms`,
+                                      }}
+                                      onMouseEnter={e => {
+                                        const el = e.currentTarget as HTMLButtonElement;
+                                        el.style.borderColor = 'var(--accent, #1B2A44)';
+                                        el.style.boxShadow = 'inset 0 -1px 0 var(--line, #E8E8E8), 0 2px 6px rgba(26,29,35,0.06)';
+                                        el.style.transform = 'translateY(-1px)';
+                                      }}
+                                      onMouseLeave={e => {
+                                        const el = e.currentTarget as HTMLButtonElement;
+                                        el.style.borderColor = 'var(--line, #E8E8E8)';
+                                        el.style.boxShadow = 'inset 0 -1px 0 var(--line, #E8E8E8), 0 1px 2px rgba(26,29,35,0.03)';
+                                        el.style.transform = 'translateY(0)';
+                                      }}
+                                    >
+                                      <div style={{ padding: '12px 14px 14px' }}>
+                                        <div style={{ marginBottom: 10 }}>
+                                          {logoUrl ? (
+                                            <img
+                                              src={logoUrl}
+                                              alt=""
+                                              style={{
+                                                width: 32, height: 32, borderRadius: 3,
+                                                objectFit: 'contain', background: 'var(--paper-2, #FAFAF8)',
+                                              }}
+                                              onError={e => {
+                                                (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                                const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                                                if (fallback) fallback.style.display = 'flex';
+                                              }}
+                                            />
+                                          ) : null}
+                                          <div style={{
+                                            width: 32, height: 32, borderRadius: 3,
+                                            background: 'var(--paper-2, #FAFAF8)',
+                                            color: 'var(--ink-2, #4A5058)',
+                                            fontSize: 13, fontWeight: 600,
+                                            display: logoUrl ? 'none' : 'flex',
+                                            alignItems: 'center', justifyContent: 'center',
+                                          }}>
+                                            {initial}
+                                          </div>
+                                        </div>
+
+                                        <div style={{
+                                          fontSize: 13.5, fontWeight: 500, color: '#1A1714',
+                                          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                          marginBottom: 4,
+                                        }}>
+                                          {rec.company}
+                                        </div>
+
+                                        <div style={{
+                                          fontSize: 11, color: 'var(--ink-2, #4A4F5B)', lineHeight: 1.4,
+                                          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                                          overflow: 'hidden', minHeight: 30,
+                                          marginBottom: rec.reasoning ? 6 : 10,
+                                        }}>
+                                          {rec.reason}
+                                        </div>
+
+                                        {rec.reasoning && (
+                                          <div style={{
+                                            fontSize: 11, padding: '6px 8px',
+                                            background: 'var(--paper, #FFFFFF)',
+                                            borderLeft: '2px solid var(--accent, #1B2A44)',
+                                            borderRadius: '0 4px 4px 0',
+                                            marginBottom: 10,
+                                            lineHeight: 1.4,
+                                          }}>
+                                            <span style={{
+                                              fontFamily: "'JetBrains Mono', monospace",
+                                              fontWeight: 600,
+                                              color: 'var(--accent, #1B2A44)',
+                                            }}>
+                                              {rec.reasoning.primary.number}
+                                            </span>
+                                            {' '}
+                                            <span style={{ color: 'var(--ink-2, #4A4F5B)' }}>
+                                              {rec.reasoning.primary.label}
+                                            </span>
+                                            {rec.reasoning.qualifier && (
+                                              <>
+                                                <span style={{ color: 'var(--ink-3, #8A8F9A)', margin: '0 4px' }}>&middot;</span>
+                                                <em style={{
+                                                  fontFamily: "'Instrument Serif', Georgia, serif",
+                                                  fontStyle: 'italic',
+                                                  color: 'var(--ink-2, #4A4F5B)',
+                                                }}>
+                                                  {rec.reasoning.qualifier}
+                                                </em>
+                                              </>
+                                            )}
+                                          </div>
+                                        )}
+
+                                        <div style={{
+                                          fontSize: 11, color: 'var(--accent, #1B2A44)', fontWeight: 500,
+                                          display: 'flex', alignItems: 'center', gap: 4,
+                                        }}>
+                                          Find hiring manager
+                                          <ArrowRight style={{ width: 11, height: 11, opacity: 0.7 }} />
+                                        </div>
+                                      </div>
+                                    </button>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
                       {/* Credit cost pill */}
                       <div style={{ marginBottom: 14 }}>
-                        <div className="flex items-center gap-2 text-xs text-[#6B7280]">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[3px] bg-[#FAFBFF] border border-[#E2E8F0] font-medium text-[#0F172A]">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--warm-ink-secondary, #6B6560)' }}>
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            padding: '2px 8px', borderRadius: 3,
+                            background: 'var(--warm-surface, #FAF9F6)', border: '1px solid var(--warm-border, #E8E4DE)',
+                            fontWeight: 500, color: '#0F172A', fontSize: 12,
+                          }}>
                             {15 * estimatedManagers} credits
                           </span>
                           <span>· finds ~{estimatedManagers} hiring managers</span>
                         </div>
                       </div>
 
-                      {/* Manual entry toggle — subtle text link */}
+                      {/* Manual entry toggle */}
                       <div style={{ marginBottom: 14 }}>
                         <button
                           type="button"
                           onClick={() => setShowManualEntry(!showManualEntry)}
                           style={{
                             fontSize: 12,
-                            fontWeight: 600,
-                            color: '#64748B',
+                            fontWeight: 500,
+                            color: 'var(--warm-ink-secondary, #6B6560)',
                             background: 'none',
                             border: 'none',
                             cursor: 'pointer',
@@ -708,10 +929,10 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
 
                       {/* Manual Entry Section - Collapsible */}
                       {showManualEntry && !jobPostingUrl && (
-                        <div style={{ marginBottom: 16, paddingTop: 16, borderTop: '0.5px solid #E2E8F0' }}>
+                        <div style={{ marginBottom: 16, paddingTop: 16, borderTop: '1px solid var(--warm-border, #E8E4DE)' }}>
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
                             <div>
-                              <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#6B7280', marginBottom: 4 }}>Company</label>
+                              <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: 'var(--warm-ink-secondary, #6B6560)', marginBottom: 4 }}>Company</label>
                               <input
                                 type="text"
                                 value={company}
@@ -721,18 +942,18 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                                 style={{
                                   width: '100%',
                                   padding: '8px 12px',
-                                  border: '1.5px solid #E2E8F0',
-                                  borderRadius: 3,
+                                  border: '1.5px solid var(--warm-border, #E8E4DE)',
+                                  borderRadius: 8,
                                   fontSize: 13,
                                   color: '#0F172A',
-                                  background: '#FAFBFF',
+                                  background: 'var(--warm-surface, #FAF9F6)',
                                   outline: 'none',
                                   fontFamily: 'inherit',
                                 }}
                               />
                             </div>
                             <div>
-                              <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#6B7280', marginBottom: 4 }}>Job Title</label>
+                              <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: 'var(--warm-ink-secondary, #6B6560)', marginBottom: 4 }}>Job Title</label>
                               <input
                                 type="text"
                                 value={jobTitle}
@@ -742,18 +963,18 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                                 style={{
                                   width: '100%',
                                   padding: '8px 12px',
-                                  border: '1.5px solid #E2E8F0',
-                                  borderRadius: 3,
+                                  border: '1.5px solid var(--warm-border, #E8E4DE)',
+                                  borderRadius: 8,
                                   fontSize: 13,
                                   color: '#0F172A',
-                                  background: '#FAFBFF',
+                                  background: 'var(--warm-surface, #FAF9F6)',
                                   outline: 'none',
                                   fontFamily: 'inherit',
                                 }}
                               />
                             </div>
                             <div>
-                              <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#6B7280', marginBottom: 4 }}>Location</label>
+                              <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: 'var(--warm-ink-secondary, #6B6560)', marginBottom: 4 }}>Location</label>
                               <input
                                 type="text"
                                 value={location}
@@ -763,11 +984,11 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                                 style={{
                                   width: '100%',
                                   padding: '8px 12px',
-                                  border: '1.5px solid #E2E8F0',
-                                  borderRadius: 3,
+                                  border: '1.5px solid var(--warm-border, #E8E4DE)',
+                                  borderRadius: 8,
                                   fontSize: 13,
                                   color: '#0F172A',
-                                  background: '#FAFBFF',
+                                  background: 'var(--warm-surface, #FAF9F6)',
                                   outline: 'none',
                                   fontFamily: 'inherit',
                                 }}
@@ -775,7 +996,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                             </div>
                           </div>
                           <div>
-                            <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#6B7280', marginBottom: 4 }}>
+                            <label style={{ display: 'block', fontSize: 11, fontWeight: 500, color: 'var(--warm-ink-secondary, #6B6560)', marginBottom: 4 }}>
                               Job Description <span style={{ color: '#EF4444' }}>*</span>
                             </label>
                             <textarea
@@ -787,11 +1008,11 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                               style={{
                                 width: '100%',
                                 padding: '10px 12px',
-                                border: '1.5px solid #E2E8F0',
-                                borderRadius: 3,
+                                border: '1.5px solid var(--warm-border, #E8E4DE)',
+                                borderRadius: 8,
                                 fontSize: 13,
                                 color: '#0F172A',
-                                background: '#FAFBFF',
+                                background: 'var(--warm-surface, #FAF9F6)',
                                 outline: 'none',
                                 resize: 'none',
                                 fontFamily: 'inherit',
@@ -801,7 +1022,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                         </div>
                       )}
 
-                      {/* CTA button */}
+                      {/* CTA button — matches People/Companies style */}
                       <button
                         ref={originalButtonRef}
                         onClick={handleFindHiringManagers}
@@ -810,12 +1031,16 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                           width: '100%',
                           height: 52,
                           borderRadius: 12,
-                          background: !canSearch ? '#E2E8F0' : '#2563EB',
-                          color: !canSearch ? '#94A3B8' : '#fff',
-                          border: 'none',
+                          background: isSearching ? 'var(--warm-border, #E8E4DE)'
+                            : !canSearch ? 'transparent'
+                            : 'var(--ink, #1A1D23)',
+                          color: isSearching ? 'var(--warm-ink-tertiary, #9C9590)'
+                            : !canSearch ? '#6B6560'
+                            : 'var(--paper, #FFFFFF)',
+                          border: !canSearch && !isSearching ? '1.5px solid #D5D0C9' : '1.5px solid transparent',
                           fontSize: 15,
                           fontWeight: 600,
-                          cursor: !canSearch ? 'not-allowed' : 'pointer',
+                          cursor: !canSearch ? 'default' : (isSearching ? 'not-allowed' : 'pointer'),
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
@@ -838,14 +1063,14 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                       </button>
 
                       {/* Resume status — subtle text line below CTA */}
-                      <div style={{ display: 'flex', justifyContent: 'center', marginTop: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'center', marginTop: 10, marginBottom: 8 }}>
                         {savedResumeUrl && savedResumeFileName ? (
                           <button
                             onClick={() => fileInputRef.current?.click()}
                             disabled={isSearching || isUploadingResume}
                             style={{
                               fontSize: 11,
-                              color: '#94A3B8',
+                              color: 'var(--warm-ink-tertiary, #9C9590)',
                               display: 'flex',
                               alignItems: 'center',
                               gap: 4,
@@ -857,7 +1082,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                           >
                             <CheckCircle style={{ width: 11, height: 11, color: '#22C55E' }} />
                             Resume: <span style={{ fontWeight: 500 }}>{savedResumeFileName}</span>
-                            <span style={{ color: '#3B82F6', marginLeft: 2 }}>
+                            <span style={{ color: 'var(--accent, #1B2A44)', marginLeft: 2 }}>
                               {isUploadingResume ? 'Uploading...' : '· Change'}
                             </span>
                           </button>
@@ -866,7 +1091,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                             onClick={() => fileInputRef.current?.click()}
                             style={{
                               fontSize: 11,
-                              color: '#94A3B8',
+                              color: 'var(--warm-ink-tertiary, #9C9590)',
                               display: 'flex',
                               alignItems: 'center',
                               gap: 4,
@@ -881,6 +1106,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                           </button>
                         )}
                       </div>
+
                     </div>
                   </TabsContent>
 
@@ -924,7 +1150,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
         )}
 
         {/* Success Modal */}
-        {searchComplete && (
+        {searchComplete && managersFound > 0 && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
             <div className="bg-white rounded-[3px] p-8 max-w-md text-center animate-scaleIn">
               <div className="w-16 h-16 bg-green-100 rounded-[3px] flex items-center justify-center mx-auto mb-4">
@@ -948,6 +1174,37 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                   Search again
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Fallback suggestions when no HMs found */}
+        {searchComplete && managersFound === 0 && hmSuggestions.length > 0 && (
+          <div style={{ margin: '16px 32px', padding: '14px 18px', background: 'rgba(59,130,246,0.04)', border: '1px solid #E2E8F0', borderRadius: 8 }}>
+            <p style={{ fontSize: 13, color: '#374151', marginBottom: 10 }}>No direct hiring managers found. Try one of these alternatives:</p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {hmSuggestions.map((s: any, i: number) => (
+                <button
+                  key={i}
+                  onClick={() => {
+                    if (s.type === 'switch_tab' && s.prefill?.company) {
+                      navigate(`/find?tab=hiring-managers&company=${encodeURIComponent(s.prefill.company)}`);
+                    }
+                  }}
+                  style={{
+                    padding: '7px 14px',
+                    background: '#fff',
+                    border: '1px solid #BFDBFE',
+                    borderRadius: 6,
+                    fontSize: 13,
+                    color: '#2563EB',
+                    cursor: 'pointer',
+                    fontWeight: 500,
+                  }}
+                >
+                  {s.label}
+                </button>
+              ))}
             </div>
           </div>
         )}

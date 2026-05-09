@@ -275,18 +275,11 @@ def prompt_search():
         pdl_fetch_count = max_contacts + existing_contact_count + 2
 
         # Fetch contacts
-        contacts, retry_level_used, already_saved_contacts = search_contacts_from_prompt(parsed, pdl_fetch_count, exclude_keys=seen_contact_set, user_profile=user_data)
+        contacts, retry_level_used, already_saved_contacts, adjacency_metadata = search_contacts_from_prompt(parsed, pdl_fetch_count, exclude_keys=seen_contact_set, user_profile=user_data)
         search_broadened = retry_level_used >= 1  # Any broadening at all
 
         # Surface which dimensions were dropped at the rung that succeeded so the
-        # frontend can render an honest "we expanded by..." banner. Mirrors the
-        # rungs in search_contacts_from_prompt:
-        #   0: full query (no broadening)
-        #   1: broadened title (synonyms)
-        #   2: dropped title + industry
-        #   3: dropped title + industry + location
-        #   4: dropped title + industry + location + company (school + role family)
-        #   5: school only
+        # frontend can render an honest "we expanded by..." banner.
         broadened_dimensions: list[str] = []
         if retry_level_used >= 1:
             broadened_dimensions.append("title")
@@ -323,7 +316,7 @@ def prompt_search():
         }
 
         if not contacts and not already_saved_contacts:
-            return jsonify({
+            response_data = {
                 "contacts": [],
                 "already_saved_contacts": [],
                 "successful_drafts": 0,
@@ -331,7 +324,24 @@ def prompt_search():
                 "tier": user_tier,
                 "user_email": user_email,
                 "parsed_query": parsed_query_payload,
-            })
+            }
+            if adjacency_metadata:
+                response_data["adjacency_metadata"] = adjacency_metadata
+                response_data["message"] = adjacency_metadata.get("message", "No contacts found. Try broadening your search.")
+                # Add cross-tab suggestion for hiring managers if company was specified
+                companies = parsed.get("companies") or []
+                if companies:
+                    company_name = companies[0].get("name", "") if isinstance(companies[0], dict) else str(companies[0])
+                    if company_name:
+                        response_data["suggestions"] = [{
+                            "type": "switch_tab",
+                            "label": f"Find recruiters at {company_name}",
+                            "tab": "hiring-managers",
+                            "prefill": {"company": company_name}
+                        }]
+            else:
+                response_data["message"] = "No contacts found. Try broadening your search."
+            return jsonify(response_data)
 
         # Pre-generation dedup: filter out contacts already in Firestore (avoid generating emails for them)
         # Reuse the exclusion data loaded during auth (no second Firestore stream).
@@ -510,19 +520,21 @@ def prompt_search():
         try:
             from concurrent.futures import ThreadPoolExecutor, as_completed
 
+            _qg_user_university = (user_profile or {}).get("university", "")
+
             def _quality_check_and_regen(item):
                 """Check one email; regen if needed. Returns (index, was_regenerated)."""
                 contact = item["contact"]
                 subject = item["email_subject"]
                 body = item["email_body"]
-                result = check_email_quality(subject, body, contact)
+                result = check_email_quality(subject, body, contact, _qg_user_university)
                 if result["passed"]:
                     return (item["index"], False)
                 # Attempt regeneration
                 original = {"subject": subject, "body": body}
                 improved = regenerate_with_feedback(contact, user_profile, original, result["failures"])
                 # Compare: pick the one that passes, or the one with fewer failures
-                improved_result = check_email_quality(improved["subject"], improved["body"], contact)
+                improved_result = check_email_quality(improved["subject"], improved["body"], contact, _qg_user_university)
                 if improved_result["passed"] or len(improved_result["failures"]) < len(result["failures"]):
                     contact["emailSubject"] = improved["subject"]
                     contact["emailBody"] = improved["body"]
@@ -552,7 +564,7 @@ def prompt_search():
                     quality_ref = db.collection("email_quality_logs")
                     for item in contacts_with_emails:
                         contact = item["contact"]
-                        qr = check_email_quality(item["email_subject"], item["email_body"], contact)
+                        qr = check_email_quality(item["email_subject"], item["email_body"], contact, _qg_user_university)
                         quality_ref.add({
                             "userId": user_id,
                             "contactId": contact.get("pdlId", ""),
@@ -740,6 +752,10 @@ def prompt_search():
             "retry_level_used": retry_level_used,
             "broadened_dimensions": broadened_dimensions,
         }
+        if search_broadened:
+            response_data["broadening_level"] = retry_level_used
+        if adjacency_metadata and adjacency_metadata.get("drop_reasons"):
+            response_data["adjacency_metadata"] = adjacency_metadata
         if credits_remaining is not None:
             response_data["credits_remaining"] = credits_remaining
 

@@ -2732,6 +2732,60 @@ def _expand_titles_for_broadening(title_variations):
     return expanded
 
 
+_SENIORITY_ADJACENT_TITLES = {
+    "analyst": ["analyst", "associate", "research associate", "junior associate", "senior analyst"],
+    "associate": ["associate", "analyst", "senior analyst", "consultant", "senior associate"],
+    "manager": ["manager", "director", "senior manager", "team lead", "associate director"],
+    "engineer": ["engineer", "developer", "software engineer", "senior engineer", "staff engineer"],
+    "consultant": ["consultant", "associate", "analyst", "advisor", "senior consultant"],
+    "intern": ["intern", "co-op", "fellow", "trainee", "analyst"],
+    "director": ["director", "senior director", "vice president", "manager", "head"],
+    "vice president": ["vice president", "director", "senior vice president", "managing director"],
+}
+
+
+def _expand_titles_seniority_adjacent(title_variations):
+    """
+    Given title variations, expand to adjacent seniority levels.
+    E.g. "analyst" → ["analyst", "associate", "research associate", "junior associate", "senior analyst"]
+    Used by retry_level=2 to maintain role intent while broadening seniority.
+    """
+    if not title_variations:
+        return []
+    seen = set()
+    expanded = []
+
+    # First pass: include originals
+    for t in title_variations:
+        tl = (t or "").strip().lower()
+        if not tl or tl in seen:
+            continue
+        expanded.append(tl)
+        seen.add(tl)
+
+    # Second pass: for each original, find matching seniority family
+    for tl in list(expanded):
+        for seniority_key, adjacent in _SENIORITY_ADJACENT_TITLES.items():
+            # Match if the seniority key appears in the title or vice versa
+            if seniority_key in tl or tl in seniority_key:
+                for adj in adjacent:
+                    adj_lower = adj.strip().lower()
+                    if adj_lower and adj_lower not in seen:
+                        expanded.append(adj_lower)
+                        seen.add(adj_lower)
+                break  # Only match one seniority family per title
+
+    # Also include the role-family expansions from level 1
+    family_expanded = _expand_titles_for_broadening(title_variations)
+    for t in family_expanded:
+        tl = t.strip().lower()
+        if tl and tl not in seen:
+            expanded.append(tl)
+            seen.add(tl)
+
+    return expanded
+
+
 def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:
     """
     Build PDL Elasticsearch bool query from structured prompt parser output.
@@ -2795,7 +2849,22 @@ def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:
         else:
             must.append({"exists": {"field": "job_title"}})
     elif retry_level == 2:
-        # Retry 2: no title filter (any role at company + school)
+        # Retry 2: seniority-adjacent title expansion — keeps intent but widens to
+        # adjacent seniority levels (e.g. analyst → associate, senior analyst)
+        if titles:
+            adjacent_titles = _expand_titles_seniority_adjacent(titles)
+            title_clauses = [{"match_phrase": {"job_title": t}} for t in adjacent_titles]
+            title_block = {"bool": {"should": title_clauses}}
+            must.append(title_block)
+            if adjacent_titles != [t.strip().lower() for t in titles if t and str(t).strip()]:
+                print(
+                    f"[build_query_from_prompt] Retry level 2 seniority-adjacent titles: "
+                    f"{titles!r} → {adjacent_titles!r}"
+                )
+        else:
+            must.append({"exists": {"field": "job_title"}})
+    elif retry_level == 3:
+        # Retry 3: no title filter (any role at company + school)
         pass
     elif retry_level == 3:
         # Retry 3: no title, no location (handled below)
@@ -2813,8 +2882,8 @@ def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:
         # Retry 5: school-only floor — any reachable alum
         pass
 
-    # ---- Location block (skip when retry_level >= 3) ----
-    if retry_level < 3:
+    # ---- Location block (skip when retry_level >= 4) ----
+    if retry_level < 4:
         locations = parsed_prompt.get("locations") or []
         location_str = (locations[0] if locations else "").strip() if locations else ""
         if location_str:
@@ -2932,6 +3001,8 @@ def _contact_matches_prompt_criteria(contact, parsed_prompt, target_company):
     college = (contact.get("College") or "").strip()
     education_top = (contact.get("EducationTop") or "").strip()
     first_job = (contact.get("experience") or [None])[0] if contact.get("experience") else None
+    if first_job and not isinstance(first_job, dict):
+        first_job = None
     first_job_company = ((first_job.get("company", {}) or {}).get("name") or first_job.get("company_name") or "") if first_job else ""
     print(f"[PostFilter] Checking contact: {name}")
     print(f"[PostFilter] Target companies: {companies!r}, Contact company: {contact_company!r}, IsCurrentlyAtTarget: {is_current}, first_job_company: {first_job_company!r}")
@@ -3133,6 +3204,7 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
     already_saved = []
     already_saved_keys = set()
     post_filter_dropped = 0
+    drop_reason_counts = {}  # Track why contacts were dropped across all attempts
 
     companies_from_prompt = parsed_prompt.get("companies") or []
     schools_from_prompt = parsed_prompt.get("schools") or []
@@ -3190,9 +3262,11 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
             effective_target_company = None
         for contact in raw_contacts:
             key = get_contact_identity(contact)
-            matches, _ = _contact_matches_prompt_criteria(contact, effective_parsed, effective_target_company)
+            matches, drop_reason = _contact_matches_prompt_criteria(contact, effective_parsed, effective_target_company)
             if not matches:
                 attempt_dropped += 1
+                if drop_reason:
+                    drop_reason_counts[drop_reason] = drop_reason_counts.get(drop_reason, 0) + 1
                 continue
             if key in exclude_keys:
                 if key not in already_saved_keys:
@@ -3214,8 +3288,30 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
         # Try the next broader rung. Aggregated `already_saved` carries across attempts.
         print(f"[PDL Retry] Attempt {attempt}: raw={len(raw_contacts)}, already_saved_cumulative={len(already_saved)}, new=0 — trying next rung")
 
+    # Build adjacency metadata to explain what happened
+    adjacency_metadata = None
+    if not filtered or drop_reason_counts:
+        adjacency_metadata = {
+            "drop_reasons": drop_reason_counts,
+            "broadened": retry_level_used > 0,
+            "broadening_level": retry_level_used,
+        }
+        # Build a human-readable message based on drop reasons
+        if drop_reason_counts:
+            total_dropped = sum(drop_reason_counts.values())
+            top_reason = max(drop_reason_counts, key=drop_reason_counts.get)
+            if top_reason == "not_currently_at_target" and target_company:
+                adjacency_metadata["message"] = f"Found {total_dropped} people who previously worked at {target_company} but have since moved on. Try searching without the company filter or look for recruiters at {target_company} instead."
+            elif top_reason == "company_mismatch" and target_company:
+                adjacency_metadata["message"] = f"Found people in similar roles but not at {target_company}. Try broadening to related companies."
+            elif top_reason == "school_mismatch":
+                school_names = [s.get("name", s) if isinstance(s, dict) else s for s in schools_from_prompt[:2]]
+                adjacency_metadata["message"] = f"Found {total_dropped} people matching your role/company criteria but from different schools. Try removing the school filter."
+            else:
+                adjacency_metadata["message"] = f"Found {total_dropped} people in the area but they didn't match all your criteria. Try simplifying your search."
+
     if not filtered and not already_saved:
-        return [], 0, []
+        return [], 0, [], adjacency_metadata
     # Sort by profile relevance (descending), then LinkedIn presence.
     # Profile ranking is a soft preference — it reorders but never drops contacts.
     if user_profile:
@@ -3231,7 +3327,7 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
     else:
         linkedin_val = lambda c: (c.get("LinkedIn") or c.get("linkedin_url") or "").strip()
         filtered.sort(key=lambda c: (0 if linkedin_val(c) else 1))
-    return filtered[:max_contacts], retry_level_used, already_saved
+    return filtered[:max_contacts], retry_level_used, already_saved, adjacency_metadata
 
 
 def build_coffee_chat_data(pdl_person: dict, best_email: str) -> dict:

@@ -13,6 +13,7 @@ import {
   FileText,
   Users,
   User,
+  Bot,
 } from "lucide-react";
 import CupIcon from "@/assets/sidebaricons/icons8-cup-48.png";
 import MailIcon from "@/assets/sidebaricons/icons8-important-mail-48.png";
@@ -22,6 +23,7 @@ import BriefcaseIcon from "@/assets/sidebaricons/icons8-briefcase-48.png";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { trackNavClick, trackUpgradeClick } from "../lib/analytics";
+import { useAgentSidebarStatus } from "@/hooks/useAgent";
 
 import {
   Sidebar,
@@ -72,8 +74,8 @@ const ICON_FILTERS: Record<string, string> = {
   teal:      "brightness(0) saturate(100%) invert(78%) sepia(67%) saturate(285%) hue-rotate(122deg) brightness(102%) contrast(91%)",
 };
 
-// Group 1 — main nav
-const mainNavItems: NavItemDef[] = [
+// Group 1 — main nav (base items, Agent added dynamically for Elite)
+const baseNavItems: NavItemDef[] = [
   { title: "Find", url: "/find", iconSrc: MagnifyingGlassIcon, iconColor: "blue" },
   { title: "Profile", url: "/profile", LucideIcon: User, iconColor: "#818CF8" },
   { title: "My Network", url: "/my-network", LucideIcon: Users, iconColor: "#A78BFA" },
@@ -142,6 +144,11 @@ export function AppSidebar() {
   const maxCredits = user?.maxCredits ?? 300;
   const creditPercentage = Math.min((credits / maxCredits) * 100, 100);
   const isCollapsed = state === "collapsed";
+
+  // Agent nav available to all users
+  const isElite = (user as { tier?: string } | null)?.tier === "elite";
+  const agentStatus = useAgentSidebarStatus();
+  const mainNavItems: NavItemDef[] = [{ title: "Agent", url: "/agent", LucideIcon: Bot }, ...baseNavItems];
 
   // ── Render a single nav item (works for both image-icon and lucide-icon) ──
 
@@ -287,8 +294,21 @@ export function AppSidebar() {
           }
         }}
       >
-        {icon}
-        <span>{item.title}</span>
+        <span className="relative">
+          {icon}
+          {item.title === "Agent" && agentStatus.status === "active" && (
+            <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-green-500" />
+          )}
+          {item.title === "Agent" && agentStatus.status === "paused" && (
+            <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-amber-400" />
+          )}
+        </span>
+        <span className="flex-1">{item.title}</span>
+        {item.title === "Agent" && agentStatus.pendingCount > 0 && (
+          <span className="ml-auto bg-amber-400/20 text-amber-300 text-[10px] font-medium rounded-full px-1.5 py-0.5 leading-none">
+            {agentStatus.pendingCount}
+          </span>
+        )}
       </NavLink>
     );
   };
@@ -420,8 +440,8 @@ export function AppSidebar() {
                           cn(
                             "flex items-center gap-3 px-3 py-2 text-sm transition-colors",
                             isActive
-                              ? "text-[#78553A] bg-[rgba(120,85,58,0.1)]"
-                              : "text-[#475569] hover:text-[#0F172A] hover:bg-[rgba(120,85,58,0.06)]"
+                              ? "text-[#1B2A44] bg-[rgba(27,42,68,0.1)]"
+                              : "text-[#475569] hover:text-[#0F172A] hover:bg-[rgba(27,42,68,0.06)]"
                           )
                         }
                       >

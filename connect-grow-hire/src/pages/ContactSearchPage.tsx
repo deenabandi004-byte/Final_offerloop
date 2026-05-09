@@ -261,6 +261,8 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
   // pretending the original specific query yielded those people.
   const [broadenedDimensions, setBroadenedDimensions] = useState<string[]>([]);
   const [companyContext, setCompanyContext] = useState<string>("");
+  const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
+  const [searchBroadened, setSearchBroadened] = useState(false);
   const [lastSearchStats, setLastSearchStats] = useState<{
     successful_drafts: number;
     total_contacts: number;
@@ -798,7 +800,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
     } catch (error) {
       const isDev = import.meta.env.DEV;
       if (isDev) console.error("Error checking Gmail status:", error);
-      return true;
+      return false; // Don't show banner if we can't determine status
     }
   };
 
@@ -1145,6 +1147,8 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
     setRotationSeed((s) => s + 1);
     setResultMessage("");
     setBroadenedDimensions([]);
+    setSearchSuggestions([]);
+    setSearchBroadened(false);
 
     let progressInterval: NodeJS.Timeout | null = null;
     let searchSucceeded = false;
@@ -1296,6 +1300,8 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
         // Non-fatal — localStorage may be disabled in private browsing.
       }
       setCompanyContext((result as any)?.parsed_query?.company_context || "");
+      setSearchSuggestions((result as any)?.suggestions || []);
+      setSearchBroadened((result as any)?.search_broadened || false);
 
       // Open Scout with refined-prompt suggestions in two cases:
       //   - genuine zero results (nothing to surface)
@@ -1965,8 +1971,8 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
           </div>
         )}
 
-        {/* Quantity slider — shown after user types, hidden for LinkedIn */}
-        {searchPrompt.trim() && !isLinkedInUrl(searchPrompt) && (
+        {/* Quantity slider — always visible, hidden for LinkedIn */}
+        {!isLinkedInUrl(searchPrompt) && (
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 500, letterSpacing: '.05em', marginBottom: 8 }}>
               HOW MANY TO FIND?
@@ -2213,18 +2219,16 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
               </span>
             </div>
 
-            {/* Backend message — persistent inline callout for "all already saved" (or similar)
-                shapes. Prefer this over toast-only so users don't miss the context after the
-                toast auto-dismisses. Only shown when there are no new contacts; otherwise the
-                success pill + result cards already tell the story. */}
-            {resultMessage && lastResults.length === 0 && alreadySavedResults.length > 0 && (
+            {/* Backend message — persistent inline callout for "all already saved" or adjacency explanation.
+                Shows when there are no new contacts to explain why and what to do next. */}
+            {resultMessage && lastResults.length === 0 && (
               <div style={{
                 padding: '10px 14px',
-                background: 'rgba(245,158,11,0.06)',
-                border: '0.5px solid #FDE68A',
+                background: alreadySavedResults.length > 0 ? 'rgba(245,158,11,0.06)' : 'rgba(59,130,246,0.05)',
+                border: alreadySavedResults.length > 0 ? '0.5px solid #FDE68A' : '0.5px solid #BFDBFE',
                 borderRadius: 6,
                 fontSize: 13,
-                color: '#713F12',
+                color: alreadySavedResults.length > 0 ? '#713F12' : '#1E40AF',
                 lineHeight: 1.5,
                 marginBottom: 12,
               }}>
@@ -2276,6 +2280,37 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
               );
             })()}
 
+            {/* Cross-tab suggestions (e.g. "Find recruiters at X") */}
+            {searchSuggestions.length > 0 && lastResults.length === 0 && (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                {searchSuggestions.map((suggestion: any, idx: number) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      if (suggestion.type === 'switch_tab') {
+                        navigate(`/find?tab=${suggestion.tab}${suggestion.prefill?.company ? `&company=${encodeURIComponent(suggestion.prefill.company)}` : ''}`);
+                      } else if (suggestion.type === 'broaden_query' && suggestion.query) {
+                        setSearchPrompt(suggestion.query);
+                      }
+                    }}
+                    style={{
+                      padding: '8px 14px',
+                      background: '#fff',
+                      border: '1px solid #E2E8F0',
+                      borderRadius: 6,
+                      fontSize: 13,
+                      color: '#3B82F6',
+                      cursor: 'pointer',
+                      fontWeight: 500,
+                      transition: 'all .12s',
+                    }}
+                  >
+                    {suggestion.label} <ArrowRight style={{ width: 12, height: 12, display: 'inline', marginLeft: 4 }} />
+                  </button>
+                ))}
+              </div>
+            )}
+
             {/* Company context hint — explains when search intent was reinterpreted */}
             {companyContext && (
               <div style={{
@@ -2287,15 +2322,15 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                 color: '#6B7280',
                 lineHeight: 1.4,
               }}>
-                {companyContext}. Showing related roles at this organization.
+                {companyContext.replace(/[.]+$/, '')}. Showing related roles at this organization.
               </div>
             )}
 
             {/* Contact cards */}
             {lastResults.length <= 8 && lastResults.map((c: any, i: number) => {
-              const name = toTitleCase([c.FirstName || c.firstName, c.LastName || c.lastName].filter(Boolean).join(' ') || 'Unknown');
+              const name = toTitleCase([c.FirstName || c.firstName, c.LastName || c.lastName].filter(Boolean).join(' ') || (c.Email || c.email || '').split('@')[0] || 'Unknown');
               const title = toTitleCase(c.JobTitle || c.jobTitle || c.Title || '');
-              const company = c.Company || c.company || '';
+              const company = toTitleCase(c.Company || c.company || '');
               const email = c.Email || c.email || '';
               const linkedin = c.LinkedIn || c.linkedinUrl || '';
               const initials = name.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase();
@@ -2486,9 +2521,9 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                   <div style={{ flex: 1, height: 1, background: '#E2E8F0' }} />
                 </div>
                 {alreadySavedResults.map((c: any, i: number) => {
-                  const name = toTitleCase([c.FirstName || c.firstName, c.LastName || c.lastName].filter(Boolean).join(' ') || 'Unknown');
+                  const name = toTitleCase([c.FirstName || c.firstName, c.LastName || c.lastName].filter(Boolean).join(' ') || (c.Email || c.email || '').split('@')[0] || 'Unknown');
                   const title = toTitleCase(c.Title || c.JobTitle || c.jobTitle || '');
-                  const company = c.Company || c.company || '';
+                  const company = toTitleCase(c.Company || c.company || '');
                   const linkedin = c.LinkedIn || c.linkedinUrl || '';
                   const initials = name.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase();
                   return (
@@ -2683,18 +2718,18 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
       </div>
 
       {/* Sticky CTA */}
-      <StickyCTA
+      {searchPrompt.trim() && <StickyCTA
         originalButtonRef={originalButtonRef}
         onClick={handleSubmit}
         isLoading={isSearching || linkedInLoading}
-        disabled={isSearching || linkedInLoading || !searchPrompt.trim() || !user}
+        disabled={isSearching || linkedInLoading || !user}
         buttonClassName="rounded-[3px]"
       >
         {isLinkedInUrl(searchPrompt)
           ? <span className="flex items-center gap-2"><Linkedin className="w-4 h-4" />Import from LinkedIn</span>
           : <span>Network</span>
         }
-      </StickyCTA>
+      </StickyCTA>}
 
       <EliteGateModal open={showEliteGate} onClose={() => setShowEliteGate(false)} />
 

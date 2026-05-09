@@ -20,6 +20,11 @@ from app.utils.contact_analysis import (
     _detect_career_transition,
     _detect_tenure,
 )
+from app.utils.personalization import (
+    build_user_profile,
+    build_batch_strategies,
+    PersonalizationStrategy,
+)
 from datetime import datetime
 import re
 
@@ -425,169 +430,79 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
         sender_name = (user_info.get('name') or '').strip() or 'Student'
         sender_firstname = sender_name.split()[0] if sender_name else 'Student'
 
-        # ── Sender status: current student vs recent grad vs alum ──────────────
-        # The LLM must NEVER call a current student a "fellow alum" — that's a fabrication.
-        # Derive status from graduation year + today's date so the prompt steers correctly.
-        from datetime import datetime as _dt
-        _today = _dt.now()
-        sender_grad_year_int = None
-        _year_str = str(user_info.get('year') or '').strip()
-        _ym = re.search(r'20\d{2}', _year_str)
-        if _ym:
-            try:
-                sender_grad_year_int = int(_ym.group())
-            except ValueError:
-                sender_grad_year_int = None
-        if sender_grad_year_int is None:
-            sender_status = 'unknown'
-        elif sender_grad_year_int > _today.year or (sender_grad_year_int == _today.year and _today.month < 6):
-            sender_status = 'current_student'  # hasn't graduated yet
-        elif sender_grad_year_int >= _today.year - 1:
-            sender_status = 'recent_grad'      # graduated within ~18 months
-        else:
-            sender_status = 'alum'
+        # --- NEW: Build normalized user profile & per-contact strategies ---
+        # resume_parsed comes from pre_parsed_user_info (Firestore resumeParsed)
+        _resume_parsed = pre_parsed_user_info if isinstance(pre_parsed_user_info, dict) else {}
+        norm_user = build_user_profile(
+            resume_parsed=_resume_parsed,
+            user_profile=user_profile,
+            personal_note=personal_note,
+            dream_companies=dream_companies,
+        )
+        strategies = build_batch_strategies(norm_user, contacts, warmth_data)
+        logger.info("[EMAIL-GEN] Built %d personalization strategies (lead types: %s)",
+                     len(strategies),
+                     ", ".join(s.lead_type for s in strategies.values()))
 
-        # Friendly school identity term — used to build openers that work for current
-        # students AND alumni without reaching for the word "alum" when it's wrong.
-        SCHOOL_NICKNAMES = {
-            'USC': 'Trojan', 'UCLA': 'Bruin', 'Stanford': 'Cardinal', 'Cal': 'Bear',
-            'Berkeley': 'Bear', 'UC Berkeley': 'Bear', 'Michigan': 'Wolverine',
-            'Notre Dame': 'Domer', 'Penn': 'Quaker', 'UPenn': 'Quaker',
-            'Cornell': 'Big Red', 'Yale': 'Yalie', 'Harvard': 'Crimson Cantab',
-            'NYU': 'Violet', 'Columbia': 'Lion', 'MIT': 'Beaver',
-            'Duke': 'Blue Devil', 'Northwestern': 'Wildcat', 'Georgetown': 'Hoya',
-            'CMU': 'Tartan', 'Vanderbilt': 'Commodore', 'Emory': 'Eagle',
-            'Boston College': 'Eagle', 'Boston University': 'Terrier',
-            'UCSD': 'Triton', 'UC Santa Barbara': 'Gaucho', 'UCSB': 'Gaucho',
-            'UT Austin': 'Longhorn',
-        }
-        sender_school_nickname = SCHOOL_NICKNAMES.get(sender_university_short or '', '')
-
-        # Hometown — pulled from resume parsed location for hometown-match openers
-        sender_hometown = ''
-        try:
-            _rp = (user_profile or {}).get('resumeParsed') or {}
-            _contact = _rp.get('contact') or {}
-            sender_hometown = (_contact.get('location') or '').strip()
-        except Exception:
-            sender_hometown = ''
-        # Fall back to top-level user_info location if available
-        if not sender_hometown:
-            sender_hometown = (user_info.get('location') or '').strip()
-
-        # Personal context (hobbies, interests, hometown narrative) from Profile page
-        sender_personal_context = ''
-        if user_profile:
-            sender_personal_context = (
-                user_profile.get('personalContext')
-                or user_profile.get('careerGoals')
-                or ''
-            ).strip()
-            if len(sender_personal_context) > 600:
-                sender_personal_context = sender_personal_context[:600] + '…'
-        
         # Build personalized context for each contact
-        # Track strong connections for resume gating
         contact_strong_connections = {}  # idx -> bool (True if alumni or shared company)
         contact_contexts = []
         selected_anchors = {}  # idx -> anchor dict or None
         contact_personalization = {}  # idx -> personalization metadata
-        _dream_companies_lower = [c.lower() for c in (dream_companies or []) if c]
         for i, contact in enumerate(contacts):
-            # TEMPORARY DEBUG: Print data for first contact only
-            if i == 0:
-                # Build contact context first (will be built below)
-                pass
-            
-            # Detect commonality
-            commonality_type, commonality_details = detect_commonality(user_info, contact, resume_text)
-            
+            strategy = strategies.get(i, PersonalizationStrategy())
+
             # Get contact info
             firstname = _normalize_name(contact.get('FirstName', ''))
             lastname = contact.get('LastName', '')
             company = contact.get('Company', '')
             title = contact.get('Title', '')
             industry = determine_industry(company, title)
-            
-            # Select anchor (priority: transition → tenure → title)
+
+            # Select anchor (priority: transition → tenure → title) — kept for post-processing dedup
             selected_anchor = _select_anchor(contact)
             selected_anchors[i] = selected_anchor
-            
-            # Get resume details for personalization
-            key_experiences = user_info.get('key_experiences', [])[:2]  # Top 2 experiences
-            # Handle skills - can be a list or dict (from resume parser)
-            skills_raw = user_info.get('skills', [])
-            if isinstance(skills_raw, dict):
-                # Flatten dict structure into a list
-                skills = []
-                for category, skill_list in skills_raw.items():
-                    if isinstance(skill_list, list):
-                        skills.extend(skill_list)
-                skills = skills[:3]  # Top 3 skills
-            elif isinstance(skills_raw, list):
-                skills = skills_raw[:3]  # Top 3 skills
-            else:
-                skills = []
-            achievements = user_info.get('achievements', [])[:1]  # Top achievement
-            
-            # Build personalization context and track strong connections
-            personalization_note = ""
-            has_strong_connection = False
-            if commonality_type == 'university':
-                # Status-aware phrasing: never call a current student an "alum"
-                if sender_status == 'current_student':
-                    personalization_note = (
-                        f"The sender is a CURRENT {sender_university_short} student "
-                        f"(graduating {sender_grad_year_int or 'soon'}), and the contact attended "
-                        f"{sender_university_short}. Emphasize the school connection naturally — "
-                        f"phrases like \"as a current {sender_university_short} student\", "
-                        f"\"fellow {sender_school_nickname or 'student'}\", or \"{sender_university_short} '"
-                        f"{(str(sender_grad_year_int)[-2:] if sender_grad_year_int else '')}\" "
-                        "work well. Do NOT use \"fellow alum\" or imply the sender has graduated."
-                    )
-                elif sender_status == 'recent_grad':
-                    personalization_note = (
-                        f"Both attended {sender_university_short}. The sender graduated recently "
-                        f"({sender_grad_year_int}); reference the shared school naturally. "
-                        f"\"{sender_university_short} alum\" or \"fellow {sender_school_nickname or 'grad'}\" both work."
-                    )
-                else:
-                    personalization_note = (
-                        f"Both attended {sender_university_short} - emphasize the alumni connection naturally"
-                    )
-                has_strong_connection = True
-            elif commonality_type == 'hometown':
-                hometown = commonality_details.get('hometown', '')
-                personalization_note = f"Both from {hometown} - mention the shared hometown connection"
-            elif commonality_type == 'company':
-                shared_company = commonality_details.get('company', '')
-                personalization_note = f"Both worked at {shared_company} - reference the shared experience"
-                has_strong_connection = True
-            
+
+            # Strong connections: alumni, shared_company, dream_company
+            has_strong_connection = strategy.lead_type in (
+                "alumni", "shared_company", "dream_company",
+            )
             contact_strong_connections[i] = has_strong_connection
 
-            # Check dream company match
-            is_dream_company = bool(_dream_companies_lower and company.lower() in _dream_companies_lower)
-            if is_dream_company and not personalization_note:
-                personalization_note = f"This is one of the sender's dream companies — show genuine enthusiasm"
-
-            # Store personalization metadata
+            # Store personalization metadata (new format)
             contact_personalization[i] = {
+                "lead_type": strategy.lead_type,
+                "lead_hook": strategy.lead_hook,
+                "warmth_tier_final": strategy.warmth_tier,
+                "commonality_types": strategy.commonality_types,
+                "is_dream_company": strategy.lead_type == "dream_company",
+                "label": strategy.label or _build_personalization_label(
+                    strategy.lead_type,
+                    {"university_short": norm_user.university_short} if strategy.lead_type == "alumni" else {},
+                    selected_anchor,
+                ),
+                # Legacy fields for backward compat with existing metadata consumers
                 "anchor_type": selected_anchor["type"] if selected_anchor else None,
                 "anchor_value": selected_anchor["value"] if selected_anchor else None,
-                "commonality_type": commonality_type,
-                "commonality_detail": commonality_details,
-                "is_dream_company": is_dream_company,
-                "label": _build_personalization_label(commonality_type, commonality_details, selected_anchor),
+                "commonality_type": strategy.lead_type if strategy.lead_type != "general" else None,
+                "commonality_detail": {},
             }
 
-            # Build contact context
+            # Build contact context with strategy-driven personalization
+            avoid_lines = ""
+            if strategy.avoid:
+                avoid_lines = "\n- AVOID: " + "; ".join(strategy.avoid)
+
+            supporting_lines = ""
+            if strategy.supporting_details:
+                supporting_lines = "\n- Also relevant: " + "; ".join(strategy.supporting_details)
+
             contact_context = f"""Contact {i}: {firstname} {lastname}
 - Role: {title} at {company}
 - Industry: {industry}
-- Connection: {personalization_note if personalization_note else 'No specific connection - find a genuine reason to reach out'}
-- Personalize by: Mentioning their role/company, asking about their experience, showing genuine interest in their work"""
-            
+- Lead hook: {strategy.lead_hook}
+- Personalization instruction: {strategy.prompt_instruction}{supporting_lines}{avoid_lines}"""
+
             contact_contexts.append(contact_context)
         
         # Build comprehensive prompt with resume details
@@ -819,59 +734,17 @@ Return ONLY valid JSON:
                     if isinstance(skills, list) and skills:
                         pdl_section += f"\n- Skills: {', '.join(str(s) for s in skills[:8])}"
 
-                # --- A2: Inject warmth tier + signals per contact ---
-                warmth_section = ""
-                if warmth_data and i in warmth_data:
-                    wd = warmth_data[i]
-                    tier = wd.get("tier", "cold")
-                    signals = wd.get("signals", [])
-                    # Separate meaningful signals (with detail) from metadata-only
-                    METADATA_SIGNALS = {"has_headline_and_title", "rich_work_history",
-                                        "has_education_data", "has_skills_interests"}
-                    meaningful_details = []
-                    for s in signals:
-                        name = s.get("signal", "")
-                        detail = s.get("detail", "")
-                        if not name or name in METADATA_SIGNALS:
-                            continue
-                        if detail:
-                            meaningful_details.append(f"{name}: {detail}")
-                        else:
-                            meaningful_details.append(name)
-                    warmth_section = f"\n- Warmth: {tier}"
-                    if meaningful_details:
-                        warmth_section += f"\n- Warmth signals: {'; '.join(meaningful_details)}"
-                    elif tier == "cold" and i < len(contacts):
-                        # No meaningful signals — build a career path from
-                        # work history so the LLM has something concrete.
-                        c = contacts[i]
-                        experience = c.get("experience") or []
-                        if isinstance(experience, list) and len(experience) >= 2:
-                            path_parts = []
-                            for exp in reversed(experience[:4]):
-                                if isinstance(exp, dict):
-                                    exp_title = exp.get("title", {})
-                                    if isinstance(exp_title, dict):
-                                        exp_title = exp_title.get("name", "")
-                                    exp_co = exp.get("company", {})
-                                    if isinstance(exp_co, dict):
-                                        exp_co = exp_co.get("name", "")
-                                    part = exp_title.strip() if exp_title else ""
-                                    if exp_co:
-                                        part = f"{part} at {exp_co}".strip() if part else exp_co
-                                    if part:
-                                        path_parts.append(part.lower())
-                            if path_parts:
-                                warmth_section += f"\n- Path: {' → '.join(path_parts)}"
+                # --- A2: Inject strategy warmth tier per contact ---
+                strategy = strategies.get(i, PersonalizationStrategy())
+                warmth_section = f"\n- Warmth: {strategy.warmth_tier}"
 
                 enriched_contact_contexts.append(ctx + pdl_section + warmth_section)
 
             # --- A3: Warmth-tier-aware prompt variants ---
-            # Determine dominant warmth tier for tone calibration
-            warmth_data = warmth_data or {}
+            # Determine dominant warmth tier from strategies (upgraded tiers)
             tier_counts = {"warm": 0, "neutral": 0, "cold": 0}
-            for wd in warmth_data.values():
-                tier_counts[wd.get("tier", "cold")] = tier_counts.get(wd.get("tier", "cold"), 0) + 1
+            for s in strategies.values():
+                tier_counts[s.warmth_tier] = tier_counts.get(s.warmth_tier, 0) + 1
 
             context_block = f"""You write professional, natural networking emails for college students reaching out to industry professionals.
 
@@ -929,13 +802,16 @@ NEUTRAL contacts (same industry, career track match, dream company):
 - Example opener: "Your work in [specific area] at [Company] caught my attention..."
 
 COLD contacts (no overlap):
-- Concise and respectful of their time. Get to the point quickly.
-- 80-120 words. Be clear about why you're reaching out.
+- Concise and respectful of their time, but concise does not mean skeletal.
+- 80-120 words. A senior professional will dismiss a 50-word email as low-effort.
+- Demonstrate you've thought about who you're writing to — reference something specific.
 - Example opener: "I'm exploring [industry] careers and your path from [X] to [Y] stood out..."
 
 For ALL contacts:
+- FOLLOW the "Personalization instruction" for each contact — it tells you exactly what to lead with and what to ask.
+- Respect the "AVOID" lines — do not use those phrases or patterns.
 - Do NOT use "I came across your background" or any forced opener pattern.
-- Open naturally based on WHY you're reaching out to THIS person.
+- Open naturally based on the lead hook for THIS person.
 - Ask ONE thoughtful question (not forced two-question structure).
 - If the contact has work history or education data, reference something specific.
 
@@ -989,10 +865,20 @@ COMMON-GROUND DISCOVERY (warm-cold conversion):
 ===== EMAIL STRUCTURE =====
 
 1. Start with "Hi [FirstName],"
-2. Open naturally (see tone guide above, no forced pattern)
+2. Open naturally (see tone guide above, no forced pattern). IMPORTANT: vary the positioning sentence across the batch. Do NOT open every email with "I'm [name], a [major] student at [school] exploring [career] careers." Use different structures:
+   - "I'm [name], a [major] student at [school]..."
+   - "Currently a [year] at [school] studying [major],..."
+   - "As a [school] [major] student interested in [career],..."
+   - "[School] [major] student here,..."
+   Each email in the batch must open differently.
 3. Show genuine interest in something specific about their work or background
 4. Ask ONE thoughtful, specific question
-5. Brief time ask: "Would you have 15 minutes for a quick chat?"
+5. Brief time ask — vary the phrasing across the batch. Use different wording each time, e.g.:
+   - "Would you have 15 minutes for a quick chat?"
+   - "Would you be open to a brief call?"
+   - "Could we set up a short conversation?"
+   - "Any chance you'd have time for a quick call?"
+   Do NOT use the same ask phrasing in more than one email in the batch.
 {resume_line_section}SIGNATURE (REQUIRED - every email MUST end with this):
 {signature_block_prompt}
 
@@ -1011,6 +897,7 @@ Do NOT use generic subjects like "Networking request" or "Hope to connect"."""}
 - Use \\n\\n for paragraph breaks in JSON
 - Never use placeholders like [your major] - fill in actual values or omit
 - Never use "Hope this finds you well" or similar filler
+- Do NOT write generic firm reputation commentary (e.g., "known for elite M&A," "culture of collaboration," "reputation for senior-level relationships"). Only reference specific facts from the contact's record (role title, tenure, career moves, specific companies). If you don't have specific facts, keep the email shorter and more honest.
 
 Return ONLY valid JSON:
 {{"0": {{"subject": "...", "body": "..."}}, "1": {{"subject": "...", "body": "..."}}, ...}}"""
@@ -1133,17 +1020,26 @@ Return ONLY valid JSON:
                     # Check for banned openers
                     banned_openers = ["I hope you're doing well", "Hope you're doing well", "I hope this", "Hope this", "My name is"]
                     if first_sentence and any(first_sentence.startswith(banned) for banned in banned_openers):
-                        # Replace with context-first opener
+                        # Replace with strategy-driven opener
+                        strategy = strategies.get(idx, PersonalizationStrategy())
                         company = contact.get('Company', '')
                         title = contact.get('Title', '')
-                        # Build a simple context-first opener
-                        if company:
-                            new_opener = f"Your work at {company} caught my attention."
+                        if strategy.lead_type == "alumni":
+                            new_opener = f"As a fellow {sender_university_short} student, I'd love to connect."
+                        elif strategy.lead_type == "shared_company":
+                            new_opener = f"I noticed we share a {company} connection -- I'd love to hear about your experience."
+                        elif strategy.lead_type == "dream_company":
+                            new_opener = f"I'm really interested in {company} and would love to learn about your experience there."
+                        elif strategy.lead_type == "recent_transition" and strategy.lead_hook:
+                            new_opener = f"I saw you recently joined {company} -- congrats on the move."
+                        elif company and title:
+                            new_opener = f"Your path to {title} at {company} stood out to me."
+                        elif company:
+                            new_opener = f"I'm curious about the work you're doing at {company}."
                         elif title:
-                            new_opener = f"Your experience as a {title} caught my attention."
+                            new_opener = f"Your experience as a {title} is really interesting."
                         else:
-                            new_opener = "I'd like to learn more about your experience."
-                        # Replace the first sentence in the line
+                            new_opener = "I'd like to learn more about your career path."
                         lines[greeting_line_idx + 1] = new_opener
                         body = '\n'.join(lines)
             
@@ -1345,8 +1241,59 @@ Would you be open to a brief 15-minute chat about your experience?
                 result_entry['personalization'] = contact_personalization[idx]
             cleaned_results[idx] = result_entry
 
+        # --- P1b: Batch diversity check ---
+        # If any emails share subject prefixes or openers, regenerate the
+        # duplicates with explicit "differentiate" feedback.
+        if len(cleaned_results) >= 2:
+            try:
+                from app.utils.email_quality import check_batch_diversity
+                dup_indices = check_batch_diversity(cleaned_results, contacts)
+                if dup_indices:
+                    logger.info("[EMAIL-GEN] Batch diversity: %d duplicates detected, regenerating indices %s",
+                                len(dup_indices), dup_indices)
+                    # Collect existing subjects/openers the duplicate must differ from
+                    existing_subjects = [cleaned_results[i]["subject"] for i in sorted(cleaned_results.keys()) if i not in dup_indices]
+                    existing_openers = []
+                    for i in sorted(cleaned_results.keys()):
+                        if i not in dup_indices:
+                            body = cleaned_results[i].get("body", "")
+                            for line in body.split("\n"):
+                                s = line.strip()
+                                if s and not s.lower().startswith("hi ") and not s.lower().startswith("hey "):
+                                    existing_openers.append(s[:60])
+                                    break
+                    for dup_idx in dup_indices:
+                        if dup_idx >= len(contacts):
+                            continue
+                        contact = contacts[dup_idx]
+                        original = cleaned_results[dup_idx]
+                        feedback = (
+                            f"This email is too similar to others in the batch. "
+                            f"Subjects already used: {existing_subjects[:4]}. "
+                            f"Opening sentences already used: {existing_openers[:4]}. "
+                            f"Rewrite with a different subject specific to {contact.get('Company', '')} or "
+                            f"{contact.get('FirstName', '')}'s role as {contact.get('Title', '')}. "
+                            f"Also use a DIFFERENT opening sentence structure — do not start with "
+                            f"'I'm [name], a [major] student at [school]' if other emails already do."
+                        )
+                        try:
+                            improved = regenerate_with_feedback(
+                                contact,
+                                user_profile,
+                                {"subject": original["subject"], "body": original["body"]},
+                                ["batch_diversity"],
+                            )
+                            if improved.get("subject") and improved["subject"] != original["subject"]:
+                                cleaned_results[dup_idx]["subject"] = improved["subject"]
+                                cleaned_results[dup_idx]["body"] = improved["body"]
+                                logger.info("[EMAIL-GEN] Diversity regen: contact %d subject updated", dup_idx)
+                        except Exception as regen_err:
+                            logger.warning("[EMAIL-GEN] Diversity regen failed for contact %d: %s", dup_idx, regen_err)
+            except Exception as div_err:
+                logger.warning("[EMAIL-GEN] Batch diversity check failed (non-blocking): %s", div_err)
+
         return cleaned_results
-        
+
     except Exception as e:
         logger.error("[EMAIL-GEN] ❌ Both Claude and GPT failed — using STATIC FALLBACK templates: %s", e)
         import traceback
@@ -1616,8 +1563,27 @@ def regenerate_with_feedback(contact, user_profile, original_email, failures):
             failure_instructions.append("The email has no clear ask. Add a specific request like '15 minutes for a quick chat'.")
         elif f == "weak_subject":
             failure_instructions.append("The subject line is too generic. Make it specific to the recipient or conversation topic (3-8 words).")
+        elif f == "subject_no_contact_noun":
+            company = contact.get("Company") or contact.get("company") or ""
+            first_name = contact.get("FirstName") or contact.get("first_name") or ""
+            title = contact.get("Title") or contact.get("title") or ""
+            failure_instructions.append(
+                f"The subject line must reference the contact specifically. "
+                f"Include their company ({company}), name ({first_name}), or role ({title}) — "
+                f"not just the sender's university. Make it unique to THIS recipient."
+            )
         elif f == "template_leak":
             failure_instructions.append("The email contains template placeholders like [Name] or {{}}. Replace with actual values.")
+        elif f == "batch_diversity":
+            company = contact.get("Company") or contact.get("company") or ""
+            first_name = contact.get("FirstName") or contact.get("first_name") or ""
+            title = contact.get("Title") or contact.get("title") or ""
+            failure_instructions.append(
+                f"This email is too similar to others in the batch. "
+                f"Rewrite the subject to be specific to {company} or {first_name}'s role as {title}. "
+                f"Also use a DIFFERENT opening sentence structure — do not use 'I'm [name], a [major] student at [school]'. "
+                f"Try alternatives like 'Currently studying [major] at [school],...' or 'As a [school] student interested in [career],...'."
+            )
 
     prompt = f"""Improve this networking email. Fix ONLY the issues listed below. Keep the tone, structure, and intent.
 

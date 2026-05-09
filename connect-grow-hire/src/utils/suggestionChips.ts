@@ -217,8 +217,14 @@ const INDUSTRY_NICHE_ANGLES: Record<string, string[]> = {
   'Accounting': ['Big 4 accounting firms', 'Advisory-focused accounting firms', 'Forensic accounting firms'],
 };
 
-export function generateFirmDiscoveryChips(ctx: UserContext): SuggestionChip[] {
-  const chips: SuggestionChip[] = [];
+export interface PromptChip {
+  id: string;
+  prompt: string;
+  hint: string;
+}
+
+export function generateFirmDiscoveryPrompts(ctx: UserContext): PromptChip[] {
+  const chips: PromptChip[] = [];
   const seen = new Set<string>();
   const uni = shortUniversity(ctx.university);
   const city = ctx.preferredLocations[0]?.split(',')[0]?.trim() || '';
@@ -227,60 +233,139 @@ export function generateFirmDiscoveryChips(ctx: UserContext): SuggestionChip[] {
     : '';
   const industry = ctx.targetIndustries[0] || '';
   const role = inferRoleLabel(ctx, industry);
+  const gradYear = ctx.graduationYear || '';
+  const gradSeason = gradYear ? `summer ${gradYear}` : 'entry-level';
 
-  const addChip = (category: SuggestionChip['category'], label: string, prompt: string) => {
+  const add = (prompt: string, hint: string) => {
     const key = prompt.toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
-    chips.push({ id: `firm-disc-${chips.length}`, label, prompt, category });
+    chips.push({ id: `fd-${chips.length}`, prompt, hint });
   };
 
-  // Chip 1 (highest signal): School-aware — only if we have university
-  if (uni && role) {
-    addChip('alumni', `Where ${uni} ${role} end up`, `__school_affinity__${ctx.university}__${role}`);
-  } else if (uni && industry) {
-    addChip('alumni', `Where ${uni} grads go in ${industry}`, `__school_affinity__${ctx.university}__${industry}`);
-  }
-
-  // Chip 2: Industry + location (local)
-  if (industry && city) {
-    addChip('industry', `${industry} companies in ${city}`, `${industry} companies in ${city}`);
-  } else if (industry) {
-    addChip('industry', `${industry} companies hiring now`, `Leading ${industry} companies hiring entry-level talent`);
-  }
-
-  // Chip 3: Niche/emerging — use industry-specific angles
+  // Chip 1: Niche + location + timing (highest signal)
   const nicheAngles = INDUSTRY_NICHE_ANGLES[industry] || INDUSTRY_NICHE_ANGLES[ctx.careerTrack] || [];
-  if (nicheAngles.length > 0) {
-    const niche = nicheAngles[0];
-    const suffix = state ? ` in ${state}` : city ? ` in ${city}` : '';
-    addChip('industry', `${niche}${suffix}`, `${niche}${suffix}`);
+  if (nicheAngles.length > 0 && city) {
+    add(
+      `${nicheAngles[0]} in ${city} hiring ${gradSeason} ${role || 'analysts'}`,
+      [uni, industry, city].filter(Boolean).join(' \u00b7 '),
+    );
+  } else if (industry && city) {
+    add(
+      `${industry} companies in ${city} hiring ${gradSeason} ${role || 'analysts'}`,
+      [uni, industry, city].filter(Boolean).join(' \u00b7 '),
+    );
   }
 
-  // Chip 4: Role-oriented or second industry
-  if (role && industry) {
-    addChip('location', `Great places for ${role}`, `Best companies to work at as a ${role}`);
+  // Chip 2: School affinity — firms that recruited from user's school
+  if (uni && industry) {
+    add(
+      `${industry} firms that recruited from ${uni} in the last two years`,
+      'School affinity',
+    );
   }
-  // If we have a second industry, add a chip for it
-  if (ctx.targetIndustries.length > 1) {
+
+  // Chip 3: Growth-stage / funding angle
+  if (industry && city) {
+    const fundingIndustry = industry.toLowerCase().includes('tech') || industry.toLowerCase().includes('data')
+      ? 'tech' : industry.toLowerCase();
+    add(
+      `Growth-stage ${fundingIndustry} in ${state || city} with Series B+ funding`,
+      'Industry \u00b7 Stage',
+    );
+  } else if (industry) {
+    add(
+      `Growth-stage ${industry} companies with Series B+ funding`,
+      'Industry \u00b7 Stage',
+    );
+  }
+
+  // Chip 4: Second niche angle in different location or same location
+  if (nicheAngles.length > 1) {
+    const secondCity = ctx.preferredLocations[1]?.split(',')[0]?.trim() || city;
+    const suffix = secondCity ? ` in ${secondCity}` : '';
+    add(
+      `${nicheAngles[1]}${suffix}`,
+      [uni, secondCity].filter(Boolean).join(' \u00b7 '),
+    );
+  } else if (city && industry) {
+    add(
+      `Mid-size ${industry} companies in ${city}`,
+      [uni, city, industry].filter(Boolean).join(' \u00b7 '),
+    );
+  }
+
+  // Chip 5: Role-specific or seasonal hiring
+  if (role && city) {
+    add(
+      `Companies hiring ${gradSeason} ${role} in ${city}`,
+      'Season \u00b7 Role \u00b7 Geo',
+    );
+  } else if (role) {
+    add(
+      `Best companies to start your career as a ${role}`,
+      'Role \u00b7 Career',
+    );
+  }
+
+  // Chip 6: Alumni signal + size constraint
+  if (uni && city && industry) {
+    add(
+      `${industry} firms in ${city} under 100 employees with ${uni} alumni`,
+      'Size \u00b7 Alumni signal',
+    );
+  } else if (uni && industry) {
+    add(
+      `Small ${industry} firms with ${uni} alumni`,
+      'Size \u00b7 Alumni signal',
+    );
+  }
+
+  // Second industry chips if we still need more
+  if (chips.length < 6 && ctx.targetIndustries.length > 1) {
     const secondIndustry = ctx.targetIndustries[1];
-    if (city) {
-      addChip('industry', `${secondIndustry} companies in ${city}`, `${secondIndustry} companies in ${city}`);
+    const secondCity = ctx.preferredLocations[1]?.split(',')[0]?.trim() || city;
+    if (secondCity) {
+      add(`${secondIndustry} companies in ${secondCity}`, `${secondIndustry} \u00b7 ${secondCity}`);
     } else {
-      addChip('industry', `${secondIndustry} companies worth knowing`, `Leading ${secondIndustry} companies hiring entry-level`);
+      add(`Leading ${secondIndustry} companies hiring ${gradSeason}`, secondIndustry);
     }
   }
 
-  // Fallback: if no school chip was added (no university), add an extra useful one
-  if (!uni && chips.length < 4) {
-    if (city && industry) {
-      addChip('location', `Up-and-coming startups in ${city}`, `Fast-growing startups in ${city}`);
-    } else if (industry) {
-      addChip('industry', `${industry} companies on the rise`, `Up-and-coming ${industry} companies`);
-    }
+  // Fallback padding to reach 6
+  if (chips.length < 6 && industry) {
+    add(`Top ${industry} employers for new graduates`, 'Industry \u00b7 Entry-level');
+  }
+  if (chips.length < 6 && city) {
+    add(`Fast-growing startups in ${city}`, `Startups \u00b7 ${city}`);
+  }
+  if (chips.length < 6) {
+    add('Companies actively hiring new graduates for entry-level roles', 'Entry-level \u00b7 Nationwide');
   }
 
-  return chips.slice(0, 4);
+  return chips.slice(0, 6);
+}
+
+// Generic prompts for users without onboarding data
+export function getGenericFirmPrompts(): PromptChip[] {
+  return [
+    { id: 'gen-0', prompt: 'AI startups in San Francisco hiring data scientists', hint: 'Tech \u00b7 West Coast' },
+    { id: 'gen-1', prompt: 'Top consulting firms in New York hiring analysts', hint: 'Consulting \u00b7 East Coast' },
+    { id: 'gen-2', prompt: 'Climate tech companies hiring across the US', hint: 'Mission \u00b7 Remote-friendly' },
+    { id: 'gen-3', prompt: 'Investment banks in NYC hiring summer interns', hint: 'Finance \u00b7 East Coast' },
+    { id: 'gen-4', prompt: 'Gaming studios in Los Angeles hiring designers', hint: 'Media \u00b7 West Coast' },
+    { id: 'gen-5', prompt: 'Healthcare startups in Boston hiring product managers', hint: 'Healthcare \u00b7 East Coast' },
+  ];
+}
+
+// Keep old function for backward compat
+export function generateFirmDiscoveryChips(ctx: UserContext): SuggestionChip[] {
+  return generateFirmDiscoveryPrompts(ctx).map((p, i) => ({
+    id: p.id,
+    label: p.prompt,
+    prompt: p.prompt,
+    category: 'industry' as const,
+  }));
 }
 
 // Fisher-Yates shuffle seeded by a numeric value

@@ -201,10 +201,55 @@ DEPARTMENT_MANAGER_BY_JOB_TYPE = {
 }
 
 
+COMPANY_ALIASES = {
+    "mckinsey": "McKinsey & Company",
+    "goldman": "Goldman Sachs",
+    "jp morgan": "JPMorgan Chase & Co.",
+    "jpmorgan": "JPMorgan Chase & Co.",
+    "morgan stanley": "Morgan Stanley",
+    "bofa": "Bank of America",
+    "bank of america": "Bank of America",
+    "bcg": "Boston Consulting Group",
+    "bain": "Bain & Company",
+    "deloitte": "Deloitte",
+    "pwc": "PricewaterhouseCoopers",
+    "ey": "Ernst & Young",
+    "kpmg": "KPMG",
+    "google": "Google",
+    "meta": "Meta",
+    "facebook": "Meta",
+    "amazon": "Amazon",
+    "apple": "Apple",
+    "microsoft": "Microsoft",
+    "netflix": "Netflix",
+    "uber": "Uber",
+    "airbnb": "Airbnb",
+    "stripe": "Stripe",
+    "palantir": "Palantir Technologies",
+    "citadel": "Citadel",
+    "jane street": "Jane Street",
+    "two sigma": "Two Sigma",
+    "blackrock": "BlackRock",
+    "kkr": "KKR & Co.",
+    "blackstone": "Blackstone",
+    "carlyle": "The Carlyle Group",
+}
+
+
+def _resolve_company_alias(company_name: str) -> list:
+    """Return [user_input, canonical_name] if alias exists, else [cleaned_name]."""
+    cleaned = clean_company_name(company_name)
+    lower = (company_name or "").strip().lower()
+    canonical = COMPANY_ALIASES.get(lower)
+    if canonical and canonical.lower() != cleaned.lower():
+        return [cleaned, canonical]
+    return [cleaned] if cleaned else [company_name]
+
+
 def get_recruiter_titles_for_job_type(job_type: str) -> List[str]:
     """
     Get list of recruiter titles to search for based on job type.
-    
+
     Always includes general recruiter titles as fallback.
     """
     titles = RECRUITER_TITLES_BY_JOB_TYPE.get(job_type, []).copy()
@@ -219,21 +264,23 @@ def get_recruiter_titles_for_job_type(job_type: str) -> List[str]:
 def build_recruiter_search_query(
     company_name: str,
     recruiter_titles: List[str],
-    location: Optional[str] = None
+    location: Optional[str] = None,
+    company_aliases: List[str] = None
 ) -> Dict:
     """
     Build PDL Elasticsearch query for recruiter search.
-    
+
     Note: We intentionally do NOT filter by state/city because:
     1. Recruiters may be at HQ, regional offices, or remote
     2. The person applying doesn't care where the recruiter is located
     3. State filtering causes too many false negatives (0 results when recruiters exist)
-    
+
     Args:
         company_name: Cleaned company name
         recruiter_titles: List of recruiter job titles to search for
         location: Optional location (NOT used for filtering, only for logging)
-    
+        company_aliases: Optional list of company name variants to match against
+
     Returns:
         PDL query dictionary
     """
@@ -242,34 +289,40 @@ def build_recruiter_search_query(
     for title in recruiter_titles:
         title_should.append({"match_phrase": {"job_title": title}})
         title_should.append({"match": {"job_title": title}})
-    
-    # Build company should clause (both exact and fuzzy)
-    company_should = [
-        {"match_phrase": {"job_company_name": company_name}},
-        {"match": {"job_company_name": company_name}}
-    ]
-    
+
+    # Build company should clause — expand with aliases if available
+    if company_aliases and len(company_aliases) > 1:
+        company_should = []
+        for name in company_aliases:
+            company_should.append({"match_phrase": {"job_company_name": name.lower()}})
+            company_should.append({"match": {"job_company_name": name.lower()}})
+    else:
+        company_should = [
+            {"match_phrase": {"job_company_name": company_name}},
+            {"match": {"job_company_name": company_name}}
+        ]
+
     # Base query structure - NO location filter
     must_clauses = [
         {"bool": {"should": title_should}},
         {"bool": {"should": company_should}},
         {"term": {"location_country": "united states"}}  # US only
     ]
-    
+
     # Log location for informational purposes (not used for filtering)
     if location:
         print(f"[RecruiterSearch] Location provided: '{location}' (NOT used for filtering - recruiters can be anywhere)")
     else:
         print(f"[RecruiterSearch] No location provided - searching all US recruiters at company")
-    
+
     query_obj = {
         "bool": {
             "must": must_clauses
         }
     }
-    
-    print(f"[RecruiterSearch] Query: company={company_name}, country=US, NO state/city filter")
-    
+
+    print(f"[RecruiterSearch] Query: company={company_name}, aliases={company_aliases}, country=US, NO state/city filter")
+
     return query_obj
 
 
@@ -578,23 +631,25 @@ def find_recruiters(
             "error": "PDL API key not configured"
         }
     
-    # Clean company name
-    cleaned_company = clean_company_name(company_name)
+    # Clean company name with alias expansion
+    company_names = _resolve_company_alias(company_name)
+    cleaned_company = company_names[0]
     if not cleaned_company:
         cleaned_company = company_name
-    
+
     # Determine job type if not provided
     if not job_type:
         job_type = determine_job_type(job_title, job_description)
-    
+
     # Get recruiter titles to search for
     recruiter_titles = get_recruiter_titles_for_job_type(job_type)
-    
-    # Build query
+
+    # Build query with alias expansion for better matching
     query_obj = build_recruiter_search_query(
         company_name=cleaned_company.lower(),
         recruiter_titles=recruiter_titles,
-        location=location
+        location=location,
+        company_aliases=company_names,
     )
     
     # Execute PDL search using existing execute_pdl_search function
@@ -1024,11 +1079,12 @@ def should_include_executives(company_name: str, all_contacts: List[Dict]) -> bo
 def build_hiring_manager_search_query(
     company_name: str,
     titles: List[str],
-    location: Optional[str] = None
+    location: Optional[str] = None,
+    company_aliases: List[str] = None
 ) -> Dict:
     """
     Build PDL Elasticsearch query for hiring manager search.
-    
+
     Similar to build_recruiter_search_query but for hiring managers.
     """
     # Build job title should clause
@@ -1036,28 +1092,34 @@ def build_hiring_manager_search_query(
     for title in titles:
         title_should.append({"match_phrase": {"job_title": title}})
         title_should.append({"match": {"job_title": title}})
-    
-    # Build company should clause (both exact and fuzzy)
-    company_should = [
-        {"match_phrase": {"job_company_name": company_name}},
-        {"match": {"job_company_name": company_name}}
-    ]
-    
+
+    # Build company should clause — expand with aliases if available
+    if company_aliases and len(company_aliases) > 1:
+        company_should = []
+        for name in company_aliases:
+            company_should.append({"match_phrase": {"job_company_name": name.lower()}})
+            company_should.append({"match": {"job_company_name": name.lower()}})
+    else:
+        company_should = [
+            {"match_phrase": {"job_company_name": company_name}},
+            {"match": {"job_company_name": company_name}}
+        ]
+
     # Base query structure - NO location filter (like recruiters)
     must_clauses = [
         {"bool": {"should": title_should}},
         {"bool": {"should": company_should}},
         {"term": {"location_country": "united states"}}  # US only
     ]
-    
+
     query_obj = {
         "bool": {
             "must": must_clauses
         }
     }
-    
-    print(f"[HiringManagerSearch] Query: company={company_name}, titles={titles[:3]}...")
-    
+
+    print(f"[HiringManagerSearch] Query: company={company_name}, aliases={company_aliases}, titles={titles[:3]}...")
+
     return query_obj
 
 
@@ -1204,15 +1266,16 @@ def find_hiring_manager(
             "error": "PDL API key not configured"
         }
     
-    # Clean company name
-    cleaned_company = clean_company_name(company_name)
+    # Clean company name with alias expansion
+    company_names = _resolve_company_alias(company_name)
+    cleaned_company = company_names[0]
     if not cleaned_company:
         cleaned_company = company_name
-    
+
     # Determine job type if not provided
     if not job_type:
         job_type = determine_job_type(job_title, job_description)
-    
+
     print(f"[HiringManagerFinder] Searching for hiring managers at {cleaned_company} for {job_type} role")
     
     # ✅ FIX: Build larger candidate pool for email verification prioritization
@@ -1253,7 +1316,8 @@ def find_hiring_manager(
         query_obj = build_hiring_manager_search_query(
             company_name=cleaned_company.lower(),
             titles=tier_titles,
-            location=location
+            location=location,
+            company_aliases=company_names,
         )
         
         # Execute PDL search
@@ -1417,7 +1481,7 @@ def find_hiring_manager(
             print(f"[HiringManagerFinder] Error generating emails: {e}")
             emails = []
     
-    return {
+    result = {
         "hiringManagers": final_hiring_managers,
         "emails": emails,
         "job_type_detected": job_type,
@@ -1427,4 +1491,18 @@ def find_hiring_manager(
         "search_tier_used": highest_tier_used,
         "search_titles": all_search_titles[:10]
     }
+
+    # Add fallback messaging when no results or only low-tier results
+    if not final_hiring_managers:
+        result["fallback_message"] = f"No direct hiring managers found at {cleaned_company} for {job_type} roles. Consider searching for recruiters instead."
+        result["suggestions"] = [{
+            "type": "switch_tab",
+            "label": f"Search recruiters at {cleaned_company}",
+            "tab": "recruiters",
+            "prefill": {"company": cleaned_company}
+        }]
+    elif highest_tier_used >= 4:
+        result["fallback_message"] = f"Found {len(final_hiring_managers)} people in adjacent roles (People Operations, executives) who may influence hiring at {cleaned_company}."
+
+    return result
 

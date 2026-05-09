@@ -136,6 +136,7 @@ TIER_CONFIGS = {
         'personalized_templates': False,
         'weekly_insights': False,
         'early_access': False,
+        'agent_enabled': False,
     },
     'pro': {
         'max_contacts': 8,   # Maximum contacts returned per search
@@ -161,6 +162,7 @@ TIER_CONFIGS = {
         'personalized_templates': False,
         'weekly_insights': False,
         'early_access': False,
+        'agent_enabled': False,
     },
     'elite': {
         'max_contacts': 15,  # Maximum contacts returned per search
@@ -186,6 +188,7 @@ TIER_CONFIGS = {
         'personalized_templates': True,
         'weekly_insights': True,
         'early_access': True,
+        'agent_enabled': True,
     }
 }
 

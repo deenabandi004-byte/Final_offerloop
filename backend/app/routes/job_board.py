@@ -7972,6 +7972,65 @@ def find_recruiter_endpoint():
         return jsonify({"error": str(e)}), 500
 
 
+@job_board_bp.route("/parse-hiring-prompt", methods=["POST"])
+@require_firebase_auth
+def parse_hiring_prompt():
+    """
+    Parse a natural language prompt into structured hiring manager search fields.
+
+    Request: { "prompt": "recruiter at Bain for consulting internships" }
+    Response: { "company": "Bain & Company", "jobTitle": "Consulting Intern", "location": "", "jobDescription": "" }
+    """
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        prompt = (data.get("prompt") or "").strip()
+        if not prompt:
+            return jsonify({"error": "Prompt is required"}), 400
+
+        from app.services.openai_client import get_openai_client
+        client = get_openai_client()
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": """Extract structured fields from a natural language query about finding hiring managers or recruiters.
+Return ONLY valid JSON with these fields:
+{
+    "company": "company name (cleaned, full name)",
+    "jobTitle": "the role/position being recruited for",
+    "location": "city/region if mentioned, else empty string",
+    "jobDescription": "brief summary of the role if mentioned, else empty string"
+}
+Examples:
+- "recruiter at Bain for consulting internships" → {"company": "Bain & Company", "jobTitle": "Consulting Intern", "location": "", "jobDescription": "consulting internship"}
+- "hiring manager at Google for software engineers in NYC" → {"company": "Google", "jobTitle": "Software Engineer", "location": "New York, NY", "jobDescription": ""}
+- "who hires analysts at Goldman Sachs" → {"company": "Goldman Sachs", "jobTitle": "Analyst", "location": "", "jobDescription": ""}"""},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1,
+            max_tokens=200
+        )
+
+        import json as _json
+        result_text = response.choices[0].message.content.strip()
+        if result_text.startswith("```"):
+            result_text = result_text.split("```")[1]
+            if result_text.startswith("json"):
+                result_text = result_text[4:]
+        result_text = result_text.strip()
+
+        parsed = _json.loads(result_text)
+        return jsonify({
+            "company": parsed.get("company", ""),
+            "jobTitle": parsed.get("jobTitle", ""),
+            "location": parsed.get("location", ""),
+            "jobDescription": parsed.get("jobDescription", ""),
+        })
+    except Exception as e:
+        logger.error(f"[ParseHiringPrompt] Error: {e}")
+        return jsonify({"error": "Failed to parse prompt. Please try entering fields manually."}), 500
+
+
 @job_board_bp.route("/find-hiring-manager", methods=["POST"])
 @require_firebase_auth
 def find_hiring_manager_endpoint():

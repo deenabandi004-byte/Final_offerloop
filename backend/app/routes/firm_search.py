@@ -454,14 +454,17 @@ def search_firms_async():
 
                 if not firms:
                     # Successful search but no results — not a failure
-                    _store_async_result(search_id, {
+                    empty_result = {
                         'success': True,
                         'firms': [],
                         'total': 0,
                         'creditsCharged': 0,
                         'remainingCredits': current_credits,
                         'message': 'No firms found matching your search criteria.',
-                    })
+                    }
+                    if result.get('suggestions'):
+                        empty_result['suggestions'] = result['suggestions']
+                    _store_async_result(search_id, empty_result)
                     complete_search_progress(search_id, step="Search complete!")
                     return
 
@@ -489,7 +492,7 @@ def search_firms_async():
                                        results=firms)
                 # Store result BEFORE marking complete to avoid race condition
                 # where SSE reads completed status but result isn't stored yet
-                _store_async_result(search_id, {
+                success_result = {
                     'success': True,
                     'firms': firms,
                     'total': len(firms),
@@ -499,7 +502,10 @@ def search_firms_async():
                     'firmsReturned': len(firms),
                     'creditsCharged': actual_credits,
                     'remainingCredits': new_balance,
-                })
+                }
+                if result.get('suggestions'):
+                    success_result['suggestions'] = result['suggestions']
+                _store_async_result(search_id, success_result)
                 complete_search_progress(search_id, step="Search complete!")
             except Exception as exc:
                 fail_search_progress(search_id, str(exc))
