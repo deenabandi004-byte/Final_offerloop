@@ -11,7 +11,12 @@ from typing import Dict, List, Optional
 
 import markdown
 from jinja2 import Environment, FileSystemLoader
-from weasyprint import HTML as WeasyHTML
+try:
+    from weasyprint import HTML as WeasyHTML
+except (ImportError, OSError) as e:
+    WeasyHTML = None
+    import logging
+    logging.getLogger(__name__).warning(f'WeasyPrint unavailable, PDF generation disabled: {e}')
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter

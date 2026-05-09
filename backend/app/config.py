@@ -77,6 +77,7 @@ OAUTH_REDIRECT_URI = get_oauth_redirect_uri()
 RESUME_LINE = "For context, I've attached my resume below."
 COFFEE_CHAT_CREDITS = 15
 INTERVIEW_PREP_CREDITS = 25
+TIMELINE_CREDITS = 10
 CACHE_DURATION = timedelta(days=365)
 CREATE_GMAIL_DRAFTS = False  # Set True to create Gmail drafts; False to only return subject/body and compose links
 
@@ -85,9 +86,6 @@ CREATE_GMAIL_DRAFTS = False  # Set True to create Gmail drafts; False to only re
 # ========================================
 PROMPT_SEARCH_ENABLED = os.getenv('PROMPT_SEARCH_ENABLED', 'false').lower() == 'true'  # Experimental prompt-first search
 
-def _feature_find_humans_enabled() -> bool:
-    """Read FEATURE_FIND_HUMANS env var dynamically so tests can flip it."""
-    return os.getenv('FEATURE_FIND_HUMANS', 'false').lower() == 'true'
 
 # ========================================
 # Database Configuration
@@ -138,6 +136,7 @@ TIER_CONFIGS = {
         'personalized_templates': False,
         'weekly_insights': False,
         'early_access': False,
+        'agent_enabled': False,
     },
     'pro': {
         'max_contacts': 8,   # Maximum contacts returned per search
@@ -163,6 +162,7 @@ TIER_CONFIGS = {
         'personalized_templates': False,
         'weekly_insights': False,
         'early_access': False,
+        'agent_enabled': False,
     },
     'elite': {
         'max_contacts': 15,  # Maximum contacts returned per search
@@ -188,6 +188,7 @@ TIER_CONFIGS = {
         'personalized_templates': True,
         'weekly_insights': True,
         'early_access': True,
+        'agent_enabled': True,
     }
 }
 

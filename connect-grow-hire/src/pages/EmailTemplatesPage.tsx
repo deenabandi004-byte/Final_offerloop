@@ -270,12 +270,12 @@ export default function EmailTemplatesPage() {
   if (loading) {
     return (
       <SidebarProvider>
-        <div className="flex min-h-screen w-full bg-[#FAFBFF]">
+        <div className="flex min-h-screen w-full" style={{ background: 'var(--warm-bg, #FEFDFB)' }}>
           <AppSidebar />
           <MainContentWrapper>
             <AppHeader />
             <main className="flex-1 flex items-center justify-center p-8">
-              <p className="text-gray-500">Loading…</p>
+              <p style={{ color: 'var(--warm-ink-tertiary, #9C9590)' }}>Loading…</p>
             </main>
           </MainContentWrapper>
         </div>
@@ -285,96 +285,130 @@ export default function EmailTemplatesPage() {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-[#FAFBFF] text-foreground font-sans">
+      <div className="flex min-h-screen w-full font-sans" style={{ background: 'var(--warm-bg, #FEFDFB)' }}>
         <AppSidebar />
         <MainContentWrapper>
-          <AppHeader />
-          <main className="flex-1 overflow-y-auto bg-[#FAFBFF]" style={{ padding: "48px 24px 96px" }}>
-            <div className="max-w-[900px] mx-auto" data-tour="tour-templates">
-              <Button
-                variant="ghost"
-                size="sm"
+          <AppHeader title="Email Template" />
+          <main className="flex-1 overflow-y-auto" style={{ background: 'var(--warm-bg, #FEFDFB)', padding: "0 40px 64px" }}>
+            <div className="max-w-[800px] mx-auto" data-tour="tour-templates">
+              <button
+                type="button"
                 onClick={() => navigate("/find")}
-                className="mb-6 -ml-2 text-gray-600 hover:text-gray-900"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  marginTop: 24,
+                  marginBottom: 20,
+                  fontSize: 13,
+                  color: 'var(--warm-ink-tertiary, #9C9590)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  padding: 0,
+                  transition: 'color .12s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = '#1A1714'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--warm-ink-tertiary, #9C9590)'; }}
               >
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Find People
-              </Button>
+                <ArrowLeft style={{ width: 14, height: 14 }} />
+                Back to Find
+              </button>
 
               <h1
-                className="text-[#0F172A] mb-2 text-[28px] sm:text-[42px]"
                 style={{
                   fontFamily: "'Lora', Georgia, serif",
-                  fontWeight: 400,
-                  letterSpacing: "-0.025em",
-                  lineHeight: 1.1,
+                  fontWeight: 600,
+                  fontSize: 22,
+                  color: '#1A1714',
+                  marginBottom: 6,
                 }}
               >
                 Email template
               </h1>
               <p
-                className="text-[#6B7280] mb-8"
                 style={{
-                  fontFamily: "'DM Sans', system-ui, sans-serif",
-                  fontSize: "16px",
-                  lineHeight: 1.5,
+                  fontSize: 13,
+                  lineHeight: 1.6,
+                  color: 'var(--warm-ink-tertiary, #9C9590)',
+                  marginBottom: 28,
                 }}
               >
                 This controls how your outreach emails are written. Pick what you're asking for and how you want it to sound — check the preview below to see exactly what you'll get.
               </p>
 
               {/* Purpose pills — defaults + saved custom templates */}
-              <div className="mb-6">
-                <label className="text-sm font-semibold text-gray-700 ml-1 block mb-1.5">What kind of email?</label>
-                <div className="flex flex-wrap gap-2">
-                  {PURPOSE_PILLS.map((pill) => (
-                    <button
-                      key={pill.id}
-                      type="button"
-                      onClick={() => handlePurposeClick(pill.id)}
-                      className={cn(
-                        "px-4 py-2 text-xs font-medium rounded-full border transition-all duration-150",
-                        purpose === pill.id && !activeSavedTemplateId
-                          ? "bg-[#FAFBFF] text-[#3B82F6] border-[#3B82F6] shadow-sm"
-                          : "bg-gray-50 hover:bg-[#FAFBFF] text-gray-600 hover:text-[#3B82F6] border-gray-200 hover:border-[#3B82F6] hover:shadow-sm"
-                      )}
-                    >
-                      {pill.name}
-                      {pill.id === "networking" && " (default)"}
-                    </button>
-                  ))}
-                  {isElite && savedCustomTemplates.map((t) => (
-                    <div key={t.id} className="relative group">
+              <div style={{ marginBottom: 24 }}>
+                <label style={{ fontSize: 13, fontWeight: 600, color: '#3B3530', display: 'block', marginBottom: 8 }}>What kind of email?</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {PURPOSE_PILLS.map((pill) => {
+                    const isActive = purpose === pill.id && !activeSavedTemplateId;
+                    return (
                       <button
+                        key={pill.id}
                         type="button"
-                        onClick={() => handleSavedTemplateClick(t)}
-                        className={cn(
-                          "px-4 py-2 text-xs font-medium rounded-full border transition-all duration-150 pr-7",
-                          activeSavedTemplateId === t.id
-                            ? "bg-[#FAFBFF] text-[#3B82F6] border-[#3B82F6] shadow-sm"
-                            : "bg-gray-50 hover:bg-[#FAFBFF] text-gray-600 hover:text-[#3B82F6] border-gray-200 hover:border-[#3B82F6] hover:shadow-sm"
-                        )}
-                      >
-                        {t.name}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (confirm(`Delete "${t.name}"?`)) {
-                            handleDeleteSavedTemplate(t.id);
-                          }
+                        onClick={() => handlePurposeClick(pill.id)}
+                        style={{
+                          padding: '8px 16px',
+                          fontSize: 12,
+                          fontWeight: 500,
+                          borderRadius: 8,
+                          border: isActive ? '1.5px solid #1A1714' : '1px solid var(--warm-border, #E8E4DE)',
+                          background: isActive ? '#1A1714' : 'var(--warm-surface, #FAFBFF)',
+                          color: isActive ? '#fff' : '#3B3530',
+                          cursor: 'pointer',
+                          transition: 'all .15s',
+                          fontFamily: 'inherit',
                         }}
-                        className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded-full hover:bg-red-100"
-                        aria-label={`Delete ${t.name}`}
                       >
-                        <X className="h-3 w-3 text-red-500" />
+                        {pill.name}
+                        {pill.id === "networking" && " (default)"}
                       </button>
-                    </div>
-                  ))}
+                    );
+                  })}
+                  {isElite && savedCustomTemplates.map((t) => {
+                    const isActive = activeSavedTemplateId === t.id;
+                    return (
+                      <div key={t.id} className="relative group">
+                        <button
+                          type="button"
+                          onClick={() => handleSavedTemplateClick(t)}
+                          style={{
+                            padding: '8px 16px',
+                            paddingRight: 28,
+                            fontSize: 12,
+                            fontWeight: 500,
+                            borderRadius: 8,
+                            border: isActive ? '1.5px solid #1A1714' : '1px solid var(--warm-border, #E8E4DE)',
+                            background: isActive ? '#1A1714' : 'var(--warm-surface, #FAFBFF)',
+                            color: isActive ? '#fff' : '#3B3530',
+                            cursor: 'pointer',
+                            transition: 'all .15s',
+                            fontFamily: 'inherit',
+                          }}
+                        >
+                          {t.name}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm(`Delete "${t.name}"?`)) {
+                              handleDeleteSavedTemplate(t.id);
+                            }
+                          }}
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded-full hover:bg-red-100"
+                          aria-label={`Delete ${t.name}`}
+                        >
+                          <X className="h-3 w-3 text-red-500" />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
                 {hasPresetPurpose && !activeSavedTemplateId && PURPOSE_DESCRIPTIONS[purpose!] && (
-                  <p className="mt-1.5 ml-1 text-[13px] text-gray-500">
+                  <p style={{ marginTop: 8, fontSize: 12, color: 'var(--warm-ink-tertiary, #9C9590)' }}>
                     {PURPOSE_DESCRIPTIONS[purpose!]}
                   </p>
                 )}
@@ -392,19 +426,19 @@ export default function EmailTemplatesPage() {
                     expandCreateYourOwn();
                   }
                 }}
-                className={cn(
-                  "w-full rounded-[3px] border py-4 px-5 transition-all duration-150 mb-8",
-                  "cursor-pointer text-xs font-medium",
-                  isMakeYourOwn
-                    ? "bg-[#FAFBFF] text-[#3B82F6] border-[#3B82F6] shadow-sm"
-                    : "bg-white border-gray-200 text-gray-600 hover:bg-[#FAFBFF] hover:text-[#3B82F6] hover:border-[#3B82F6] hover:shadow-sm"
-                )}
+                style={{
+                  width: '100%',
+                  borderRadius: 12,
+                  border: isMakeYourOwn ? '1.5px solid #1A1714' : '1px solid var(--warm-border, #E8E4DE)',
+                  padding: '16px 20px',
+                  marginBottom: 28,
+                  cursor: isMakeYourOwn ? 'default' : 'pointer',
+                  background: isMakeYourOwn ? '#FFFFFF' : 'var(--warm-surface, #FAFBFF)',
+                  transition: 'all .15s',
+                }}
               >
                 <div
-                  className={cn(
-                    "flex items-center justify-center gap-2",
-                    isMakeYourOwn && "cursor-pointer"
-                  )}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer' }}
                   onClick={isMakeYourOwn ? (e) => { e.stopPropagation(); setPurpose("networking"); } : undefined}
                   role={isMakeYourOwn ? "button" : undefined}
                   tabIndex={isMakeYourOwn ? 0 : undefined}
@@ -419,11 +453,11 @@ export default function EmailTemplatesPage() {
                       : undefined
                   }
                 >
-                  <h3 className="text-xs font-medium">Create Your Own Template</h3>
+                  <span style={{ fontSize: 13, fontWeight: 500, color: '#3B3530' }}>Create Your Own Template</span>
                   {isMakeYourOwn ? (
-                    <ChevronDown className="h-4 w-4 shrink-0 text-gray-400" />
+                    <ChevronDown style={{ width: 14, height: 14, color: 'var(--warm-ink-tertiary, #9C9590)' }} />
                   ) : (
-                    <ChevronRight className="h-4 w-4 shrink-0 text-gray-400" />
+                    <ChevronRight style={{ width: 14, height: 14, color: 'var(--warm-ink-tertiary, #9C9590)' }} />
                   )}
                 </div>
                 <div
@@ -433,40 +467,40 @@ export default function EmailTemplatesPage() {
                   )}
                 >
                   <div
-                    className="mt-4 pt-4 border-t border-[#3B82F6]/40 space-y-4"
+                    style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--warm-border, #E8E4DE)', display: 'flex', flexDirection: 'column', gap: 16 }}
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div>
-                      <label className="text-sm font-medium text-foreground block mb-1">Template Name</label>
+                      <label style={{ fontSize: 13, fontWeight: 500, color: '#3B3530', display: 'block', marginBottom: 6 }}>Template Name</label>
                       <Input
                         placeholder="e.g., Startup Pitch, Informational Interview Request..."
                         value={templateName}
                         onChange={(e) => setTemplateName(e.target.value.slice(0, 200))}
-                        className="w-full bg-white/80 border border-[#3B82F6]/40 rounded-[3px] text-gray-900 placeholder:text-gray-500 focus:bg-white focus:ring-2 focus:ring-[#3B82F6]/20 focus:border-[#3B82F6]"
+                        className="w-full rounded-lg border-[#E8E4DE] bg-[#FAF9F6] text-[#1A1714] placeholder:text-[#9C9590] focus:bg-white focus:ring-2 focus:ring-[#1A1714]/10 focus:border-[#1A1714]"
                       />
                     </div>
                     <div>
-                      <label className="text-sm font-medium text-foreground block mb-1">Email Subject Line</label>
+                      <label style={{ fontSize: 13, fontWeight: 500, color: '#3B3530', display: 'block', marginBottom: 6 }}>Email Subject Line</label>
                       <Input
                         placeholder="e.g., Quick question from a fellow USC Trojan"
                         value={subjectLine}
                         onChange={(e) => setSubjectLine(e.target.value.slice(0, 500))}
-                        className="w-full bg-white/80 border border-[#3B82F6]/40 rounded-[3px] text-gray-900 placeholder:text-gray-500 focus:bg-white focus:ring-2 focus:ring-[#3B82F6]/20 focus:border-[#3B82F6]"
+                        className="w-full rounded-lg border-[#E8E4DE] bg-[#FAF9F6] text-[#1A1714] placeholder:text-[#9C9590] focus:bg-white focus:ring-2 focus:ring-[#1A1714]/10 focus:border-[#1A1714]"
                       />
                     </div>
                     <div>
-                      <p className="text-sm text-gray-600 leading-snug mb-2">
+                      <p style={{ fontSize: 12, color: 'var(--warm-ink-tertiary, #9C9590)', lineHeight: 1.5, marginBottom: 8 }}>
                         Describe exactly what you want your emails to say — in plain English. Want to pitch your startup? Ask for an intro to their manager? Request a campus speaking slot? Just type it out.
                       </p>
                       <Textarea
                         placeholder="e.g., Write a 3-sentence email pitching my startup to university career center directors and asking for a 15-minute demo call..."
                         value={customInstructions}
                         onChange={(e) => setCustomInstructions(e.target.value.slice(0, MAX_CUSTOM_LEN))}
-                        className="min-h-[72px] resize-y w-full bg-white/80 border border-[#3B82F6]/40 rounded-[3px] text-gray-900 placeholder:text-gray-500 focus:bg-white focus:ring-2 focus:ring-[#3B82F6]/20 focus:border-[#3B82F6]"
+                        className="min-h-[72px] resize-y w-full rounded-lg border-[#E8E4DE] bg-[#FAF9F6] text-[#1A1714] placeholder:text-[#9C9590] focus:bg-white focus:ring-2 focus:ring-[#1A1714]/10 focus:border-[#1A1714]"
                         maxLength={MAX_CUSTOM_LEN}
                         rows={3}
                       />
-                      <p className="text-xs text-gray-500 text-right mt-1">
+                      <p style={{ fontSize: 11, color: 'var(--warm-ink-tertiary, #9C9590)', textAlign: 'right', marginTop: 4 }}>
                         {MAX_CUSTOM_LEN - customInstructions.length} characters left
                       </p>
                     </div>
@@ -474,105 +508,171 @@ export default function EmailTemplatesPage() {
                 </div>
               </div>
               ) : (
-              <div className="w-full rounded-[3px] border border-gray-200 bg-gray-50 py-4 px-5 mb-8 opacity-60 cursor-default">
-                <div className="flex items-center justify-center gap-2">
-                  <LockKeyhole className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <h3 className="text-xs font-medium text-gray-500">Create Your Own Template</h3>
-                  <span className="text-xs text-muted-foreground">Elite · Free trial available</span>
+              <div style={{
+                width: '100%',
+                borderRadius: 12,
+                border: '1px solid var(--warm-border, #E8E4DE)',
+                background: 'var(--warm-surface, #FAFBFF)',
+                padding: '16px 20px',
+                marginBottom: 28,
+                opacity: 0.6,
+                cursor: 'default',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <LockKeyhole style={{ width: 14, height: 14, color: 'var(--warm-ink-tertiary, #9C9590)' }} />
+                  <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--warm-ink-tertiary, #9C9590)' }}>Create Your Own Template</span>
+                  <span style={{ fontSize: 11, color: 'var(--warm-ink-tertiary, #9C9590)' }}>Elite · Free trial available</span>
                 </div>
               </div>
               )}
 
               {/* Sign-off & signature — always visible */}
-              <div className="mb-8">
-                <label className="text-sm font-semibold text-gray-700 ml-1 block mb-1.5">Sign-off & signature</label>
-                <div className="flex flex-wrap gap-2 mb-3">
-                  {["Best,", "Thanks,", "Warm regards,", "Sincerely,", "Cheers,"].map((preset) => (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => {
-                        setSignoffPhrase(preset);
-                        setSignoffPhraseCustom("");
-                      }}
-                      className={cn(
-                        "px-3 py-1.5 text-xs font-medium rounded-full border transition-all",
-                        signoffPhrase === preset
-                          ? "bg-[#FAFBFF] text-[#3B82F6] border-[#3B82F6]"
-                          : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
-                      )}
-                    >
-                      {preset}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setSignoffPhrase("custom")}
-                    className={cn(
-                      "px-3 py-1.5 text-xs font-medium rounded-full border transition-all",
-                      signoffPhrase === "custom"
-                        ? "bg-[#FAFBFF] text-[#3B82F6] border-[#3B82F6]"
-                        : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
-                    )}
-                  >
-                    Custom
-                  </button>
+              <div style={{ marginBottom: 28 }}>
+                <label style={{ fontSize: 13, fontWeight: 600, color: '#3B3530', display: 'block', marginBottom: 8 }}>Sign-off & signature</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                  {["Best,", "Thanks,", "Warm regards,", "Sincerely,", "Cheers,"].map((preset) => {
+                    const isActive = signoffPhrase === preset;
+                    return (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => {
+                          setSignoffPhrase(preset);
+                          setSignoffPhraseCustom("");
+                        }}
+                        style={{
+                          padding: '6px 14px',
+                          fontSize: 12,
+                          fontWeight: 500,
+                          borderRadius: 8,
+                          border: isActive ? '1.5px solid #1A1714' : '1px solid var(--warm-border, #E8E4DE)',
+                          background: isActive ? '#1A1714' : 'var(--warm-surface, #FAFBFF)',
+                          color: isActive ? '#fff' : '#3B3530',
+                          cursor: 'pointer',
+                          transition: 'all .15s',
+                          fontFamily: 'inherit',
+                        }}
+                      >
+                        {preset}
+                      </button>
+                    );
+                  })}
+                  {(() => {
+                    const isActive = signoffPhrase === "custom";
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => setSignoffPhrase("custom")}
+                        style={{
+                          padding: '6px 14px',
+                          fontSize: 12,
+                          fontWeight: 500,
+                          borderRadius: 8,
+                          border: isActive ? '1.5px solid #1A1714' : '1px solid var(--warm-border, #E8E4DE)',
+                          background: isActive ? '#1A1714' : 'var(--warm-surface, #FAFBFF)',
+                          color: isActive ? '#fff' : '#3B3530',
+                          cursor: 'pointer',
+                          transition: 'all .15s',
+                          fontFamily: 'inherit',
+                        }}
+                      >
+                        Custom
+                      </button>
+                    );
+                  })()}
                   {signoffPhrase === "custom" && (
                     <Input
                       placeholder="e.g. Best regards,"
                       value={signoffPhraseCustom}
                       onChange={(e) => setSignoffPhraseCustom(e.target.value.slice(0, 50))}
-                      className="inline-flex w-[160px] h-8 text-xs rounded-full border-gray-200"
+                      className="inline-flex w-[160px] h-8 text-xs rounded-lg border-[#E8E4DE]"
                       maxLength={50}
                     />
                   )}
                 </div>
-                <div className="mb-2">
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Signature block (name, university, email, LinkedIn…)</label>
+                <div style={{ marginBottom: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 500, color: '#3B3530', display: 'block', marginBottom: 6 }}>Signature block (name, university, email, LinkedIn…)</label>
                   <Textarea
                     placeholder="e.g. John Smith\nUSC | Class of 2025\njohn@example.com"
                     value={signatureBlock}
                     onChange={(e) => setSignatureBlock(e.target.value.slice(0, 500))}
-                    className="min-h-[72px] resize-y w-full rounded-[3px] border border-gray-200 text-sm"
+                    className="min-h-[72px] resize-y w-full rounded-lg border-[#E8E4DE] bg-[#FAF9F6] text-sm text-[#1A1714] placeholder:text-[#9C9590] focus:bg-white focus:ring-2 focus:ring-[#1A1714]/10 focus:border-[#1A1714]"
                     maxLength={500}
                     rows={3}
                   />
-                  <p className="text-xs text-gray-500 text-right mt-1">{500 - signatureBlock.length} characters left</p>
+                  <p style={{ fontSize: 11, color: 'var(--warm-ink-tertiary, #9C9590)', textAlign: 'right', marginTop: 4 }}>{500 - signatureBlock.length} characters left</p>
                 </div>
-                <p className="text-xs text-gray-500 ml-1 mt-1">Live preview:</p>
-                <pre className="text-xs text-gray-700 mt-0.5 ml-1 whitespace-pre-wrap font-sans">
+                <p style={{ fontSize: 11, color: 'var(--warm-ink-tertiary, #9C9590)', marginTop: 4 }}>Live preview:</p>
+                <pre style={{ fontSize: 12, color: '#3B3530', marginTop: 2, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
                   {`${effectiveSignoff}\n${signatureBlock.trim() || firstName}`}
                 </pre>
               </div>
 
               {/* Actions */}
-              <div className="flex flex-wrap items-center gap-4 mb-8">
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, marginBottom: 28 }}>
                 <button
                   type="button"
                   onClick={handleReset}
-                  className="text-sm text-gray-500 hover:text-gray-700 underline"
+                  style={{ fontSize: 13, color: 'var(--warm-ink-tertiary, #9C9590)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: 0, textDecoration: 'underline' }}
                 >
                   Reset
                 </button>
-                <Button variant="outline" onClick={handleApplyToSearch} disabled={isSaving} className="rounded-[3px]">
+                <button
+                  type="button"
+                  onClick={handleApplyToSearch}
+                  disabled={isSaving}
+                  style={{
+                    padding: '9px 18px',
+                    fontSize: 13,
+                    fontWeight: 500,
+                    borderRadius: 8,
+                    border: '1.5px solid var(--warm-border, #E8E4DE)',
+                    background: 'transparent',
+                    color: '#3B3530',
+                    cursor: isSaving ? 'not-allowed' : 'pointer',
+                    fontFamily: 'inherit',
+                    transition: 'all .15s',
+                  }}
+                >
                   Apply to this search
-                </Button>
-                <Button onClick={handleSaveAsDefault} disabled={isSaving} className="rounded-[3px] bg-[#0F172A] hover:bg-[#1E293B] text-white">
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveAsDefault}
+                  disabled={isSaving}
+                  style={{
+                    padding: '9px 18px',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    borderRadius: 8,
+                    border: '1.5px solid transparent',
+                    background: '#1A1714',
+                    color: '#fff',
+                    cursor: isSaving ? 'not-allowed' : 'pointer',
+                    fontFamily: 'inherit',
+                    transition: 'all .15s',
+                  }}
+                >
                   {isSaving ? "Saving…" : isMakeYourOwn ? "Save Template" : "Save as default"}
-                </Button>
+                </button>
               </div>
 
               {/* Preview */}
-              <div className="border-l-4 border-[#E2E8F0] bg-gray-50/80 rounded-r-xl py-4 pl-5 pr-4">
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Preview</p>
+              <div style={{
+                borderLeft: '3px solid var(--warm-border, #E8E4DE)',
+                background: 'var(--warm-surface, #FAFBFF)',
+                borderRadius: '0 12px 12px 0',
+                padding: '16px 20px',
+              }}>
+                <p style={{ fontSize: 10, fontWeight: 500, color: 'var(--warm-ink-tertiary, #9C9590)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Preview</p>
                 {isMakeYourOwn ? (
-                  <p className="text-sm text-gray-600">
+                  <p style={{ fontSize: 13, color: '#3B3530', lineHeight: 1.5 }}>
                     Your emails will be generated based on your instructions above. Each email will be personalized to the contact.
                   </p>
                 ) : previewBody ? (
                   <>
-                    <p className="text-xs text-gray-500 mb-3">Actual emails will be personalized to each contact.</p>
-                    <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">
+                    <p style={{ fontSize: 11, color: 'var(--warm-ink-tertiary, #9C9590)', marginBottom: 12 }}>Actual emails will be personalized to each contact.</p>
+                    <pre style={{ fontSize: 13, color: '#3B3530', whiteSpace: 'pre-wrap', fontFamily: 'inherit', lineHeight: 1.6 }}>
                       {previewBody}
                     </pre>
                   </>

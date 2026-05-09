@@ -12,14 +12,15 @@ from app.services.prompt_parser import parse_search_prompt_structured
 from flask import Blueprint, request, jsonify
 
 from app.extensions import require_firebase_auth, get_db
-from app.services.reply_generation import batch_generate_emails, PURPOSES_INCLUDE_RESUME, email_body_mentions_resume
+from app.services.reply_generation import batch_generate_emails, PURPOSES_INCLUDE_RESUME, email_body_mentions_resume, regenerate_with_feedback
 from app.services.gmail_client import _load_user_gmail_creds, download_resume_from_url, clear_user_gmail_integration
 from app.services.interview_prep.resume_parser import extract_text_from_pdf_bytes
 from app.routes.gmail_oauth import build_gmail_oauth_url_for_user
 from app.services.auth import check_and_reset_credits, deduct_credits_atomic
 from app.config import TIER_CONFIGS
 from app.utils.exceptions import OfferloopException, InsufficientCreditsError, ExternalAPIError
-from app.utils.warmth_scoring import score_contacts_for_email
+from app.utils.warmth_scoring import score_contacts_for_email, score_and_sort_contacts, build_briefing_line
+from app.utils.email_quality import check_email_quality, has_specificity_signal
 from email_templates import get_template_instructions
 
 # =============================================================================
@@ -102,30 +103,40 @@ def _contact_already_exists(contact, existing_emails_set, existing_name_company_
 # =============================================================================
 # EXCLUSION LIST CACHING (1-hour TTL for faster contact searches)
 # =============================================================================
+#
+# Cached value is a dict of lookup sets used for dedup:
+#   {
+#     "identity_set": set[str],       # get_contact_identity() keys for PDL-side dedup
+#     "email_set": set[str],          # lowercased email addresses
+#     "linkedin_set": set[str],       # linkedin URLs (raw)
+#     "name_company_set": set[str],   # "first_last_company" lowercased
+#   }
+# Populated once per request from a single Firestore stream and reused for
+# both pre-generation dedup and the save loop.
 
-_exclusion_list_cache: Dict[str, Tuple[set, float]] = {}
+_exclusion_list_cache: Dict[str, Tuple[dict, float]] = {}
 _exclusion_cache_lock = threading.Lock()
 EXCLUSION_CACHE_TTL = 3600  # 1 hour in seconds
 
-def _get_cached_exclusion_list(user_id: str) -> Optional[set]:
-    """Get cached exclusion list if not expired."""
+def _get_cached_exclusion_list(user_id: str) -> Optional[dict]:
+    """Get cached exclusion lookup dict if not expired."""
     with _exclusion_cache_lock:
         if user_id in _exclusion_list_cache:
-            exclusion_set, timestamp = _exclusion_list_cache[user_id]
+            exclusion_data, timestamp = _exclusion_list_cache[user_id]
             if time.time() - timestamp < EXCLUSION_CACHE_TTL:
-                print(f"[ContactSearch] Using cached exclusion list ({len(exclusion_set)} contacts, age: {time.time() - timestamp:.1f}s)")
-                return exclusion_set
+                print(f"[ContactSearch] Using cached exclusion list ({len(exclusion_data.get('identity_set', set()))} contacts, age: {time.time() - timestamp:.1f}s)")
+                return exclusion_data
             else:
                 # Cache expired, remove it
                 del _exclusion_list_cache[user_id]
                 print(f"[ContactSearch] Exclusion list cache expired")
     return None
 
-def _set_cached_exclusion_list(user_id: str, exclusion_set: set):
-    """Cache exclusion list with current timestamp."""
+def _set_cached_exclusion_list(user_id: str, exclusion_data: dict):
+    """Cache exclusion lookup dict with current timestamp."""
     with _exclusion_cache_lock:
-        _exclusion_list_cache[user_id] = (exclusion_set, time.time())
-        print(f"[ContactSearch] Cached exclusion list ({len(exclusion_set)} contacts)")
+        _exclusion_list_cache[user_id] = (exclusion_data, time.time())
+        print(f"[ContactSearch] Cached exclusion list ({len(exclusion_data.get('identity_set', set()))} contacts)")
 
 def _invalidate_exclusion_cache(user_id: str):
     """Invalidate exclusion list cache (call when contacts are added/removed)."""
@@ -133,6 +144,47 @@ def _invalidate_exclusion_cache(user_id: str):
         if user_id in _exclusion_list_cache:
             del _exclusion_list_cache[user_id]
             print(f"[ContactSearch] Invalidated exclusion list cache")
+
+
+def _build_exclusion_data_from_firestore(db, user_id: str) -> dict:
+    """Stream the user's contacts once and build all four dedup lookup sets."""
+    identity_set = set()
+    email_set = set()
+    linkedin_set = set()
+    name_company_set = set()
+    contacts_ref = db.collection("users").document(user_id).collection("contacts")
+    for doc in contacts_ref.select(
+        ["firstName", "lastName", "email", "linkedinUrl", "company"]
+    ).stream():
+        cd = doc.to_dict() or {}
+        first = (cd.get("firstName") or "").strip()
+        last = (cd.get("lastName") or "").strip()
+        company = (cd.get("company") or "").strip()
+        email = (cd.get("email") or "").strip().lower()
+        linkedin = (cd.get("linkedinUrl") or "").strip()
+        standardized = {
+            "FirstName": first,
+            "LastName": last,
+            "Email": email,
+            "LinkedIn": linkedin,
+            "Company": company,
+        }
+        identity_set.add(get_contact_identity(standardized))
+        if email:
+            email_set.add(email)
+        if linkedin:
+            linkedin_set.add(linkedin)
+        fn = first.lower()
+        ln = last.lower()
+        co = company.lower()
+        if fn and ln and co:
+            name_company_set.add(f"{fn}_{ln}_{co}")
+    return {
+        "identity_set": identity_set,
+        "email_set": email_set,
+        "linkedin_set": linkedin_set,
+        "name_company_set": name_company_set,
+    }
 
 runs_bp = Blueprint('runs', __name__, url_prefix='/api')
 
@@ -167,6 +219,7 @@ def prompt_search():
         user_tier = "free"
         credits_available = TIER_CONFIGS["free"]["credits"]
         user_data = None
+        exclusion_data = None
         seen_contact_set = set()
         if db and user_id:
             try:
@@ -178,24 +231,11 @@ def prompt_search():
                     user_tier = user_data.get("subscriptionTier", user_data.get("tier", "free"))
                     if user_tier not in TIER_CONFIGS:
                         user_tier = "free"
-                    seen_contact_set = _get_cached_exclusion_list(user_id)
-                    if seen_contact_set is None:
-                        contacts_ref = db.collection("users").document(user_id).collection("contacts")
-                        contact_docs = list(contacts_ref.select(
-                            ["firstName", "lastName", "email", "linkedinUrl", "company"]
-                        ).stream())
-                        seen_contact_set = set()
-                        for doc in contact_docs:
-                            contact = doc.to_dict()
-                            standardized = {
-                                "FirstName": contact.get("firstName", ""),
-                                "LastName": contact.get("lastName", ""),
-                                "Email": contact.get("email", ""),
-                                "LinkedIn": contact.get("linkedinUrl", ""),
-                                "Company": contact.get("company", ""),
-                            }
-                            seen_contact_set.add(get_contact_identity(standardized))
-                        _set_cached_exclusion_list(user_id, seen_contact_set)
+                    exclusion_data = _get_cached_exclusion_list(user_id)
+                    if exclusion_data is None:
+                        exclusion_data = _build_exclusion_data_from_firestore(db, user_id)
+                        _set_cached_exclusion_list(user_id, exclusion_data)
+                    seen_contact_set = exclusion_data["identity_set"]
             except Exception as e:
                 # Fail closed: if we can't load user data, don't allow search
                 print(f"⚠️ Failed to load user profile for {user_id}: {e}")
@@ -235,48 +275,95 @@ def prompt_search():
         pdl_fetch_count = max_contacts + existing_contact_count + 2
 
         # Fetch contacts
-        contacts, retry_level_used = search_contacts_from_prompt(parsed, pdl_fetch_count, exclude_keys=seen_contact_set)
-        search_broadened = retry_level_used >= 2  # Title/industry filters were dropped
-        if not contacts:
-            return jsonify({
+        contacts, retry_level_used, already_saved_contacts, adjacency_metadata = search_contacts_from_prompt(parsed, pdl_fetch_count, exclude_keys=seen_contact_set, user_profile=user_data)
+        search_broadened = retry_level_used >= 1  # Any broadening at all
+
+        # Surface which dimensions were dropped at the rung that succeeded so the
+        # frontend can render an honest "we expanded by..." banner.
+        broadened_dimensions: list[str] = []
+        if retry_level_used >= 1:
+            broadened_dimensions.append("title")
+        if retry_level_used >= 2:
+            broadened_dimensions.append("industry")
+        if retry_level_used >= 3:
+            broadened_dimensions.append("location")
+        if retry_level_used >= 4:
+            broadened_dimensions.append("company")
+        if retry_level_used >= 5:
+            broadened_dimensions = ["title", "industry", "location", "company"]
+
+        def _build_saved_contact_cards(raw_already_saved):
+            cards = []
+            for c in (raw_already_saved or []):
+                cards.append({
+                    "FirstName": c.get("FirstName") or c.get("firstName") or "",
+                    "LastName": c.get("LastName") or c.get("lastName") or "",
+                    "Title": c.get("Title") or c.get("JobTitle") or "",
+                    "Company": c.get("Company") or c.get("company") or "",
+                    "LinkedIn": c.get("LinkedIn") or c.get("linkedinUrl") or "",
+                    "College": c.get("College") or c.get("college") or "",
+                    "City": c.get("City") or "",
+                    "State": c.get("State") or "",
+                    "alreadySaved": True,
+                })
+            return cards
+
+        parsed_query_payload = {
+            "companies": parsed.get("companies", []),
+            "title_variations": parsed.get("title_variations", []),
+            "locations": parsed.get("locations", []),
+            "company_context": parsed.get("company_context", ""),
+        }
+
+        if not contacts and not already_saved_contacts:
+            response_data = {
                 "contacts": [],
+                "already_saved_contacts": [],
                 "successful_drafts": 0,
                 "total_contacts": 0,
                 "tier": user_tier,
                 "user_email": user_email,
-                "parsed_query": {
-                    "companies": parsed.get("companies", []),
-                    "title_variations": parsed.get("title_variations", []),
-                    "locations": parsed.get("locations", []),
-                    "company_context": parsed.get("company_context", ""),
-                },
-            })
+                "parsed_query": parsed_query_payload,
+            }
+            if adjacency_metadata:
+                response_data["adjacency_metadata"] = adjacency_metadata
+                response_data["message"] = adjacency_metadata.get("message", "No contacts found. Try broadening your search.")
+                # Add cross-tab suggestion for hiring managers if company was specified
+                companies = parsed.get("companies") or []
+                if companies:
+                    company_name = companies[0].get("name", "") if isinstance(companies[0], dict) else str(companies[0])
+                    if company_name:
+                        response_data["suggestions"] = [{
+                            "type": "switch_tab",
+                            "label": f"Find recruiters at {company_name}",
+                            "tab": "hiring-managers",
+                            "prefill": {"company": company_name}
+                        }]
+            else:
+                response_data["message"] = "No contacts found. Try broadening your search."
+            return jsonify(response_data)
 
         # Pre-generation dedup: filter out contacts already in Firestore (avoid generating emails for them)
-        # These sets are reused at save time to avoid re-streaming Firestore
-        existing_emails_set = set()
-        existing_linkedins_set = set()
-        existing_name_company_set = set()
+        # Reuse the exclusion data loaded during auth (no second Firestore stream).
+        # Copy the sets because the save loop mutates them to prevent intra-batch duplicates,
+        # and we don't want those mutations to leak into the cached exclusion data.
+        if exclusion_data is not None:
+            existing_emails_set = set(exclusion_data["email_set"])
+            existing_linkedins_set = set(exclusion_data["linkedin_set"])
+            existing_name_company_set = set(exclusion_data["name_company_set"])
+            print(f"[ContactSearch] Reusing exclusion data for pre-gen dedup (saved Firestore re-stream)", flush=True)
+        else:
+            existing_emails_set = set()
+            existing_linkedins_set = set()
+            existing_name_company_set = set()
+
         if db and user_id:
             try:
-                contacts_ref = db.collection("users").document(user_id).collection("contacts")
-                for doc in contacts_ref.select(
-                    ["firstName", "lastName", "email", "linkedinUrl", "company"]
-                ).stream():
-                    cd = doc.to_dict() or {}
-                    ex_email = (cd.get("email") or "").strip().lower()
-                    if ex_email:
-                        existing_emails_set.add(ex_email)
-                    ex_linkedin = (cd.get("linkedinUrl") or "").strip()
-                    if ex_linkedin:
-                        existing_linkedins_set.add(ex_linkedin)
-                    fn = (cd.get("firstName") or "").strip().lower()
-                    ln = (cd.get("lastName") or "").strip().lower()
-                    co = (cd.get("company") or "").strip().lower()
-                    if fn and ln and co:
-                        existing_name_company_set.add(f"{fn}_{ln}_{co}")
-
                 before_count = len(contacts)
+                newly_skipped = [
+                    c for c in contacts
+                    if _contact_already_exists(c, existing_emails_set, existing_name_company_set, existing_linkedins_set)
+                ]
                 contacts = [
                     c for c in contacts
                     if not _contact_already_exists(c, existing_emails_set, existing_name_company_set, existing_linkedins_set)
@@ -284,21 +371,27 @@ def prompt_search():
                 skipped_pre = before_count - len(contacts)
                 if skipped_pre:
                     print(f"🔄 Pre-generation dedup: filtered out {skipped_pre} already-contacted people", flush=True)
+                    # Surface these as "already saved" so the UI can show them as existing cards.
+                    already_saved_contacts = list(already_saved_contacts or []) + newly_skipped
 
                 if not contacts:
+                    saved_cards = _build_saved_contact_cards(already_saved_contacts)
+                    if saved_cards:
+                        message = (
+                            f"All {len(saved_cards)} matching contact(s) are already in your tracker. "
+                            "Open them in your network, or broaden your search to find new people."
+                        )
+                    else:
+                        message = "No contacts found. Try broadening your search."
                     return jsonify({
                         "contacts": [],
+                        "already_saved_contacts": saved_cards,
                         "successful_drafts": 0,
-                        "total_contacts": 0,
+                        "total_contacts": len(saved_cards),
                         "tier": user_tier,
                         "user_email": user_email,
-                        "parsed_query": {
-                            "companies": parsed.get("companies", []),
-                            "title_variations": parsed.get("title_variations", []),
-                            "locations": parsed.get("locations", []),
-                            "company_context": parsed.get("company_context", ""),
-                        },
-                        "message": "All found contacts have already been contacted. Try a different search.",
+                        "parsed_query": parsed_query_payload,
+                        "message": message,
                     }), 200
             except Exception as e:
                 print(f"⚠️ Pre-generation dedup failed, continuing: {e}", flush=True)
@@ -364,8 +457,22 @@ def prompt_search():
             except Exception as e:
                 print(f"[Runs] Could not download/extract resume: {e}")
 
-        # Compute warmth scores for email personalization
-        warmth_data = score_contacts_for_email(user_profile, contacts)
+        # 1A: Score, sort by warmth (dream companies first), and attach fields
+        try:
+            contacts = score_and_sort_contacts(user_profile, contacts, search_context=parsed_query_payload)
+            warmth_data = {
+                i: {"tier": c.get("warmth_tier", ""), "score": c.get("warmth_score", 0), "label": c.get("warmth_label", ""), "signals": c.get("warmth_signals", [])}
+                for i, c in enumerate(contacts)
+            }
+        except Exception:
+            warmth_data = score_contacts_for_email(user_profile, contacts, search_context=parsed_query_payload)
+
+        # 1B: Attach briefing lines (deterministic, no LLM)
+        for contact in contacts:
+            signals = contact.get("warmth_signals", [])
+            briefing = build_briefing_line(contact, signals)
+            if briefing:
+                contact["briefing"] = briefing
 
         # Generate emails with resume text
         try:
@@ -397,6 +504,9 @@ def prompt_search():
                 if subject and body:
                     contact["emailSubject"] = subject
                     contact["emailBody"] = body
+                    # Attach personalization metadata (label, commonality_type, anchor)
+                    if email_result.get("personalization"):
+                        contact["personalization"] = email_result["personalization"]
                     attach_resume = (email_template_purpose in PURPOSES_INCLUDE_RESUME) or email_body_mentions_resume(body)
                     contacts_with_emails.append({
                         "index": i,
@@ -405,6 +515,68 @@ def prompt_search():
                         "email_body": body,
                         "attach_resume": attach_resume,
                     })
+
+        # 1E: Silent email quality gate — check + parallel regen for failures
+        try:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            _qg_user_university = (user_profile or {}).get("university", "")
+
+            def _quality_check_and_regen(item):
+                """Check one email; regen if needed. Returns (index, was_regenerated)."""
+                contact = item["contact"]
+                subject = item["email_subject"]
+                body = item["email_body"]
+                result = check_email_quality(subject, body, contact, _qg_user_university)
+                if result["passed"]:
+                    return (item["index"], False)
+                # Attempt regeneration
+                original = {"subject": subject, "body": body}
+                improved = regenerate_with_feedback(contact, user_profile, original, result["failures"])
+                # Compare: pick the one that passes, or the one with fewer failures
+                improved_result = check_email_quality(improved["subject"], improved["body"], contact, _qg_user_university)
+                if improved_result["passed"] or len(improved_result["failures"]) < len(result["failures"]):
+                    contact["emailSubject"] = improved["subject"]
+                    contact["emailBody"] = improved["body"]
+                    item["email_subject"] = improved["subject"]
+                    item["email_body"] = improved["body"]
+                contact["_qualityRegenerated"] = True
+                return (item["index"], True)
+
+            regen_count = 0
+            if contacts_with_emails:
+                with ThreadPoolExecutor(max_workers=5) as executor:
+                    futures = {executor.submit(_quality_check_and_regen, item): item for item in contacts_with_emails}
+                    for future in as_completed(futures):
+                        try:
+                            _, was_regen = future.result()
+                            if was_regen:
+                                regen_count += 1
+                        except Exception:
+                            pass
+
+            if regen_count > 0:
+                print(f"[Runs] Quality gate: regenerated {regen_count}/{len(contacts_with_emails)} emails")
+
+            # Log quality gate results to Firestore
+            if db and user_id and contacts_with_emails:
+                try:
+                    quality_ref = db.collection("email_quality_logs")
+                    for item in contacts_with_emails:
+                        contact = item["contact"]
+                        qr = check_email_quality(item["email_subject"], item["email_body"], contact, _qg_user_university)
+                        quality_ref.add({
+                            "userId": user_id,
+                            "contactId": contact.get("pdlId", ""),
+                            "passed": qr["passed"],
+                            "failures": qr["failures"],
+                            "regenerated": bool(contact.get("_qualityRegenerated")),
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                        })
+                except Exception as qlog_err:
+                    print(f"[Runs] Quality log write failed: {qlog_err}")
+        except Exception as qgate_err:
+            print(f"[Runs] Quality gate error (non-blocking): {qgate_err}")
 
         successful_drafts = 0
         user_info = {"name": user_profile.get("name", ""), "email": user_profile.get("email", ""), "phone": "", "linkedin": ""}
@@ -510,6 +682,18 @@ def prompt_search():
                         contact_doc["gmailDraftId"] = contact["gmailDraftId"]
                     if contact.get("gmailDraftUrl"):
                         contact_doc["gmailDraftUrl"] = contact["gmailDraftUrl"]
+                    if contact.get("warmth_score") is not None:
+                        contact_doc["warmthScore"] = contact["warmth_score"]
+                        contact_doc["warmthTier"] = contact.get("warmth_tier", "")
+                        contact_doc["warmthLabel"] = contact.get("warmth_label", "")
+                        contact_doc["warmthSignals"] = contact.get("warmth_signals", [])
+                    if contact.get("personalization"):
+                        contact_doc["personalizationLabel"] = contact["personalization"].get("label", "")
+                        contact_doc["personalizationType"] = contact["personalization"].get("commonality_type", "")
+                    if contact.get("_qualityRegenerated"):
+                        contact_doc["qualityRegenerated"] = True
+                    if contact.get("briefing"):
+                        contact_doc["briefing"] = contact["briefing"]
                     if contact.get("gmailDraftId") or contact.get("gmailDraftUrl"):
                         contact_doc["pipelineStage"] = "draft_created"
                     now_iso = datetime.utcnow().isoformat() + "Z"  # TODO: deprecated in Python 3.12
@@ -536,23 +720,65 @@ def prompt_search():
                 print(f"⚠️ Error saving contacts (prompt-search): {save_error}")
                 traceback.print_exc()
 
+        # Metrics: log email_generated per contact with email (outside save block
+        # so events fire even if Firestore save fails — emails were already generated)
+        try:
+            from app.utils.metrics_events import log_event
+            for contact in contacts:
+                if contact.get("emailSubject"):
+                    body = contact.get("emailBody", "")
+                    log_event(user_id, "email_generated", {
+                        "contact_id": contact.get("pdlId") or "",
+                        "email_length": len(body.split()),
+                        "has_specificity_signal": has_specificity_signal(body, contact),
+                        "quality_regenerated": bool(contact.get("_qualityRegenerated")),
+                    })
+        except Exception:
+            pass
+
+        # Build lightweight already-saved contact cards (no emails, no credits)
+        saved_contact_cards = _build_saved_contact_cards(already_saved_contacts)
+
         response_data = {
             "contacts": contacts,
+            "already_saved_contacts": saved_contact_cards,
             "successful_drafts": successful_drafts,
             "total_contacts": len(contacts),
             "tier": user_tier,
             "user_email": user_email,
             "credits_used": credits_used,
-            "parsed_query": {
-                "companies": parsed.get("companies", []),
-                "title_variations": parsed.get("title_variations", []),
-                "locations": parsed.get("locations", []),
-                "company_context": parsed.get("company_context", ""),
-            },
+            "parsed_query": parsed_query_payload,
             "search_broadened": search_broadened,
+            "retry_level_used": retry_level_used,
+            "broadened_dimensions": broadened_dimensions,
         }
+        if search_broadened:
+            response_data["broadening_level"] = retry_level_used
+        if adjacency_metadata and adjacency_metadata.get("drop_reasons"):
+            response_data["adjacency_metadata"] = adjacency_metadata
         if credits_remaining is not None:
             response_data["credits_remaining"] = credits_remaining
+
+        # Metrics: log search_performed
+        try:
+            from app.utils.metrics_events import log_event
+            top_tier = ""
+            if warmth_data:
+                tiers = [v.get("tier", "") for v in warmth_data.values()]
+                for t in ["warm", "neutral", "cold"]:
+                    if t in tiers:
+                        top_tier = t
+                        break
+            log_event(user_id, "search_performed", {
+                "companies": parsed_query_payload.get("companies", []),
+                "titles": parsed_query_payload.get("title_variations", [])[:5],
+                "locations": parsed_query_payload.get("locations", []),
+                "results_count": len(contacts),
+                "top_warmth_tier": top_tier,
+            })
+        except Exception:
+            pass
+
         return jsonify(response_data)
     except (OfferloopException, InsufficientCreditsError, ExternalAPIError):
         raise

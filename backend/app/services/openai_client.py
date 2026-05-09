@@ -8,8 +8,10 @@ from backend.app.config import OPENAI_API_KEY, CLAUDE_API_KEY
 try:
     import anthropic
     _anthropic_client = anthropic.Anthropic(api_key=CLAUDE_API_KEY) if CLAUDE_API_KEY else None
+    _anthropic_async_client = anthropic.AsyncAnthropic(api_key=CLAUDE_API_KEY) if CLAUDE_API_KEY else None
 except ImportError:
     _anthropic_client = None
+    _anthropic_async_client = None
 
 # Create custom HTTP client configurations for better connection pool handling
 _httpx_timeout = httpx.Timeout(
@@ -67,4 +69,8 @@ def get_async_openai_client():
 def get_anthropic_client():
     """Get the Anthropic client"""
     return _anthropic_client
+
+def get_async_anthropic_client():
+    """Get the async Anthropic client for streaming"""
+    return _anthropic_async_client
 

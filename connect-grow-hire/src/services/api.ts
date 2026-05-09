@@ -142,6 +142,14 @@ export interface Contact {
 }
 
 // Recruiter interface (extends Contact but specific to recruiters)
+export interface SearchSuggestion {
+  title: string;
+  company?: string;
+  jobTitle?: string;
+  location?: string;
+  reason: string;
+}
+
 export interface FindHumansReceipt {
   type: 'title_match' | 'location_match';
   label: string;
@@ -229,6 +237,19 @@ export interface FindHiringManagerResponse {
 // Base response type
 export interface SearchResponse {
   contacts: Contact[];
+  /**
+   * Contacts that matched the search but are already in the user's tracker.
+   * Surfaced so the UI can render them as "Already saved" cards instead of
+   * silently dropping them (which would otherwise trigger a false "no results"
+   * Scout flow). Populated by backend/app/routes/runs.py:prompt_search.
+   */
+  already_saved_contacts?: Contact[];
+  /**
+   * Human-readable summary from the backend. Present when the result has an
+   * unusual shape that needs an explanation (e.g. all matches were already
+   * saved). Prefer displaying this over hardcoded frontend copy when present.
+   */
+  message?: string;
   successful_drafts: number;
   total_contacts: number;
   tier: string;
@@ -326,6 +347,9 @@ export interface OutboxThread {
   updatedAt: string;
   lastSyncError?: { code: string; message: string; at: string } | null;
   lastSyncAt?: string | null;
+  // True when a draft has been in draft_created state > 24h with no matched
+  // Gmail thread (webhook silent-drop). UI should nudge the user to Refresh.
+  needsManualSync?: boolean;
   // Legacy aliases — used by Outbox.tsx and Dashboard.tsx until migrated
   contactName?: string;
   jobTitle?: string;
@@ -364,6 +388,24 @@ export interface Nudge {
   createdAt: string;
   status: "pending" | "read" | "acted_on" | "dismissed";
   actedOn: boolean;
+}
+
+// ================================
+// Reply Coach & Auto-Prep Types
+// ================================
+
+export interface ReplyCoachDraft {
+  body: string;
+  replyType: string;
+  contactId: string;
+  createdAt: string;
+  status: "ready" | "generating";
+}
+
+export interface AutoPrepStatus {
+  status: "ready" | "generating" | "not_available";
+  prepId?: string;
+  createdAt?: string;
 }
 
 // ================================
@@ -1346,6 +1388,21 @@ class ApiService {
     });
   }
 
+  async getSchoolAffinity(university: string, field: string): Promise<{
+    success: boolean;
+    university: string;
+    field: string;
+    companies: Array<{ company_name: string; alumni_count: number; linkedin_url?: string }>;
+    total: number;
+  }> {
+    const headers = await this.getAuthHeaders();
+    const params = new URLSearchParams({ university, field });
+    return this.makeRequest(`/companies/school-affinity?${params.toString()}`, {
+      method: 'GET',
+      headers,
+    });
+  }
+
   async getFirmSearchStatus(searchId: string): Promise<{ success: boolean; progress?: { current: number; total: number; step: string; status: string }; error?: string }> {
     const headers = await this.getAuthHeaders();
     return this.makeRequest(`/firm-search/status/${searchId}`, {
@@ -1577,6 +1634,33 @@ async generateReplyDraft(contactId: string): Promise<GenerateReplyResult | Error
   const headers = await this.getAuthHeaders();
   return this.makeRequest<GenerateReplyResult | ErrorResponse>(`/contacts/${contactId}/generate-reply`, {
     method: 'POST',
+    headers,
+  });
+}
+
+/** Get auto-generated reply draft (Reply Coach) */
+async getReplyCoachDraft(contactId: string): Promise<ReplyCoachDraft | ErrorResponse> {
+  const headers = await this.getAuthHeaders();
+  return this.makeRequest<ReplyCoachDraft | ErrorResponse>(`/contacts/${contactId}/reply-draft`, {
+    method: 'GET',
+    headers,
+  });
+}
+
+/** Send reply coach draft as Gmail draft */
+async sendReplyCoachDraft(contactId: string): Promise<{ success: boolean; draftId?: string } | ErrorResponse> {
+  const headers = await this.getAuthHeaders();
+  return this.makeRequest<{ success: boolean; draftId?: string } | ErrorResponse>(`/contacts/${contactId}/reply-draft/send`, {
+    method: 'POST',
+    headers,
+  });
+}
+
+/** Get auto-prep status for a contact (Coffee Chat Auto-Prep) */
+async getAutoPrep(contactId: string): Promise<AutoPrepStatus | ErrorResponse> {
+  const headers = await this.getAuthHeaders();
+  return this.makeRequest<AutoPrepStatus | ErrorResponse>(`/contacts/${contactId}/auto-prep`, {
+    method: 'GET',
     headers,
   });
 }
@@ -2075,6 +2159,17 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
   }
 
   // ================================
+  // Briefing API
+  // ================================
+
+  async getBriefing(): Promise<any> {
+    const headers = await this.getAuthHeaders();
+    const res = await fetch(`${API_BASE_URL}/briefing`, { headers });
+    if (!res.ok) throw new Error(`Briefing fetch failed: ${res.status}`);
+    return res.json();
+  }
+
+  // ================================
   // Nudges API
   // ================================
 
@@ -2229,6 +2324,10 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
       "/queue/preferences",
       { method: "PUT", headers, body: JSON.stringify(updates) }
     );
+  }
+  async getSearchSuggestions(): Promise<{ suggestions: SearchSuggestion[] } | { error: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ suggestions: SearchSuggestion[] }>('/search-suggestions', { method: 'GET', headers });
   }
 }
 

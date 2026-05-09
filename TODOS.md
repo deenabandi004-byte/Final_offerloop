@@ -234,6 +234,18 @@ Deferred work tracked across reviews. Items added by /plan-ceo-review.
 - **Priority:** P2
 - **Depends on:** Find the Humans shipped and soak-tested. Test coverage on `recruiter_finder.py` improved.
 
+## Agent Mode (2026-05-04)
+
+### P3: Align AgentSetupInline with Offerloop Design System
+- **What:** Replace violet gradients, colored pill step indicators, and shadcn Card containers in `AgentSetupInline.tsx` with the Offerloop design language (serif italic headers, flat rows, ink-on-white, underline indicators).
+- **Why:** The setup wizard looks like a different product from the agent dashboard (which correctly uses the Offerloop design system). Users see the disconnect when transitioning from setup to the running dashboard.
+- **Pros:** Visual consistency across the agent experience, reinforces brand identity, removes AI-slop-looking violet gradient.
+- **Cons:** Setup wizard is only seen once per user, so impact is limited. Low urgency.
+- **Context:** Surfaced during /plan-design-review of agent running state on 2026-05-04. The AgentSnapshot dashboard follows the design system (serif headers, underline tabs, flat rows) but setup uses generic shadcn Card + violet gradient deploy button + colored step pills.
+- **Effort:** S (human: ~3 hrs / CC: ~20 min)
+- **Priority:** P3
+- **Depends on:** Nothing.
+
 ### P2: Credit Refund on Save Failure (Find the Humans & existing recruiter flow)
 - **What:** Wrap credit deduction + contact save in a transaction, or implement a compensating refund if `createContact` fails after credits are charged. Currently the user pays N credits even if the save silently fails.
 - **Why:** This is a pre-existing risk in the recruiter flow (not introduced by Find the Humans), but Find the Humans makes it more visible because the button is on every job card and users will click it often. A single failure = a support ticket. At scale, a P2 becomes a P1.

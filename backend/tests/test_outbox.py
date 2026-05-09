@@ -880,3 +880,387 @@ class TestNoDeprecatedUtcnow:
         import app.routes.gmail_webhook as mod
         source = inspect.getsource(mod)
         assert "utcnow()" not in source, "gmail_webhook should not use deprecated utcnow()"
+
+
+# =============================================================================
+# outbox_service.py — post-send draft URL fallback (M3 fix)
+# =============================================================================
+
+class TestContactDictPostSendDraftUrl:
+    """
+    M3: Once a draft has been sent, the stored #draft/{id} URL 404s in Gmail.
+    For post-send stages we must build a thread URL instead.
+    """
+
+    def test_post_send_stage_uses_thread_url(self):
+        from app.services.outbox_service import _contact_to_dict
+        data = {
+            "pipelineStage": "waiting_on_reply",
+            "gmailDraftId": "draft123",   # stale
+            "gmailThreadId": "thread456",
+        }
+        result = _contact_to_dict("c1", data)
+        # Must point at the thread, not the dead draft
+        assert "thread456" in result["gmailDraftUrl"]
+        assert "#inbox/" in result["gmailDraftUrl"]
+        assert "#draft/" not in result["gmailDraftUrl"]
+        assert "#drafts?compose" not in result["gmailDraftUrl"]
+
+    def test_replied_stage_uses_thread_url(self):
+        from app.services.outbox_service import _contact_to_dict
+        data = {
+            "pipelineStage": "replied",
+            "gmailDraftId": "draft123",
+            "gmailThreadId": "thread456",
+        }
+        result = _contact_to_dict("c1", data)
+        assert "thread456" in result["gmailDraftUrl"]
+        assert "#inbox/" in result["gmailDraftUrl"]
+
+    def test_email_sent_stage_uses_thread_url(self):
+        from app.services.outbox_service import _contact_to_dict
+        data = {
+            "pipelineStage": "email_sent",
+            "gmailDraftId": "draft123",
+            "gmailThreadId": "thread456",
+        }
+        result = _contact_to_dict("c1", data)
+        assert "#inbox/thread456" in result["gmailDraftUrl"]
+
+    def test_meeting_scheduled_uses_thread_url(self):
+        from app.services.outbox_service import _contact_to_dict
+        data = {
+            "pipelineStage": "meeting_scheduled",
+            "gmailDraftId": "draft123",
+            "gmailThreadId": "thread456",
+        }
+        result = _contact_to_dict("c1", data)
+        assert "#inbox/thread456" in result["gmailDraftUrl"]
+
+    def test_draft_created_still_uses_compose_url(self):
+        """Pre-send stage should still build the compose URL — draft is live."""
+        from app.services.outbox_service import _contact_to_dict
+        data = {
+            "pipelineStage": "draft_created",
+            "gmailDraftId": "draft123",
+            "gmailMessageId": "msg456",
+            "gmailThreadId": "thread789",  # threadId ignored pre-send
+        }
+        result = _contact_to_dict("c1", data)
+        assert "compose=msg456" in result["gmailDraftUrl"]
+        assert "#drafts?" in result["gmailDraftUrl"]
+
+    def test_post_send_without_thread_falls_back(self):
+        """Post-send contact with no threadId keeps legacy draft URL behavior."""
+        from app.services.outbox_service import _contact_to_dict
+        data = {
+            "pipelineStage": "waiting_on_reply",
+            "gmailDraftId": "draft123",
+            "gmailMessageId": "msg456",
+            # no gmailThreadId
+        }
+        result = _contact_to_dict("c1", data)
+        # Falls back to compose URL (best we can do without a thread)
+        assert "compose=msg456" in result["gmailDraftUrl"]
+
+    def test_post_send_stages_set_matches_contract(self):
+        """Ensure the POST_SEND_STAGES set covers everything except pre-send."""
+        from app.services.outbox_service import POST_SEND_STAGES, ALLOWED_PIPELINE_STAGES
+        pre_send = {"new", "draft_created", "draft_deleted"}
+        assert POST_SEND_STAGES == ALLOWED_PIPELINE_STAGES - pre_send
+
+
+# =============================================================================
+# outbox_service.py — needsManualSync flag (H4 fix)
+# =============================================================================
+
+class TestContactDictNeedsManualSync:
+    """
+    H4: draft_created contacts with no gmailThreadId that have been stuck for
+    > STUCK_DRAFT_HOURS (24) indicate the webhook never matched a sent message.
+    The API response should carry `needsManualSync: True` so the UI can nudge
+    the user to hit Refresh.
+    """
+
+    def test_stuck_draft_sets_flag(self):
+        from app.services.outbox_service import _contact_to_dict
+        # draftCreatedAt 30 hours ago
+        old = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat().replace("+00:00", "Z")
+        data = {
+            "pipelineStage": "draft_created",
+            "draftCreatedAt": old,
+            # no gmailThreadId — never matched to a sent message
+        }
+        result = _contact_to_dict("c1", data)
+        assert result["needsManualSync"] is True
+
+    def test_recent_draft_no_flag(self):
+        from app.services.outbox_service import _contact_to_dict
+        recent = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat().replace("+00:00", "Z")
+        data = {
+            "pipelineStage": "draft_created",
+            "draftCreatedAt": recent,
+        }
+        result = _contact_to_dict("c1", data)
+        assert result["needsManualSync"] is False
+
+    def test_thread_id_clears_flag(self):
+        """If the webhook matched and set gmailThreadId, no manual sync needed."""
+        from app.services.outbox_service import _contact_to_dict
+        old = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat().replace("+00:00", "Z")
+        data = {
+            "pipelineStage": "draft_created",
+            "draftCreatedAt": old,
+            "gmailThreadId": "thread123",  # webhook already matched
+        }
+        result = _contact_to_dict("c1", data)
+        assert result["needsManualSync"] is False
+
+    def test_other_stage_no_flag(self):
+        """Only draft_created is subject to the staleness check."""
+        from app.services.outbox_service import _contact_to_dict
+        old = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat().replace("+00:00", "Z")
+        for stage in ("new", "waiting_on_reply", "replied", "connected"):
+            data = {"pipelineStage": stage, "draftCreatedAt": old}
+            result = _contact_to_dict("c1", data)
+            assert result["needsManualSync"] is False, f"stage={stage} should not flag"
+
+    def test_missing_draft_created_at_no_flag(self):
+        """Can't compute age without a timestamp — don't false-positive."""
+        from app.services.outbox_service import _contact_to_dict
+        data = {"pipelineStage": "draft_created"}
+        result = _contact_to_dict("c1", data)
+        assert result["needsManualSync"] is False
+
+    def test_stuck_draft_hours_constant(self):
+        from app.services.outbox_service import STUCK_DRAFT_HOURS
+        assert STUCK_DRAFT_HOURS == 24
+
+
+# =============================================================================
+# outbox_service.py — _is_gmail_auth_error (M5 fix)
+# =============================================================================
+
+class TestIsGmailAuthError:
+    """
+    M5: Auth-error detection must use SDK types (RefreshError, HttpError 401/403)
+    rather than arbitrary string matching, so we don't mis-classify transient
+    errors as 'reconnect Gmail'.
+    """
+
+    def test_refresh_error_detected(self):
+        from app.services.outbox_service import _is_gmail_auth_error
+        from google.auth.exceptions import RefreshError
+        assert _is_gmail_auth_error(RefreshError("invalid_grant")) is True
+
+    def test_http_error_401_detected(self):
+        from app.services.outbox_service import _is_gmail_auth_error
+        from googleapiclient.errors import HttpError
+        resp = MagicMock()
+        resp.status = 401
+        resp.reason = "Unauthorized"
+        err = HttpError(resp=resp, content=b'{"error":"unauthorized"}')
+        assert _is_gmail_auth_error(err) is True
+
+    def test_http_error_403_detected(self):
+        from app.services.outbox_service import _is_gmail_auth_error
+        from googleapiclient.errors import HttpError
+        resp = MagicMock()
+        resp.status = 403
+        resp.reason = "Forbidden"
+        err = HttpError(resp=resp, content=b'{"error":"forbidden"}')
+        assert _is_gmail_auth_error(err) is True
+
+    def test_http_error_500_not_auth(self):
+        """Server errors are transient — must not trigger 'reconnect Gmail'."""
+        from app.services.outbox_service import _is_gmail_auth_error
+        from googleapiclient.errors import HttpError
+        resp = MagicMock()
+        resp.status = 500
+        resp.reason = "Server Error"
+        err = HttpError(resp=resp, content=b'{"error":"internal"}')
+        assert _is_gmail_auth_error(err) is False
+
+    def test_http_error_404_not_auth(self):
+        from app.services.outbox_service import _is_gmail_auth_error
+        from googleapiclient.errors import HttpError
+        resp = MagicMock()
+        resp.status = 404
+        resp.reason = "Not Found"
+        err = HttpError(resp=resp, content=b'{"error":"not found"}')
+        assert _is_gmail_auth_error(err) is False
+
+    def test_string_fallback_invalid_grant(self):
+        from app.services.outbox_service import _is_gmail_auth_error
+        assert _is_gmail_auth_error(Exception("invalid_grant: Token expired")) is True
+
+    def test_string_fallback_revoked(self):
+        from app.services.outbox_service import _is_gmail_auth_error
+        assert _is_gmail_auth_error(Exception("Token has been revoked")) is True
+
+    def test_generic_error_not_auth(self):
+        """Generic exceptions must not be classified as auth failures."""
+        from app.services.outbox_service import _is_gmail_auth_error
+        assert _is_gmail_auth_error(Exception("Connection timed out")) is False
+        assert _is_gmail_auth_error(Exception("DNS lookup failed")) is False
+        assert _is_gmail_auth_error(ValueError("bad payload")) is False
+
+
+# =============================================================================
+# outbox_service.py — transactional sync lock (H2 fix)
+# =============================================================================
+
+class TestTryAcquireSyncLock:
+    """
+    H2: The sync lock must be claimed inside a Firestore transaction so two
+    concurrent Refresh clicks can't both pass the freshness check.
+    """
+
+    def test_uses_firestore_transaction(self):
+        """Source should import the transactional decorator and use it."""
+        import app.services.outbox_service as mod
+        source = inspect.getsource(mod)
+        assert "from google.cloud.firestore_v1 import transactional" in source
+        # The lock function should be decorated inline with @transactional
+        lock_src = inspect.getsource(mod._try_acquire_sync_lock)
+        assert "@transactional" in lock_src
+        assert "db.transaction()" in lock_src
+
+    def test_returns_tuple_acquired_data(self):
+        """Function contract: returns (bool, dict)."""
+        import app.services.outbox_service as mod
+        source = inspect.getsource(mod._try_acquire_sync_lock)
+        # Winner path
+        assert "return True, data" in source
+        # Loser path
+        assert "return False, data" in source
+
+    def test_raises_if_contact_missing(self):
+        """Loading a non-existent contact inside the txn must raise."""
+        import app.services.outbox_service as mod
+        source = inspect.getsource(mod._try_acquire_sync_lock)
+        assert 'raise ValueError("contact_not_found")' in source
+
+    def test_writes_lastsyncat_to_claim_lock(self):
+        import app.services.outbox_service as mod
+        source = inspect.getsource(mod._try_acquire_sync_lock)
+        # Winner updates lastSyncAt within the transaction
+        assert "transaction.update" in source
+        assert "lastSyncAt" in source
+
+    def test_sync_lock_window_seconds(self):
+        from app.services.outbox_service import SYNC_LOCK_SECONDS
+        assert SYNC_LOCK_SECONDS == 60
+
+
+# =============================================================================
+# gmail_webhook.py — historyId write ordering (H1 fix)
+# =============================================================================
+
+class TestWebhookHistoryIdOrdering:
+    """
+    H1: The watchHistoryId pointer must be advanced ONLY after the message
+    processing loop finishes successfully. Advancing early meant a crash
+    mid-loop permanently dropped messages from the next delta.
+    """
+
+    def test_history_id_written_after_loop(self):
+        """The write to watchHistoryId should appear after the message loop."""
+        from app.routes.gmail_webhook import _process_gmail_notification
+        source = inspect.getsource(_process_gmail_notification)
+
+        # Only one authoritative write to watchHistoryId should happen after
+        # processing all messages. Find its offset and ensure it's late in the
+        # function (after the msg_id processing loop).
+        msg_loop_marker = "for msg_id, thread_id in all_message_ids:"
+        final_write_marker = 'gmail_ref.set({"watchHistoryId": history_id}, merge=True)'
+        assert msg_loop_marker in source
+        assert final_write_marker in source
+
+        # The loop appears before the final write
+        loop_idx = source.index(msg_loop_marker)
+        # Find the final write that comes after the loop (last occurrence)
+        final_idx = source.rindex(final_write_marker)
+        assert final_idx > loop_idx, \
+            "watchHistoryId write must come AFTER the message processing loop"
+
+    def test_mentions_crash_safety_rationale(self):
+        """The ordering is subtle — doc-comment should explain why."""
+        from app.routes.gmail_webhook import _process_gmail_notification
+        source = inspect.getsource(_process_gmail_notification)
+        # Our fix included a comment explaining crash-safety / redelivery.
+        assert "redelivery" in source.lower() or "replay" in source.lower()
+
+    def test_idempotent_skip_for_already_processed(self):
+        """Already-seen historyId should be skipped (at-least-once dedup)."""
+        from app.routes.gmail_webhook import _process_gmail_notification
+        source = inspect.getsource(_process_gmail_notification)
+        # Look for the int-compare dedup guard
+        assert "last_int >= hi_int" in source
+
+
+# =============================================================================
+# gmail_webhook.py — sent-message matching strategies
+# =============================================================================
+
+class TestWebhookMatchingStrategies:
+    """
+    Verify each of the four sent-message matching strategies is present in
+    the webhook. These are the fallbacks for detecting that a contact's draft
+    has turned into a sent message, even when direct thread-id / to-email
+    matches fail (e.g. user sent from a different address).
+    """
+
+    def test_strategy_1_thread_id(self):
+        from app.routes.gmail_webhook import _process_gmail_notification
+        source = inspect.getsource(_process_gmail_notification)
+        assert 'where("gmailThreadId", "==", thread_id)' in source
+
+    def test_strategy_2a_email_match(self):
+        from app.routes.gmail_webhook import _process_gmail_notification
+        source = inspect.getsource(_process_gmail_notification)
+        assert 'where("email", "==", to_email)' in source
+
+    def test_strategy_2b_alternate_emails(self):
+        from app.routes.gmail_webhook import _process_gmail_notification
+        source = inspect.getsource(_process_gmail_notification)
+        assert "alternateEmails" in source
+
+    def test_strategy_2c_draft_to_email(self):
+        from app.routes.gmail_webhook import _process_gmail_notification
+        source = inspect.getsource(_process_gmail_notification)
+        assert 'where("draftToEmail"' in source
+
+    def test_strategy_3_disappeared_draft(self):
+        """Strategy 3 checks if a known draft 404s — meaning it was sent."""
+        from app.routes.gmail_webhook import _process_gmail_notification
+        source = inspect.getsource(_process_gmail_notification)
+        # Look for the disappeared-draft detection pattern
+        assert "drafts().get(" in source
+        assert "404" in source
+
+    def test_strategy_3_capped(self):
+        """Strategy 3 must cap the candidate set to avoid excessive API calls."""
+        from app.routes.gmail_webhook import _process_gmail_notification
+        source = inspect.getsource(_process_gmail_notification)
+        assert "STRATEGY_3_CAP" in source
+
+    def test_sent_message_transitions_to_waiting(self):
+        """A matched sent message should move stage to waiting_on_reply."""
+        from app.routes.gmail_webhook import _process_gmail_notification
+        source = inspect.getsource(_process_gmail_notification)
+        assert '"pipelineStage": "waiting_on_reply"' in source
+
+    def test_sent_message_only_updates_presend_stages(self):
+        """Must not overwrite replied/connected etc. with waiting_on_reply."""
+        from app.routes.gmail_webhook import _process_gmail_notification
+        source = inspect.getsource(_process_gmail_notification)
+        # The guard restricts the transition to None/draft_created/email_sent
+        assert '"draft_created"' in source
+        assert '"email_sent"' in source
+
+    def test_reply_transitions_to_replied(self):
+        from app.routes.gmail_webhook import _process_gmail_notification
+        source = inspect.getsource(_process_gmail_notification)
+        assert '"pipelineStage": "replied"' in source
+        assert '"hasUnreadReply": True' in source

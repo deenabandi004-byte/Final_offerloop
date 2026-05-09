@@ -4,8 +4,10 @@ Timeline Routes - Flask Blueprint for generating personalized recruiting timelin
 from flask import Blueprint, request, jsonify
 import json
 import re
-from app.extensions import require_firebase_auth
+from app.extensions import require_firebase_auth, require_tier, get_db
 from app.services.openai_client import get_openai_client
+from app.services.auth import deduct_credits_atomic
+from app.config import TIMELINE_CREDITS
 
 timeline_bp = Blueprint('timeline', __name__, url_prefix='/api/timeline')
 
@@ -96,6 +98,7 @@ def handle_options():
 
 @timeline_bp.route('/generate', methods=['POST'])
 @require_firebase_auth
+@require_tier(['pro', 'elite'])
 def generate_timeline():
     """
     Generates a personalized recruiting timeline based on user inputs using OpenAI.
@@ -138,6 +141,15 @@ def generate_timeline():
                 'error': 'Request body is required'
             }), 400
         
+        # Deduct credits before calling OpenAI
+        success, remaining = deduct_credits_atomic(user_id, TIMELINE_CREDITS, "timeline_generation")
+        if not success:
+            return jsonify({
+                'error': f'Insufficient credits. You need {TIMELINE_CREDITS} credits but have {remaining}.',
+                'credits_required': TIMELINE_CREDITS,
+                'credits_available': remaining,
+            }), 402
+
         # Get OpenAI client first (needed for extraction)
         client = get_openai_client()
         if not client:

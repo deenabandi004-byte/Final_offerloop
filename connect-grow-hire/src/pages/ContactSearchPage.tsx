@@ -27,9 +27,58 @@ import { trackFeatureActionCompleted, trackError } from "../lib/analytics";
 import { ACCEPTED_RESUME_TYPES, isValidResumeFile } from "@/utils/resumeFileTypes";
 import { StickyCTA } from "@/components/StickyCTA";
 import ContactImport from "@/components/ContactImport";
+import { motion, AnimatePresence } from "framer-motion";
+import DimensionChips from "@/components/find/DimensionChips";
+import CompanyAlternatives from "@/components/find/CompanyAlternatives";
+import RoleVariations from "@/components/find/RoleVariations";
+import QuickStarters from "@/components/find/QuickStarters";
+import { findCompletion, expandQueryForBackend } from "@/lib/specificity";
+import SuggestionChips from "@/components/find/SuggestionChips";
+import { TemplateButton } from "@/components/TemplateButton";
+
+import { DEV_MOCK_USER } from "@/lib/devPreview";
+import { getUniversityShortName } from "@/lib/universityUtils";
 
 // Session storage key for Scout auto-populate
 const SCOUT_AUTO_POPULATE_KEY = 'scout_auto_populate';
+
+function getPeopleFallbackPlaceholders(schoolShort: string | null): string[] {
+  const base = [
+    'Alumni at Goldman Sachs',
+    'Engineers at Sequoia-backed startups',
+    'Hiring managers at Disney',
+  ];
+  if (schoolShort) {
+    return [
+      `${schoolShort} data scientists at Google`,
+      `Product managers who went to ${schoolShort}`,
+      ...base,
+    ];
+  }
+  return [
+    'Data scientists at Google',
+    'Product managers in tech',
+    ...base,
+  ];
+}
+
+// Title case formatter for display (does not mutate Firestore data)
+const SMALL_WORDS = new Set(['a', 'an', 'and', 'as', 'at', 'but', 'by', 'for', 'if', 'in', 'nor', 'of', 'on', 'or', 'so', 'the', 'to', 'up', 'via', 'vs']);
+function toTitleCase(str: string): string {
+  if (!str) return str;
+  // Skip if already mixed case (not all-upper or all-lower)
+  if (str !== str.toUpperCase() && str !== str.toLowerCase()) return str;
+  return str
+    .toLowerCase()
+    .split(' ')
+    .map((word, i) => {
+      if (i === 0 || !SMALL_WORDS.has(word)) {
+        return word.charAt(0).toUpperCase() + word.slice(1);
+      }
+      return word;
+    })
+    .join(' ');
+}
 
 // LinkedIn URL detection helper
 function isLinkedInUrl(input: string): boolean {
@@ -59,13 +108,6 @@ function normalizeLinkedInUrl(input: string): string {
   return url;
 }
 
-// Example prompt chips for discoverability
-const examplePromptChips = [
-  { id: 1, label: 'Software engineers at FAANG in SF', prompt: 'Software engineers at FAANG in SF', isLinkedIn: false },
-  { id: 2, label: 'USC alumni in investment banking', prompt: 'USC alumni in investment banking', isLinkedIn: false },
-  { id: 3, label: 'Marketing managers at startups in LA', prompt: 'Marketing managers at startups in LA', isLinkedIn: false },
-  { id: 4, label: 'linkedin.com/in/johndoe', prompt: 'https://www.linkedin.com/in/johndoe', isLinkedIn: true },
-];
 
 // Helper function for contact count guidance
 const getContactCountHelper = (count: number): string => {
@@ -136,8 +178,9 @@ const StripeTabs: React.FC<StripeTabsProps> = ({ activeTab, onTabChange, tabs })
   );
 };
 
-const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; parentEmailTemplate?: EmailTemplate | null }> = ({ embedded = false, hideSubTabs = false, parentEmailTemplate }) => {
-  const { user, checkCredits, updateCredits } = useFirebaseAuth();
+const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; parentEmailTemplate?: EmailTemplate | null; isDevPreview?: boolean }> = ({ embedded = false, hideSubTabs = false, parentEmailTemplate, isDevPreview = false }) => {
+  const { user: authUser, checkCredits, updateCredits } = useFirebaseAuth();
+  const user = isDevPreview ? DEV_MOCK_USER as any : authUser;
   const { openPanelWithSearchHelp } = useScout();
   const navigate = useNavigate();
   const routerLocation = useLocation();
@@ -164,6 +207,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
   // Ref for original button to track visibility
   const originalButtonRef = useRef<HTMLButtonElement>(null);
   const searchSuccessRef = useRef<HTMLDivElement>(null);
+  const promptInputRef = useRef<HTMLTextAreaElement>(null);
 
   // Form state (prompt-based search).
   // Initial value may come from the landing-page hero: HeroSearchCTA stashes
@@ -198,15 +242,32 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
 
   // Search state
   const [isSearching, setIsSearching] = useState(false);
+  // Rotation seed — drives randomization in the right-rail recommendations so
+  // users who click Network multiple times get fresh suggestions each pass.
+  // Initialized to a random page-load value, incremented every search submission.
+  const [rotationSeed, setRotationSeed] = useState(() => Math.floor(Math.random() * 1_000_000));
   const [progressValue, setProgressValue] = useState(0);
   const [searchComplete, setSearchComplete] = useState(false);
   const [lastResults, setLastResults] = useState<any[]>([]);
+  const [expandedEmailIdx, setExpandedEmailIdx] = useState<number | null>(null);
+  const [smartPlaceholder, setSmartPlaceholder] = useState<string | null>(null);
+  const [alreadySavedResults, setAlreadySavedResults] = useState<any[]>([]);
+  // Backend-provided message for unusual result shapes (e.g. "All N matching contact(s)
+  // are already in your tracker..."). Prefer this over hardcoded frontend copy.
+  const [resultMessage, setResultMessage] = useState<string>("");
+  // Backend signals when its retry chain dropped filters to find matches. We
+  // surface this honestly above the result list so the user knows the system
+  // worked harder for them — and which constraints loosened — instead of
+  // pretending the original specific query yielded those people.
+  const [broadenedDimensions, setBroadenedDimensions] = useState<string[]>([]);
   const [companyContext, setCompanyContext] = useState<string>("");
+  const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
+  const [searchBroadened, setSearchBroadened] = useState(false);
   const [lastSearchStats, setLastSearchStats] = useState<{
     successful_drafts: number;
     total_contacts: number;
   } | null>(null);
-  const hasResults = lastResults.length > 0;
+  const hasResults = lastResults.length > 0 || alreadySavedResults.length > 0;
 
   // Auto-scroll to success state after search completes
   useEffect(() => {
@@ -219,7 +280,170 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
   const [batchSize, setBatchSize] = useState<number>(1);
 
   // UI polish state
-  const [selectedExampleId, setSelectedExampleId] = useState<number | null>(null);
+  const [suggestionsCollapsed, setSuggestionsCollapsed] = useState(false);
+
+  // Typewriter rotating examples (types + deletes between rotations)
+  const [typedText, setTypedText] = useState('');
+  const [twIdx, setTwIdx] = useState(0);
+  const [twPhase, setTwPhase] = useState<'typing' | 'pausing' | 'deleting'>('typing');
+  const [profileHints, setProfileHints] = useState<string[]>([]);
+  // Strings worth offering as ghost-completion: explicit target firms, target
+  // locations, target industries, extracted roles. Sourced from the user's profile
+  // so completions feel like the system already knows them.
+  const [profileCompletionTokens, setProfileCompletionTokens] = useState<string[]>([]);
+  // Structured profile facts — used by QuickStarters to assemble click-to-fill
+  // queries that match the user's actual targets. Mirrors the personalization
+  // chips on the Profile page.
+  const [profileFacts, setProfileFacts] = useState<{
+    schoolShort?: string;
+    schoolFull?: string;
+    targetFirms?: string[];
+    targetIndustries?: string[];
+    preferredLocations?: string[];
+    extractedRoles?: string[];
+  }>({});
+  const [inputFocused, setInputFocused] = useState(false);
+  // Focus model is now strictly tied to inputFocused: recommendations show whenever
+  // the user is NOT actively in the input. No manual override or outside-click handler.
+  const [userSchoolShort, setUserSchoolShort] = useState<string | null>(null);
+  const peopleFallbackPlaceholders = useMemo(() => getPeopleFallbackPlaceholders(userSchoolShort), [userSchoolShort]);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    if (isDevPreview) {
+      const school = getUniversityShortName((user as any)?.university);
+      setUserSchoolShort(school);
+      const hints: string[] = [];
+      if (school) {
+        hints.push(`${school} alumni in Data Science`);
+        hints.push('Who\'s hiring for AI/ML?');
+        hints.push(`${school} grads at McKinsey`);
+      } else {
+        hints.push('Alumni in Data Science');
+        hints.push('Who\'s hiring for AI/ML?');
+      }
+      hints.push('Analysts in Los Angeles');
+      hints.push('Try a company name, role, or school');
+      setProfileHints(hints);
+      return;
+    }
+    firebaseApi.getUserOnboardingData(user.uid).then((data) => {
+      const uni = data.university || '';
+      const shortUni = uni.replace(/^(University of |The )/, '').split(' - ')[0].split(',')[0].trim();
+      setUserSchoolShort(getUniversityShortName(uni));
+      const industries = data.targetIndustries || [];
+      const locs = data.preferredLocations || [];
+      const firms = data.targetFirms || [];
+      const roles = data.extractedRoles || [];
+      const hints: string[] = [];
+      if (shortUni && industries[0]) hints.push(`${shortUni} alumni in ${industries[0]}`);
+      if (industries[0]) hints.push(`Who's hiring for ${industries[0]}?`);
+      if (shortUni && firms[0]) hints.push(`${shortUni} alumni at ${firms[0]}`);
+      else if (shortUni) hints.push(`${shortUni} grads at McKinsey`);
+      if (locs[0]) hints.push(`Analysts in ${locs[0]}`);
+      hints.push("Paste a LinkedIn URL to import a contact");
+      hints.push("Who do you want to meet today?");
+      if (shortUni && firms[1]) hints.push(`${shortUni} alumni at ${firms[1]}`);
+      else if (shortUni) hints.push(`${shortUni} alumni at Goldman Sachs`);
+      hints.push("Try a company name, role, or school");
+      if (hints.length > 0) setProfileHints(hints);
+
+      // Build profile completion tokens — used to bias the ghost-text autocomplete
+      // toward strings the user has already told us they care about.
+      const tokens: string[] = [];
+      for (const f of firms) if (typeof f === 'string') tokens.push(f);
+      for (const l of locs) if (typeof l === 'string') tokens.push(l);
+      for (const i of industries) if (typeof i === 'string') tokens.push(i);
+      for (const r of roles) if (typeof r === 'string') tokens.push(r);
+      if (uni) tokens.push(uni);
+      if (shortUni) tokens.push(shortUni);
+      setProfileCompletionTokens(tokens);
+
+      // Structured profile facts for QuickStarters
+      setProfileFacts({
+        schoolShort: getUniversityShortName(uni) || shortUni,
+        schoolFull: uni,
+        targetFirms: firms,
+        targetIndustries: industries,
+        preferredLocations: locs,
+        extractedRoles: roles,
+      });
+    }).catch(() => {});
+  }, [user?.uid, isDevPreview]);
+
+  // Typewriter examples — derived from profile hints, with fallback list
+  const typewriterExamples = useMemo(() => {
+    const filtered = profileHints.filter((h) =>
+      !h.toLowerCase().startsWith('paste') &&
+      !h.toLowerCase().startsWith('try a') &&
+      !h.endsWith('?')
+    );
+    if (filtered.length > 0) return filtered;
+    const fallback = [
+      'Software engineers at Google',
+      'Investment bankers in NYC',
+      'Marketing managers in LA',
+      'Data scientists at Meta',
+      'Product managers at Stripe',
+    ];
+    if (userSchoolShort) fallback.unshift(`${userSchoolShort} alumni at Goldman Sachs`);
+    return fallback;
+  }, [profileHints, userSchoolShort]);
+
+  useEffect(() => {
+    if (inputFocused || searchPrompt) return;
+    if (typewriterExamples.length === 0) return;
+    const current = typewriterExamples[twIdx % typewriterExamples.length];
+    if (twPhase === 'typing') {
+      if (typedText.length < current.length) {
+        const t = setTimeout(() => setTypedText(current.slice(0, typedText.length + 1)), 55);
+        return () => clearTimeout(t);
+      }
+      const t = setTimeout(() => setTwPhase('pausing'), 1400);
+      return () => clearTimeout(t);
+    }
+    if (twPhase === 'pausing') {
+      const t = setTimeout(() => setTwPhase('deleting'), 80);
+      return () => clearTimeout(t);
+    }
+    if (twPhase === 'deleting') {
+      if (typedText.length > 0) {
+        const t = setTimeout(() => setTypedText(current.slice(0, typedText.length - 1)), 28);
+        return () => clearTimeout(t);
+      }
+      const t = setTimeout(() => {
+        setTwIdx((i) => (i + 1) % typewriterExamples.length);
+        setTwPhase('typing');
+      }, 200);
+      return () => clearTimeout(t);
+    }
+  }, [twPhase, typedText, twIdx, typewriterExamples, inputFocused, searchPrompt]);
+
+  // Typewriter shows when input is blurred + empty (greeting state). Once the
+  // user focuses or types, it gets out of the way — the QuickStarters row
+  // below the input takes over the "what could I try?" job.
+  const showAnimatedPlaceholder = !searchPrompt && !inputFocused;
+  // Ghost-text autocomplete: predicts the rest of the word/phrase the user is typing
+  // against the dimension lexicons. Tab or Right-arrow (when cursor at end) accepts.
+  const ghostCompletion = useMemo(
+    () => findCompletion(searchPrompt, profileCompletionTokens),
+    [searchPrompt, profileCompletionTokens],
+  );
+
+  // Hover preview from the right-column suggestion popovers. When set, the prompt
+  // overlay renders the previewed swap (highlighted) without modifying searchPrompt.
+  // Click on a suggestion commits via onAcceptSuggestion (existing path).
+  const [previewSwap, setPreviewSwap] = useState<{ matched: string; chosen: string } | null>(null);
+  const previewedPrompt = useMemo(() => {
+    if (!previewSwap) return null;
+    const escaped = previewSwap.matched.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`\\b${escaped}\\b`, 'i');
+    const match = regex.exec(searchPrompt);
+    if (!match) return null;
+    const before = searchPrompt.slice(0, match.index);
+    const after = searchPrompt.slice(match.index + match[0].length);
+    return { before, replacement: previewSwap.chosen.toLowerCase(), after };
+  }, [previewSwap, searchPrompt]);
 
   const maxBatchSize = useMemo(() => {
     // Get tier-specific max contacts: free=3, pro=8, elite=15
@@ -236,7 +460,13 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
 
   // Gmail state
   const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
-  const [gmailBannerDismissed, setGmailBannerDismissed] = useState(false);
+  const [gmailBannerDismissed, setGmailBannerDismissed] = useState(() => {
+    try { return localStorage.getItem('offerloop-gmail-banner-dismissed') === 'true'; } catch { return false; }
+  });
+  const dismissGmailBanner = () => {
+    setGmailBannerDismissed(true);
+    try { localStorage.setItem('offerloop-gmail-banner-dismissed', 'true'); } catch {}
+  };
 
   // Tab state
   const [activeTab, setActiveTab] = useState<string>("contact-search");
@@ -298,7 +528,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
 
   // Load saved email template on mount (contact search tab)
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!user?.uid || isDevPreview) return;
     apiService.getEmailTemplate().then((t) => {
       setSavedEmailTemplate({
         purpose: t.purpose ?? null,
@@ -341,7 +571,33 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
 
   // Handle Scout auto-populate from failed search, chat "Take me there", or navigation state
   useEffect(() => {
-    const applyPopulate = (populateData: { job_title?: string; company?: string; location?: string }) => {
+    const applyPopulate = (
+      populateData: {
+        job_title?: string;
+        company?: string;
+        location?: string;
+        prompt?: string;
+        autoSubmit?: boolean;
+      },
+    ) => {
+      // Prompt-mode: refined-prompt cards from Scout's failed-search panel
+      // pass the full natural-language prompt directly. Skip the structured
+      // assembly path and just drop the prompt in. autoSubmit re-runs the
+      // search immediately so the user sees fresh results without a second
+      // click.
+      if (populateData.prompt && populateData.prompt.trim()) {
+        setSearchPrompt(populateData.prompt.trim());
+        if (populateData.autoSubmit) {
+          pendingAutoSearch.current = true;
+        } else {
+          toast({
+            title: "Search pre-filled",
+            description: "Scout has filled in your search. Click Search to find contacts.",
+          });
+        }
+        return;
+      }
+
       const { job_title, company: autoCompany, location: autoLocation } = populateData;
       const parts = [];
       if (job_title != null && job_title !== '') parts.push(job_title);
@@ -394,14 +650,50 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
     return () => window.removeEventListener('scout-auto-populate', handleAutoPopulate);
   }, [routerLocation.state, routerLocation.pathname, navigate]);
 
-  // Helper function to trigger Scout on 0 results
-  const triggerScoutForNoResults = useCallback(() => {
-    openPanelWithSearchHelp({
-      searchType: 'contact',
-      failedSearchParams: { prompt: searchPrompt.trim() },
-      errorType: 'no_results',
-    });
-  }, [openPanelWithSearchHelp, searchPrompt]);
+  // Helper function to trigger Scout on 0 results. Forwards the parsed query +
+  // retry-chain context so the backend can generate concrete refined prompts
+  // ("try Mediobanca instead — Bocconi pipeline") rather than generic title
+  // alternatives. The extra signals are optional; the backend falls through to
+  // the legacy structured path if any are missing.
+  //
+  // Critical: we ALSO pass `tried_prompts` — the list of prompts that have
+  // already failed in this session — so Scout doesn't recommend a refined
+  // prompt the user just clicked through and bombed on. The LLM is instructed
+  // to never suggest one of these. List is rolling, 24h, 30 most recent.
+  const triggerScoutForNoResults = useCallback(
+    (extra?: {
+      parsedQuery?: any;
+      retryLevel?: number;
+      broadenedDimensions?: string[];
+    }) => {
+      let triedPrompts: string[] = [];
+      try {
+        const stored = JSON.parse(
+          localStorage.getItem('ofl_tried_prompts') || '{}',
+        ) as Record<string, number>;
+        const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+        triedPrompts = Object.entries(stored)
+          .filter(([, ts]) => ts >= cutoff)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 30)
+          .map(([p]) => p);
+      } catch {
+        // Non-fatal — localStorage may be disabled.
+      }
+      openPanelWithSearchHelp({
+        searchType: 'contact',
+        failedSearchParams: {
+          prompt: searchPrompt.trim(),
+          parsed_query: extra?.parsedQuery,
+          retry_level_used: extra?.retryLevel,
+          broadened_dimensions: extra?.broadenedDimensions,
+          tried_prompts: triedPrompts,
+        },
+        errorType: 'no_results',
+      });
+    },
+    [openPanelWithSearchHelp, searchPrompt],
+  );
 
   // Helper functions
   const stripUndefined = <T extends Record<string, any>>(obj: T) =>
@@ -474,6 +766,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
           warmthSignals: c.warmth_signals ?? undefined,
           personalizationLabel: c.personalization?.label ?? undefined,
           personalizationType: c.personalization?.commonality_type ?? undefined,
+          briefing: c.briefing ?? undefined,
         });
 
         // DEBUG: Log first mapped contact to see email fields
@@ -507,7 +800,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
     } catch (error) {
       const isDev = import.meta.env.DEV;
       if (isDev) console.error("Error checking Gmail status:", error);
-      return true;
+      return false; // Don't show banner if we can't determine status
     }
   };
 
@@ -566,7 +859,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
 
   // Load saved resume from Firestore
   const loadSavedResume = useCallback(async () => {
-    if (!user?.uid) return;
+    if (!user?.uid || isDevPreview) return;
     try {
       const userRef = doc(db, 'users', user.uid);
       const snap = await getDoc(userRef);
@@ -849,6 +1142,13 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
     setIsSearching(true);
     setProgressValue(10);
     setSearchComplete(false);
+    // Rotate the recommendation seed so users who run multiple searches get
+    // different sub-rail suggestions each time (anchors stay stable).
+    setRotationSeed((s) => s + 1);
+    setResultMessage("");
+    setBroadenedDimensions([]);
+    setSearchSuggestions([]);
+    setSearchBroadened(false);
 
     let progressInterval: NodeJS.Timeout | null = null;
     let searchSucceeded = false;
@@ -885,7 +1185,11 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
       }
 
       setProgressValue(40);
-      const result = await apiService.runPromptSearch({ prompt: searchPrompt.trim(), batchSize, emailTemplate: activeEmailTemplate });
+      // Expand school acronyms before sending to PDL so "USC" → "University of Southern
+      // California". The frontend chip continues displaying the short label; only the
+      // backend payload is rewritten so PDL's school matcher hits the right institution.
+      const expandedPrompt = expandQueryForBackend(searchPrompt.trim());
+      const result = await apiService.runPromptSearch({ prompt: expandedPrompt, batchSize, emailTemplate: activeEmailTemplate });
 
       if (!isSearchResult(result)) {
         if (progressInterval) clearInterval(progressInterval);
@@ -915,18 +1219,130 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
         await updateCredits(newCredits).catch(() => {});
       }
       setProgressValue(100);
+      const alreadySavedFromServer = (result as any)?.already_saved_contacts || [];
+      const backendMessage = (result as any)?.message || "";
+      const broadenedDims: string[] = Array.isArray((result as any)?.broadened_dimensions)
+        ? (result as any).broadened_dimensions
+        : [];
       setLastResults(result.contacts);
-      setCompanyContext((result as any)?.parsed_query?.company_context || "");
+      setAlreadySavedResults(alreadySavedFromServer);
+      setResultMessage(backendMessage);
+      setBroadenedDimensions(broadenedDims);
 
-      if ((result as any)?.search_broadened && result.contacts.length > 0) {
-        toast({
-          title: "Broadened search",
-          description: "We couldn't find an exact role match, so we showed other people at the same company.",
-        });
+      // Append every completed search to a rolling localStorage list so Scout's
+      // chat can reference "you searched for X yesterday and got 5 results"
+      // across reloads / new tabs / new devices. Capped at 30 entries; older
+      // ones FIFO-evict.
+      try {
+        const trimmedPrompt = searchPrompt.trim();
+        if (trimmedPrompt) {
+          const prior = JSON.parse(
+            localStorage.getItem('ofl_recent_searches') || '[]',
+          ) as Array<{ prompt: string; results: number; ts: number }>;
+          const arr = Array.isArray(prior) ? prior : [];
+          arr.unshift({
+            prompt: trimmedPrompt,
+            results: result.contacts?.length || 0,
+            ts: Date.now(),
+          });
+          // De-dup by prompt — keep the most recent occurrence only.
+          const seen = new Set<string>();
+          const deduped = arr.filter((e) => {
+            const k = e.prompt.toLowerCase();
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+          });
+          localStorage.setItem(
+            'ofl_recent_searches',
+            JSON.stringify(deduped.slice(0, 30)),
+          );
+        }
+      } catch {
+        // Non-fatal — localStorage may be disabled.
       }
 
-      if (result.contacts.length === 0) {
-        triggerScoutForNoResults();
+      // Track empty-result (school, company) pairs in localStorage so the
+      // right rail can deprioritize firms we already know are thin for the
+      // user's school (e.g. Bocconi × Morgan Stanley). We only persist when
+      // the retry chain bottomed out at level >= 4 — meaning even after
+      // dropping the company filter we still found no new alumni in the
+      // role family. That's the strongest signal the firm × school combo
+      // is unreachable via PDL.
+      try {
+        const retryLevel = Number((result as any)?.retry_level_used ?? 0);
+        const newCountAfter = result.contacts?.length || 0;
+        const parsedFromServer = (result as any)?.parsed_query || {};
+        const companies: any[] = parsedFromServer?.companies || [];
+        const firstCompanyName: string =
+          (companies?.[0]?.name as string | undefined)?.trim().toLowerCase() || '';
+        // School is taken from the user's profile (the rail uses the same).
+        const userSchool: string =
+          (profileFacts?.schoolFull || profileFacts?.schoolShort || '')
+            .trim()
+            .toLowerCase();
+        if (
+          newCountAfter === 0 &&
+          retryLevel >= 4 &&
+          userSchool &&
+          firstCompanyName
+        ) {
+          const key = `${userSchool}|${firstCompanyName}`;
+          const existing = JSON.parse(
+            localStorage.getItem('ofl_thin_pairs') || '{}',
+          ) as Record<string, number>;
+          existing[key] = Date.now();
+          const entries = Object.entries(existing).sort((a, b) => b[1] - a[1]);
+          const trimmed = Object.fromEntries(entries.slice(0, 100));
+          localStorage.setItem('ofl_thin_pairs', JSON.stringify(trimmed));
+        }
+      } catch {
+        // Non-fatal — localStorage may be disabled in private browsing.
+      }
+      setCompanyContext((result as any)?.parsed_query?.company_context || "");
+      setSearchSuggestions((result as any)?.suggestions || []);
+      setSearchBroadened((result as any)?.search_broadened || false);
+
+      // Open Scout with refined-prompt suggestions in two cases:
+      //   - genuine zero results (nothing to surface)
+      //   - all matches already saved AND the chain had to broaden (retry >= 2,
+      //     i.e. title/industry got dropped) — that's the "I want fresh contacts
+      //     and the system gave me what it could" moment where suggestions
+      //     genuinely help.
+      const retryLevelFromServer = Number((result as any)?.retry_level_used ?? 0);
+      const allHitsAlreadySaved =
+        result.contacts.length === 0 && alreadySavedFromServer.length > 0;
+      const isZeroResults =
+        result.contacts.length === 0 && alreadySavedFromServer.length === 0;
+      const shouldOfferRefinement =
+        isZeroResults || (allHitsAlreadySaved && retryLevelFromServer >= 2);
+
+      // Stamp the prompt as "tried and failed" before opening Scout, so the
+      // very same suggestion can't bounce back at the user on the next pass.
+      // Persists to localStorage with a 24h TTL; trimmed to 30 entries.
+      if (isZeroResults) {
+        try {
+          const promptKey = searchPrompt.trim().toLowerCase();
+          if (promptKey) {
+            const existing = JSON.parse(
+              localStorage.getItem('ofl_tried_prompts') || '{}',
+            ) as Record<string, number>;
+            existing[promptKey] = Date.now();
+            const entries = Object.entries(existing).sort((a, b) => b[1] - a[1]);
+            const trimmed = Object.fromEntries(entries.slice(0, 30));
+            localStorage.setItem('ofl_tried_prompts', JSON.stringify(trimmed));
+          }
+        } catch {
+          // Non-fatal — localStorage may be disabled.
+        }
+      }
+
+      if (shouldOfferRefinement) {
+        triggerScoutForNoResults({
+          parsedQuery: (result as any)?.parsed_query,
+          retryLevel: retryLevelFromServer,
+          broadenedDimensions: broadenedDims,
+        });
         setSearchComplete(true);
       }
 
@@ -956,16 +1372,40 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
 
       setLastSearchStats({
         successful_drafts: 0,
-        total_contacts: result.contacts.length,
+        total_contacts: result.contacts.length + ((result as any)?.already_saved_contacts?.length || 0),
       });
       setSearchComplete(true);
       searchSucceeded = true;
 
-      toast({
-        title: "Contacts Found!",
-        description: `Found ${result.contacts.length} contacts — view them in your Outbox to start outreach.`,
-        duration: 5000,
-      });
+      const savedCount = alreadySavedFromServer.length;
+      const newCount = result.contacts.length;
+      if (newCount === 0 && savedCount === 0) {
+        // Genuine no-results — Scout panel already opened above; a short toast
+        // confirms the outcome without claiming "Contacts Found!".
+        toast({
+          title: "No matching contacts found",
+          description: backendMessage || "Try broadening your search.",
+          duration: 5000,
+        });
+      } else if (newCount === 0 && savedCount > 0) {
+        // All matches already saved. Use the backend's exact message so the UI
+        // copy matches what the API contract promises (and gives the user a
+        // specific next step: open them in the network or broaden the search).
+        toast({
+          title: "Already in your tracker",
+          description: backendMessage
+            || `All ${savedCount} matching contact(s) are already in your tracker. Open them in your network, or broaden your search to find new people.`,
+          duration: 7000,
+        });
+      } else {
+        toast({
+          title: "Contacts Found!",
+          description: savedCount > 0
+            ? `Found ${newCount + savedCount} contacts (${newCount} new, ${savedCount} already saved) — view in your Outbox.`
+            : `Found ${newCount} contacts — view them in your Outbox to start outreach.`,
+          duration: 5000,
+        });
+      }
     } catch (error: any) {
       // Clear progress interval on error
       if (progressInterval) clearInterval(progressInterval);
@@ -1120,41 +1560,33 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
   // --- Embedded content (rendered inside FindPage wrapper) ---
   const embeddedContent = (
     <>
-      {/* Gmail banner */}
+      {/* Gmail hint — subtle inline text, not a warning banner */}
       {gmailConnected === false && !gmailBannerDismissed && (
-        <div
-          className="flex items-center justify-between gap-4 px-4 py-3 text-sm"
-          style={{ maxWidth: '860px', margin: '0 auto', borderBottom: '0.5px solid #E2E8F0', background: '#FFFBEB' }}
-          role="alert"
-        >
-          <div className="flex items-center gap-2 text-amber-800">
-            <Mail className="h-4 w-4 shrink-0" />
-            <span>
-              Gmail not connected — drafts won&apos;t be created.{" "}
-              <Button
-                variant="link"
-                className="h-auto p-0 text-amber-800 underline underline-offset-2"
-                onClick={initiateGmailOAuth}
-              >
-                Connect Gmail
-              </Button>
-            </span>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0 text-amber-700 hover:bg-amber-100"
+        <div style={{ maxWidth: '860px', margin: '0 auto', padding: '8px 32px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <span style={{ fontSize: 12, color: 'var(--warm-ink-tertiary, #9C9590)' }}>
+            <button
+              type="button"
+              onClick={initiateGmailOAuth}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--warm-ink-secondary, #6B6560)', textDecoration: 'underline', textUnderlineOffset: 2, fontFamily: 'inherit' }}
+            >
+              Connect Gmail
+            </button>
+            {' '}to auto-create email drafts
+          </span>
+          <button
+            type="button"
             aria-label="Dismiss"
-            onClick={() => setGmailBannerDismissed(true)}
+            onClick={dismissGmailBanner}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--warm-ink-tertiary, #9C9590)', fontSize: 14, lineHeight: 1, padding: 2 }}
           >
-            <X className="h-4 w-4" />
-          </Button>
+            &times;
+          </button>
         </div>
       )}
 
       <div
         data-tour="tour-search-form"
-        style={{ padding: '24px 32px 32px', maxWidth: '860px' }}
+        style={{ padding: '24px 32px 32px', maxWidth: '860px', margin: '0 auto' }}
       >
         <input
           type="file"
@@ -1206,220 +1638,331 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
           </div>
         )}
 
-        {/* Hero search bar */}
-        <div style={{ marginTop: 20, marginBottom: 16 }}>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: 10,
-              padding: '16px 20px',
-              border: '1.5px solid transparent',
-              borderRadius: 14,
-              background: '#F0F7FF',
-              transition: 'all .15s',
-              minHeight: 110,
-            }}
-            className="focus-within:border-[#2563EB] focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(37,99,235,0.12)]"
-          >
-            <Search style={{ width: 16, height: 16, flexShrink: 0, color: '#3B82F6', marginTop: 1 }} />
-            <input
-              value={hoveredChipPrompt && !searchPrompt ? hoveredChipPrompt : searchPrompt}
-              onChange={(e) => { if (!hoveredChipPrompt) { setSearchPrompt(e.target.value); setLinkedInError(null); setLinkedInSuccess(null); } }}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
-              placeholder="Paste a LinkedIn URL, or try 'USC alumni at Goldman Sachs'..."
-              disabled={isSearching || linkedInLoading}
+        {/* Hero search bar — full-width prompt. Company Alternatives sidebar is
+            absolutely positioned in the empty space to the right of the form (outside
+            the prompt bubble) so the prompt keeps its full width for typing. */}
+        <div style={{ marginTop: 0, marginBottom: 16, position: 'relative' }}>
+            <div
               style={{
-                flex: 1,
-                border: 'none',
-                background: 'none',
-                fontSize: 14,
-                color: hoveredChipPrompt && !searchPrompt ? '#94A3B8' : '#0F172A',
-                outline: 'none',
-                fontFamily: 'inherit',
-                lineHeight: 1.5,
-              }}
-            />
-            {isLinkedInUrl(searchPrompt) && (
-              <div style={{
                 display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                background: 'rgba(59,130,246,0.10)',
-                color: '#3B82F6',
-                fontSize: 12,
-                fontWeight: 500,
-                padding: '4px 10px',
-                borderRadius: 100,
-                whiteSpace: 'nowrap',
-                marginTop: 2,
-              }}>
-                <Linkedin className="h-3 w-3" />
-                LinkedIn
+                flexDirection: 'column',
+                padding: '22px 24px',
+                border: '1.5px solid var(--warm-border, #E8E4DE)',
+                borderRadius: 14,
+                background: 'var(--warm-surface, #FAFBFF)',
+                transition:
+                  'min-height .25s cubic-bezier(0.16, 1, 0.3, 1), border-color .15s, background .15s, box-shadow .15s',
+                // Collapsed when blurred + empty → just enough room for the input row.
+                // Expands smoothly when the user focuses or starts typing so the
+                // "Recommended for you" rail stays visible above the fold.
+                minHeight: inputFocused || searchPrompt.trim().length > 0 ? 180 : 64,
+              }}
+              className="hover:border-[#3B82F6] hover:bg-white focus-within:border-[#2563EB] focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(37,99,235,0.12)]"
+            >
+              {/* Row 1 — search icon + input + LinkedIn pill */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <Search style={{ width: 16, height: 16, flexShrink: 0, color: '#3B82F6', marginTop: 1 }} />
+              <div style={{ flex: 1, position: 'relative' }}>
+                {/* Pseudo-element styling for the transparent input:
+                    - ::placeholder — keep it visible despite color:transparent on the host
+                    - ::selection — keep selected text transparent (the visible rendering
+                      lives in the overlay above; without this rule, the input's selected
+                      text re-emerges and double-renders against the overlay). */}
+                <style>{`.ofl-search-input::placeholder{color:var(--warm-ink-tertiary,#9C9590);opacity:1;}.ofl-search-input::selection{color:transparent;background:rgba(59,130,246,0.20);}.ofl-search-input::-moz-selection{color:transparent;background:rgba(59,130,246,0.20);}`}</style>
+                <textarea
+                  ref={promptInputRef}
+                  className="ofl-search-input"
+                  spellCheck={false}
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  autoComplete="off"
+                  rows={1}
+                  value={searchPrompt}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setSearchPrompt(next);
+                    setLinkedInError(null);
+                    setLinkedInSuccess(null);
+                    // Auto-grow vertically as the user types — keeps long queries readable.
+                    const el = e.currentTarget;
+                    el.style.height = 'auto';
+                    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Tab' && ghostCompletion && !e.shiftKey) {
+                      e.preventDefault();
+                      setSearchPrompt((prev) => prev + ghostCompletion);
+                      return;
+                    }
+                    if (
+                      e.key === 'ArrowRight' &&
+                      ghostCompletion &&
+                      e.currentTarget.selectionStart === searchPrompt.length
+                    ) {
+                      e.preventDefault();
+                      setSearchPrompt((prev) => prev + ghostCompletion);
+                      return;
+                    }
+                    // Enter submits, Shift+Enter inserts a newline.
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSubmit();
+                    }
+                  }}
+                  onFocus={() => setInputFocused(true)}
+                  onBlur={() => setInputFocused(false)}
+                  // Native placeholder is intentionally empty — the typewriter overlay below
+                  // owns ALL placeholder rendering (focused or not), so we don't double-show.
+                  placeholder={undefined}
+                  disabled={isSearching || linkedInLoading}
+                  style={{
+                    width: '100%',
+                    border: 'none',
+                    background: 'none',
+                    fontSize: 14,
+                    // Native textarea text is invisible. The visible text + ghost suffix render
+                    // in the overlay below so they're guaranteed to share metrics and align.
+                    color: 'transparent',
+                    caretColor: '#0F172A',
+                    outline: 'none',
+                    fontFamily: 'inherit',
+                    lineHeight: 1.5,
+                    padding: 0,
+                    resize: 'none',
+                    overflow: 'hidden',
+                    minHeight: 21, // matches one line at fontSize 14 × lineHeight 1.5
+                  }}
+                />
+                {/* Typewriter placeholder overlay — types + deletes between examples in quotes */}
+                {showAnimatedPlaceholder && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      pointerEvents: 'none',
+                      fontSize: 14,
+                      fontFamily: 'inherit',
+                      lineHeight: 1.5,
+                      color: 'var(--warm-ink-tertiary, #9C9590)',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    <style>{`@keyframes ofl-twblink{0%,50%{opacity:1}51%,100%{opacity:0}}.ofl-twcaret{display:inline-block;animation:ofl-twblink 1s steps(1) infinite;color:var(--brand-blue,#3B82F6);margin-left:1px;font-weight:500}`}</style>
+                    Paste a LinkedIn URL, or try &lsquo;<span>{typedText}</span><span className="ofl-twcaret">|</span>&rsquo;…
+                  </div>
+                )}
+                {/* Combined text overlay — typed text in primary ink + optional ghost suffix
+                    in faded ink. Both rendered in the same DOM node so they share font metrics
+                    and align pixel-perfect with each other (no offset between typed and ghost). */}
+                {searchPrompt && !showAnimatedPlaceholder && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      pointerEvents: 'none',
+                      fontSize: 14,
+                      fontFamily: 'inherit',
+                      lineHeight: 1.5,
+                      // pre-wrap so long prompts wrap to multiple lines instead of cutting off.
+                      // The textarea grows in tandem; together they stay aligned pixel-perfect.
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    {previewedPrompt ? (
+                      // Hover-preview: render the prompt with the matched word swapped in
+                      // a faded blue highlight so the user sees the result before clicking.
+                      <>
+                        <span style={{ color: '#0F172A' }}>{previewedPrompt.before}</span>
+                        <span
+                          style={{
+                            color: 'var(--brand-blue, #3B82F6)',
+                            background: 'rgba(59,130,246,0.12)',
+                            borderRadius: 3,
+                            padding: '0 1px',
+                          }}
+                        >
+                          {previewedPrompt.replacement}
+                        </span>
+                        <span style={{ color: '#0F172A' }}>{previewedPrompt.after}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ color: '#0F172A' }}>{searchPrompt}</span>
+                        {ghostCompletion && inputFocused && (
+                          <span style={{ color: 'var(--ink-3, #8A8F9A)', opacity: 0.55 }}>
+                            {ghostCompletion}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-            <div style={{ position: 'relative' }}>
-              <button
-                onClick={() => navigate("/find/templates")}
-                style={{
+              {isLinkedInUrl(searchPrompt) && (
+                <div style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: 4,
+                  background: 'rgba(59,130,246,0.10)',
+                  color: '#3B82F6',
                   fontSize: 12,
-                  color: '#6B7280',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                  transition: 'color .15s',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = '#0F172A';
-                  templateTooltipTimer.current = setTimeout(() => setShowTemplateTooltip(true), 280);
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = '#6B7280';
-                  if (templateTooltipTimer.current) clearTimeout(templateTooltipTimer.current);
-                  setShowTemplateTooltip(false);
-                }}
-              >
-                Email template:&nbsp;<span style={{ fontWeight: 600, color: '#0F172A' }}>{getEmailTemplateLabel(activeEmailTemplate)}</span>
-                <ChevronRight style={{ width: 12, height: 12 }} />
-              </button>
-              <div
-                className="pointer-events-none"
-                style={{
-                  position: 'absolute',
-                  bottom: '100%',
-                  left: 0,
-                  marginBottom: 8,
-                  background: '#1E293B',
-                  color: '#fff',
-                  fontSize: 13,
-                  lineHeight: 1.45,
-                  padding: '8px 12px',
-                  borderRadius: 8,
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                  width: 260,
-                  whiteSpace: 'normal',
-                  opacity: showTemplateTooltip ? 1 : 0,
-                  transition: 'opacity .15s',
-                }}
-              >
-                Set the tone, style, and sign-off for every email we draft. Click to customize your template.
-              </div>
-            </div>
-            <div style={{ position: 'relative' }}>
-              <button
-                type="button"
-                onClick={() => setShowImportDialog(true)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  padding: '6px 12px',
-                  border: '1px solid #E2E8F0',
-                  borderRadius: 6,
-                  background: 'transparent',
-                  color: '#94A3B8',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: 'pointer',
+                  fontWeight: 500,
+                  padding: '4px 10px',
+                  borderRadius: 100,
                   whiteSpace: 'nowrap',
-                  fontFamily: 'inherit',
-                  transition: 'all .15s',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = '#3B82F6'; e.currentTarget.style.color = '#3B82F6';
-                  csvTooltipTimer.current = setTimeout(() => setShowCsvTooltip(true), 280);
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.color = '#94A3B8';
-                  if (csvTooltipTimer.current) clearTimeout(csvTooltipTimer.current);
-                  setShowCsvTooltip(false);
-                }}
-              >
-                <Upload className="h-3 w-3" />
-                Import CSV
-              </button>
-              <div
-                className="pointer-events-none"
-                style={{
-                  position: 'absolute',
-                  bottom: '100%',
-                  right: 0,
-                  marginBottom: 8,
-                  background: '#1E293B',
-                  color: '#fff',
-                  fontSize: 13,
-                  lineHeight: 1.45,
-                  padding: '8px 12px',
-                  borderRadius: 8,
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                  width: 240,
-                  whiteSpace: 'normal',
-                  opacity: showCsvTooltip ? 1 : 0,
-                  transition: 'opacity .15s',
-                }}
-              >
-                Import your own contacts from a spreadsheet or LinkedIn export. We'll match emails and add them to your network.
+                  marginTop: 2,
+                }}>
+                  <Linkedin className="h-3 w-3" />
+                  LinkedIn
+                </div>
+              )}
+              </div>
+
+              {/* Role-variations pill row — Grammarly-style, sits directly below the
+                  typed sentence. Hover any pill to preview the swap, click to commit. */}
+              <div style={{ paddingLeft: 26, marginTop: 16 }}>
+                <RoleVariations
+                  prompt={searchPrompt}
+                  isSearching={isSearching}
+                  hasResults={hasResults}
+                  isLinkedIn={isLinkedInUrl(searchPrompt)}
+                  inputFocused={inputFocused}
+                  onAcceptSuggestion={(originalMatched, chosen) => {
+                    const escaped = originalMatched.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const regex = new RegExp(`\\b${escaped}\\b`, 'i');
+                    setSearchPrompt((prev) => prev.replace(regex, chosen.toLowerCase()));
+                    setPreviewSwap(null);
+                  }}
+                  onPreviewSuggestion={(originalMatched, chosen) =>
+                    setPreviewSwap({ matched: originalMatched, chosen })
+                  }
+                  onClearPreview={() => setPreviewSwap(null)}
+                />
+              </div>
+
+              {/* Row 2 — bottom of the prompt box. When the user has focus-but-empty,
+                  this slot shows the click-to-fill quick-starters (mental starting line).
+                  When the user has typed something, dimension chips take over. */}
+              <div style={{ marginTop: 'auto', paddingLeft: 26, paddingTop: 18 }}>
+                {inputFocused && !searchPrompt.trim() ? (
+                  <QuickStarters
+                    visible
+                    onPick={(seed) => {
+                      // Treat the click as if the user had typed the seed verbatim:
+                      // fill the prompt, place caret at end, keep focus on the input,
+                      // and let the existing pipeline (DimensionChips, RoleVariations,
+                      // CompanyAlternatives, ghost completion) re-derive everything.
+                      setSearchPrompt(seed);
+                      requestAnimationFrame(() => {
+                        const el = promptInputRef.current;
+                        if (el) {
+                          el.focus();
+                          try {
+                            el.setSelectionRange(seed.length, seed.length);
+                          } catch {
+                            // Safari may throw on hidden/transparent inputs — non-fatal.
+                          }
+                        }
+                      });
+                    }}
+                    schoolShort={profileFacts.schoolShort}
+                    schoolFull={profileFacts.schoolFull}
+                    targetFirms={profileFacts.targetFirms}
+                    targetIndustries={profileFacts.targetIndustries}
+                    preferredLocations={profileFacts.preferredLocations}
+                    extractedRoles={profileFacts.extractedRoles}
+                  />
+                ) : (
+                  <DimensionChips
+                    prompt={searchPrompt}
+                    isSearching={isSearching}
+                    hasResults={hasResults}
+                    isLinkedIn={isLinkedInUrl(searchPrompt)}
+                    inputFocused={inputFocused}
+                  />
+                )}
               </div>
             </div>
+
+            {/* RIGHT — Company Alternatives, absolutely positioned in the empty space
+                outside the form's max-width container. Doesn't affect the prompt's
+                full-width layout. */}
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 'calc(100% + 20px)',
+                width: 168,
+              }}
+            >
+              <CompanyAlternatives
+                prompt={searchPrompt}
+                isSearching={isSearching}
+                hasResults={hasResults}
+                isLinkedIn={isLinkedInUrl(searchPrompt)}
+                rotationSeed={rotationSeed}
+                inputFocused={inputFocused}
+                onAcceptSuggestion={(originalMatched, chosen) => {
+                  const escaped = originalMatched.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                  const regex = new RegExp(`\\b${escaped}\\b`, 'i');
+                  setSearchPrompt((prev) => prev.replace(regex, chosen.toLowerCase()));
+                  setPreviewSwap(null);
+                }}
+                onPreviewSuggestion={(originalMatched, chosen) =>
+                  setPreviewSwap({ matched: originalMatched, chosen })
+                }
+                onClearPreview={() => setPreviewSwap(null)}
+                onAppendCompany={(company) => {
+                  // No specific company in the prompt yet — append "at <company>"
+                  // so the search picks up the user's intent.
+                  setSearchPrompt((prev) => {
+                    const trimmed = prev.replace(/\s+$/, '');
+                    return /\bat\b/i.test(trimmed)
+                      ? `${trimmed} ${company}`
+                      : `${trimmed} at ${company}`;
+                  });
+                }}
+                onAppendLocation={(loc) => {
+                  setSearchPrompt((prev) => {
+                    const trimmed = prev.replace(/\s+$/, '');
+                    return /\bin\b/i.test(trimmed)
+                      ? `${trimmed} ${loc}`
+                      : `${trimmed} in ${loc}`;
+                  });
+                }}
+              />
+            </div>
+          {/* Template button + Import link */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 18 }}>
+            <TemplateButton
+              template={activeEmailTemplate}
+              onClick={() => navigate("/find/templates")}
+            />
+            <button
+              type="button"
+              onClick={() => setShowImportDialog(true)}
+              style={{ fontSize: 12, color: 'var(--ink-2, #4A4F5B)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '4px 6px', borderRadius: 6, transition: 'color .12s, background .12s' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = 'var(--brand-blue, #3B82F6)';
+                e.currentTarget.style.background = 'rgba(59,130,246,0.06)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = 'var(--ink-2, #4A4F5B)';
+                e.currentTarget.style.background = 'transparent';
+              }}
+            >
+              Import contacts
+            </button>
           </div>
         </div>
-
-        {/* Example chips — hidden after user types */}
-        {!searchPrompt.trim() && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
-            {examplePromptChips.map((chip) => (
-              <button
-                key={chip.id}
-                type="button"
-                onClick={() => {
-                  setSearchPrompt(chip.prompt);
-                  setSelectedExampleId(chip.id);
-                  setTimeout(() => setSelectedExampleId(null), 200);
-                }}
-                disabled={isSearching || linkedInLoading}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  padding: '5px 11px',
-                  fontSize: 11.5,
-                  border: `1px solid ${selectedExampleId === chip.id ? '#3B82F6' : '#E2E8F0'}`,
-                  borderRadius: 100,
-                  background: selectedExampleId === chip.id ? 'rgba(59,130,246,0.05)' : '#fff',
-                  color: selectedExampleId === chip.id ? '#3B82F6' : '#6B7280',
-                  cursor: 'pointer',
-                  transition: 'all .12s',
-                  fontFamily: 'inherit',
-                }}
-                onMouseEnter={(e) => {
-                  setHoveredChipPrompt(chip.prompt);
-                  if (selectedExampleId !== chip.id) {
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = '#3B82F6';
-                    (e.currentTarget as HTMLButtonElement).style.background = 'rgba(59,130,246,0.05)';
-                    (e.currentTarget as HTMLButtonElement).style.color = '#3B82F6';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  setHoveredChipPrompt(null);
-                  if (selectedExampleId !== chip.id) {
-                    (e.currentTarget as HTMLButtonElement).style.borderColor = '#E2E8F0';
-                    (e.currentTarget as HTMLButtonElement).style.background = '#fff';
-                    (e.currentTarget as HTMLButtonElement).style.color = '#6B7280';
-                  }
-                }}
-              >
-                {chip.isLinkedIn && <Linkedin className="h-3 w-3" />}
-                {chip.label}
-              </button>
-            ))}
-          </div>
-        )}
 
         {linkedInError && (
           <div className="p-3 bg-red-50 text-red-700 text-sm rounded-[3px] flex items-center gap-2 border border-red-200 mb-4">
@@ -1428,8 +1971,8 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
           </div>
         )}
 
-        {/* Quantity slider — shown after user types, hidden for LinkedIn */}
-        {searchPrompt.trim() && !isLinkedInUrl(searchPrompt) && (
+        {/* Quantity slider — always visible, hidden for LinkedIn */}
+        {!isLinkedInUrl(searchPrompt) && (
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 500, letterSpacing: '.05em', marginBottom: 8 }}>
               HOW MANY TO FIND?
@@ -1475,29 +2018,49 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
         <button
           ref={originalButtonRef}
           onClick={handleSubmit}
-          disabled={isSearching || linkedInLoading || !searchPrompt.trim() || !user}
+          disabled={isSearching || linkedInLoading}
           style={{
             width: '100%',
             height: 52,
             borderRadius: 12,
-            background: (isSearching || linkedInLoading || !searchPrompt.trim() || !user) ? '#E2E8F0' : '#2563EB',
-            color: (isSearching || linkedInLoading || !searchPrompt.trim() || !user) ? '#94A3B8' : '#fff',
-            border: 'none',
+            background: (isSearching || linkedInLoading) ? 'var(--warm-border, #E5E7EB)'
+              : (!searchPrompt.trim() || !user) ? 'var(--brand-blue-subtle, rgba(59,130,246,0.04))'
+              : 'var(--brand-blue, #3B82F6)',
+            color: (isSearching || linkedInLoading) ? 'var(--warm-ink-tertiary, #94A3B8)'
+              : (!searchPrompt.trim() || !user) ? 'var(--brand-blue, #3B82F6)'
+              : '#FFFFFF',
+            border: (!searchPrompt.trim() || !user) && !(isSearching || linkedInLoading) ? '1.5px solid var(--brand-blue, #3B82F6)' : '1.5px solid transparent',
             fontSize: 15,
             fontWeight: 600,
-            cursor: (isSearching || linkedInLoading || !searchPrompt.trim() || !user) ? 'not-allowed' : 'pointer',
+            cursor: (isSearching || linkedInLoading) ? 'not-allowed' : 'pointer',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             gap: 8,
-            transition: 'all .15s',
+            transition: 'all .15s ease',
             fontFamily: 'inherit',
+          }}
+          onMouseEnter={(e) => {
+            if (isSearching || linkedInLoading) return;
+            const idle = !searchPrompt.trim() || !user;
+            (e.currentTarget as HTMLButtonElement).style.background = idle
+              ? 'var(--brand-blue-soft, rgba(59,130,246,0.10))'
+              : 'var(--brand-blue-hover, #2563EB)';
+            (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 2px 8px rgba(59,130,246,0.18)';
+          }}
+          onMouseLeave={(e) => {
+            if (isSearching || linkedInLoading) return;
+            const idle = !searchPrompt.trim() || !user;
+            (e.currentTarget as HTMLButtonElement).style.background = idle
+              ? 'var(--brand-blue-subtle, rgba(59,130,246,0.04))'
+              : 'var(--brand-blue, #3B82F6)';
+            (e.currentTarget as HTMLButtonElement).style.boxShadow = 'none';
           }}
         >
           {isSearching || linkedInLoading ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              <span>{linkedInLoading ? 'Importing...' : 'Finding people...'}</span>
+              <span>{linkedInLoading ? 'Importing...' : 'Networking...'}</span>
             </>
           ) : isLinkedInUrl(searchPrompt) ? (
             <>
@@ -1507,20 +2070,76 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
           ) : (
             <>
               <Search className="w-4 h-4" />
-              <span>Find people</span>
+              <span>Network</span>
             </>
           )}
         </button>
 
-        {/* Resume status as subtle text link below CTA */}
-        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 10 }}>
-          {savedResumeUrl && savedResumeFileName ? (
+        {/* Resume upload card — shown when no results and no resume */}
+        {!hasResults && !isSearching && !savedResumeUrl && (
+          <div
+            className="max-sm:flex-col max-sm:items-start"
+            style={{
+              marginTop: 20,
+              background: '#FFFFFF',
+              border: '1px solid var(--warm-border, #E8E4DE)',
+              borderRadius: 12,
+              padding: '18px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 16,
+            }}
+          >
+            <div style={{
+              width: 44,
+              height: 44,
+              borderRadius: 10,
+              background: 'var(--warm-surface, #FAFBFF)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}>
+              <FileText style={{ width: 20, height: 20, color: '#6B6560' }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, color: '#1A1714', marginBottom: 3 }}>
+                Upload your resume for better matches
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--warm-ink-tertiary, #9C9590)', lineHeight: 1.5 }}>
+                We'll find people who hired for roles like yours — and tailor your outreach automatically.
+              </div>
+            </div>
+            <button
+              className="max-sm:w-full"
+              onClick={() => document.getElementById('resume-upload')?.click()}
+              style={{
+                background: '#1A1714',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 8,
+                padding: '9px 16px',
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
+            >
+              Upload resume
+            </button>
+          </div>
+        )}
+
+        {/* Resume status — compact indicator when resume is already uploaded */}
+        {savedResumeUrl && savedResumeFileName && !hasResults && !isSearching && (
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: 10 }}>
             <button
               onClick={() => document.getElementById('resume-upload')?.click()}
               disabled={isSearching || isUploadingResume}
               style={{
                 fontSize: 11,
-                color: '#94A3B8',
+                color: 'var(--warm-ink-tertiary, #9C9590)',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 4,
@@ -1531,28 +2150,40 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
               }}
             >
               <Check className="w-3 h-3 text-green-600" />
-              Resume: <span style={{ fontWeight: 500 }}>{savedResumeFileName}</span>
+              Resume: <span style={{ fontWeight: 500, fontFamily: "'JetBrains Mono', monospace" }}>{savedResumeFileName}</span>
             </button>
-          ) : (
-            <button
-              onClick={() => !isSearching && !isUploadingResume && document.getElementById('resume-upload')?.click()}
-              style={{
-                fontSize: 11,
-                color: '#94A3B8',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                cursor: 'pointer',
-                background: 'none',
-                border: 'none',
-                fontFamily: 'inherit',
-              }}
+          </div>
+        )}
+
+        {/* Suggestion cards — visible whenever the input doesn't have focus and there
+            are no results yet. Includes the case where the user has typed content and
+            then clicked away — the recs surface immediately as a discovery panel. */}
+        <AnimatePresence initial={false}>
+          {!hasResults && !isSearching && (
+            <motion.div
+              key="recs"
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+              style={{ marginTop: 36 }}
             >
-              <FileText className="w-3 h-3" />
-              Add resume for better personalization
-            </button>
+              <SuggestionChips
+                type="people"
+                uid={user?.uid}
+                onSelect={(prompt) => {
+                  setSearchPrompt(prompt);
+                  setTimeout(() => { pendingAutoSearch.current = true; }, 0);
+                }}
+                collapsed={suggestionsCollapsed}
+                onCollapse={setSuggestionsCollapsed}
+                hasSearched={hasResults}
+                disabled={isSearching || linkedInLoading}
+              />
+            </motion.div>
           )}
-        </div>
+        </AnimatePresence>
+
 
         {/* Results section */}
         {hasResults && !isSearching && !linkedInSuccess && (
@@ -1579,10 +2210,106 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                 fontWeight: 500,
               }}>
                 <CheckCircle className="w-3 h-3" />
-                {lastResults.length} {lastResults.length === 1 ? 'result' : 'results'} found
+                {lastResults.length + alreadySavedResults.length} {(lastResults.length + alreadySavedResults.length) === 1 ? 'result' : 'results'} found
               </div>
-              <span style={{ fontSize: 11, color: '#94A3B8' }}>Saved to your tracker automatically</span>
+              <span style={{ fontSize: 11, color: '#94A3B8' }}>
+                {lastResults.length > 0 ? `${lastResults.length} new — saved to your tracker automatically` : ''}
+                {lastResults.length > 0 && alreadySavedResults.length > 0 ? ' · ' : ''}
+                {alreadySavedResults.length > 0 ? `${alreadySavedResults.length} already in your tracker` : ''}
+              </span>
             </div>
+
+            {/* Backend message — persistent inline callout for "all already saved" or adjacency explanation.
+                Shows when there are no new contacts to explain why and what to do next. */}
+            {resultMessage && lastResults.length === 0 && (
+              <div style={{
+                padding: '10px 14px',
+                background: alreadySavedResults.length > 0 ? 'rgba(245,158,11,0.06)' : 'rgba(59,130,246,0.05)',
+                border: alreadySavedResults.length > 0 ? '0.5px solid #FDE68A' : '0.5px solid #BFDBFE',
+                borderRadius: 6,
+                fontSize: 13,
+                color: alreadySavedResults.length > 0 ? '#713F12' : '#1E40AF',
+                lineHeight: 1.5,
+                marginBottom: 12,
+              }}>
+                {resultMessage}
+              </div>
+            )}
+
+            {/* Broadening notice — shown when the backend retry chain dropped one
+                or more constraints to find these contacts. Tells the user honestly
+                that the system expanded its search rather than pretending the
+                original specific query yielded these people. */}
+            {broadenedDimensions.length > 0 && lastResults.length > 0 && (() => {
+              const labels: Record<string, string> = {
+                title: 'role',
+                industry: 'industry',
+                location: 'location',
+                company: 'company',
+              };
+              const list = broadenedDimensions.map((d) => labels[d] || d);
+              let phrase = '';
+              if (list.length === 1) {
+                phrase = `the ${list[0]} filter`;
+              } else if (list.length === 2) {
+                phrase = `the ${list[0]} and ${list[1]} filters`;
+              } else {
+                phrase = `${list.slice(0, -1).map((l) => `the ${l}`).join(', ')}, and ${list[list.length - 1]} filters`;
+              }
+              return (
+                <div
+                  style={{
+                    padding: '8px 12px',
+                    background: 'rgba(59,130,246,0.06)',
+                    border: '0.5px solid rgba(59,130,246,0.20)',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    color: 'var(--ink-2, #4A4F5B)',
+                    lineHeight: 1.45,
+                    marginBottom: 12,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <Sparkles style={{ width: 12, height: 12, color: 'var(--brand-blue, #3B82F6)', flexShrink: 0 }} />
+                  <span>
+                    Expanded by loosening {phrase} — your exact match was thin, so we surfaced the closest alternates.
+                  </span>
+                </div>
+              );
+            })()}
+
+            {/* Cross-tab suggestions (e.g. "Find recruiters at X") */}
+            {searchSuggestions.length > 0 && lastResults.length === 0 && (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                {searchSuggestions.map((suggestion: any, idx: number) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      if (suggestion.type === 'switch_tab') {
+                        navigate(`/find?tab=${suggestion.tab}${suggestion.prefill?.company ? `&company=${encodeURIComponent(suggestion.prefill.company)}` : ''}`);
+                      } else if (suggestion.type === 'broaden_query' && suggestion.query) {
+                        setSearchPrompt(suggestion.query);
+                      }
+                    }}
+                    style={{
+                      padding: '8px 14px',
+                      background: '#fff',
+                      border: '1px solid #E2E8F0',
+                      borderRadius: 6,
+                      fontSize: 13,
+                      color: '#3B82F6',
+                      cursor: 'pointer',
+                      fontWeight: 500,
+                      transition: 'all .12s',
+                    }}
+                  >
+                    {suggestion.label} <ArrowRight style={{ width: 12, height: 12, display: 'inline', marginLeft: 4 }} />
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Company context hint — explains when search intent was reinterpreted */}
             {companyContext && (
@@ -1595,15 +2322,15 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                 color: '#6B7280',
                 lineHeight: 1.4,
               }}>
-                {companyContext}. Showing related roles at this organization.
+                {companyContext.replace(/[.]+$/, '')}. Showing related roles at this organization.
               </div>
             )}
 
             {/* Contact cards */}
             {lastResults.length <= 8 && lastResults.map((c: any, i: number) => {
-              const name = [c.FirstName || c.firstName, c.LastName || c.lastName].filter(Boolean).join(' ') || 'Unknown';
-              const title = c.JobTitle || c.jobTitle || c.Title || '';
-              const company = c.Company || c.company || '';
+              const name = toTitleCase([c.FirstName || c.firstName, c.LastName || c.lastName].filter(Boolean).join(' ') || (c.Email || c.email || '').split('@')[0] || 'Unknown');
+              const title = toTitleCase(c.JobTitle || c.jobTitle || c.Title || '');
+              const company = toTitleCase(c.Company || c.company || '');
               const email = c.Email || c.email || '';
               const linkedin = c.LinkedIn || c.linkedinUrl || '';
               const initials = name.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase();
@@ -1650,71 +2377,119 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span style={{ fontSize: 13, fontWeight: 500, color: '#0F172A' }}>{name}</span>
                       {/* Warmth indicator */}
-                      {c.warmth_tier === 'warm' && (
-                        <span
-                          title={(() => {
-                            const sigs = c.warmth_signals || [];
-                            return sigs.slice(0, 2).map((s: any) => s.detail || s.signal?.replace(/_/g, ' ')).filter(Boolean).join(', ');
-                          })()}
-                          style={{
-                            padding: '1px 6px',
-                            borderRadius: 3,
-                            background: 'rgba(34, 197, 94, 0.10)',
-                            color: '#16A34A',
-                            fontSize: 10,
-                            fontWeight: 600,
-                            fontFamily: "'DM Sans', system-ui, sans-serif",
-                          }}
-                        >
-                          Strong match
-                        </span>
-                      )}
-                      {c.warmth_tier === 'neutral' && (
-                        <span
-                          title={(() => {
-                            const sigs = c.warmth_signals || [];
-                            return sigs.slice(0, 2).map((s: any) => s.detail || s.signal?.replace(/_/g, ' ')).filter(Boolean).join(', ');
-                          })()}
-                          style={{
-                            padding: '1px 6px',
-                            borderRadius: 3,
-                            background: 'rgba(245, 158, 11, 0.10)',
-                            color: '#D97706',
-                            fontSize: 10,
-                            fontWeight: 600,
-                            fontFamily: "'DM Sans', system-ui, sans-serif",
-                          }}
-                        >
-                          Good fit
-                        </span>
-                      )}
+                      {(() => {
+                        const label = c.warmth_label || (c.warmth_tier === 'warm' ? 'Strong match' : c.warmth_tier === 'neutral' ? 'Good fit' : '');
+                        if (!label) return null;
+                        const isRoleMismatch = label === 'Right company, different role';
+                        const isStrong = label === 'Strong fit' || label === 'Strong match';
+                        const tooltipText = (() => {
+                          const sigs = c.warmth_signals || [];
+                          return sigs.slice(0, 2).map((s: any) => s.detail || s.signal?.replace(/_/g, ' ')).filter(Boolean).join(', ');
+                        })();
+                        return (
+                          <span
+                            title={tooltipText}
+                            style={{
+                              padding: '1px 6px',
+                              borderRadius: 3,
+                              background: isStrong
+                                ? 'rgba(34, 197, 94, 0.10)'
+                                : isRoleMismatch
+                                  ? 'rgba(148, 163, 184, 0.15)'
+                                  : 'rgba(245, 158, 11, 0.10)',
+                              color: isStrong
+                                ? '#16A34A'
+                                : isRoleMismatch
+                                  ? '#64748B'
+                                  : '#D97706',
+                              fontSize: 10,
+                              fontWeight: 600,
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                            }}
+                          >
+                            {label}
+                          </span>
+                        );
+                      })()}
                     </div>
                     <div style={{ fontSize: 11, color: '#6B7280', marginTop: 1 }}>
                       {[title, company].filter(Boolean).join(' at ')}
                     </div>
-                    {/* Personalization tag */}
-                    {c.personalization?.label && (
-                      <span
-                        style={{
-                          display: 'inline-block',
-                          marginTop: 3,
-                          padding: '1px 7px',
-                          borderRadius: 3,
-                          fontSize: 10,
-                          fontWeight: 500,
-                          fontFamily: "'DM Sans', system-ui, sans-serif",
-                          background: c.personalization?.commonality_type === 'university' ? 'rgba(59,130,246,0.08)' :
-                                     c.personalization?.commonality_type === 'hometown' ? 'rgba(34,197,94,0.08)' :
-                                     c.personalization?.commonality_type === 'company' ? 'rgba(124,58,237,0.08)' :
-                                     'rgba(107,114,128,0.08)',
-                          color: c.personalization?.commonality_type === 'university' ? '#2563EB' :
-                                 c.personalization?.commonality_type === 'hometown' ? '#16A34A' :
-                                 c.personalization?.commonality_type === 'company' ? '#7C3AED' :
-                                 '#6B7280',
-                        }}
-                      >
-                        {c.personalization.label}
-                      </span>
+                    {/* Briefing line — "Why this person" */}
+                    {c.briefing && (
+                      <div style={{ fontSize: 11, color: '#6B7280', marginTop: 3, lineHeight: 1.3 }}>
+                        {c.briefing}
+                      </div>
+                    )}
+                    {/* 1C: Email preview (collapsed by default) */}
+                    {(c.emailSubject || c.emailBody) && (
+                      <div style={{ marginTop: 6 }}>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setExpandedEmailIdx(expandedEmailIdx === i ? null : i); }}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 4,
+                            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                            fontFamily: 'inherit', fontSize: 11, color: '#3B82F6', fontWeight: 500,
+                          }}
+                        >
+                          <Mail style={{ width: 11, height: 11 }} />
+                          <span style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {c.emailSubject || 'Draft email'}
+                          </span>
+                          <ChevronRight style={{
+                            width: 11, height: 11,
+                            transform: expandedEmailIdx === i ? 'rotate(90deg)' : 'none',
+                            transition: 'transform .15s',
+                          }} />
+                        </button>
+                        {expandedEmailIdx === i && (
+                          <div style={{
+                            marginTop: 6, padding: '8px 10px',
+                            background: '#F8FAFC', borderRadius: 4, border: '0.5px solid #E2E8F0',
+                          }}>
+                            {c.emailSubject && (
+                              <div style={{ fontSize: 12, fontWeight: 600, color: '#0F172A', marginBottom: 4 }}>
+                                {c.emailSubject}
+                              </div>
+                            )}
+                            <div style={{ fontSize: 11, color: '#475569', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                              {c.emailBody}
+                            </div>
+                            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                              {c.gmailDraftUrl && (
+                                <a
+                                  href={c.gmailDraftUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  style={{
+                                    fontSize: 11, fontWeight: 500, color: '#3B82F6',
+                                    display: 'flex', alignItems: 'center', gap: 3,
+                                    textDecoration: 'none',
+                                  }}
+                                >
+                                  <Send style={{ width: 10, height: 10 }} /> Open Draft
+                                </a>
+                              )}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const text = `Subject: ${c.emailSubject || ''}\n\n${c.emailBody || ''}`;
+                                  navigator.clipboard.writeText(text);
+                                  toast({ description: 'Email copied to clipboard' });
+                                }}
+                                style={{
+                                  fontSize: 11, fontWeight: 500, color: '#6B7280',
+                                  background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                                  fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 3,
+                                }}
+                              >
+                                <FileText style={{ width: 10, height: 10 }} /> Copy Email
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
@@ -1728,6 +2503,90 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                 </div>
               );
             })}
+
+            {/* Already saved contacts */}
+            {alreadySavedResults.length > 0 && (
+              <>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  marginTop: 10,
+                  marginBottom: 4,
+                }}>
+                  <div style={{ flex: 1, height: 1, background: '#E2E8F0' }} />
+                  <span style={{ fontSize: 10, color: '#94A3B8', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                    Already in your tracker
+                  </span>
+                  <div style={{ flex: 1, height: 1, background: '#E2E8F0' }} />
+                </div>
+                {alreadySavedResults.map((c: any, i: number) => {
+                  const name = toTitleCase([c.FirstName || c.firstName, c.LastName || c.lastName].filter(Boolean).join(' ') || (c.Email || c.email || '').split('@')[0] || 'Unknown');
+                  const title = toTitleCase(c.Title || c.JobTitle || c.jobTitle || '');
+                  const company = toTitleCase(c.Company || c.company || '');
+                  const linkedin = c.LinkedIn || c.linkedinUrl || '';
+                  const initials = name.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase();
+                  return (
+                    <div
+                      key={`saved-${i}`}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 11,
+                        padding: '11px 13px',
+                        background: '#FAFAFA',
+                        border: '0.5px solid #E2E8F0',
+                        borderRadius: 3,
+                        marginBottom: 6,
+                        opacity: 0.7,
+                      }}
+                    >
+                      <div style={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: '50%',
+                        background: 'rgba(107,114,128,0.10)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: '#6B7280',
+                        flexShrink: 0,
+                      }}>
+                        {initials}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 13, fontWeight: 500, color: '#6B7280' }}>{name}</span>
+                          <span style={{
+                            padding: '1px 6px',
+                            borderRadius: 3,
+                            background: 'rgba(107,114,128,0.08)',
+                            color: '#94A3B8',
+                            fontSize: 10,
+                            fontWeight: 500,
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                          }}>
+                            Already saved
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 1 }}>
+                          {[title, company].filter(Boolean).join(' at ')}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                        {linkedin && (
+                          <a href={linkedin.startsWith('http') ? linkedin : `https://${linkedin}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+                            <ExternalLink className="w-3.5 h-3.5" style={{ color: '#CBD5E1' }} />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
+            )}
 
             {/* Action buttons */}
             <div style={{ display: 'flex', gap: 7, marginTop: 14 }}>
@@ -1772,7 +2631,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                 }}
               >
                 <User className="w-3 h-3" />
-                View in Tracker
+                View in Spreadsheet
               </button>
             </div>
           </div>
@@ -1851,7 +2710,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                 }}
               >
                 <User className="w-3 h-3" />
-                View in Tracker
+                View in Spreadsheet
               </button>
             </div>
           </div>
@@ -1859,18 +2718,18 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
       </div>
 
       {/* Sticky CTA */}
-      <StickyCTA
+      {searchPrompt.trim() && <StickyCTA
         originalButtonRef={originalButtonRef}
         onClick={handleSubmit}
         isLoading={isSearching || linkedInLoading}
-        disabled={isSearching || linkedInLoading || !searchPrompt.trim() || !user}
+        disabled={isSearching || linkedInLoading || !user}
         buttonClassName="rounded-[3px]"
       >
         {isLinkedInUrl(searchPrompt)
           ? <span className="flex items-center gap-2"><Linkedin className="w-4 h-4" />Import from LinkedIn</span>
-          : <span>Find people</span>
+          : <span>Network</span>
         }
-      </StickyCTA>
+      </StickyCTA>}
 
       <EliteGateModal open={showEliteGate} onClose={() => setShowEliteGate(false)} />
 

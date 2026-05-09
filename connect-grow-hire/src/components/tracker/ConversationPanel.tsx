@@ -1,6 +1,6 @@
-import { ExternalLink, Linkedin, Copy, Check } from "lucide-react";
+import { ExternalLink, Linkedin, Copy, Check, FileText, Loader2 } from "lucide-react";
 import { useState } from "react";
-import type { OutboxThread, PipelineStage } from "@/services/api";
+import type { OutboxThread, PipelineStage, AutoPrepStatus } from "@/services/api";
 import { ActionBar } from "./ActionBar";
 import { formatTimeAgo, formatDate, decodeHtmlEntities } from "@/lib/formatters";
 
@@ -31,6 +31,8 @@ interface ConversationPanelProps {
   onRefresh: (contactId: string) => void;
   isSyncing: boolean;
   isMutating?: boolean;
+  autoPrep?: AutoPrepStatus | null;
+  onViewAutoPrep?: (prepId: string) => void;
 }
 
 export function ConversationPanel({
@@ -44,6 +46,8 @@ export function ConversationPanel({
   onRefresh,
   isSyncing,
   isMutating,
+  autoPrep,
+  onViewAutoPrep,
 }: ConversationPanelProps) {
   const [emailCopied, setEmailCopied] = useState(false);
 
@@ -165,6 +169,29 @@ export function ConversationPanel({
                 ({contact.followUpCount} follow-up{contact.followUpCount !== 1 ? "s" : ""} sent)
               </span>
             )}
+          </div>
+        )}
+
+        {/* 4a. Auto-Prep card */}
+        {contact.pipelineStage === "meeting_scheduled" && autoPrep && (
+          <div className="bg-green-50 border border-green-200/60 rounded-[3px] p-3">
+            <p className="text-[10px] font-semibold text-green-600 uppercase tracking-wide mb-1">
+              Coffee Chat Prep
+            </p>
+            {autoPrep.status === "generating" ? (
+              <div className="flex items-center gap-2 text-sm text-green-700">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Preparing your coffee chat brief...
+              </div>
+            ) : autoPrep.status === "ready" && autoPrep.prepId ? (
+              <button
+                onClick={() => onViewAutoPrep?.(autoPrep.prepId!)}
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-green-700 hover:text-green-800"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                View coffee chat prep
+              </button>
+            ) : null}
           </div>
         )}
 

@@ -574,7 +574,7 @@ Set `FLASK_ENV=testing` for test runs. Markers: `unit`, `integration`, `slow`.
 - **Legacy `tier` field** still exists alongside `subscriptionTier` in Firestore. Should be migrated.
 - **No frontend tests** -- entire test coverage is backend-only.
 - **`contacts.db` SQLite dependency** -- legacy file that must exist in production but isn't in git.
-- **Untracked new files** in working tree: `bright_data_client.py`, `linkedin_enrichment.py`, `warmth_scoring.py` -- appear to be in-progress work.
+- **Untracked new files** in working tree: `bright_data_client.py` -- appears to be in-progress work.
 - **Duplicate onboarding location references** -- `OnboardingLocationPreferences.tsx` page exists alongside the multi-step `OnboardingFlow.tsx`.
 
 ---
@@ -584,7 +584,7 @@ Set `FLASK_ENV=testing` for test runs. Markers: `unit`, `integration`, `slow`.
 Based on git status and recent commits:
 - **Onboarding redesign**: 5-step flow (welcome, profile, academics, location, goals) with new illustrations
 - **Recruiter spreadsheets**: New hiring manager/recruiter data views
-- **Contact enrichment**: New `bright_data_client.py`, `linkedin_enrichment.py`, `warmth_scoring.py` being developed
+- **Contact enrichment**: New `bright_data_client.py` being developed
 - **Frontend build**: Updated dist assets indicate recent frontend changes across many components
 
 ---

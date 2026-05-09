@@ -96,14 +96,27 @@ def _release_lock(db):
         logger.warning("Failed to release nudge scanner lock: %s", e)
 
 
-def _update_healthcheck(db, nudges_generated: int, users_scanned: int, errors: int):
-    """Write healthcheck timestamp so monitoring can detect daemon death."""
+def _update_healthcheck(
+    db,
+    nudges_generated: int,
+    users_scanned: int,
+    contacts_scanned: int,
+    errors: int,
+    duration_ms: int,
+):
+    """
+    Write healthcheck doc consumed by the daemon watchdog in wsgi.py.
+    Field names follow docs/designs/tracker-daemon-contract.md.
+    """
     try:
         db.collection("system").document("nudge_scanner").set({
-            "lastScanAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            "nudgesGenerated": nudges_generated,
-            "usersScanned": users_scanned,
-            "errors": errors,
+            "lastSuccessAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "lastDurationMs": int(duration_ms),
+            "contactsScanned": int(contacts_scanned),
+            "nudgesGenerated": int(nudges_generated),
+            "errorCount": int(errors),
+            # Kept for operator visibility — not part of the contract.
+            "usersScanned": int(users_scanned),
         })
     except Exception as e:
         logger.warning("Failed to update healthcheck: %s", e)
@@ -416,6 +429,213 @@ def _cleanup_old_nudges(db, uid: str):
 
 
 # ---------------------------------------------------------------------------
+# Stuck-Student Intervention (Sprint 3B)
+# ---------------------------------------------------------------------------
+
+# Copy variations by subtype
+STUCK_STUDENT_COPY = {
+    "new_no_emails": "Ready to send your first email? Here are 3 great people to start with.",
+    "new_no_replies": "First emails are tough — let's try a different angle. Here are 3 new contacts.",
+    "established_inactive": "Let's get you back on track — here are 3 contacts worth reaching out to this week.",
+}
+
+
+def _check_student_activity(db, uid: str, user_data: dict):
+    """
+    Age-differentiated stuck-student detection.
+    Creates a stuck_student nudge with suggestions if trigger conditions met.
+    Deduplicates by synthetic contactId per subtype.
+    """
+    created_at_raw = user_data.get("createdAt")
+    if not created_at_raw:
+        return
+
+    try:
+        # createdAt may be a Firestore timestamp object or an ISO string
+        if hasattr(created_at_raw, 'timestamp'):
+            created_at = created_at_raw.replace(tzinfo=timezone.utc) if created_at_raw.tzinfo is None else created_at_raw
+        else:
+            created_at = datetime.fromisoformat(str(created_at_raw).replace("Z", "+00:00"))
+    except Exception:
+        return
+
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+
+    now = datetime.now(timezone.utc)
+    days_since_signup = (now - created_at).days
+
+    # Gather activity data
+    contacts_ref = db.collection("users").document(uid).collection("contacts")
+    try:
+        all_contacts = list(contacts_ref.limit(200).stream())
+    except Exception:
+        return
+
+    emails_sent_count = 0
+    has_reply = False
+    last_activity = created_at
+
+    for doc in all_contacts:
+        data = doc.to_dict() or {}
+        email_at = data.get("emailGeneratedAt") or data.get("emailSentAt")
+        if email_at:
+            emails_sent_count += 1
+            try:
+                email_dt = datetime.fromisoformat(email_at.replace("Z", "+00:00"))
+                if email_dt.tzinfo is None:
+                    email_dt = email_dt.replace(tzinfo=timezone.utc)
+                if email_dt > last_activity:
+                    last_activity = email_dt
+            except (ValueError, TypeError):
+                pass
+        if data.get("replyReceivedAt"):
+            has_reply = True
+
+    # Determine which subtype triggers
+    subtype = None
+
+    if days_since_signup <= 14:
+        # New user triggers
+        if emails_sent_count == 0 and days_since_signup >= 3:
+            subtype = "new_no_emails"
+        elif emails_sent_count > 0 and not has_reply and days_since_signup >= 5:
+            subtype = "new_no_replies"
+    else:
+        # Established user trigger: 7 days of inactivity
+        days_inactive = (now - last_activity).days
+        if days_inactive >= 7:
+            subtype = "established_inactive"
+
+    if not subtype:
+        return
+
+    # Generate suggestions using GPT-4o-mini
+    suggestions = _generate_stuck_suggestions(user_data, subtype)
+    copy_text = STUCK_STUDENT_COPY.get(subtype, "")
+
+    # Create nudge with synthetic contactId for dedup
+    nudge_data = {
+        "contactId": f"__stuck_student__{subtype}",
+        "contactName": "",
+        "company": "",
+        "type": "stuck_student",
+        "subtype": subtype,
+        "generatedMessage": copy_text,
+        "followUpDraft": "",
+        "suggestions": suggestions,
+        "createdAt": now.isoformat().replace("+00:00", "Z"),
+        "status": "pending",
+        "actedOn": False,
+        "followUpOutcome": None,
+    }
+
+    # Use _create_nudge's dedup logic via the synthetic contactId
+    _create_nudge_raw(db, uid, nudge_data)
+
+
+def _generate_stuck_suggestions(user_data: dict, subtype: str) -> list:
+    """Generate 3 contact search suggestions using GPT-4o-mini."""
+    client = get_openai_client()
+    if not client:
+        return _fallback_suggestions(user_data)
+
+    professional = user_data.get("professionalInfo") or {}
+    goals = user_data.get("goals") or {}
+    career_track = (
+        professional.get("careerTrack")
+        or user_data.get("careerTrack")
+        or goals.get("careerTrack")
+        or ""
+    )
+    dream_companies = goals.get("dreamCompanies") or user_data.get("dreamCompanies") or []
+    if isinstance(dream_companies, str):
+        dream_companies = [c.strip() for c in dream_companies.split(",") if c.strip()]
+
+    prompt = f"""Suggest 3 specific people to reach out to for a college student networking in {career_track or 'their target industry'}.
+
+Dream companies: {', '.join(dream_companies[:3]) if dream_companies else 'not specified'}
+Subtype: {subtype}
+
+Return ONLY valid JSON array with exactly 3 objects:
+[{{"title": "VP of Product", "company": "Google", "reason": "Strong alumni connection, recently promoted"}}]
+
+Be specific about titles and companies. If dream companies are specified, use those. Otherwise suggest well-known firms in the target industry."""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You suggest specific networking targets for college students. Return only valid JSON."},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=300,
+            temperature=0.7,
+        )
+        import json
+        text = response.choices[0].message.content or "[]"
+        if "```" in text:
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+            text = text.strip()
+        suggestions = json.loads(text)
+        if isinstance(suggestions, list) and len(suggestions) >= 1:
+            return suggestions[:3]
+    except Exception as e:
+        logger.warning("Stuck student suggestion generation failed for uid: %s", e)
+
+    return _fallback_suggestions(user_data)
+
+
+def _fallback_suggestions(user_data: dict) -> list:
+    """Deterministic fallback suggestions when LLM is unavailable."""
+    professional = user_data.get("professionalInfo") or {}
+    goals = user_data.get("goals") or {}
+    dream_companies = goals.get("dreamCompanies") or user_data.get("dreamCompanies") or []
+    if isinstance(dream_companies, str):
+        dream_companies = [c.strip() for c in dream_companies.split(",") if c.strip()]
+
+    if dream_companies:
+        return [
+            {"title": "Analyst", "company": dream_companies[0], "reason": "Your top dream company"},
+            {"title": "Associate", "company": dream_companies[1] if len(dream_companies) > 1 else dream_companies[0], "reason": "Great for learning about the industry"},
+            {"title": "VP", "company": dream_companies[0], "reason": "Senior perspective on recruiting"},
+        ]
+
+    return [
+        {"title": "Analyst", "company": "a top firm", "reason": "Great starting point for networking"},
+        {"title": "Associate", "company": "a target company", "reason": "Recently went through recruiting"},
+        {"title": "VP", "company": "a dream firm", "reason": "Can refer you to the right people"},
+    ]
+
+
+def _create_nudge_raw(db, uid: str, nudge_data: dict) -> str | None:
+    """
+    Write a nudge document with dedup check on contactId.
+    Similar to _create_nudge but accepts pre-built nudge_data dict.
+    """
+    contact_id = nudge_data.get("contactId", "")
+    try:
+        nudges_ref = db.collection("users").document(uid).collection("nudges")
+        existing = list(
+            nudges_ref
+            .where("contactId", "==", contact_id)
+            .where("status", "==", "pending")
+            .limit(1)
+            .stream()
+        )
+        if existing:
+            return None
+
+        _, nudge_ref = nudges_ref.add(nudge_data)
+        return nudge_ref.id
+    except Exception as e:
+        logger.error("Failed to create stuck_student nudge for uid=%s: %s", uid, e)
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Main scan orchestrator
 # ---------------------------------------------------------------------------
 
@@ -443,7 +663,9 @@ def scan_and_generate_nudges():
 def _run_scan(db):
     """Execute the nudge scan (called after lock is acquired)."""
     logger.info("Nudge scan starting")
+    scan_started = time.time()
     users_scanned = 0
+    contacts_scanned = 0
     total_nudges = 0
     total_errors = 0
 
@@ -461,7 +683,11 @@ def _run_scan(db):
         max_per_day = user_data.get("nudgeMaxPerDay", MAX_NUDGES_PER_USER_PER_DAY)
 
         try:
+            # Stuck-student intervention check (Sprint 3B)
+            _check_student_activity(db, uid, user_data)
+
             eligible = _get_eligible_contacts(db, uid, followup_days=followup_days)
+            contacts_scanned += len(eligible)
             if not eligible:
                 users_scanned += 1
                 # Still run cleanup even if no eligible contacts
@@ -525,10 +751,18 @@ def _run_scan(db):
             users_scanned += 1
             logger.error("Error processing user uid=%s: %s", uid, e)
 
-    _update_healthcheck(db, total_nudges, users_scanned, total_errors)
+    duration_ms = int((time.time() - scan_started) * 1000)
+    _update_healthcheck(
+        db,
+        nudges_generated=total_nudges,
+        users_scanned=users_scanned,
+        contacts_scanned=contacts_scanned,
+        errors=total_errors,
+        duration_ms=duration_ms,
+    )
     logger.info(
-        "Nudge scan complete: users=%d nudges=%d errors=%d",
-        users_scanned, total_nudges, total_errors,
+        "Nudge scan complete: users=%d contacts=%d nudges=%d errors=%d duration=%dms",
+        users_scanned, contacts_scanned, total_nudges, total_errors, duration_ms,
     )
 
 

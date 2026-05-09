@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 
 @prompt_search_bp.route("/prompt-run", methods=["POST"])
-@require_tier(['elite'])
 @require_firebase_auth
+@require_tier(['elite'])
 def prompt_run():
     """
     Execute prompt-first search with progressive relaxation and post-filtered alumni.

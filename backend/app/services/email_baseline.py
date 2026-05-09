@@ -8,7 +8,9 @@ Stores results in Firestore:
   analytics/email_baseline  — overall baseline snapshot
   analytics/email_outcomes  — dimensional breakdown (school, industry, personalization type)
 """
+import json
 import logging
+import time
 from collections import defaultdict
 from datetime import datetime, timezone
 
@@ -254,3 +256,152 @@ def compute_email_baseline():
     )
 
     return baseline
+
+
+# ---------------------------------------------------------------------------
+# Scanner entry point (Tracker daemon contract)
+# ---------------------------------------------------------------------------
+#
+# Contract: docs/designs/tracker-daemon-contract.md
+#
+# Dispatch cadence: every 6 hours invocation, but internal gate — returns
+# early unless today is Sunday AND current UTC hour is in [3, 9) AND the
+# last successful run was more than 6 days ago. Low-traffic Sunday window.
+#
+# Health doc: `system/aggregation_scanner` with fields lastSuccessAt,
+# lastDurationMs, contactsScanned, segmentsWritten, docSizeBytes, errorCount.
+# The watchdog alerts if lastSuccessAt is older than 8 days.
+
+# Gate constants — exposed so tests can assert against the contract.
+AGGREGATION_SUNDAY_WEEKDAY = 6     # datetime.weekday(): Sun=6
+AGGREGATION_HOUR_START = 3         # UTC hour window [3, 9)
+AGGREGATION_HOUR_END = 9
+AGGREGATION_STALENESS_SECONDS = 6 * 24 * 3600  # 6 days
+
+
+def _should_run_aggregation_scanner(db, now: "datetime | None" = None) -> bool:
+    """
+    Return True if the aggregation scanner should execute this tick.
+
+    Rule (per daemon contract): run iff ALL three are true —
+      1. today is Sunday UTC,
+      2. current UTC hour is in [3, 9),
+      3. last successful run was more than 6 days ago.
+
+    The Sunday 3-9am UTC window is low-traffic in both US and EU zones;
+    the 6-day freshness check prevents the scanner from running twice in
+    the same 6-hour dispatch window if a tick slides a few hours late.
+    """
+    now = now or datetime.now(timezone.utc)
+    if now.weekday() != AGGREGATION_SUNDAY_WEEKDAY:
+        return False
+    if not (AGGREGATION_HOUR_START <= now.hour < AGGREGATION_HOUR_END):
+        return False
+
+    try:
+        doc = db.collection("system").document("aggregation_scanner").get()
+        if not doc.exists:
+            # First-ever Sunday in the window — run.
+            return True
+        data = doc.to_dict() or {}
+        last_success = data.get("lastSuccessAt")
+        if not last_success:
+            return True
+        last_dt = datetime.fromisoformat(
+            str(last_success).replace("Z", "+00:00")
+        )
+        age = (now - last_dt).total_seconds()
+        return age > AGGREGATION_STALENESS_SECONDS
+    except Exception as exc:
+        logger.warning("aggregation_scanner: gate check failed, skipping: %s", exc)
+        return False
+
+
+def _write_aggregation_scanner_health(
+    db,
+    *,
+    contacts_scanned: int,
+    segments_written: int,
+    doc_size_bytes: int,
+    error_count: int,
+    duration_ms: int,
+) -> None:
+    """Write the health doc consumed by the wsgi.py watchdog."""
+    try:
+        db.collection("system").document("aggregation_scanner").set({
+            "lastSuccessAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "lastDurationMs": int(duration_ms),
+            "contactsScanned": int(contacts_scanned),
+            "segmentsWritten": int(segments_written),
+            "docSizeBytes": int(doc_size_bytes),
+            "errorCount": int(error_count),
+        })
+    except Exception as exc:
+        logger.warning("aggregation_scanner: health doc write failed: %s", exc)
+
+
+def aggregate_email_outcomes() -> None:
+    """
+    Scanner entry point invoked by the tracker daemon loop every 6 hours.
+
+    Gates on the Sunday 3-9am UTC window and 6-day freshness, then delegates
+    to `compute_email_baseline()` which does the actual aggregation across
+    all users. Wraps the result in the daemon-contract health doc format.
+    """
+    db = get_db()
+    if db is None:
+        logger.warning("aggregation_scanner: no db client, skipping run")
+        return
+
+    if not _should_run_aggregation_scanner(db):
+        logger.info("aggregation_scanner: gate closed (not Sun 3-9am UTC or ran recently)")
+        return
+
+    started = time.time()
+    error_count = 0
+    contacts_scanned = 0
+    segments_written = 0
+    doc_size_bytes = 0
+
+    logger.info("aggregation_scanner: starting aggregation")
+
+    try:
+        baseline = compute_email_baseline() or {}
+        contacts_scanned = int(
+            (baseline.get("sampleSize") or {}).get("totalContactsEmailed", 0)
+        )
+        # Read back the segments doc to count and size it. Reading is cheaper
+        # than threading segmentCount/docSizeBytes through compute_email_baseline.
+        try:
+            outcomes_doc = db.collection("analytics").document("email_outcomes").get()
+            if outcomes_doc.exists:
+                outcomes_data = outcomes_doc.to_dict() or {}
+                segments_written = int(outcomes_data.get("segmentCount", 0))
+                # Rough size estimate via JSON serialization — Firestore doc
+                # limit is 1MB; the contract warns at 800KB / fails at 950KB.
+                try:
+                    doc_size_bytes = len(json.dumps(outcomes_data, default=str))
+                except Exception:
+                    doc_size_bytes = 0
+        except Exception as read_exc:
+            logger.warning(
+                "aggregation_scanner: could not read email_outcomes for metrics: %s",
+                read_exc,
+            )
+    except Exception:
+        error_count += 1
+        logger.exception("aggregation_scanner: compute_email_baseline failed")
+
+    duration_ms = int((time.time() - started) * 1000)
+    _write_aggregation_scanner_health(
+        db,
+        contacts_scanned=contacts_scanned,
+        segments_written=segments_written,
+        doc_size_bytes=doc_size_bytes,
+        error_count=error_count,
+        duration_ms=duration_ms,
+    )
+    logger.info(
+        "aggregation_scanner: done contacts=%d segments=%d doc_bytes=%d errors=%d duration_ms=%d",
+        contacts_scanned, segments_written, doc_size_bytes, error_count, duration_ms,
+    )

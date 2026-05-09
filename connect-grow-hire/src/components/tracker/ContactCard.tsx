@@ -1,5 +1,7 @@
 import type { OutboxThread } from "@/services/api";
-import { formatTimeAgo, daysBetween } from "@/lib/formatters";
+import { statusLine, type BucketType } from "./shared/contactStatus";
+
+export type { BucketType };
 
 // --- helpers ---
 
@@ -18,49 +20,6 @@ function avatarColor(name: string): string {
   for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
   const hue = ((h % 360) + 360) % 360;
   return `hsl(${hue}, 55%, 55%)`;
-}
-
-// --- status line ---
-
-export type BucketType = "needsAttention" | "waiting" | "done";
-
-function statusLine(c: OutboxThread): string {
-  // Replied / unread reply — highest priority display
-  if (c.hasUnreadReply || c.pipelineStage === "replied") {
-    const ago = formatTimeAgo(c.replyReceivedAt || c.lastActivityAt);
-    return ago ? `Replied ${ago} — action needed` : "Replied — action needed";
-  }
-  // Draft states
-  if (c.pipelineStage === "draft_deleted") {
-    return "Draft deleted — recreate it";
-  }
-  if (c.pipelineStage === "draft_created") {
-    const d = daysBetween(c.draftCreatedAt);
-    if (d >= 1) return `Draft unsent for ${d} day${d !== 1 ? "s" : ""} — send it!`;
-    return "Draft ready to send";
-  }
-  // Overdue follow-up
-  if (c.nextFollowUpAt && new Date(c.nextFollowUpAt) <= new Date()) return "Follow-up overdue";
-  // Sent / waiting
-  if (c.pipelineStage === "waiting_on_reply") {
-    if (c.emailSentAt) return `Sent ${formatTimeAgo(c.emailSentAt)} — waiting for reply`;
-    return "Sent — waiting for reply";
-  }
-  if (c.pipelineStage === "email_sent") {
-    if (c.emailSentAt) return `Sent ${formatTimeAgo(c.emailSentAt)} — waiting for reply`;
-    return "Sent — waiting for reply";
-  }
-  // Done states
-  if (c.pipelineStage === "meeting_scheduled") return "Meeting scheduled";
-  if (c.pipelineStage === "connected") return "Connected";
-  if (c.pipelineStage === "no_response" || c.resolution === "ghosted") return "No response after follow-ups";
-  if (c.pipelineStage === "bounced") return "Email bounced";
-  if (c.pipelineStage === "closed") return "Closed";
-  if (c.pipelineStage === "new") return "Ready to draft an email";
-  if (c.archivedAt) return "Archived";
-  // Fallback for any future stages
-  const stage: string = c.pipelineStage || "";
-  return stage.replace(/_/g, " ");
 }
 
 // --- stage-based border color ---

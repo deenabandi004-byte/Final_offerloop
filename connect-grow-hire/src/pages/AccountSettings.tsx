@@ -379,11 +379,33 @@ export default function AccountSettings() {
 
       const downloadUrl = await getDownloadURL(storageRef);
       const userRef = doc(db, 'users', uid);
-      await updateDoc(userRef, {
+      const resumeUpdate: Record<string, unknown> = {
         resumeUrl: downloadUrl,
         resumeFileName: file.name,
         resumeUpdatedAt: new Date().toISOString(),
-      });
+        resumeParsed: {
+          name: result.data.name || '',
+          year: result.data.year || '',
+          major: result.data.major || '',
+          university: result.data.university || '',
+        },
+      };
+
+      // Auto-fill empty profile fields from resume data
+      const userSnap = await getDoc(userRef);
+      const existing = userSnap.exists() ? userSnap.data() : {};
+      if (!existing.university && !existing.academics?.university && result.data.university) {
+        resumeUpdate.university = result.data.university;
+        resumeUpdate['academics.university'] = result.data.university;
+        setPersonalInfo(prev => ({ ...prev, university: result.data.university }));
+      }
+      if (!existing.fieldOfStudy && !existing.academics?.major && result.data.major) {
+        resumeUpdate.fieldOfStudy = result.data.major;
+        resumeUpdate.major = result.data.major;
+        resumeUpdate['academics.major'] = result.data.major;
+      }
+
+      await updateDoc(userRef, resumeUpdate);
 
       setResumeUrl(downloadUrl);
 

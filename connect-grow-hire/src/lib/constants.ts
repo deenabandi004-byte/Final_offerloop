@@ -1,5 +1,6 @@
 export const COFFEE_CHAT_CREDITS = 15;
 export const INTERVIEW_PREP_CREDITS = 25;
+export const TIMELINE_CREDITS = 10;
 
 export const TIER_CONFIGS = {
   free: {
@@ -35,6 +36,14 @@ export const TIER_CONFIGS = {
     timeSavedMinutes: 5000,
     usesResume: true,
   },
+} as const;
+
+// Agent feature (Elite-only)
+export const AGENT_CONFIG = {
+  maxContactsPerWeek: 15,
+  maxCreditsPerWeek: 150,
+  minCreditBalance: 20,
+  enabledTiers: ["elite"] as const,
 } as const;
 
 export type CoffeeChatHistoryItem = {

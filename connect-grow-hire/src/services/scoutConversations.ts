@@ -1,15 +1,16 @@
 // src/services/scoutConversations.ts
-import { 
-  collection, 
-  doc, 
-  addDoc, 
+import {
+  collection,
+  doc,
+  addDoc,
   updateDoc,
   deleteDoc,
   getDoc,
-  getDocs, 
-  query, 
-  orderBy, 
+  getDocs,
+  query,
+  orderBy,
   limit,
+  setDoc,
   Timestamp,
   arrayUnion,
   increment,
@@ -305,7 +306,83 @@ export const generateConversationTitle = async (
   // This would call a backend endpoint to generate title
   // For now, return a simple title based on first few messages
   if (messages.length === 0) return 'New Conversation';
-  
+
   const firstMessages = messages.slice(0, 3).map(m => m.content).join(' ');
   return generateTitleFromMessage(firstMessages);
+};
+
+// ============================================================================
+// ACTIVE THREAD — single rolling conversation per user
+// ============================================================================
+//
+// useScoutChat persists the user's chat to a fixed-ID document at
+// users/{uid}/scoutConversations/active. We use a fixed ID (not auto-gen)
+// because there's only ever one "current" thread; the absence of multi-thread
+// UI means we don't need a list of conversations, just a place to durably
+// store the last N messages so the panel rehydrates on reload / new tab /
+// new device.
+//
+// The doc is overwritten with the full message array on each save (rather
+// than arrayUnion-appended) so optimistic local edits, deletes, and clears
+// stay in sync without merge gymnastics.
+
+const ACTIVE_CONVERSATION_ID = 'active';
+const ACTIVE_MAX_MESSAGES = 60;
+
+/** Lightweight shape — we don't need ScoutMessage's metadata-heavy fields
+ *  for the side panel's chat thread persistence. */
+export interface PersistedChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestampMs: number;
+}
+
+export interface ActiveThreadDoc {
+  messages: PersistedChatMessage[];
+  updatedAt: any;
+}
+
+const activeRef = (uid: string) =>
+  doc(db, 'users', uid, 'scoutConversations', ACTIVE_CONVERSATION_ID);
+
+export const loadActiveThread = async (
+  uid: string,
+): Promise<PersistedChatMessage[]> => {
+  try {
+    const snap = await getDoc(activeRef(uid));
+    if (!snap.exists()) return [];
+    const data = snap.data() as ActiveThreadDoc;
+    const msgs = Array.isArray(data?.messages) ? data.messages : [];
+    return msgs.slice(-ACTIVE_MAX_MESSAGES);
+  } catch (e) {
+    console.error('[Scout] loadActiveThread failed:', e);
+    return [];
+  }
+};
+
+export const saveActiveThread = async (
+  uid: string,
+  messages: PersistedChatMessage[],
+): Promise<void> => {
+  try {
+    const trimmed = messages.slice(-ACTIVE_MAX_MESSAGES);
+    await setDoc(activeRef(uid), {
+      messages: trimmed,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (e) {
+    console.error('[Scout] saveActiveThread failed:', e);
+  }
+};
+
+export const clearActiveThread = async (uid: string): Promise<void> => {
+  try {
+    await setDoc(activeRef(uid), {
+      messages: [],
+      updatedAt: serverTimestamp(),
+    });
+  } catch (e) {
+    console.error('[Scout] clearActiveThread failed:', e);
+  }
 };

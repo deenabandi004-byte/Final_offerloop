@@ -1,5 +1,7 @@
 // src/pages/ContactDirectory.tsx
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
 import { AppSidebar } from '@/components/AppSidebar';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { MainContentWrapper } from '@/components/MainContentWrapper';
@@ -7,6 +9,7 @@ import { AppHeader } from '@/components/AppHeader';
 import ContactDirectoryComponent from '@/components/ContactDirectory';
 
 const ContactDirectory: React.FC = () => {
+  const navigate = useNavigate();
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full text-foreground">
@@ -17,6 +20,26 @@ const ContactDirectory: React.FC = () => {
           <main style={{ background: '#FAFBFF', flex: 1, overflowY: 'auto' }} className="networking-tracker-page">
             {/* Page Header Container */}
             <div className="w-full px-3 py-6 sm:px-6 sm:py-12 networking-tracker-container" style={{ maxWidth: '900px', margin: '0 auto' }}>
+              <button
+                onClick={() => navigate('/find')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  color: '#6B7280',
+                  fontFamily: "'DM Sans', system-ui, sans-serif",
+                  padding: '0 0 16px 0',
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#3B82F6'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#6B7280'; }}
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                Back to Find People
+              </button>
               <h1
                 className="text-[28px] sm:text-[42px] networking-tracker-title"
                 style={{
@@ -29,7 +52,7 @@ const ContactDirectory: React.FC = () => {
                   lineHeight: 1.1,
                 }}
               >
-                Networking Tracker
+                Contact Spreadsheet
               </h1>
               <p
                 style={{

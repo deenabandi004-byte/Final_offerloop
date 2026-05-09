@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<style data-omelette-injected>html,body{background:transparent}</style><script data-omelette-injected>(()=>{var $=["https://claude.ai","https://preview.claude.ai","https://eap-omelette.claude.ai"];var F=30000;var A=3000;document.addEventListener("DOMContentLoaded",()=>{const Q="transform-react-jsx-source";document.querySelectorAll('script[type="text/babel"],script[type="text/jsx"]').forEach((J,V)=>{const X=J.getAttribute("data-plugins")||"";if(X.indexOf(Q)<0){J.setAttribute("data-plugins",X?`${X},${Q}`:Q)}if(!J.hasAttribute("data-filename")){J.setAttribute("data-filename",J.getAttribute("src")||`inline-${V}`)}})});var W=window.parent;if(W&&W!==window){const Q=(z,k)=>{try{W.postMessage({__omelette_log:true,type:z,data:k},"*")}catch{}};["log","warn","error"].forEach((z)=>{const k=console[z];console[z]=(...C)=>{const D=C.map((w)=>{try{return typeof w==="object"?JSON.stringify(w):String(w)}catch{try{return String(w)}catch{return"[unstringifiable]"}}}).join(" ");Q(z,D);k.apply(console,C)}});window.addEventListener("error",(z)=>{const k=z.target;if(k&&k!==window&&k.tagName){const C=k.src||k.href||"";Q("resource_error",`${k.tagName} failed to load: ${C}`)}else{Q("error",`${z.message||"Unknown error"} at ${z.filename||"?"}:${z.lineno||0}:${z.colno||0}`)}},true);window.addEventListener("unhandledrejection",(z)=>{const k=z.reason;const C=k instanceof Error?`${k.message} ${k.stack}`:String(k);Q("error",`Unhandled rejection: ${C}`)});const J=()=>{try{W.postMessage({type:"omelette:height",height:document.documentElement.scrollHeight},"*")}catch{}};if(document.readyState==="complete")J();else window.addEventListener("load",J);if(window.ResizeObserver)new ResizeObserver(J).observe(document.documentElement);const V={};let X=0;window.claude={complete(z){return new Promise((k,C)=>{if(!$.length){C(new Error("claude.complete: no parent origin"));return}const D=`c${++X}`;const w=()=>setTimeout(()=>{delete V[D];C(new Error(`claude.complete: no data for ${F/1000}s`))},F);const K=w();V[D]={resolve:k,reject:C,text:"",t:K,arm:w};try{for(const Z of $){W.postMessage({__om_api:true,id:D,body:z},Z)}}catch(Z){clearTimeout(K);delete V[D];C(Z)}})}};const Y={};let h=0;window.omelette={writeFile:(z,k)=>new Promise((C,D)=>{if(!$.length){C();return}const w=`f${++h}`;const K=setTimeout(()=>{delete Y[w];C()},A);Y[w]={resolve:C,reject:D,t:K};try{for(const Z of $){W.postMessage({__om_file:true,id:w,op:"write",path:z,content:k},Z)}}catch{clearTimeout(K);delete Y[w];C()}})};const b=(z)=>{try{return JSON.stringify(z)}catch{return JSON.stringify(String(z))}};window.addEventListener("message",(z)=>{if($.indexOf(z.origin)<0)return;if(z.source!==W)return;const k=z.data;if(!k)return;if(k.__om_file_r){const w=Y[k.id];if(!w)return;clearTimeout(w.t);delete Y[k.id];if(k.ok)w.resolve();else w.reject(new Error(k.error||"write failed"));return}if(k.__om_api_r){const w=V[k.id];if(!w)return;if(k.error!=null){clearTimeout(w.t);delete V[k.id];w.reject(new Error(k.error));return}if(k.chunk!=null){clearTimeout(w.t);w.t=w.arm();w.text+=k.chunk;return}if(k.done){clearTimeout(w.t);delete V[k.id];w.resolve(k.text!=null?k.text:w.text);return}return}if(!k.__om_eval)return;const C=k;const D=(w)=>{z.source.postMessage({...w,__om_eval_r:1,id:C.id},z.origin)};try{const w=(0,eval)(C.code);if(w&&typeof w.then==="function"){w.then((K)=>D({ok:1,v:b(K)}),(K)=>D({ok:0,e:String(K)}))}else{D({ok:1,v:b(w)})}}catch(w){D({ok:0,e:String(w)})}})}})();
+</script>
+
+<meta charset="UTF-8"/>
+<title>Scout Intro Sentence — Spec & Fallback Ladder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#FDFDFD; --paper-2:#F6F5F1; --paper-3:#F0EEE7;
+    --ink:#111418; --ink-2:#4A4F57; --ink-3:#8A8F97;
+    --line:#E5E3DE; --line-2:#EFEDE8;
+    --brand:#1B2A44; --accent:#8B2E1F;
+    --serif:'Instrument Serif',Georgia,serif;
+    --sans:'Inter',system-ui,sans-serif;
+    --mono:'JetBrains Mono',monospace;
+    --signal-ok:#2D5F3F; --signal-warn:#8C6A1F; --signal-bad:#8B2E1F;
+  }
+  html,body{margin:0;padding:0;background:var(--paper-3);font-family:var(--sans);color:var(--ink);}
+  *{box-sizing:border-box;}
+  body{padding:56px 32px 80px;}
+  main{max-width:860px;margin:0 auto;background:var(--paper);border:1px solid var(--line);padding:56px 64px;}
+
+  .eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:0.16em;color:var(--accent);text-transform:uppercase;margin-bottom:12px;}
+  h1{font-family:var(--serif);font-weight:400;font-size:40px;line-height:1.1;letter-spacing:-0.015em;margin:0 0 10px;}
+  h1 em{color:var(--accent);}
+  .lede{font-family:var(--serif);font-style:italic;font-size:18px;line-height:1.5;color:var(--ink-2);margin:0 0 32px;max-width:640px;}
+
+  h2{font-family:var(--serif);font-weight:400;font-size:26px;line-height:1.15;letter-spacing:-0.01em;margin:44px 0 4px;}
+  h2 .num{font-family:var(--mono);font-style:normal;font-size:11px;letter-spacing:0.16em;color:var(--ink-3);display:block;margin-bottom:6px;font-weight:500;}
+  h2 em{font-style:italic;color:var(--accent);}
+  h3{font-family:var(--sans);font-weight:600;font-size:14px;letter-spacing:-0.005em;margin:22px 0 8px;color:var(--ink);}
+  p, li{font-size:13px;line-height:1.65;color:var(--ink-2);}
+  p strong{color:var(--ink);font-weight:600;}
+
+  .target{background:var(--paper-2);border-left:2px solid var(--accent);padding:14px 18px;margin:16px 0 24px;}
+  .target .q{font-family:var(--mono);font-size:10px;letter-spacing:0.14em;color:var(--ink-3);text-transform:uppercase;margin-bottom:6px;}
+  .target .s{font-family:var(--serif);font-style:italic;font-size:16px;line-height:1.5;color:var(--ink);}
+  .target .s b{color:var(--brand);font-style:normal;font-weight:600;}
+
+  pre{font-family:var(--mono);font-size:11.5px;line-height:1.6;background:#0F1117;color:#E8E6E1;padding:18px 20px;overflow:auto;margin:10px 0 18px;border-radius:2px;}
+  pre .c{color:#6A6E78;font-style:italic;}
+  pre .k{color:#C2A878;}
+  pre .s{color:#9BB4A8;}
+  pre .n{color:#D4A29A;}
+
+  code{font-family:var(--mono);font-size:12px;background:var(--paper-2);padding:1px 6px;border-radius:2px;color:var(--ink);}
+
+  table{width:100%;border-collapse:collapse;margin:12px 0 24px;font-size:12.5px;}
+  th, td{text-align:left;padding:10px 12px;vertical-align:top;border-bottom:1px solid var(--line-2);}
+  th{font-family:var(--mono);font-size:10px;letter-spacing:0.12em;color:var(--ink-3);text-transform:uppercase;border-bottom:1px solid var(--line);font-weight:500;}
+  td b{color:var(--ink);font-weight:600;}
+  td code{font-size:11px;}
+
+  .ladder{border-top:1px solid var(--line);margin-top:14px;}
+  .rung{display:grid;grid-template-columns:36px 1fr;gap:16px;padding:18px 0;border-bottom:1px solid var(--line-2);align-items:start;}
+  .rung .r{font-family:var(--mono);font-size:10px;letter-spacing:0.14em;color:var(--ink-3);padding-top:4px;}
+  .rung .title{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:4px;letter-spacing:-0.005em;}
+  .rung .cond{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-bottom:10px;background:var(--paper-2);padding:4px 8px;border-radius:2px;display:inline-block;}
+  .rung .out{font-family:var(--serif);font-style:italic;font-size:15px;color:var(--ink);line-height:1.5;margin-bottom:6px;padding:8px 14px;border-left:2px solid var(--line);background:#FCFBF7;}
+  .rung .out b{color:var(--brand);font-style:normal;font-weight:600;}
+  .rung .note{font-size:12px;color:var(--ink-2);line-height:1.55;}
+
+  .signal{display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:0.12em;padding:2px 6px;border-radius:2px;text-transform:uppercase;margin-left:8px;vertical-align:middle;}
+  .signal.ok{background:#E6EDE9;color:var(--signal-ok);}
+  .signal.warn{background:#F4EEDD;color:var(--signal-warn);}
+  .signal.bad{background:#F4E3DE;color:var(--signal-bad);}
+
+  hr{border:none;border-top:1px solid var(--line);margin:36px 0;}
+
+  .callout{background:#FCFBF7;border:1px solid var(--line);padding:14px 18px;margin:10px 0;font-family:var(--serif);font-style:italic;font-size:14px;line-height:1.55;color:var(--ink);}
+  .callout b{color:var(--brand);font-style:normal;font-weight:500;}
+
+  ul.checks{list-style:none;padding:0;margin:10px 0 24px;}
+  ul.checks li{padding:8px 0 8px 26px;position:relative;font-size:12.5px;color:var(--ink-2);line-height:1.55;border-bottom:1px solid var(--line-2);}
+  ul.checks li::before{content:'✓';position:absolute;left:0;top:8px;color:var(--signal-ok);font-family:var(--mono);font-size:12px;font-weight:600;}
+  ul.checks li.x::before{content:'✗';color:var(--signal-bad);}
+  ul.checks li b{color:var(--ink);font-weight:600;}
+</style>
+</head>
+<body>
+<main>
+
+<div class="eyebrow">Find · Companies · Hero Artboard · Spec</div>
+<h1>The Priya Desai <em>sentence.</em></h1>
+<p class="lede">The "Your closest path in: Priya Desai, '22, on the Ads ML team" line is the most data-intensive thing on the Companies hero. Here's how we generate it, what data we need, and the fallback ladder when any of it is missing.</p>
+
+<div class="target">
+  <div class="q">Target sentence</div>
+  <div class="s">Your closest path in: <b>Priya Desai, '22</b>, on the Ads ML team. <em>She's replied to three cohort intros this month.</em></div>
+</div>
+
+<hr/>
+
+<h2><span class="num">01</span>What we're actually claiming</h2>
+<p>Every clause in the sentence is a separate assertion. If any one of them is wrong, the whole thing feels generated. Breaking it down:</p>
+<table>
+  <thead><tr><th>Clause</th><th>What it claims</th><th>Source</th></tr></thead>
+  <tbody>
+    <tr><td><b>"Priya Desai"</b></td><td>A specific real alum exists who works at {company}</td><td>alumni index · current employer verified</td></tr>
+    <tr><td><b>"'22"</b></td><td>Graduation year</td><td>alumni index · school record</td></tr>
+    <tr><td><b>"Ads ML team"</b></td><td>Specific team, not just job title</td><td>LinkedIn enrichment · most recent title/team parse</td></tr>
+    <tr><td><b>"closest path in"</b></td><td>Ranking — she's the best single intro candidate</td><td>derived: path score (see §3)</td></tr>
+    <tr><td><b>"replied to three cohort intros"</b></td><td>Responsive to USC students in the last ~30 days</td><td>internal: intro tracking · messages-sent-and-responded</td></tr>
+  </tbody>
+</table>
+
+<hr/>
+
+<h2><span class="num">02</span>Data schema required</h2>
+<p>Here's the minimum record we need on each alum to even attempt the top-tier sentence. Treat each field as independently nullable — the fallback ladder in §4 reads from whichever fields exist.</p>
+<pre><span class="c">// Alumni record — what we need per person</span>
+{
+  <span class="k">id</span>:               <span class="s">"usc_priya_desai_01"</span>,
+  <span class="k">name</span>:             <span class="s">"Priya Desai"</span>,
+  <span class="k">school</span>:           <span class="s">"USC"</span>,
+  <span class="k">grad_year</span>:        <span class="n">2022</span>,                 <span class="c">// null-safe</span>
+  <span class="k">degree</span>:           <span class="s">"B.S. Data Science"</span>,
+  <span class="k">current</span>: {
+    <span class="k">company_id</span>:     <span class="s">"google"</span>,
+    <span class="k">title</span>:          <span class="s">"Senior ML Engineer"</span>,
+    <span class="k">team</span>:           <span class="s">"Ads ML"</span>,         <span class="c">// ← this is the hard one</span>
+    <span class="k">started_at</span>:     <span class="s">"2024-03"</span>,
+    <span class="k">verified_at</span>:    <span class="s">"2026-03-11"</span>,     <span class="c">// stale-check</span>
+    <span class="k">source</span>:         <span class="s">"linkedin"</span>,
+    <span class="k">confidence</span>:     <span class="n">0.92</span>               <span class="c">// team parse confidence</span>
+  },
+  <span class="k">responsiveness</span>: {
+    <span class="k">intros_received_30d</span>:   <span class="n">5</span>,
+    <span class="k">intros_replied_30d</span>:    <span class="n">3</span>,
+    <span class="k">last_replied_at</span>:       <span class="s">"2026-04-18"</span>,
+    <span class="k">reply_rate_90d</span>:        <span class="n">0.71</span>
+  },
+  <span class="k">overlap_with_user</span>: {           <span class="c">// for "closest path in" ranking</span>
+    <span class="k">same_major</span>:         <span class="k">true</span>,
+    <span class="k">same_minor</span>:         <span class="k">false</span>,
+    <span class="k">shared_professors</span>:  [<span class="s">"Park"</span>, <span class="s">"Mehta"</span>],
+    <span class="k">shared_clubs</span>:       [<span class="s">"Trojan Data"</span>],
+    <span class="k">shared_internships</span>: [],
+    <span class="k">years_apart</span>:        <span class="n">2</span>
+  },
+  <span class="k">privacy</span>: {
+    <span class="k">discoverable</span>:       <span class="k">true</span>,       <span class="c">// alum opted in to be named</span>
+    <span class="k">allow_name_in_ui</span>:   <span class="k">true</span>
+  }
+}</pre>
+
+<h3>The four hardest fields</h3>
+<ul class="checks">
+  <li><b>current.team</b> — LinkedIn rarely gives you team cleanly. You parse it out of the title, the "about" section, or recent posts. Confidence score is essential; never render a team string you're not ≥0.85 confident on.</li>
+  <li><b>current.verified_at</b> — If the record is older than 90 days, degrade silently. "Works at Google" is safe stale; "on the Ads ML team" is not — teams change every 6–12 months.</li>
+  <li><b>responsiveness</b> — Requires you to have tracked intros in your own system. For a new user or a company we haven't routed intros to, this will be empty. Most rows will not qualify for the top rung of the ladder in their first month of use.</li>
+  <li><b>privacy.allow_name_in_ui</b> — Default this to <b>false</b>. Alumni opt in to being named in prompts like this (settings toggle on profile). Without consent, always degrade to anonymized templates. Legal + ethical.</li>
+</ul>
+
+<hr/>
+
+<h2><span class="num">03</span>The "closest path in" score</h2>
+<p>One alum per company gets the "closest path in" label. We rank candidates with a small feature-weighted score and pick the top one (with a margin threshold — if #1 and #2 are tied, we say "two strong paths" instead).</p>
+
+<pre><span class="c">// path_score(alum, user) — higher = closer path in</span>
+score = 0
+<span class="c">// base: must be findable and consented</span>
+<span class="k">if</span> !alum.privacy.allow_name_in_ui <span class="k">return</span> -1
+
+<span class="c">// responsiveness is the biggest signal</span>
+score += 3.0 * alum.responsiveness.reply_rate_90d
+score += 1.0 * <span class="n">min</span>(alum.responsiveness.intros_replied_30d, <span class="n">3</span>)
+
+<span class="c">// shared context</span>
+score += 2.0 * (alum.same_major ? <span class="n">1</span> : <span class="n">0</span>)
+score += 1.0 * alum.shared_professors.length
+score += 0.5 * alum.shared_clubs.length
+score += 1.5 * alum.shared_internships.length
+
+<span class="c">// proximity in time (recent grads have warmer ties to current students)</span>
+score += <span class="n">max</span>(<span class="n">0</span>, <span class="n">5</span> - alum.overlap.years_apart) * 0.3
+
+<span class="c">// freshness of our data</span>
+<span class="k">if</span> stale(alum.current.verified_at, <span class="n">90</span>d) score *= 0.5
+
+<span class="k">return</span> score</pre>
+
+<div class="callout">The "closest path in" label only fires if the top candidate's score is ≥ <b>3.0</b> <b>and</b> beats the runner-up by ≥ <b>1.5</b>. Otherwise degrade — it's better to say nothing than to hero a weak tie.</div>
+
+<hr/>
+
+<h2><span class="num">04</span>The fallback ladder</h2>
+<p>Five rungs. Read in order; use the first rung whose conditions all pass. The sentence on the hero renders whatever rung matches — there is <b>always</b> a valid output, even for an empty alumni record.</p>
+
+<div class="ladder">
+
+  <div class="rung">
+    <div class="r">R1</div>
+    <div>
+      <div class="title">Named alum + team + responsiveness <span class="signal ok">ideal</span></div>
+      <div class="cond">path_score ≥ 3.0 · team.confidence ≥ 0.85 · verified &lt; 90d · privacy.allow_name_in_ui · responsiveness.intros_replied_30d ≥ 1</div>
+      <div class="out">Your closest path in: <b>Priya Desai, '22</b>, on the Ads ML team. She's replied to <b>three</b> cohort intros this month.</div>
+      <div class="note">The sentence the hero was designed for. Rare — probably 15–25% of company rows for an average user. That's okay; the lower rungs are still strong.</div>
+    </div>
+  </div>
+
+  <div class="rung">
+    <div class="r">R2</div>
+    <div>
+      <div class="title">Named alum + team <span class="signal ok">strong</span></div>
+      <div class="cond">path_score ≥ 3.0 · team.confidence ≥ 0.85 · verified &lt; 90d · privacy.allow_name_in_ui</div>
+      <div class="out">Your closest path in: <b>Priya Desai, '22</b>, on the Ads ML team.</div>
+      <div class="note">Drops the responsiveness clause. Still specific, still feels curated.</div>
+    </div>
+  </div>
+
+  <div class="rung">
+    <div class="r">R3</div>
+    <div>
+      <div class="title">Named alum, no team <span class="signal warn">good</span></div>
+      <div class="cond">path_score ≥ 3.0 · privacy.allow_name_in_ui · (team.confidence &lt; 0.85 OR stale)</div>
+      <div class="out">Your closest path in: <b>Priya Desai, '22</b> — same major, two shared professors.</div>
+      <div class="note">Swaps the team for shared-context facts (major, professors, clubs, internships — whatever overlap data we do have). Feels personal without making a claim we can't defend.</div>
+    </div>
+  </div>
+
+  <div class="rung">
+    <div class="r">R4</div>
+    <div>
+      <div class="title">Anonymized, cohort stat <span class="signal warn">safe</span></div>
+      <div class="cond">No alum meets R1–R3 threshold, but cohort data exists · count ≥ 3</div>
+      <div class="out"><b>Twelve</b> USC alumni work here in data roles — <b>three</b> started this fall.</div>
+      <div class="note">Same as the headline on the hero. Falls back to aggregate stats. Never names a person. This is the default most rows will land on at first.</div>
+    </div>
+  </div>
+
+  <div class="rung">
+    <div class="r">R5</div>
+    <div>
+      <div class="title">Sector-only fallback <span class="signal bad">minimum</span></div>
+      <div class="cond">No alumni data · company is in a relevant sector for the user</div>
+      <div class="out">A <b>Tech · AI</b> company on your radar — tight fit for your Data Science coursework.</div>
+      <div class="note">Never claims Trojan presence when there isn't any. Talks about the fit instead. If even this fails, the company shouldn't be in the top 5 — demote it.</div>
+    </div>
+  </div>
+
+</div>
+
+<hr/>
+
+<h2><span class="num">05</span>Generation prompt (LLM-assisted sentences)</h2>
+<p>For R1–R3 we use a deterministic template. For R4–R5 we also use a template. The LLM is <b>only</b> used to lightly vary the phrasing for the hero detail paragraph (the 2-line prose block below the italic headline) — never to invent facts. Here's the prompt.</p>
+
+<pre><span class="c">/* ========================================================================
+   SYSTEM
+   ======================================================================== */</span>
+You are Scout, a careful editorial voice inside Offerloop. You write ONE
+short paragraph (2 sentences, under 40 words) for a hero card that
+recommends a company to a USC student.
+
+Rules — violating any of these is a failure:
+1. Use ONLY facts from the provided JSON. Do not invent names, teams,
+   numbers, dates, or relationships.
+2. If a field is null or missing, you do not reference it. You never
+   say "someone" or "a few people" when the data is missing.
+3. Write in present tense, second person ("you," "your").
+4. Tone is understated, warm, specific. No marketing voice. No emoji.
+   No exclamation points. One italic clause is fine; do not overuse.
+5. Keep it to 2 sentences. Target 30 words. Never exceed 40.
+6. If a responsiveness number exists (intros_replied_30d), you may
+   reference it in a trailing clause. Otherwise drop it silently.
+7. Every fact must be defensible. If you are less than sure, omit it.
+
+<span class="c">/* ========================================================================
+   USER
+   ======================================================================== */</span>
+Write the hero paragraph for this company, for this user, at this rung.
+
+RUNG: <span class="n">R1</span>          <span class="c">// which fallback tier fired</span>
+USER: {
+  name: <span class="s">"Deena"</span>,
+  school: <span class="s">"USC"</span>,
+  major: <span class="s">"Data Science"</span>,
+  location: <span class="s">"Los Angeles"</span>
+}
+COMPANY: {
+  name: <span class="s">"Google"</span>,
+  sector: <span class="s">"Tech · AI"</span>,
+  city: <span class="s">"San Francisco"</span>
+}
+ALUMNI_SIGNAL: {
+  cohort_count_in_role: <span class="n">12</span>,
+  started_this_fall: <span class="n">3</span>,
+  closest_path: {
+    name: <span class="s">"Priya Desai"</span>,
+    grad_year: <span class="n">2022</span>,
+    team: <span class="s">"Ads ML"</span>,
+    team_confidence: <span class="n">0.92</span>,
+    intros_replied_30d: <span class="n">3</span>,
+    shared: { major: <span class="k">true</span>, professors: [<span class="s">"Park"</span>, <span class="s">"Mehta"</span>] }
+  }
+}
+
+<span class="c">/* ========================================================================
+   FEW-SHOT EXAMPLES
+   ======================================================================== */</span>
+Example 1 — R1 (rich)
+OUT: "Your closest path in: Priya Desai, '22, on the Ads ML team.
+     She's replied to three cohort intros this month."
+
+Example 2 — R2 (no responsiveness)
+OUT: "Your closest path in: Marcus Chen, '21, on the Maps infra team.
+     Same major, two shared professors."
+
+Example 3 — R3 (no team)
+OUT: "Your closest path in: Amy Rodriguez, '23 — same major, Trojan Data
+     alum, and she started here eight months ago."
+
+Example 4 — R4 (anonymized)
+OUT: "Twelve USC alumni work in data roles here, with three starting this
+     fall. No single warmest intro yet — but the pipeline is deep."
+
+Example 5 — R5 (sector only)
+OUT: "A Tech · AI company on your radar — tight fit for your Data Science
+     coursework. No tracked Trojans here yet."
+
+<span class="c">/* ========================================================================
+   OUTPUT FORMAT
+   ======================================================================== */</span>
+Return strict JSON:
+{
+  <span class="k">paragraph</span>: <span class="s">"..."</span>,
+  <span class="k">rung_used</span>: <span class="s">"R1"</span>,
+  <span class="k">facts_used</span>: [<span class="s">"name"</span>, <span class="s">"grad_year"</span>, <span class="s">"team"</span>, <span class="s">"intros_replied_30d"</span>],
+  <span class="k">facts_omitted</span>: [<span class="s">"shared.professors"</span>]
+}
+
+If you cannot write a defensible paragraph at the given rung, return:
+{ <span class="k">paragraph</span>: <span class="k">null</span>, <span class="k">rung_used</span>: <span class="s">"R5"</span>, <span class="k">reason</span>: <span class="s">"insufficient data"</span> }
+and the client will degrade to the next rung down.</pre>
+
+<div class="callout"><b>Why return <code>facts_used</code>?</b> So the client can assert every named fact is actually present in the input JSON before rendering. If the LLM hallucinates a field, we catch it and drop to the deterministic template for that rung.</div>
+
+<hr/>
+
+<h2><span class="num">06</span>Guardrails at render time</h2>
+<p>Even after the LLM returns clean JSON, the client re-validates before painting a single pixel.</p>
+<ul class="checks">
+  <li><b>Name whitelist.</b> The only names allowed in the paragraph are <code>alumni_signal.closest_path.name</code>. Regex-reject any other proper noun that isn't in a static company/school whitelist.</li>
+  <li><b>Number whitelist.</b> Every digit or spelled-out number in the paragraph must correspond to a value in <code>facts_used</code>. Rejects "four" when only "3" was provided.</li>
+  <li><b>Team-claim lock.</b> If <code>team_confidence &lt; 0.85</code> and the paragraph mentions "team," strip the clause and fall back to R3.</li>
+  <li><b>Staleness stamp.</b> Any fact pulled from a record with <code>verified_at</code> older than 90 days is flagged; we append "<em>(verified in [month])</em>" in mono 9px under the paragraph rather than silently mislead.</li>
+  <li class="x"><b>Never ship a rung without its guardrail.</b> If validation fails twice at the same rung, drop to the next rung automatically — do not retry the LLM a third time.</li>
+</ul>
+
+<hr/>
+
+<h2><span class="num">07</span>Observability</h2>
+<p>Ship this with instrumentation from day one, or you'll never know which rung is actually firing in production.</p>
+<table>
+  <thead><tr><th>Metric</th><th>Target</th><th>Alert when</th></tr></thead>
+  <tbody>
+    <tr><td>R1 fire rate</td><td>15–25% of hero renders</td><td>&lt; 5% for 48h — data pipeline probably broken</td></tr>
+    <tr><td>R5 fire rate</td><td>&lt; 20%</td><td>&gt; 40% — alumni index stale or user has thin signals</td></tr>
+    <tr><td>Guardrail rejection rate</td><td>&lt; 2%</td><td>&gt; 5% — prompt or model drifting</td></tr>
+    <tr><td>Staleness-flag rate</td><td>&lt; 10%</td><td>&gt; 25% — LinkedIn scrape cadence too slow</td></tr>
+    <tr><td>User "wrong!" report</td><td>&lt; 0.5%</td><td>any sustained uptick — individual facts are wrong; audit sources</td></tr>
+  </tbody>
+</table>
+
+<hr/>
+
+<h2><span class="num">08</span>What this means for design</h2>
+<p>The hero component should accept a <code>rung</code> prop and render accordingly. Do NOT try to render "R1 with an R4 fallback underneath" — pick one, commit, style it like it was always the only version. The italic paragraph is the same shape at every rung; only the facts inside change.</p>
+
+<div class="callout">The design's job is to make every rung look intentional. If R5 feels like a sad consolation prize, we've failed. R5 should feel like Scout honestly telling you "not yet, but here's why it still matters" — which is <b>more</b> trustworthy than a fabricated Priya Desai.</div>
+
+</main>
+</body>
+</html>

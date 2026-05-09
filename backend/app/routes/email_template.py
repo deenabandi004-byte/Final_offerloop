@@ -156,8 +156,8 @@ def list_presets():
 # ---------------------------------------------------------------------------
 
 @email_template_bp.route("/saved", methods=["GET"])
-@require_tier(['elite'])
 @require_firebase_auth
+@require_tier(['elite'])
 def list_saved():
     """List all saved custom email templates for the user."""
     try:
@@ -190,8 +190,8 @@ def list_saved():
 
 
 @email_template_bp.route("/saved", methods=["POST"])
-@require_tier(['elite'])
 @require_firebase_auth
+@require_tier(['elite'])
 def create_saved():
     """Create (or update) a saved custom email template."""
     try:
@@ -233,8 +233,8 @@ def create_saved():
 
 
 @email_template_bp.route("/saved/<template_id>", methods=["DELETE"])
-@require_tier(['elite'])
 @require_firebase_auth
+@require_tier(['elite'])
 def delete_saved(template_id):
     """Delete a saved custom email template."""
     try:

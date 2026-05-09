@@ -1,14 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:wght@400;600&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap');
-
-@font-face {
-  font-family: "VanquishBold";
-  src: url('./assets/fonts/VanquishBold.woff2') format('woff2'),
-       url('./assets/fonts/VanquishBold.woff') format('woff');
-  font-display: swap;
-}
+/* Fonts loaded via index.html Google Fonts link (Inter, Instrument Serif, JetBrains Mono) */
 
 @tailwind base;
 @tailwind components;
@@ -27,8 +17,8 @@
 
   body,
   html {
-    background: #FFFFFF !important;
-    background-color: #FFFFFF !important;
+    background: var(--paper, #FFFFFF);
+    background-color: var(--paper, #FFFFFF);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif !important;
   }
 
@@ -95,6 +85,17 @@
     --brand-border: #E2E8F0;
     --brand-border-light: #EEF2F8;
 
+    /* Warm palette — repointed to neutral to match landing page (#FFFFFF) */
+    --warm-bg: #FFFFFF;                     /* was #FEFDFB */
+    --warm-surface: #F9FAFB;                /* was #FAF9F6 — subtle gray for cards */
+    --warm-surface-hover: #F3F4F6;          /* was #F5F3EF */
+    --warm-border: #E5E7EB;                 /* was #E8E4DE */
+    --warm-border-light: #F0F1F3;           /* was #F0EDE8 */
+    --warm-ink-secondary: #475569;          /* was #6B6560 — aligns with --brand-ink-secondary */
+    --warm-ink-tertiary: #94A3B8;           /* was #9C9590 — aligns with --brand-ink-tertiary */
+    --warm-shadow: 0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04);
+    --warm-shadow-hover: 0 4px 12px rgba(15,23,42,0.08), 0 2px 4px rgba(15,23,42,0.04);
+
     --blue: #3B82F6;
     --blue-hover: #2563EB;
     --blue-soft: rgba(59, 130, 246, 0.12);
@@ -106,8 +107,8 @@
     --bg-off: #FAFBFF;
     --border: #E2E8F0;
     --border-light: #EEF2F8;
-    --font-display: 'Lora', Georgia, serif;
-    --font-serif: 'Lora', Georgia, serif;
+    --font-display: 'Instrument Serif', Georgia, serif;
+    --font-serif: 'Instrument Serif', Georgia, serif;
     --font-body: 'Inter', -apple-system, sans-serif;
     --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
     --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -121,7 +122,7 @@
   }
 
   html {
-    background-color: #FFFFFF !important;
+    background-color: var(--paper, #FFFFFF);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -129,12 +130,11 @@
   }
 
   body {
-    @apply bg-background text-foreground;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     font-weight: 400;
     overflow-x: hidden;
-    background: #FFFFFF;
-    color: #0F172A;
+    background: var(--paper, #FFFFFF);
+    color: var(--ink, #0F172A);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
@@ -142,8 +142,8 @@
   }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Lora', Georgia, serif;
-    font-weight: 600;
+    font-family: 'Instrument Serif', Georgia, serif;
+    font-weight: 400;
     letter-spacing: -0.01em;
     color: #0F172A;
     -webkit-font-smoothing: antialiased;
@@ -159,11 +159,30 @@
   }
 }
 
+/* Staggered entrance for suggestion rows */
+@keyframes suggestion-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.suggestion-row-enter {
+  animation: suggestion-fade-up .3s ease both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .suggestion-row-enter { animation: none; opacity: 1; transform: none; }
+  /* Disable all transitions for reduced motion */
+  .find-page-animated { transition: none !important; }
+}
+
 /* ============================================
    CLEAN CARD COMPONENTS (Stripe-inspired)
    ============================================ */
 
 @layer utilities {
+  /* Token-driven background utility (matches var(--paper) from tokens.css) */
+  .bg-paper {
+    background-color: var(--paper, #FFFFFF);
+  }
+
   /* Clean card — warm surface bg, book border */
   .glass-card {
     background: #FAFBFF !important;
@@ -332,7 +351,7 @@
     font-weight: 600;
     letter-spacing: -0.015em;
     color: #0F172A;
-    font-family: 'Lora', Georgia, serif;
+    font-family: 'Instrument Serif', Georgia, serif;
   }
 
   .text-mega {
@@ -341,7 +360,7 @@
     font-weight: 600;
     letter-spacing: -0.01em;
     color: #0F172A;
-    font-family: 'Lora', Georgia, serif;
+    font-family: 'Instrument Serif', Georgia, serif;
   }
 
   .text-display-lg {
@@ -350,7 +369,7 @@
     font-weight: 600;
     letter-spacing: -0.01em;
     color: #0F172A;
-    font-family: 'Lora', Georgia, serif;
+    font-family: 'Instrument Serif', Georgia, serif;
   }
 }
 

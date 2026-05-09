@@ -557,10 +557,46 @@ def generate_and_draft():
                 }
 
                 # Store personalization metadata if available
+                # New fields (leadType, commonalityTypes, warmthTierFinal, wordCountFinal,
+                # leadHookUsedInBody) added 2026-04-28. Old contacts only have
+                # personalizationLabel + personalizationType. No backfill — filter
+                # analysis by emailGeneratedAt >= 2026-04-28 for clean P0 measurement.
                 personalization = r.get("personalization")
                 if personalization:
                     contact_data["personalizationLabel"] = personalization.get("label", "")
                     contact_data["personalizationType"] = personalization.get("commonality_type", "")
+                    contact_data["leadType"] = personalization.get("lead_type", "")
+                    contact_data["commonalityTypes"] = personalization.get("commonality_types", [])
+                    contact_data["warmthTierFinal"] = personalization.get("warmth_tier_final", "")
+
+                # Word count of final email body
+                contact_data["wordCountFinal"] = len(body.split())
+
+                # Check if lead hook content appears in the final body.
+                # Uses 3+ consecutive significant words (>=4 chars) from the hook
+                # to detect incorporation without false positives from short words.
+                lead_hook = (personalization or {}).get("lead_hook", "")
+                if lead_hook and len(lead_hook) > 5:
+                    body_lower = body.lower()
+                    hook_words = [
+                        w for w in lead_hook.lower().split()
+                        if len(w) >= 4 and w not in {"this", "that", "they", "them", "their", "with", "from", "have", "been", "were", "also", "your", "about"}
+                    ]
+                    # Check for any 3-consecutive-word window match
+                    found = False
+                    for i in range(len(hook_words) - 2):
+                        trigram = " ".join(hook_words[i:i+3])
+                        if trigram in body_lower:
+                            found = True
+                            break
+                    # Fallback: if hook has fewer than 3 significant words,
+                    # check if any 2-word pair appears
+                    if not found and len(hook_words) >= 2 and len(hook_words) < 3:
+                        bigram = " ".join(hook_words[:2])
+                        found = bigram in body_lower
+                    contact_data["leadHookUsedInBody"] = found
+                else:
+                    contact_data["leadHookUsedInBody"] = False
                 
                 # Add threadId if we have it
                 if thread_id:

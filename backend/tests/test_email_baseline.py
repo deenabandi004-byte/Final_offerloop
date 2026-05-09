@@ -8,10 +8,17 @@ os.environ.setdefault("FLASK_ENV", "testing")
 os.environ.setdefault("GOOGLE_APPLICATION_CREDENTIALS", "test-credentials.json")
 
 from app.services.email_baseline import (
+    AGGREGATION_HOUR_END,
+    AGGREGATION_HOUR_START,
+    AGGREGATION_STALENESS_SECONDS,
+    AGGREGATION_SUNDAY_WEEKDAY,
     compute_email_baseline,
+    aggregate_email_outcomes,
     ELIGIBLE_STAGES,
     _classify_industry,
     _make_segment_key,
+    _should_run_aggregation_scanner,
+    _write_aggregation_scanner_health,
 )
 
 
@@ -691,3 +698,262 @@ class TestGetUserSchoolIntegration:
         # No key starting with "user_school:" should exist
         user_school_keys = [k for k in segments if k.startswith("user_school:")]
         assert user_school_keys == []
+
+
+# ---------------------------------------------------------------------------
+# Aggregation scanner gate (C2 coordination PR — daemon contract)
+# ---------------------------------------------------------------------------
+#
+# Contract: docs/designs/tracker-daemon-contract.md
+# Rule: scanner runs iff today is Sunday UTC AND current UTC hour is in
+# [3, 9) AND the last successful run was more than 6 days ago. The AND
+# gates give a narrow weekly window; the staleness check prevents multiple
+# runs within the same 6-hour dispatch window.
+
+def _aggregation_system_doc_mock(last_success_iso=None, exists=True):
+    db = MagicMock()
+    doc = MagicMock()
+    doc.exists = exists
+    if exists and last_success_iso is not None:
+        doc.to_dict.return_value = {"lastSuccessAt": last_success_iso}
+    else:
+        doc.to_dict.return_value = {}
+    db.collection.return_value.document.return_value.get.return_value = doc
+    return db
+
+
+class TestAggregationScannerGate:
+    """Gate logic for aggregate_email_outcomes — Sunday AND 3-9am AND >6d."""
+
+    def test_gate_constants_match_contract(self):
+        assert AGGREGATION_SUNDAY_WEEKDAY == 6  # Sun=6
+        assert AGGREGATION_HOUR_START == 3
+        assert AGGREGATION_HOUR_END == 9
+        assert AGGREGATION_STALENESS_SECONDS == 6 * 24 * 3600
+
+    def test_non_sunday_returns_false(self):
+        """Monday 5am UTC → no."""
+        db = _aggregation_system_doc_mock(exists=False)
+        mon = datetime(2026, 4, 13, 5, 0, 0, tzinfo=timezone.utc)
+        assert mon.weekday() == 0
+        assert _should_run_aggregation_scanner(db, now=mon) is False
+
+    def test_sunday_before_window_returns_false(self):
+        """Sunday 2am UTC — before 3am window."""
+        db = _aggregation_system_doc_mock(exists=False)
+        sun_early = datetime(2026, 4, 12, 2, 0, 0, tzinfo=timezone.utc)
+        assert sun_early.weekday() == 6
+        assert _should_run_aggregation_scanner(db, now=sun_early) is False
+
+    def test_sunday_after_window_returns_false(self):
+        """Sunday 9am UTC — AT the upper bound, half-open [3,9)."""
+        db = _aggregation_system_doc_mock(exists=False)
+        sun_nine = datetime(2026, 4, 12, 9, 0, 0, tzinfo=timezone.utc)
+        assert _should_run_aggregation_scanner(db, now=sun_nine) is False
+
+    def test_sunday_in_window_first_boot_fires(self):
+        """Sunday 5am UTC, no prior run → run (first-ever)."""
+        db = _aggregation_system_doc_mock(exists=False)
+        sun = datetime(2026, 4, 12, 5, 0, 0, tzinfo=timezone.utc)
+        assert _should_run_aggregation_scanner(db, now=sun) is True
+
+    def test_sunday_in_window_fresh_run_skips(self):
+        """Sunday 5am UTC, ran 3 days ago → skip (stale gate not met)."""
+        now = datetime(2026, 4, 12, 5, 0, 0, tzinfo=timezone.utc)
+        last = (now - timedelta(days=3)).isoformat().replace("+00:00", "Z")
+        db = _aggregation_system_doc_mock(last_success_iso=last)
+        assert _should_run_aggregation_scanner(db, now=now) is False
+
+    def test_sunday_in_window_stale_fires(self):
+        """Sunday 5am UTC, ran 6d12h ago → run (stale gate met)."""
+        now = datetime(2026, 4, 12, 5, 0, 0, tzinfo=timezone.utc)
+        last = (now - timedelta(days=6, hours=12)).isoformat().replace("+00:00", "Z")
+        db = _aggregation_system_doc_mock(last_success_iso=last)
+        assert _should_run_aggregation_scanner(db, now=now) is True
+
+    def test_db_error_fails_closed(self):
+        """Firestore error during gate check → default False (don't raise)."""
+        db = MagicMock()
+        db.collection.return_value.document.return_value.get.side_effect = \
+            Exception("boom")
+        sun = datetime(2026, 4, 12, 5, 0, 0, tzinfo=timezone.utc)
+        assert _should_run_aggregation_scanner(db, now=sun) is False
+
+    def test_all_hours_in_window(self):
+        """3am, 4am, ..., 8am UTC Sunday all fire with empty system doc."""
+        db = _aggregation_system_doc_mock(exists=False)
+        for hour in range(3, 9):
+            sun = datetime(2026, 4, 12, hour, 0, 0, tzinfo=timezone.utc)
+            assert _should_run_aggregation_scanner(db, now=sun) is True, (
+                f"hour={hour} should open gate"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Aggregation scanner health doc
+# ---------------------------------------------------------------------------
+
+class TestAggregationScannerHealth:
+    """Health doc fields match the daemon contract exactly."""
+
+    def test_health_doc_fields_match_contract(self):
+        db = MagicMock()
+        system_doc = MagicMock()
+        db.collection.return_value.document.return_value = system_doc
+
+        _write_aggregation_scanner_health(
+            db,
+            contacts_scanned=9876,
+            segments_written=42,
+            doc_size_bytes=12345,
+            error_count=0,
+            duration_ms=5678,
+        )
+
+        system_doc.set.assert_called_once()
+        payload = system_doc.set.call_args[0][0]
+        # Contract-required fields
+        assert payload["contactsScanned"] == 9876
+        assert payload["segmentsWritten"] == 42
+        assert payload["docSizeBytes"] == 12345
+        assert payload["errorCount"] == 0
+        assert payload["lastDurationMs"] == 5678
+        assert "lastSuccessAt" in payload
+        assert payload["lastSuccessAt"].endswith("Z")
+
+    def test_health_doc_targets_aggregation_scanner_doc(self):
+        db = MagicMock()
+        system_coll = MagicMock()
+        db.collection.return_value = system_coll
+
+        _write_aggregation_scanner_health(
+            db,
+            contacts_scanned=0,
+            segments_written=0,
+            doc_size_bytes=0,
+            error_count=0,
+            duration_ms=0,
+        )
+
+        db.collection.assert_called_with("system")
+        system_coll.document.assert_called_with("aggregation_scanner")
+
+    def test_health_write_failure_does_not_raise(self):
+        db = MagicMock()
+        db.collection.return_value.document.return_value.set.side_effect = \
+            Exception("firestore down")
+        # Must not raise
+        _write_aggregation_scanner_health(
+            db,
+            contacts_scanned=1,
+            segments_written=1,
+            doc_size_bytes=1,
+            error_count=0,
+            duration_ms=1,
+        )
+
+
+# ---------------------------------------------------------------------------
+# aggregate_email_outcomes — scanner entry point
+# ---------------------------------------------------------------------------
+
+class TestAggregateEmailOutcomes:
+    """Scanner entry point delegates to compute_email_baseline() when gated open."""
+
+    @patch("app.services.email_baseline.get_db", return_value=None)
+    def test_no_db_returns_silently(self, _mock_db):
+        """No db client → bail silently, no raise."""
+        aggregate_email_outcomes()  # must not raise
+
+    @patch("app.services.email_baseline._should_run_aggregation_scanner", return_value=False)
+    @patch("app.services.email_baseline.compute_email_baseline")
+    @patch("app.services.email_baseline.get_db")
+    def test_gate_closed_skips_compute(self, mock_db, mock_compute, _mock_gate):
+        """Gate closed → never call compute_email_baseline, no health write."""
+        db = MagicMock()
+        mock_db.return_value = db
+        system_doc = MagicMock()
+        db.collection.return_value.document.return_value = system_doc
+
+        aggregate_email_outcomes()
+
+        mock_compute.assert_not_called()
+        # No health write on a skipped run (a skip is not a success)
+        system_doc.set.assert_not_called()
+
+    @patch("app.services.email_baseline._should_run_aggregation_scanner", return_value=True)
+    @patch("app.services.email_baseline.compute_email_baseline")
+    @patch("app.services.email_baseline.get_db")
+    def test_gate_open_calls_compute_and_writes_health(
+        self, mock_db, mock_compute, _mock_gate,
+    ):
+        """Gate open → compute runs, health doc is written."""
+        db = MagicMock()
+        mock_db.return_value = db
+
+        # compute returns a baseline with the sampleSize field
+        mock_compute.return_value = {
+            "sampleSize": {"totalContactsEmailed": 123},
+        }
+
+        # Route system/aggregation_scanner to its own doc ref and
+        # analytics/email_outcomes to a doc with segmentCount.
+        system_doc = MagicMock()
+        outcomes_doc = MagicMock()
+        outcomes_doc.exists = True
+        outcomes_doc.to_dict.return_value = {
+            "segmentCount": 7,
+            "segments": {"industry:consulting": {}},
+        }
+
+        def _collection(name):
+            coll = MagicMock()
+            if name == "system":
+                coll.document.return_value = system_doc
+            elif name == "analytics":
+                def _analytics_doc(doc_name):
+                    if doc_name == "email_outcomes":
+                        d = MagicMock()
+                        d.get.return_value = outcomes_doc
+                        return d
+                    return MagicMock()
+                coll.document.side_effect = _analytics_doc
+            return coll
+
+        db.collection.side_effect = _collection
+
+        aggregate_email_outcomes()
+
+        mock_compute.assert_called_once()
+        system_doc.set.assert_called_once()
+        payload = system_doc.set.call_args[0][0]
+        assert payload["contactsScanned"] == 123
+        assert payload["segmentsWritten"] == 7
+        assert payload["errorCount"] == 0
+        assert payload["docSizeBytes"] > 0
+
+    @patch("app.services.email_baseline._should_run_aggregation_scanner", return_value=True)
+    @patch("app.services.email_baseline.compute_email_baseline",
+           side_effect=Exception("pdl down"))
+    @patch("app.services.email_baseline.get_db")
+    def test_compute_failure_increments_error_count(
+        self, mock_db, _mock_compute, _mock_gate,
+    ):
+        """compute_email_baseline raises → errorCount=1 in health doc, no raise."""
+        db = MagicMock()
+        mock_db.return_value = db
+        system_doc = MagicMock()
+
+        def _collection(name):
+            coll = MagicMock()
+            if name == "system":
+                coll.document.return_value = system_doc
+            return coll
+
+        db.collection.side_effect = _collection
+
+        aggregate_email_outcomes()  # must not raise
+
+        system_doc.set.assert_called_once()
+        payload = system_doc.set.call_args[0][0]
+        assert payload["errorCount"] == 1

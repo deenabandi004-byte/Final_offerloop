@@ -11,6 +11,9 @@ import {
   PanelLeft,
   Tag,
   FileText,
+  Users,
+  User,
+  Bot,
 } from "lucide-react";
 import CupIcon from "@/assets/sidebaricons/icons8-cup-48.png";
 import MailIcon from "@/assets/sidebaricons/icons8-important-mail-48.png";
@@ -20,6 +23,7 @@ import BriefcaseIcon from "@/assets/sidebaricons/icons8-briefcase-48.png";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { trackNavClick, trackUpgradeClick } from "../lib/analytics";
+import { useAgentSidebarStatus } from "@/hooks/useAgent";
 
 import {
   Sidebar,
@@ -39,8 +43,8 @@ import { cn } from "@/lib/utils";
 // ── Icon helpers ────────────────────────────────────────────────────────────
 
 const IMG_FILTER_ACTIVE =
-  "brightness(0) saturate(100%) invert(72%) sepia(30%) saturate(1200%) hue-rotate(190deg) brightness(105%) contrast(95%)";
-const IMG_FILTER_INACTIVE = "brightness(0) saturate(100%) invert(65%) sepia(15%) saturate(600%) hue-rotate(190deg) brightness(95%) contrast(90%)";
+  "brightness(0) saturate(100%) invert(63%) sepia(57%) saturate(1188%) hue-rotate(193deg) brightness(101%) contrast(96%)";
+const IMG_FILTER_INACTIVE = "brightness(0) saturate(100%) invert(100%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(100%) contrast(100%) opacity(0.55)";
 
 type NavItemDef = {
   title: string;
@@ -48,31 +52,42 @@ type NavItemDef = {
   dataTour?: string;
   newTab?: boolean;
   iconColor?: string; // per-item color for inactive state
+  activeColor?: string; // per-item override for active icon/text color
+  activeFilter?: string; // per-item override for active img filter
+  activeBg?: string; // per-item override for active background
 } & (
   | { iconSrc: string; LucideIcon?: never }
   | { LucideIcon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; iconSrc?: never }
 );
 
-// CSS filter generators — cool blue/indigo family, vivid
+// CSS filter generators — vivid hues for PNG sidebar icons
 const ICON_FILTERS: Record<string, string> = {
   blue:      "brightness(0) saturate(100%) invert(60%) sepia(90%) saturate(800%) hue-rotate(190deg) brightness(115%) contrast(95%)",
   sky:       "brightness(0) saturate(100%) invert(70%) sepia(60%) saturate(700%) hue-rotate(175deg) brightness(115%) contrast(95%)",
   indigo:    "brightness(0) saturate(100%) invert(55%) sepia(70%) saturate(800%) hue-rotate(210deg) brightness(115%) contrast(95%)",
   slate:     "brightness(0) saturate(100%) invert(65%) sepia(40%) saturate(600%) hue-rotate(190deg) brightness(120%) contrast(90%)",
+  brown:     "brightness(0) saturate(100%) invert(35%) sepia(40%) saturate(600%) hue-rotate(350deg) brightness(110%) contrast(90%)",
+  amber:     "brightness(0) saturate(100%) invert(86%) sepia(34%) saturate(900%) hue-rotate(338deg) brightness(101%) contrast(96%)",
+  emerald:   "brightness(0) saturate(100%) invert(73%) sepia(86%) saturate(361%) hue-rotate(101deg) brightness(96%) contrast(91%)",
+  rose:      "brightness(0) saturate(100%) invert(60%) sepia(82%) saturate(2358%) hue-rotate(316deg) brightness(101%) contrast(98%)",
+  violet:    "brightness(0) saturate(100%) invert(65%) sepia(43%) saturate(956%) hue-rotate(213deg) brightness(98%) contrast(101%)",
+  teal:      "brightness(0) saturate(100%) invert(78%) sepia(67%) saturate(285%) hue-rotate(122deg) brightness(102%) contrast(91%)",
 };
 
-// Group 1 — main nav
-const mainNavItems: NavItemDef[] = [
+// Group 1 — main nav (base items, Agent added dynamically for Elite)
+const baseNavItems: NavItemDef[] = [
   { title: "Find", url: "/find", iconSrc: MagnifyingGlassIcon, iconColor: "blue" },
-  { title: "Coffee Chat Prep", url: "/coffee-chat-prep", iconSrc: CupIcon, dataTour: "tour-coffee-chat-prep", iconColor: "sky" },
-  { title: "Tracker", url: "/tracker", iconSrc: MailIcon, dataTour: "tour-track-email", iconColor: "indigo" },
-  { title: "Job Board", url: "/job-board", iconSrc: BriefcaseIcon, iconColor: "slate" },
+  { title: "Profile", url: "/profile", LucideIcon: User, iconColor: "#818CF8" },
+  { title: "My Network", url: "/my-network", LucideIcon: Users, iconColor: "#A78BFA" },
+  { title: "Coffee Chat Prep", url: "/coffee-chat-prep", iconSrc: CupIcon, iconColor: "amber", dataTour: "tour-coffee-chat-prep" },
+  { title: "Tracker", url: "/tracker", iconSrc: MailIcon, iconColor: "rose", dataTour: "tour-track-email" },
+  { title: "Job Board", url: "/job-board", iconSrc: BriefcaseIcon, iconColor: "emerald" },
 ];
 
 // Utility nav — bottom of sidebar
 const utilityNavItems: NavItemDef[] = [
-  { title: "Pricing", url: "/pricing", LucideIcon: Tag, iconColor: "#93C5FD" },
-  { title: "Documentation", url: "/documentation", LucideIcon: FileText, iconColor: "#7DD3FC" },
+  { title: "Pricing", url: "/pricing", LucideIcon: Tag, iconColor: "#FCD34D" },
+  { title: "Documentation", url: "/documentation", LucideIcon: FileText, iconColor: "#5EEAD4" },
 ];
 
 
@@ -92,13 +107,13 @@ const NAV_PY = "11px";
 const NAV_GAP = "10px";
 const NAV_RADIUS = "8px";
 
-const ACTIVE_BG = "rgba(59,130,246,.18)";
-const ACTIVE_SHADOW = "none";
-const ACTIVE_COLOR = "#93C5FD";
-const INACTIVE_ICON = "rgba(140,170,210,.55)";
-const INACTIVE_LABEL = "rgba(255,255,255,.40)";
+const ACTIVE_BG = "rgba(59,130,246,0.18)";
+const ACTIVE_SHADOW = "inset 2px 0 0 #60A5FA";
+const ACTIVE_COLOR = "#60A5FA";
+const INACTIVE_ICON = "rgba(255,255,255,.55)";
+const INACTIVE_LABEL = "rgba(255,255,255,.70)";
 const HOVER_BG = "rgba(255,255,255,.06)";
-const HOVER_LABEL = "rgba(255,255,255,.70)";
+const HOVER_LABEL = "rgba(255,255,255,.92)";
 
 // ── Component ───────────────────────────────────────────────────────────────
 
@@ -130,6 +145,11 @@ export function AppSidebar() {
   const creditPercentage = Math.min((credits / maxCredits) * 100, 100);
   const isCollapsed = state === "collapsed";
 
+  // Agent nav available to all users
+  const isElite = (user as { tier?: string } | null)?.tier === "elite";
+  const agentStatus = useAgentSidebarStatus();
+  const mainNavItems: NavItemDef[] = [{ title: "Agent", url: "/agent", LucideIcon: Bot }, ...baseNavItems];
+
   // ── Render a single nav item (works for both image-icon and lucide-icon) ──
 
   const renderNavItem = (item: NavItemDef) => {
@@ -145,14 +165,14 @@ export function AppSidebar() {
         alt=""
         className="h-4 w-4 flex-shrink-0"
         style={{
-          filter: active ? IMG_FILTER_ACTIVE : inactiveFilter,
+          filter: active ? (item.activeFilter || IMG_FILTER_ACTIVE) : inactiveFilter,
           opacity: 1,
         }}
       />
     ) : item.LucideIcon ? (
       <item.LucideIcon
         className="h-4 w-4 flex-shrink-0"
-        style={{ color: active ? ACTIVE_COLOR : (item.iconColor && !ICON_FILTERS[item.iconColor] ? item.iconColor : INACTIVE_ICON) }}
+        style={{ color: active ? (item.activeColor || ACTIVE_COLOR) : (item.iconColor && !ICON_FILTERS[item.iconColor] ? item.iconColor : INACTIVE_ICON) }}
       />
     ) : null;
 
@@ -188,7 +208,7 @@ export function AppSidebar() {
                 className="flex items-center justify-center rounded-[8px] transition-all"
                 style={{
                   padding: NAV_PY,
-                  background: active ? ACTIVE_BG : "transparent",
+                  background: active ? (item.activeBg || ACTIVE_BG) : "transparent",
                   boxShadow: active ? ACTIVE_SHADOW : "none",
                   borderRadius: NAV_RADIUS,
                 }}
@@ -257,9 +277,9 @@ export function AppSidebar() {
           fontSize: NAV_FONT_SIZE,
           fontWeight: active ? 500 : 400,
           fontFamily: "var(--font-body)",
-          background: active ? ACTIVE_BG : "transparent",
+          background: active ? (item.activeBg || ACTIVE_BG) : "transparent",
           boxShadow: active ? ACTIVE_SHADOW : "none",
-          color: active ? ACTIVE_COLOR : INACTIVE_LABEL,
+          color: active ? (item.activeColor || ACTIVE_COLOR) : INACTIVE_LABEL,
         }}
         onMouseEnter={(e) => {
           if (!active) {
@@ -274,8 +294,21 @@ export function AppSidebar() {
           }
         }}
       >
-        {icon}
-        <span>{item.title}</span>
+        <span className="relative">
+          {icon}
+          {item.title === "Agent" && agentStatus.status === "active" && (
+            <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-green-500" />
+          )}
+          {item.title === "Agent" && agentStatus.status === "paused" && (
+            <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-amber-400" />
+          )}
+        </span>
+        <span className="flex-1">{item.title}</span>
+        {item.title === "Agent" && agentStatus.pendingCount > 0 && (
+          <span className="ml-auto bg-amber-400/20 text-amber-300 text-[10px] font-medium rounded-full px-1.5 py-0.5 leading-none">
+            {agentStatus.pendingCount}
+          </span>
+        )}
       </NavLink>
     );
   };
@@ -288,7 +321,7 @@ export function AppSidebar() {
         <SidebarContent
           className="flex flex-col h-full overflow-hidden"
           style={{
-            background: "#060D1A",
+            background: "var(--brand, #1B2A44)",
             borderRight: "0.5px solid rgba(255,255,255,.06)",
           }}
         >
@@ -336,11 +369,11 @@ export function AppSidebar() {
                       }
                     }}
                   >
-                    <Avatar className="h-8 w-8 flex-shrink-0 ring-2 ring-[#3B82F6]/20">
+                    <Avatar className="h-8 w-8 flex-shrink-0 ring-2 ring-white/20">
                       {user?.picture && <AvatarImage src={user.picture} alt={user.name} />}
                       <AvatarFallback
                         className="text-xs font-medium"
-                        style={{ background: "rgba(59, 130, 246, 0.12)", color: "#3B82F6" }}
+                        style={{ background: "rgba(255,255,255,.15)", color: "#FFFFFF" }}
                       >
                         {user?.name
                           ?.split(" ")
@@ -407,8 +440,8 @@ export function AppSidebar() {
                           cn(
                             "flex items-center gap-3 px-3 py-2 text-sm transition-colors",
                             isActive
-                              ? "text-[#3B82F6] bg-[#EFF6FF]"
-                              : "text-[#475569] hover:text-[#0F172A] hover:bg-[#EFF6FF]"
+                              ? "text-[#1B2A44] bg-[rgba(27,42,68,0.1)]"
+                              : "text-[#475569] hover:text-[#0F172A] hover:bg-[rgba(27,42,68,0.06)]"
                           )
                         }
                       >
@@ -452,7 +485,7 @@ export function AppSidebar() {
           className="p-3"
           style={{
             borderTop: "0.5px solid rgba(255,255,255,.07)",
-            background: "#060D1A",
+            background: "var(--brand, #1B2A44)",
           }}
         >
           {!isCollapsed ? (
@@ -485,13 +518,13 @@ export function AppSidebar() {
                 </div>
                 <div
                   className="h-1 rounded-full overflow-hidden"
-                  style={{ background: "rgba(59, 130, 246, 0.12)" }}
+                  style={{ background: "rgba(255, 255, 255, 0.12)" }}
                 >
                   <div
                     className="h-full rounded-full transition-all duration-300"
                     style={{
                       width: `${creditPercentage}%`,
-                      background: "#3B82F6",
+                      background: "rgba(255,255,255,.7)",
                     }}
                   />
                 </div>
@@ -503,12 +536,14 @@ export function AppSidebar() {
                   trackUpgradeClick("sidebar", { from_location: "sidebar" });
                   navigate("/pricing");
                 }}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-[3px] transition-all"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-[6px] transition-all"
                 style={{
                   background: "#3B82F6",
-                  color: "#0F172A",
+                  color: "#FFFFFF",
                   fontFamily: "var(--font-body)",
+                  fontWeight: 600,
                   border: "none",
+                  boxShadow: "0 1px 2px rgba(15,23,42,0.25), inset 0 1px 0 rgba(255,255,255,0.18)",
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.background = "#2563EB";
@@ -517,7 +552,7 @@ export function AppSidebar() {
                   e.currentTarget.style.background = "#3B82F6";
                 }}
               >
-                <Zap className="h-4 w-4" style={{ color: "#FACC15", fill: "#FACC15" }} />
+                <Zap className="h-4 w-4" style={{ color: "#FCD34D", fill: "#FCD34D" }} />
                 <span>Upgrade Plan</span>
               </button>
             </div>
@@ -529,11 +564,12 @@ export function AppSidebar() {
                     trackUpgradeClick("sidebar", { from_location: "sidebar" });
                     navigate("/pricing");
                   }}
-                  className="w-full flex items-center justify-center p-2 rounded-[3px] transition-all"
+                  className="w-full flex items-center justify-center p-2 rounded-[6px] transition-all"
                   style={{
                     background: "#3B82F6",
-                    color: "#0F172A",
+                    color: "#FFFFFF",
                     border: "none",
+                    boxShadow: "0 1px 2px rgba(15,23,42,0.25), inset 0 1px 0 rgba(255,255,255,0.18)",
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.background = "#2563EB";
@@ -542,7 +578,7 @@ export function AppSidebar() {
                     e.currentTarget.style.background = "#3B82F6";
                   }}
                 >
-                  <Zap className="h-5 w-5" style={{ color: "#FACC15", fill: "#FACC15" }} />
+                  <Zap className="h-5 w-5" style={{ color: "#FCD34D", fill: "#FCD34D" }} />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">

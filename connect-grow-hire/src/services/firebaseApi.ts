@@ -57,6 +57,12 @@ export interface Contact {
   warmthSignals?: string[];
   personalizationLabel?: string;
   personalizationType?: string;
+  briefing?: string;
+  qualityRegenerated?: boolean;
+
+  // Free-form note attached by the user from My Network. Persisted via
+  // updateContact; surfaced inline under the row in the network table.
+  notes?: string;
 }
 
 export interface ProfessionalInfo {
@@ -198,6 +204,69 @@ export const firebaseApi = {
 
     const userData = userSnap.data() as UserData;
     return userData.professionalInfo || null;
+  },
+
+  async getUserOnboardingData(uid: string): Promise<{
+    firstName: string;
+    university: string;
+    graduationYear: string;
+    targetIndustries: string[];
+    preferredLocations: string[];
+    dreamCompanies: string[];
+    careerTrack: string;
+    preferredJobRole: string;
+    targetFirms: string[];
+    extractedRoles: string[];
+    directionNarrative: string;
+    personalContext: string;
+  }> {
+    const userRef = doc(db, 'users', uid);
+    const userSnap = await getDoc(userRef);
+    const d = userSnap.exists() ? userSnap.data() : {} as Record<string, unknown>;
+    const pi = (d.professionalInfo || {}) as Record<string, unknown>;
+    const academics = (d.academics || {}) as Record<string, unknown>;
+    const loc = (d.location || {}) as Record<string, unknown>;
+    const profile = (d.profile || {}) as Record<string, unknown>;
+
+    // Check resumeParsed in Firestore (from uploaded resume)
+    const resumeParsed = (d.resumeParsed || {}) as Record<string, unknown>;
+    const resumeEducation = (resumeParsed.education || {}) as Record<string, unknown>;
+    // Also check localStorage resume data for university
+    let resumeUniversity = '';
+    try {
+      const rd = JSON.parse(localStorage.getItem('resumeData') || '{}');
+      resumeUniversity = rd.university || '';
+    } catch { /* ignore */ }
+
+    return {
+      firstName: (pi.firstName as string) || (d.firstName as string) || (profile.firstName as string) || (d.name as string) || '',
+      // Prefer the most recently parsed resume value first — that's the freshest source of truth.
+      // Then resumeEducation (parser_v2 list shape), then top-level overrides, then legacy
+      // onboarding paths. This prevents stale "Alabama State University" defaults from old
+      // onboarding test entries shadowing the real resume-parsed value.
+      university:
+        (resumeParsed.university as string) ||
+        ((resumeEducation as any)?.university as string) ||
+        (Array.isArray(resumeParsed.education) && (resumeParsed.education as any[])[0]?.university) ||
+        (d.university as string) ||
+        (pi.university as string) ||
+        (academics.university as string) ||
+        (d.college as string) ||
+        resumeUniversity ||
+        '',
+      graduationYear: (pi.graduationYear as string) || (academics.graduationYear as string) || (d.graduationYear as string) || '',
+      // Profile-page Direction extractor saves chips at the top level (`targetIndustries`, `targetFirms`, `extractedRoles`, `preferredLocations`).
+      // Read those first, then fall through to legacy onboarding fields.
+      targetIndustries: (d.targetIndustries as string[]) || (pi.targetIndustries as string[]) || (d.industriesOfInterest as string[]) || (d.interests as string[]) || (loc.interests as string[]) || (loc.careerInterests as string[]) || [],
+      preferredLocations: (d.preferredLocations as string[]) || (d.targetLocations as string[]) || (d.preferredLocation as string[]) || (loc.preferredLocation as string[]) || [],
+      dreamCompanies: (d.dreamCompanies as string[]) || [],
+      careerTrack: (d.careerTrack as string) || '',
+      preferredJobRole: (d.preferredJobRole as string) || (d.preferredJobRolesOrTitles as string) || '',
+      targetFirms: (d.targetFirms as string[]) || (d.dreamCompanies as string[]) || [],
+      extractedRoles: (d.extractedRoles as string[]) || (d.targetRoles as string[]) || [],
+      directionNarrative: (d.directionNarrative as string) || '',
+      personalContext: (d.personalContext as string) || (d.careerGoals as string) || '',
+    };
   },
 
   // ----------------

@@ -17,42 +17,41 @@ const ScoutHeaderButton: React.FC<ScoutHeaderButtonProps> = () => {
       <button
         onClick={openPanel}
         aria-label={isPanelOpen ? "Close Scout" : "Ask Scout questions to navigate Offerloop"}
-        className={`
-          inline-flex items-center gap-2
-          rounded-[3px]
-          px-3 py-1.5
-          text-sm font-medium
-          transition-all duration-150
-          cursor-pointer
-          focus:outline-none focus:ring-2 focus:ring-[#3B82F6]/20 focus:ring-offset-1
-          ${isPanelOpen
-            ? 'bg-[rgba(59,130,246,0.10)] border border-[#3B82F6]/30 text-[#0F172A]'
-            : 'bg-transparent border border-[#E2E8F0] text-[#0F172A] hover:bg-[rgba(59,130,246,0.05)] hover:border-[#94A3B8]'
+        className="inline-flex items-center gap-2 rounded-[3px] px-3 py-1.5 text-sm font-medium transition-all duration-150 cursor-pointer focus:outline-none"
+        style={{
+          background: isPanelOpen ? 'rgba(139,46,31,0.06)' : 'transparent',
+          border: `1px solid ${isPanelOpen ? 'var(--accent, #8B2E1F)' : 'var(--line, #E8E8E8)'}`,
+          color: 'var(--ink, #1A1D23)',
+          opacity: isPanelOpen ? 1 : 0.8,
+        }}
+        onMouseEnter={e => {
+          if (!isPanelOpen) {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--accent, #8B2E1F)';
+            (e.currentTarget as HTMLButtonElement).style.opacity = '1';
           }
-        `}
+        }}
+        onMouseLeave={e => {
+          if (!isPanelOpen) {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--line, #E8E8E8)';
+            (e.currentTarget as HTMLButtonElement).style.opacity = '0.8';
+          }
+        }}
       >
-        {/* Scout Icon with subtle conversational cue (small accent dot) */}
+        {/* Scout Icon — oxblood tinted */}
         <div className="relative flex items-center justify-center h-5 w-5 flex-shrink-0">
           <img
             src={ScoutIconImage}
             alt=""
-            className="w-4 h-4 object-contain opacity-90"
+            className="w-4 h-4 object-contain"
             style={{
-              filter: 'brightness(0) saturate(100%) invert(70%) sepia(30%) saturate(600%) hue-rotate(10deg) brightness(90%) contrast(90%)',
+              filter: 'brightness(0) saturate(100%) invert(22%) sepia(60%) saturate(900%) hue-rotate(340deg) brightness(85%) contrast(95%)',
             }}
-          />
-          {/* Subtle conversational cue - small dot */}
-          <span
-            className={`
-              absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full
-              ${isPanelOpen ? 'bg-[#3B82F6]' : 'bg-[#2563EB]'}
-            `}
           />
         </div>
 
         {/* Button label */}
         <span className="whitespace-nowrap hidden sm:inline">
-          Ask Scout for Help
+          Ask Scout
         </span>
       </button>
     </div>

@@ -8,6 +8,8 @@ import html
 import logging
 from datetime import datetime, timedelta, timezone
 
+from google.cloud.firestore_v1 import transactional
+
 from app.extensions import get_db
 from app.services.gmail_client import (
     _load_user_gmail_creds,
@@ -36,6 +38,21 @@ VALID_RESOLUTIONS = frozenset({
 
 # How long before a sync is considered stale (seconds)
 SYNC_LOCK_SECONDS = 60
+
+# If a contact is still in draft_created this long after the draft was created,
+# the Gmail webhook likely never matched a sent-message back to this contact
+# (e.g. user sent from a different address, or reply-to mismatch). Surface a
+# "needs manual sync" hint in the API so the UI can prompt the user.
+STUCK_DRAFT_HOURS = 24
+
+# Pipeline stages where the draft has been sent, so the "Open in Gmail" button
+# must not point at a #draft/{id} URL (those 404 once the draft is gone).
+# Prefer the thread URL instead.
+POST_SEND_STAGES = frozenset({
+    "email_sent", "waiting_on_reply", "replied",
+    "meeting_scheduled", "connected", "no_response",
+    "bounced", "closed",
+})
 
 
 # ---------------------------------------------------------------------------
@@ -83,9 +100,14 @@ def _contact_to_dict(contact_id, data):
     gmail_draft_id = data.get("gmailDraftId")
     gmail_draft_url = data.get("gmailDraftUrl")
     gmail_message_id = data.get("gmailMessageId")
+    gmail_thread_id = data.get("gmailThreadId")
+    stage = data.get("pipelineStage")
 
-    # Build draft URL if missing
-    if gmail_draft_id and not gmail_draft_url:
+    # Once the draft has been sent, #draft/{id} 404s. Prefer the thread URL.
+    # Fall back to compose-URL only while the contact is still pre-send.
+    if stage in POST_SEND_STAGES and gmail_thread_id:
+        gmail_draft_url = f"https://mail.google.com/mail/u/0/#inbox/{gmail_thread_id}"
+    elif gmail_draft_id and not gmail_draft_url:
         if gmail_message_id:
             gmail_draft_url = f"https://mail.google.com/mail/u/0/#drafts?compose={gmail_message_id}"
         else:
@@ -106,6 +128,19 @@ def _contact_to_dict(contact_id, data):
     # Gmail API returns HTML-encoded snippets (&#39; &amp; etc.) — decode them
     if snippet:
         snippet = html.unescape(snippet)
+
+    # Flag drafts stuck in draft_created for > STUCK_DRAFT_HOURS with no thread.
+    # These are contacts the Gmail webhook never matched to a sent message, so
+    # the frontend should nudge the user to hit Refresh / reconnect Gmail.
+    needs_manual_sync = False
+    if data.get("pipelineStage") == "draft_created" and not data.get("gmailThreadId"):
+        draft_created_at = _parse_iso(data.get("draftCreatedAt"))
+        if draft_created_at:
+            age_hours = (
+                datetime.now(timezone.utc).replace(tzinfo=None) - draft_created_at
+            ).total_seconds() / 3600
+            if age_hours >= STUCK_DRAFT_HOURS:
+                needs_manual_sync = True
 
     return {
         "id": contact_id,
@@ -147,6 +182,7 @@ def _contact_to_dict(contact_id, data):
         # Sync metadata (kept for frontend sync-error display)
         "lastSyncError": data.get("lastSyncError"),
         "lastSyncAt": data.get("lastSyncAt"),
+        "needsManualSync": needs_manual_sync,
         # Legacy aliases for frontend compatibility (remove after Outbox.tsx migration)
         "contactName": name,
         "jobTitle": data.get("jobTitle") or "",
@@ -305,6 +341,11 @@ def update_contact_stage(uid, contact_id, new_stage):
     }
     if new_stage == "meeting_scheduled" and not data.get("meetingScheduledAt"):
         updates["meetingScheduledAt"] = _now_iso()
+        # Auto-prep: trigger coffee chat prep when meeting is first scheduled
+        try:
+            _maybe_trigger_auto_prep(uid, contact_id, data)
+        except Exception as ap_err:
+            logger.warning(f"[outbox] auto-prep trigger failed for contact={contact_id}: {ap_err}")
     if new_stage == "connected" and not data.get("connectedAt"):
         updates["connectedAt"] = _now_iso()
 
@@ -427,11 +468,37 @@ def mark_contact_resolution(uid, contact_id, resolution, details=None):
 # ---------------------------------------------------------------------------
 
 def _is_gmail_auth_error(e):
-    """True if the exception indicates Gmail token expired/revoked."""
+    """
+    True if the exception indicates Gmail OAuth token is expired, revoked, or
+    otherwise unable to authenticate. Checks SDK types first, then falls back
+    to string matching for wrapped exceptions / older SDK versions.
+    """
+    # 1. google-auth refresh failures (invalid_grant, token revoked, etc.).
+    try:
+        from google.auth.exceptions import RefreshError
+        if isinstance(e, RefreshError):
+            return True
+    except ImportError:
+        pass
+
+    # 2. googleapiclient HTTP errors: 401 Unauthorized, 403 Forbidden.
+    try:
+        from googleapiclient.errors import HttpError
+        if isinstance(e, HttpError):
+            status = getattr(getattr(e, "resp", None), "status", None)
+            if status in (401, 403):
+                return True
+    except ImportError:
+        pass
+
+    # 3. String fallback for wrapped/re-raised errors. Kept deliberately
+    # narrow — only match tokens that unambiguously indicate auth failure,
+    # to avoid tagging transient network errors as "reconnect Gmail".
     msg = (str(e) or "").lower()
     return any(s in msg for s in (
         "invalid_grant", "token has been expired", "token expired",
-        "revoked", "credentials", "gmail refresh token invalid",
+        "token has been revoked", "refresh token invalid",
+        "unauthorized_client", "invalid_client",
     ))
 
 
@@ -567,22 +634,54 @@ def _sync_thread_messages(gmail_service, data, user_email):
     return updates
 
 
+def _try_acquire_sync_lock(ref):
+    """
+    Atomically claim the 60-second sync lock for one contact.
+
+    Returns (acquired: bool, data: dict). Uses a Firestore transaction so two
+    concurrent Refresh clicks can't both pass the freshness check and double-
+    fire the Gmail API. The winner writes lastSyncAt; the loser returns the
+    cached dict without calling Gmail.
+    """
+    db = get_db()
+
+    @transactional
+    def _attempt(transaction):
+        snap = ref.get(transaction=transaction)
+        if not snap.exists:
+            raise ValueError("contact_not_found")
+        data = snap.to_dict() or {}
+
+        last_sync = data.get("lastSyncAt")
+        if last_sync:
+            last_sync_dt = _parse_iso(last_sync)
+            if last_sync_dt:
+                elapsed = (
+                    datetime.now(timezone.utc).replace(tzinfo=None) - last_sync_dt
+                ).total_seconds()
+                if elapsed < SYNC_LOCK_SECONDS:
+                    return False, data
+
+        # Claim the lock by advancing lastSyncAt in the same transaction.
+        now = _now_iso()
+        transaction.update(ref, {"lastSyncAt": now})
+        data["lastSyncAt"] = now
+        return True, data
+
+    return _attempt(db.transaction())
+
+
 def sync_contact_thread(uid, contact_id):
     """
     Full Gmail sync for one contact: check draft status, sync thread messages.
-    Uses Firestore-based sync lock (60s).
-    Returns updated contact dict.
+    Uses a transactional 60s sync lock so concurrent calls don't double-fire
+    Gmail API requests. Returns updated contact dict.
     """
-    ref, data = _get_contact(uid, contact_id)
+    ref = _get_contact_ref(uid, contact_id)
 
-    # Sync lock: skip if synced within last 60 seconds
-    last_sync = data.get("lastSyncAt")
-    if last_sync:
-        last_sync_dt = _parse_iso(last_sync)
-        if last_sync_dt:
-            elapsed = (datetime.now(timezone.utc).replace(tzinfo=None) - last_sync_dt).total_seconds()
-            if elapsed < SYNC_LOCK_SECONDS:
-                return _contact_to_dict(contact_id, data)
+    acquired, data = _try_acquire_sync_lock(ref)
+    if not acquired:
+        return _contact_to_dict(contact_id, data)
 
     # Get Gmail service
     try:
@@ -641,3 +740,182 @@ def sync_contact_thread(uid, contact_id):
         data.update(all_updates)
 
     return _contact_to_dict(contact_id, data)
+
+
+# ---------------------------------------------------------------------------
+# Auto-Prep (Coffee Chat) — triggered when meeting_scheduled
+# ---------------------------------------------------------------------------
+
+COFFEE_CHAT_CREDITS = 15
+
+
+def _maybe_trigger_auto_prep(uid, contact_id, contact_data):
+    """Fire-and-forget auto-prep when a meeting is first scheduled.
+
+    Deducts credits before spawning thread, refunds on failure.
+    Pro/Elite only. Skips if no LinkedIn URL on the contact.
+    """
+    import threading as _threading
+
+    db = get_db()
+
+    # Tier check
+    user_doc = db.collection("users").document(uid).get()
+    user_data = user_doc.to_dict() if user_doc.exists else {}
+    tier = user_data.get("subscriptionTier") or user_data.get("tier", "free")
+    if tier not in ("pro", "elite"):
+        logger.info(f"[auto_prep] uid={uid} skipping — tier={tier}")
+        return
+
+    # LinkedIn URL required
+    linkedin_url = contact_data.get("linkedinUrl") or contact_data.get("linkedin_url", "")
+    if not linkedin_url:
+        logger.info(f"[auto_prep] uid={uid} contact={contact_id} skipping — no LinkedIn URL")
+        return
+
+    # Check for existing prep
+    preps = list(
+        db.collection("users").document(uid).collection("coffee-chat-preps")
+        .where("contactId", "==", contact_id)
+        .limit(1)
+        .stream()
+    )
+    if preps:
+        logger.info(f"[auto_prep] uid={uid} contact={contact_id} prep already exists")
+        return
+
+    # Deduct credits
+    from app.services.auth import deduct_credits_atomic
+    success, remaining = deduct_credits_atomic(uid, COFFEE_CHAT_CREDITS, "auto_coffee_chat_prep")
+    if not success:
+        logger.info(f"[auto_prep] uid={uid} insufficient credits")
+        return
+
+    # Write pending doc
+    now_iso = _now_iso()
+    prep_id = f"auto_{contact_id}_{now_iso.replace(':', '-').replace('.', '-')}"
+    db.collection("users").document(uid).collection("pending_auto_preps").document(contact_id).set({
+        "status": "pending",
+        "prepId": prep_id,
+        "contactId": contact_id,
+        "createdAt": now_iso,
+    })
+
+    # Create the prep doc skeleton
+    resume_text = (user_data.get("resumeParsed") or {}).get("rawText", "")
+    db.collection("users").document(uid).collection("coffee-chat-preps").document(prep_id).set({
+        "contactId": contact_id,
+        "linkedinUrl": linkedin_url,
+        "status": "queued",
+        "createdAt": now_iso,
+        "autoTriggered": True,
+    })
+
+    # Spawn background thread
+    def _run():
+        try:
+            from app.routes.coffee_chat_prep import process_coffee_chat_prep_background
+            process_coffee_chat_prep_background(
+                prep_id=prep_id,
+                linkedin_url=linkedin_url,
+                user_id=uid,
+                resume_text=resume_text,
+                extra_context={"contactId": contact_id, "autoTriggered": True},
+                user_profile=user_data,
+                credits_charged=COFFEE_CHAT_CREDITS,
+            )
+            # Clean up pending doc on success
+            db.collection("users").document(uid).collection("pending_auto_preps").document(contact_id).delete()
+            logger.info(f"[auto_prep] uid={uid} contact={contact_id} prep completed")
+            # Log coffee_chat_prep_used metric
+            from app.utils.metrics_events import log_event
+            log_event(uid, "coffee_chat_prep_used", {
+                "auto_triggered": True,
+                "contact_id": contact_id,
+            })
+        except Exception as exc:
+            logger.error(f"[auto_prep] uid={uid} contact={contact_id} failed: {exc}")
+            try:
+                db.collection("users").document(uid).collection("pending_auto_preps").document(contact_id).set(
+                    {"status": "failed", "error": str(exc)[:200], "updatedAt": _now_iso()},
+                    merge=True,
+                )
+            except Exception:
+                pass
+
+    t = _threading.Thread(target=_run, daemon=True)
+    t.start()
+    logger.info(f"[auto_prep] uid={uid} contact={contact_id} background thread spawned, prep_id={prep_id}")
+
+
+def trigger_auto_prep(uid, contact_id, contact_data):
+    """On-demand auto-prep trigger (called from contacts route fallback)."""
+    db = get_db()
+
+    # Check credits and tier
+    from app.services.auth import deduct_credits_atomic
+    user_doc = db.collection("users").document(uid).get()
+    user_data = user_doc.to_dict() if user_doc.exists else {}
+    tier = user_data.get("subscriptionTier") or user_data.get("tier", "free")
+    if tier not in ("pro", "elite"):
+        return {"status": "tier_required", "message": "Pro or Elite required for auto-prep"}
+
+    linkedin_url = contact_data.get("linkedinUrl") or contact_data.get("linkedin_url", "")
+    if not linkedin_url:
+        return {"status": "no_linkedin", "message": "Contact has no LinkedIn URL"}
+
+    success, remaining = deduct_credits_atomic(uid, COFFEE_CHAT_CREDITS, "auto_coffee_chat_prep")
+    if not success:
+        return {"status": "insufficient_credits", "remaining": remaining}
+
+    now_iso = _now_iso()
+    prep_id = f"auto_{contact_id}_{now_iso.replace(':', '-').replace('.', '-')}"
+    resume_text = (user_data.get("resumeParsed") or {}).get("rawText", "")
+
+    # Create prep doc
+    db.collection("users").document(uid).collection("coffee-chat-preps").document(prep_id).set({
+        "contactId": contact_id,
+        "linkedinUrl": linkedin_url,
+        "status": "queued",
+        "createdAt": now_iso,
+        "autoTriggered": True,
+    })
+
+    # Write pending doc
+    db.collection("users").document(uid).collection("pending_auto_preps").document(contact_id).set({
+        "status": "pending",
+        "prepId": prep_id,
+        "contactId": contact_id,
+        "createdAt": now_iso,
+    })
+
+    # Spawn thread
+    import threading as _threading
+
+    def _run():
+        try:
+            from app.routes.coffee_chat_prep import process_coffee_chat_prep_background
+            process_coffee_chat_prep_background(
+                prep_id=prep_id,
+                linkedin_url=linkedin_url,
+                user_id=uid,
+                resume_text=resume_text,
+                extra_context={"contactId": contact_id, "autoTriggered": True},
+                user_profile=user_data,
+                credits_charged=COFFEE_CHAT_CREDITS,
+            )
+            db.collection("users").document(uid).collection("pending_auto_preps").document(contact_id).delete()
+        except Exception as exc:
+            logger.error(f"[auto_prep] on-demand uid={uid} contact={contact_id} failed: {exc}")
+            try:
+                db.collection("users").document(uid).collection("pending_auto_preps").document(contact_id).set(
+                    {"status": "failed", "error": str(exc)[:200], "updatedAt": _now_iso()},
+                    merge=True,
+                )
+            except Exception:
+                pass
+
+    t = _threading.Thread(target=_run, daemon=True)
+    t.start()
+
+    return {"status": "generating", "prepId": prep_id}

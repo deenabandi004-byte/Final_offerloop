@@ -83,6 +83,51 @@ SIGN_OFFS = [
     "Cheers,",
 ]
 
+# Patterns used to detect an LLM-generated sign-off that sneaks into the body
+_SIGNOFF_PATTERNS = [
+    "best", "best regards", "kind regards", "regards", "warm regards",
+    "thanks", "thanks so much", "thank you", "thank you for your time",
+    "sincerely", "cheers", "looking forward to hearing from you",
+    "looking forward", "many thanks", "all the best",
+]
+
+
+def _strip_trailing_signoff(text: str) -> str:
+    """
+    Strip any trailing sign-off + name lines from an LLM-generated email body.
+
+    The prompt tells the model not to include a sign-off, but it often does
+    anyway (e.g. "Best,\\nDeena"). If we don't strip it, the final email ends
+    up with two sign-offs stacked on top of each other.
+    """
+    if not text:
+        return text
+
+    lines = text.rstrip().split("\n")
+
+    # Walk backwards dropping empty trailing lines
+    while lines and not lines[-1].strip():
+        lines.pop()
+
+    # Look at the last up-to-4 non-empty lines for a sign-off.
+    # A sign-off is a short line (<= ~45 chars) whose text (stripped of
+    # trailing punctuation) matches one of the known patterns.
+    for lookback in range(1, 5):
+        if len(lines) < lookback:
+            break
+        candidate = lines[-lookback].strip().rstrip(",.!").lower()
+        if len(candidate) <= 45 and candidate in _SIGNOFF_PATTERNS:
+            # Drop the sign-off line AND any lines that came after it
+            # (typically the user's name / signature the LLM added)
+            del lines[-lookback:]
+            break
+
+    # Clean up trailing empties again after removal
+    while lines and not lines[-1].strip():
+        lines.pop()
+
+    return "\n".join(lines)
+
 
 def generate_recruiter_emails(
     recruiters: List[Dict],
@@ -301,6 +346,10 @@ Start directly with "Hi {recruiter_first_name},"
     # Generate subject line
     subject_template = random.choice(SUBJECT_LINE_TEMPLATES)
     subject = subject_template.format(job_title=job_title, company=company)
+
+    # Strip any trailing sign-off the LLM may have snuck in despite the
+    # prompt instructing it not to. Prevents duplicate sign-offs in the final email.
+    email_body = _strip_trailing_signoff(email_body)
 
     # Generate sign-off
     sign_off = random.choice(SIGN_OFFS)
