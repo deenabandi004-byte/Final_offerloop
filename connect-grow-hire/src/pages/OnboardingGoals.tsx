@@ -41,7 +41,13 @@ export const OnboardingGoals = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onNext({ careerTrack, dreamCompanies, personalNote: "" });
+    // Flush any pending company input that wasn't committed via Enter/comma
+    let final = dreamCompanies;
+    const pending = companyInput.trim().replace(/,$/, "");
+    if (pending && !dreamCompanies.includes(pending)) {
+      final = [...dreamCompanies, pending];
+    }
+    onNext({ careerTrack, dreamCompanies: final, personalNote: "" });
   };
 
   return (
