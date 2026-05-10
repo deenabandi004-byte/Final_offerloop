@@ -779,6 +779,30 @@ def prompt_search():
         except Exception:
             pass
 
+        # Recommendation events: log each shown contact with rank and features
+        try:
+            from app.utils.recommendation_events import log_recommendation_event
+            for rank_idx, contact in enumerate(contacts):
+                wd = warmth_data.get(rank_idx, {})
+                log_recommendation_event(
+                    "recommendation_shown",
+                    user_id,
+                    contact_id=contact.get("pdlId", ""),
+                    contact_email=contact.get("Email") or contact.get("WorkEmail") or "",
+                    rank=rank_idx,
+                    score=wd.get("score"),
+                    surface="find_search",
+                    search_query=parsed_query_payload,
+                    features_snapshot={
+                        "warmth_tier": wd.get("tier", ""),
+                        "warmth_score": wd.get("score", 0),
+                        "warmth_signals": wd.get("signals", []),
+                        "quality_regenerated": bool(contact.get("_qualityRegenerated")),
+                    },
+                )
+        except Exception:
+            pass
+
         return jsonify(response_data)
     except (OfferloopException, InsufficientCreditsError, ExternalAPIError):
         raise

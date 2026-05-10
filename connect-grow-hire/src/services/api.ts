@@ -7,6 +7,17 @@ export const BACKEND_URL =
 
 export const API_BASE_URL = `${BACKEND_URL}/api`;
 
+// Session ID: generated once per browser session, sent as X-Session-Id header.
+// Used for recommendation event attribution across requests.
+function getSessionId(): string {
+  let sid = sessionStorage.getItem('offerloop_session_id');
+  if (!sid) {
+    sid = crypto.randomUUID();
+    sessionStorage.setItem('offerloop_session_id', sid);
+  }
+  return sid;
+}
+
 export interface UserProfile {
   name?: string;
   university?: string;
@@ -1074,7 +1085,10 @@ class ApiService {
   }
 
   private async getAuthHeaders(): Promise<Record<string, string>> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-Session-Id': getSessionId(),
+    };
 
     try {
       const token = await this.getIdToken();

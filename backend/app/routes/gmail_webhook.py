@@ -353,6 +353,19 @@ def _process_gmail_notification(email_address, history_id):
                 except Exception:
                     pass
 
+                # Recommendation event: email_sent
+                try:
+                    from app.utils.recommendation_events import log_recommendation_event
+                    log_recommendation_event(
+                        "email_sent",
+                        uid,
+                        contact_id=contact_doc.id,
+                        contact_email=to_email,
+                        surface="gmail_webhook",
+                    )
+                except Exception:
+                    pass
+
                 continue
 
             # Find contact with this thread (reply from contact)
@@ -441,6 +454,20 @@ def _process_gmail_notification(email_address, history_id):
                     "contact_id": contact_id,
                     "hours_since_send": hours_since,
                 })
+            except Exception:
+                pass
+
+            # Recommendation event: email_replied
+            try:
+                from app.utils.recommendation_events import log_recommendation_event
+                log_recommendation_event(
+                    "email_replied",
+                    uid,
+                    contact_id=contact_id,
+                    contact_email=from_email,
+                    surface="gmail_webhook",
+                    extra={"hours_since_send": hours_since},
+                )
             except Exception:
                 pass
 

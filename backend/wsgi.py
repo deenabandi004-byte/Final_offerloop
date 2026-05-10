@@ -121,6 +121,10 @@ def create_app() -> Flask:
             app.logger.warning(f"Prerender failed for {request.url}: {e}")
             return None  # Fall through to normal serving
 
+    # Request context: attach request_id + session_id to every request
+    from .app.utils.request_context import init_request_context
+    init_request_context(app)
+
     print("🚀 Initializing app extensions...")
     init_app_extensions(app)
     print("✅ App extensions initialized")
