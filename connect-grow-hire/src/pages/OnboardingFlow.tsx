@@ -1,21 +1,23 @@
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { OnboardingWelcome } from "./OnboardingWelcome";
 import { OnboardingLocationPreferences } from "./OnboardingLocationPreferences";
 import { OnboardingProfile } from "./OnboardingProfile";
 import { OnboardingAcademics } from "./OnboardingAcademics";
-import { User, GraduationCap, MapPin, Loader2 } from "lucide-react";
+import { OnboardingGoals } from "./OnboardingGoals";
+import { User, GraduationCap, Briefcase, MapPin, Loader2 } from "lucide-react";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { BACKEND_URL, enrichLinkedInOnboarding, mergeLinkedInData } from "@/services/api";
 import { toast } from "sonner";
 import { auth } from "@/lib/firebase";
 
-type OnboardingStep = "welcome" | "profile" | "academics" | "location";
+type OnboardingStep = "welcome" | "profile" | "academics" | "goals" | "location";
 
 interface OnboardingData {
   location?: any;
   profile?: any;
   academics?: any;
+  goals?: { careerTrack: string; dreamCompanies: string[] };
 }
 
 interface OnboardingFlowProps {
@@ -76,6 +78,18 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
 
   const handleAcademicsData = (academicsData: any) => {
     setOnboardingData((prev) => ({ ...prev, academics: academicsData }));
+    setCurrentStep("goals");
+  };
+
+  const handleGoalsData = (goalsData: { careerTrack: string; dreamCompanies: string[]; personalNote: string }) => {
+    setOnboardingData((prev) => ({
+      ...prev,
+      goals: { careerTrack: goalsData.careerTrack, dreamCompanies: goalsData.dreamCompanies },
+    }));
+    setCurrentStep("location");
+  };
+
+  const handleGoalsSkip = () => {
     setCurrentStep("location");
   };
 
@@ -154,6 +168,10 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
           graduationMonth: onboardingData.academics.graduationMonth,
           graduationYear: onboardingData.academics.graduationYear,
         },
+        // Goals: written as flat top-level keys (not nested under goals.*)
+        // for backwards compat with backend reads that check both paths
+        ...(onboardingData.goals?.careerTrack ? { careerTrack: onboardingData.goals.careerTrack } : {}),
+        ...(onboardingData.goals?.dreamCompanies?.length ? { dreamCompanies: onboardingData.goals.dreamCompanies } : {}),
         location: {
           country: locationData.country,
           state: locationData.state,
@@ -213,7 +231,8 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
 
   const handleBack = () => {
     if (currentStep === "academics") setCurrentStep("profile");
-    else if (currentStep === "location") setCurrentStep("academics");
+    else if (currentStep === "goals") setCurrentStep("academics");
+    else if (currentStep === "location") setCurrentStep("goals");
   };
 
   return (
@@ -228,35 +247,39 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
       )}
       <div className="container mx-auto px-4 py-8">
         {/* Progress header */}
-        <div className="flex items-center gap-2 mb-8">
-          <span
-            className={`w-8 h-8 rounded-full flex items-center justify-center ${
-              currentStep !== "welcome" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-            }`}
-          >
-            <User className="w-4 h-4" />
-          </span>
-          <div
-            className={`h-[2px] flex-1 ${["academics", "location"].includes(currentStep) ? "bg-primary" : "bg-muted"}`}
-          />
-          <span
-            className={`w-8 h-8 rounded-full flex items-center justify-center ${
-              ["academics", "location"].includes(currentStep)
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground"
-            }`}
-          >
-            <GraduationCap className="w-4 h-4" />
-          </span>
-          <div className={`h-[2px] flex-1 ${currentStep === "location" ? "bg-primary" : "bg-muted"}`} />
-          <span
-            className={`w-8 h-8 rounded-full flex items-center justify-center ${
-              currentStep === "location" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-            }`}
-          >
-            <MapPin className="w-4 h-4" />
-          </span>
-        </div>
+        {(() => {
+          const steps = [
+            { key: "profile", icon: User },
+            { key: "academics", icon: GraduationCap },
+            { key: "goals", icon: Briefcase },
+            { key: "location", icon: MapPin },
+          ];
+          const order = ["welcome", "profile", "academics", "goals", "location"];
+          const currentIndex = order.indexOf(currentStep);
+          return (
+            <div className="flex items-center gap-2 mb-8">
+              {steps.map((step, i) => {
+                const stepIndex = i + 1; // offset by 1 since welcome is index 0
+                const isReached = currentIndex >= stepIndex;
+                const Icon = step.icon;
+                return (
+                  <React.Fragment key={step.key}>
+                    {i > 0 && (
+                      <div className={`h-[2px] flex-1 ${isReached ? "bg-primary" : "bg-muted"}`} />
+                    )}
+                    <span
+                      className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                        isReached ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      <Icon className="w-4 h-4" />
+                    </span>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          );
+        })()}
 
         {/* Steps */}
         <div className="mt-8">
@@ -278,6 +301,14 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
               onBack={handleBack}
               initialData={onboardingData.academics}
               linkedinData={linkedinAcademics}
+            />
+          )}
+
+          {currentStep === "goals" && (
+            <OnboardingGoals
+              onNext={handleGoalsData}
+              onSkip={handleGoalsSkip}
+              initialData={onboardingData.goals}
             />
           )}
 

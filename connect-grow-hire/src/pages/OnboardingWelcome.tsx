@@ -45,8 +45,8 @@ export const OnboardingWelcome = ({ onNext, userName: _userName = "there" }: Onb
             <div className="w-16 h-16 rounded-full bg-accent/20 flex items-center justify-center border border-accent/30">
               <Briefcase className="w-8 h-8 text-accent" />
             </div>
-            <h3 className="text-lg font-bold text-foreground">3. Career</h3>
-            <p className="text-sm text-muted-foreground text-center leading-relaxed">Tell us what you're aiming for</p>
+            <h3 className="text-lg font-bold text-foreground">3. Goals</h3>
+            <p className="text-sm text-muted-foreground text-center leading-relaxed">Tell us where you're headed</p>
           </div>
         </div>
 

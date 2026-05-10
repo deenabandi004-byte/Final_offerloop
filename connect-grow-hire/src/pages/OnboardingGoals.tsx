@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { X } from "lucide-react";
 
 const CAREER_TRACKS = [
@@ -39,13 +38,10 @@ export const OnboardingGoals = ({
     initialData?.dreamCompanies || []
   );
   const [companyInput, setCompanyInput] = useState("");
-  const [personalNote, setPersonalNote] = useState(
-    initialData?.personalNote || ""
-  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onNext({ careerTrack, dreamCompanies, personalNote });
+    onNext({ careerTrack, dreamCompanies, personalNote: "" });
   };
 
   return (
@@ -60,7 +56,7 @@ export const OnboardingGoals = ({
           marginBottom: 8,
         }}
       >
-        Step 4 of 5
+        Step 3 of 4
       </p>
       <h1
         className="text-2xl font-semibold tracking-tight text-[#0F172A] mb-1.5"
@@ -69,8 +65,7 @@ export const OnboardingGoals = ({
         Where are you headed?
       </h1>
       <p className="text-sm text-[#475569] leading-relaxed mb-8">
-        This is what no job board ever asks. We use it to personalize your job
-        board, contacts, and outreach — not just your resume data.
+        We use this to personalize your contacts, job board, and outreach.
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-5">
@@ -127,7 +122,7 @@ export const OnboardingGoals = ({
           <label className="text-sm font-medium text-[#0F172A] mb-1.5 block">
             Dream companies
             <span className="text-[#94A3B8] font-normal ml-1">
-              (type and press Enter)
+              (optional — type and press Enter)
             </span>
           </label>
 
@@ -206,31 +201,6 @@ export const OnboardingGoals = ({
           />
           <p className="text-xs text-[#94A3B8] mt-1.5">
             Press Enter or comma after each company
-          </p>
-        </div>
-
-        {/* Personal note */}
-        <div>
-          <label className="text-sm font-medium text-[#0F172A] mb-1 block">
-            One thing about you we can't see on your resume
-            <span className="text-[#94A3B8] font-normal ml-1">
-              (optional)
-            </span>
-          </label>
-          <p className="text-xs text-[#94A3B8] mb-2">
-            We use this to write better cold email openers. Be specific — it
-            converts.
-          </p>
-          <Textarea
-            placeholder="e.g. First-gen student targeting Goldman, I captain my university's debate team, obsessed with aerospace..."
-            value={personalNote}
-            onChange={(e) =>
-              setPersonalNote(e.target.value.slice(0, 300))
-            }
-            className="resize-none h-24"
-          />
-          <p className="text-xs text-[#94A3B8] mt-1.5 text-right">
-            {personalNote.length}/300
           </p>
         </div>
 
