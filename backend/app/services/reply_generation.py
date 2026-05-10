@@ -463,8 +463,15 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
             )
         except Exception as profile_err:
             logger.warning("[EMAIL-GEN] build_user_profile failed (non-fatal, using empty profile): %s", profile_err)
+            import traceback; traceback.print_exc()
             from app.utils.personalization import NormalizedUserProfile
             norm_user = NormalizedUserProfile()
+        logger.info("[EMAIL-GEN] norm_user: university=%r, university_short=%r, major=%r, hometown=%r",
+                     norm_user.university, norm_user.university_short, norm_user.major, norm_user.hometown)
+        for ci, c in enumerate(contacts):
+            logger.info("[EMAIL-GEN] contact[%d]: College=%r, educationArray=%s schools_in_data=%r",
+                         ci, c.get('College', ''), 'present' if c.get('educationArray') else 'absent',
+                         c.get('EducationTop', '')[:100])
         try:
             strategies = build_batch_strategies(norm_user, contacts, warmth_data)
         except Exception as strat_err:
