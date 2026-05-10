@@ -543,8 +543,9 @@ def import_from_linkedin():
                 signoff_config=None,
                 auth_display_name=auth_display_name,
                 warmth_data=warmth_data,
+                uid=user_id,
             )
-            
+
             print(f"[LinkedInImport] Email generation result: {bool(email_results)}")
             
             if email_results and len(email_results) > 0:

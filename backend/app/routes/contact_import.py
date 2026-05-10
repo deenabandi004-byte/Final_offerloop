@@ -588,6 +588,7 @@ def import_contacts():
                         signoff_config=None,
                         auth_display_name=auth_display_name,
                         warmth_data=warmth_data,
+                        uid=user_id,
                     )
                     logger.info(f"[ContactImport] Email generation succeeded for {len(email_results)} of {len(email_contacts)} contacts")
                 except Exception as e:

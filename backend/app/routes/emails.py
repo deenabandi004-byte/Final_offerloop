@@ -242,6 +242,7 @@ def generate_and_draft():
             personal_note=personal_note,
             dream_companies=dream_companies,
             warmth_data=warmth_data,
+            uid=uid,
         )
         print(f"🧪 batch_generate_emails returned: type={type(generated_results)}, "
           f"len={len(generated_results) if hasattr(generated_results, '__len__') else 'n/a'}, "

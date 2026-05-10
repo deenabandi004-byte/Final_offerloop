@@ -489,6 +489,7 @@ def prompt_search():
                 signoff_config=signoff_config,
                 auth_display_name=auth_display_name,
                 warmth_data=warmth_data,
+                uid=user_id,
             )
         except Exception as e:
             print(f"[Runs] Email generation failed (prompt-search): {e}")

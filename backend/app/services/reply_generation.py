@@ -26,7 +26,26 @@ from app.utils.personalization import (
     PersonalizationStrategy,
 )
 from datetime import datetime
+from app.extensions import get_db
 import re
+
+
+def _log_email_fallback(uid, contact, fallback_type, reason):
+    """Log fallback usage to email_quality_logs for monitoring."""
+    try:
+        db = get_db()
+        if not db:
+            return
+        db.collection("email_quality_logs").add({
+            "userId": uid or "unknown",
+            "contactEmail": (contact.get("Email") or contact.get("email") or "")[:100] if contact else "",
+            "fallback_type": fallback_type,
+            "reason": reason[:500] if reason else "",
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "event": "fallback_triggered",
+        })
+    except Exception:
+        pass
 
 logger = logging.getLogger(__name__)
 
@@ -313,7 +332,7 @@ def _build_personalization_label(commonality_type, commonality_details, selected
     return "Role match"
 
 
-def batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None, pre_parsed_user_info=None, template_instructions="", email_template_purpose=None, resume_filename=None, subject_line=None, signoff_config=None, auth_display_name=None, personal_note="", dream_companies=None, warmth_data=None):
+def batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None, pre_parsed_user_info=None, template_instructions="", email_template_purpose=None, resume_filename=None, subject_line=None, signoff_config=None, auth_display_name=None, personal_note="", dream_companies=None, warmth_data=None, uid=None):
     """
     Generate all emails using the new compelling prompt template.
 
@@ -1193,8 +1212,10 @@ Return ONLY valid JSON:
             is_malformed = any(pattern in body for pattern in malformed_patterns)
             if is_malformed:
                 logger.warning("[EMAIL-GEN] ⚠️ Malformed email for contact %d from %s — using per-contact fallback", idx, ai_provider)
-                # Use fallback for this specific contact
                 contact = contacts[idx] if idx < len(contacts) else {}
+                matched_pattern = next((p for p in malformed_patterns if p in body), "unknown")
+                _log_email_fallback(uid, contact, "per_contact", f"malformed:{matched_pattern} provider:{ai_provider}")
+                # Use fallback for this specific contact
                 name = (user_info.get('name') or '').strip() or 'a student'
                 major = user_info.get('major', '').strip()
                 university = user_info.get('university', '').strip()
@@ -1298,6 +1319,10 @@ Would you be open to a brief 15-minute chat about your experience?
         logger.error("[EMAIL-GEN] ❌ Both Claude and GPT failed — using STATIC FALLBACK templates: %s", e)
         import traceback
         traceback.print_exc()
+
+        # Log each contact's fallback to Firestore
+        for i, contact in enumerate(contacts):
+            _log_email_fallback(uid, contact, "full_exception", str(e)[:500])
 
         # Fallback emails
         fallback_results = {}

@@ -167,7 +167,7 @@ def run_free_tier_enhanced_optimized(job_title, company, location, user_email=No
         # Generate emails
         auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
         warmth_data = score_contacts_for_email(user_data or {}, contacts)
-        email_results = batch_generate_emails(contacts=contacts, resume_text=resume_text, user_profile=user_profile, career_interests=career_interests, resume_filename=user_resume_filename, signoff_config=None, auth_display_name=auth_display_name, warmth_data=warmth_data)
+        email_results = batch_generate_emails(contacts=contacts, resume_text=resume_text, user_profile=user_profile, career_interests=career_interests, resume_filename=user_resume_filename, signoff_config=None, auth_display_name=auth_display_name, warmth_data=warmth_data, uid=user_id)
 
         # Attach email data to ALL contacts FIRST (before draft creation)
         emails_attached = 0
@@ -442,7 +442,7 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
         auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
         warmth_data = score_contacts_for_email(user_data or {}, contacts)
         try:
-            email_results = batch_generate_emails(contacts=contacts, resume_text=resume_text, user_profile=user_profile, career_interests=career_interests, resume_filename=user_resume_filename, signoff_config=None, auth_display_name=auth_display_name, warmth_data=warmth_data)
+            email_results = batch_generate_emails(contacts=contacts, resume_text=resume_text, user_profile=user_profile, career_interests=career_interests, resume_filename=user_resume_filename, signoff_config=None, auth_display_name=auth_display_name, warmth_data=warmth_data, uid=user_id)
             print(f"📧 Email generation returned {len(email_results)} results")
         except Exception as email_gen_error:
             print(f"❌ Email generation failed: {email_gen_error}")
