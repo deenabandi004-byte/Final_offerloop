@@ -1216,34 +1216,46 @@ Return ONLY valid JSON:
                 matched_pattern = next((p for p in malformed_patterns if p in body), "unknown")
                 _log_email_fallback(uid, contact, "per_contact", f"malformed:{matched_pattern} provider:{ai_provider}")
                 # Use fallback for this specific contact
-                name = (user_info.get('name') or '').strip() or 'a student'
+                raw_name = (user_info.get('name') or '').strip() or 'a student'
+                name = _normalize_name(raw_name) if raw_name != 'a student' else raw_name
+                first_name = name.split()[0] if name != 'a student' else name
                 major = user_info.get('major', '').strip()
-                university = user_info.get('university', '').strip()
+                raw_university = user_info.get('university', '').strip()
+                university = get_university_shorthand(raw_university) or raw_university
                 company = contact.get('Company', 'your company')
-                
-                # Build introduction with proper handling of missing values
-                intro_parts = [f"I'm {name}"]
+                if company and company == company.lower() and company != 'your company':
+                    company = company.title()
+                title = (contact.get('Title') or '').strip()
+
+                # Build introduction as a single sentence with commas
                 if major and university:
-                    intro_parts.append(f"studying {major} at {university}")
+                    intro = f"I'm {first_name}, studying {major} at {university}."
                 elif university:
-                    intro_parts.append(f"a student at {university}")
+                    intro = f"I'm {first_name}, a student at {university}."
                 elif major:
-                    intro_parts.append(f"studying {major}")
-                
-                intro = ". ".join(intro_parts) + "." if intro_parts else "I'm a student."
+                    intro = f"I'm {first_name}, studying {major}."
+                else:
+                    intro = f"I'm {first_name}."
+
                 if signoff_config and isinstance(signoff_config, dict):
                     phrase = (signoff_config.get("signoffPhrase") or "").strip() or "Thank you,"
                     block = (signoff_config.get("signatureBlock") or "").strip()
-                    signature = block if block else (user_info.get('name', '') or "Best regards")
+                    signature = block if block else (_normalize_name(user_info.get('name', '')) or "Best regards")
                 else:
                     phrase = "Thank you,"
-                    signature = user_info.get('name', '') or "Best regards"
-                
+                    signature = _normalize_name(user_info.get('name', '')) or "Best regards"
+
+                # Use contact title for slightly more personalized fallback
+                if title:
+                    opener = f"I noticed your role as {title} at {company} and would love to learn more about your experience."
+                else:
+                    opener = f"I'm exploring opportunities at {company} and would love to hear about your experience there."
+
                 body = f"""Hi {_normalize_name(contact.get('FirstName', ''))},
 
-{intro} Your work at {company} caught my attention.
+{intro} {opener}
 
-Would you be open to a brief 15-minute chat about your experience?
+Would you be open to a brief chat?
 
 {phrase}
 {signature}"""
@@ -1338,44 +1350,56 @@ Would you be open to a brief 15-minute chat about your experience?
             if not (user_info.get('name') or '').strip() and (auth_display_name or '').strip():
                 user_info['name'] = auth_display_name.strip()
         for i, contact in enumerate(contacts):
-            # Build introduction sentence that handles missing values gracefully
-            name = (user_info.get('name') or '').strip() or 'a student'
+            raw_name = (user_info.get('name') or '').strip() or 'a student'
+            name = _normalize_name(raw_name) if raw_name != 'a student' else raw_name
+            first_name = name.split()[0] if name != 'a student' else name
             major = user_info.get('major', '').strip()
-            university = user_info.get('university', '').strip()
+            raw_university = user_info.get('university', '').strip()
+            university = get_university_shorthand(raw_university) or raw_university
             company = contact.get('Company', 'your company')
-            
-            # Build introduction with proper handling of missing values
-            intro_parts = [f"I'm {name}"]
+            if company and company == company.lower() and company != 'your company':
+                company = company.title()
+            title = (contact.get('Title') or '').strip()
+
+            # Build introduction as a single sentence with commas
             if major and university:
-                intro_parts.append(f"studying {major} at {university}")
+                intro = f"I'm {first_name}, studying {major} at {university}."
             elif university:
-                intro_parts.append(f"a student at {university}")
+                intro = f"I'm {first_name}, a student at {university}."
             elif major:
-                intro_parts.append(f"studying {major}")
-            
-            intro = ". ".join(intro_parts) + "." if intro_parts else "I'm a student."
-            
-            # Build closing signature (use signoff_config when available)
+                intro = f"I'm {first_name}, studying {major}."
+            else:
+                intro = f"I'm {first_name}."
+
+            # Build closing signature
             if signoff_config and isinstance(signoff_config, dict):
                 phrase = (signoff_config.get("signoffPhrase") or "").strip() or "Thank you,"
                 block = (signoff_config.get("signatureBlock") or "").strip()
-                signature = block if block else (user_info.get('name', '') or "Best regards")
+                signature = block if block else (_normalize_name(user_info.get('name', '')) or "Best regards")
             else:
                 phrase = "Thank you,"
-                signature = user_info.get('name', '') or "Best regards"
-            
-            fallback_results[i] = {
-                'subject': f"Question about {company}",
-                'body': f"""Hi {_normalize_name(contact.get('FirstName', ''))},
+                signature = _normalize_name(user_info.get('name', '')) or "Best regards"
 
-{intro} Your work at {company} caught my attention.
+            # Use contact title for slightly more personalized fallback
+            if title:
+                opener = f"I noticed your role as {title} at {company} and would love to learn more about your experience."
+            else:
+                opener = f"I'm exploring opportunities at {company} and would love to hear about your experience there."
 
-Would you be open to a brief 15-minute chat about your experience?
+            body = f"""Hi {_normalize_name(contact.get('FirstName', ''))},
+
+{intro} {opener}
+
+Would you be open to a brief chat?
 
 {phrase}
-{signature}
+{signature}"""
+            if resume_filename:
+                body += "\n\nI've attached my resume below for context."
 
-I've attached my resume in case it's helpful for context."""
+            fallback_results[i] = {
+                'subject': f"Question about {company}",
+                'body': body,
             }
         return fallback_results
 
