@@ -454,13 +454,22 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
         # --- NEW: Build normalized user profile & per-contact strategies ---
         # resume_parsed comes from pre_parsed_user_info (Firestore resumeParsed)
         _resume_parsed = pre_parsed_user_info if isinstance(pre_parsed_user_info, dict) else {}
-        norm_user = build_user_profile(
-            resume_parsed=_resume_parsed,
-            user_profile=user_profile,
-            personal_note=personal_note,
-            dream_companies=dream_companies,
-        )
-        strategies = build_batch_strategies(norm_user, contacts, warmth_data)
+        try:
+            norm_user = build_user_profile(
+                resume_parsed=_resume_parsed,
+                user_profile=user_profile,
+                personal_note=personal_note,
+                dream_companies=dream_companies,
+            )
+        except Exception as profile_err:
+            logger.warning("[EMAIL-GEN] build_user_profile failed (non-fatal, using empty profile): %s", profile_err)
+            from app.utils.personalization import NormalizedUserProfile
+            norm_user = NormalizedUserProfile()
+        try:
+            strategies = build_batch_strategies(norm_user, contacts, warmth_data)
+        except Exception as strat_err:
+            logger.warning("[EMAIL-GEN] build_batch_strategies failed (non-fatal): %s", strat_err)
+            strategies = {}
         logger.info("[EMAIL-GEN] Built %d personalization strategies (lead types: %s)",
                      len(strategies),
                      ", ".join(s.lead_type for s in strategies.values()))
