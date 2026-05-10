@@ -6,6 +6,32 @@ Plan file: `.claude/plans/jaunty-spinning-owl.md`
 
 ---
 
+## Resume Here
+
+**Status:** Pre-Phase-0 complete. All six tracks shipped to production and smoke-tested.
+
+**Shipped tracks:**
+1. Track A1: Goals step re-added (skippable) — `be65d32`
+2. Track A2: GoalsPromptBanner for legacy users — `be65d32`
+3. dreamCompanies pending-input flush fix — `fa50157`
+4. Track B: cooldown writes — `9029530`
+5. Track C: event logger + middleware + impression backfill — `ab3837d`, `23ccad0`
+6. Track A bonus: onboarding analytics — `670f081`
+
+**Next milestone:** Phase 1 (feature store + embedding cache + weekly Parquet export)
+
+**When to resume:** May 15–17, 2026 — wait 5–7 days for real impression and outcome data to accumulate.
+
+**What to verify before starting Phase 1:**
+1. `email_quality_logs` fallback rate stays near zero
+2. `recommendation_events` grows steadily with real user activity
+3. `global_contact_outreach` has reasonable distribution (no contact saturated above 5 sends/30d)
+4. Onboarding funnel data is collecting and shows where real drop-off is happening
+
+**Phase 1's first concrete task:** Create `backend/app/services/embedding_service.py` with `text-embedding-3-small` batch embedding and content-hash Firestore cache.
+
+---
+
 ## Pre-Phase 0 — COMPLETE
 
 All tracks shipped and smoke-tested on production.
@@ -86,7 +112,7 @@ These were discovered during Pre-Phase-0 implementation and should be addressed 
 
 ### Track A Bonus: Onboarding Analytics
 
-**Commit `TBD`** — feat: onboarding step analytics via metrics_events
+**Commit `670f081`** — feat: onboarding step analytics via metrics_events
 
 - `metrics_events.py` — added `onboarding_step_viewed` and `onboarding_step_completed` to valid event types
 - `users.py` — new `/api/users/onboarding-event` endpoint accepting `{ event, step, skipped }`
