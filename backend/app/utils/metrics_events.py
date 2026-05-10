@@ -17,6 +17,8 @@ VALID_EVENT_TYPES = {
     "briefing_viewed",
     "reply_response_sent",
     "coffee_chat_prep_used",
+    "onboarding_step_viewed",
+    "onboarding_step_completed",
 }
 
 

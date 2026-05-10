@@ -56,24 +56,45 @@ These were discovered during Pre-Phase-0 implementation and should be addressed 
 2. **`linkedinResumeParsed` vs `resumeParsed` precedence** — both may exist on user docs from different enrichment paths. `feature_service.py` needs a clear precedence rule when extracting user features.
 3. **Conditional spread `?.length` pattern** — `OnboardingFlow.tsx:174` silently drops empty arrays (e.g. `dreamCompanies: []` becomes absent from the Firestore write). Not a bug now (the flush fix ensures the array is non-empty when companies are entered), but fragile. Revisit if more array fields are added to the onboarding write.
 
----
-
-## Next Up
-
 ### Track C: Event Logger + Request Context Middleware (Backend)
 
-- `recommendation_events.py` (new) — `log_recommendation_event()` writing to Firestore `recommendation_events` collection with full 18-field schema
-- `request_context.py` (new) — Flask `@app.before_request` middleware generating `request_id` (UUID) and reading `session_id` from `X-Session-Id` header
-- `wsgi.py` — register request_context middleware
-- `runs.py` — instrument contact search results as `recommendation_shown` events
-- `gmail_webhook.py` — route send/reply detection to also write recommendation events
-- `api.ts` (frontend) — generate `session_id` on app mount, send as `X-Session-Id` header
+**Commit `ab3837d`** — feat: Track C — recommendation event logger + request context middleware
+
+- `request_context.py` (new) — Flask middleware attaching `request_id` (UUID) and `session_id` (from `X-Session-Id` header) to every request via `flask.g`
+- `recommendation_events.py` (new) — fire-and-forget logger writing to Firestore `recommendation_events` with full 18-field schema
+- `wsgi.py` — registers request context middleware before all blueprints
+- `runs.py` — logs `recommendation_shown` per contact in search results (rank, warmth score, feature snapshot)
+- `gmail_webhook.py` — logs `email_sent` and `email_replied` recommendation events
+- `api.ts` — generates per-session UUID in sessionStorage, sends as `X-Session-Id` header
+
+**Firestore index:** Composite index on `recommendation_events` for `(event_type, uid, contact_email, server_timestamp DESC)` — auto-created on first query.
+
+### Impression Context Backfill Fix
+
+**Commit `23ccad0`** — fix: backfill impression context on email_sent recommendation events
+
+- `gmail_webhook.py` — `_lookup_impression_context()` queries most recent `recommendation_shown` for same `(uid, contact_email)`, copies `request_id`, `session_id`, `rank`, `score` onto `email_sent` event. Tracks `has_impression: false` when no matching impression exists.
+
+---
+
+## Observations for Phase 1 Cleanup
+
+4. **reply_coach triggers on bounce messages** — `mailer-daemon@googlemail.com` triggered draft generation. Filter bounce-pattern senders (mailer-daemon, postmaster, noreply) before invoking reply_coach.
+5. **Firestore deprecation warnings** — positional `filter()` args in `gmail_webhook.py` (lines 55, 56, 433, 439) and `base_collection.py`. Migrate to keyword `filter=` syntax.
+
+---
 
 ### Track A Bonus: Onboarding Analytics
 
-- Add `onboarding_step_completed` and `onboarding_step_viewed` to `metrics_events.py` valid event types
-- New endpoint or hook in `users.py` to accept `{ step, skipped }` from frontend
-- Frontend onboarding step components call the step-event endpoint on mount and advancement
+**Commit `TBD`** — feat: onboarding step analytics via metrics_events
+
+- `metrics_events.py` — added `onboarding_step_viewed` and `onboarding_step_completed` to valid event types
+- `users.py` — new `/api/users/onboarding-event` endpoint accepting `{ event, step, skipped }`
+- `OnboardingFlow.tsx` — `useEffect` fires `viewed` on step mount, `completed` on each handler before advancing. Goals skip passes `skipped: true`. All fire-and-forget.
+
+---
+
+## Next Up
 
 ### Remaining Phases
 

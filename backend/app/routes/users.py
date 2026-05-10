@@ -275,3 +275,36 @@ def update_user_preferences():
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
+
+@users_bp.route('/onboarding-event', methods=['POST'])
+@require_firebase_auth
+def log_onboarding_event():
+    """Log an onboarding step event (viewed or completed).
+
+    Request body: { "event": "viewed"|"completed", "step": "profile"|"academics"|"goals"|"location", "skipped": false }
+    """
+    try:
+        uid = request.firebase_user["uid"]
+        data = request.get_json(silent=True) or {}
+        event = data.get("event", "")
+        step = data.get("step", "")
+        skipped = bool(data.get("skipped", False))
+
+        valid_events = {"viewed": "onboarding_step_viewed", "completed": "onboarding_step_completed"}
+        valid_steps = {"welcome", "profile", "academics", "goals", "location"}
+
+        if event not in valid_events:
+            return jsonify({"error": f"Invalid event: {event}"}), 400
+        if step not in valid_steps:
+            return jsonify({"error": f"Invalid step: {step}"}), 400
+
+        from app.utils.metrics_events import log_event
+        log_event(uid, valid_events[event], {
+            "step": step,
+            "skipped": skipped,
+        })
+
+        return jsonify({"ok": True})
+    except Exception as e:
+        print(f"[Onboarding] Event log error: {e}")
+        return jsonify({"ok": True})  # Never fail the client

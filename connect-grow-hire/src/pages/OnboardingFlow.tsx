@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { OnboardingWelcome } from "./OnboardingWelcome";
 import { OnboardingLocationPreferences } from "./OnboardingLocationPreferences";
@@ -47,6 +47,25 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
     academics: {},
   });
 
+  // Onboarding analytics: fire-and-forget step events
+  const loggedSteps = useRef<Set<string>>(new Set());
+  const logOnboardingEvent = (event: "viewed" | "completed", step: string, skipped = false) => {
+    auth.currentUser?.getIdToken().then((token) => {
+      fetch(`${BACKEND_URL}/api/users/onboarding-event`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ event, step, skipped }),
+      }).catch(() => {});
+    }).catch(() => {});
+  };
+
+  useEffect(() => {
+    if (!loggedSteps.current.has(currentStep)) {
+      loggedSteps.current.add(currentStep);
+      logOnboardingEvent("viewed", currentStep);
+    }
+  }, [currentStep]);
+
   const handleProfileData = async (profileData: any) => {
     setOnboardingData((prev) => ({ ...prev, profile: profileData }));
 
@@ -73,11 +92,13 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
       }
     }
 
+    logOnboardingEvent("completed", "profile");
     setCurrentStep("academics");
   };
 
   const handleAcademicsData = (academicsData: any) => {
     setOnboardingData((prev) => ({ ...prev, academics: academicsData }));
+    logOnboardingEvent("completed", "academics");
     setCurrentStep("goals");
   };
 
@@ -86,10 +107,12 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
       ...prev,
       goals: { careerTrack: goalsData.careerTrack, dreamCompanies: goalsData.dreamCompanies },
     }));
+    logOnboardingEvent("completed", "goals");
     setCurrentStep("location");
   };
 
   const handleGoalsSkip = () => {
+    logOnboardingEvent("completed", "goals", true);
     setCurrentStep("location");
   };
 
@@ -187,7 +210,10 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
         },
       };
 
-      // 3. Persist to Firestore
+      // 3. Log location step completion before Firestore write
+      logOnboardingEvent("completed", "location");
+
+      // 4. Persist to Firestore
       await completeOnboarding(finalData);
 
       // 4. Session flag
@@ -284,7 +310,7 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
         {/* Steps */}
         <div className="mt-8">
           {currentStep === "welcome" && (
-            <OnboardingWelcome onNext={() => setCurrentStep("profile")} userName={user?.name || "there"} />
+            <OnboardingWelcome onNext={() => { logOnboardingEvent("completed", "welcome"); setCurrentStep("profile"); }} userName={user?.name || "there"} />
           )}
 
           {currentStep === "profile" && (
