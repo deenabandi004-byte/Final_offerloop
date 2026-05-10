@@ -538,6 +538,7 @@ def import_from_linkedin():
                 user_profile=user_profile,
                 career_interests=[],
                 fit_context=None,
+                pre_parsed_user_info=(user_data or {}).get("resumeParsed"),
                 email_template_purpose='networking',
                 resume_filename=user_data.get('resumeFileName') if user_data else None,
                 signoff_config=None,

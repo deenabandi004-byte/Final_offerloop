@@ -658,12 +658,17 @@ def build_contact_profile(contact: dict) -> NormalizedContactProfile:
             "is_current": is_current,
         })
 
-    # PDL returns newest-first; reverse if needed
+    # PDL returns newest-first; reverse to oldest-first
     if len(career_path) >= 2:
         first_yr = career_path[0].get("start_year") or 0
         last_yr = career_path[-1].get("start_year") or 0
         if first_yr > last_yr:
             career_path = list(reversed(career_path))
+        elif first_yr == last_yr:
+            # Years missing or equal — check is_current flag
+            # If first entry is current job, PDL gave us newest-first → reverse
+            if career_path[0].get("is_current") and not career_path[-1].get("is_current"):
+                career_path = list(reversed(career_path))
 
     # --- Skills ----------------------------------------------------------
     skills_lower: set[str] = set()

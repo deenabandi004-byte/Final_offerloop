@@ -583,6 +583,7 @@ def import_contacts():
                         user_profile=user_profile,
                         career_interests=career_interests,
                         fit_context=None,
+                        pre_parsed_user_info=(user_data_after or {}).get("resumeParsed"),
                         email_template_purpose='networking',
                         resume_filename=user_data_after.get('resumeFileName'),
                         signoff_config=None,

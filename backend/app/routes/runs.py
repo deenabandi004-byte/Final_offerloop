@@ -482,6 +482,7 @@ def prompt_search():
                 user_profile=user_profile,
                 career_interests=career_interests,
                 fit_context=None,
+                pre_parsed_user_info=(user_data or {}).get("resumeParsed"),
                 template_instructions=template_instructions,
                 email_template_purpose=email_template_purpose,
                 resume_filename=user_resume_filename,
