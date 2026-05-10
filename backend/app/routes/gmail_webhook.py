@@ -346,6 +346,13 @@ def _process_gmail_notification(email_address, history_id):
                 except Exception:
                     pass
 
+                # Cooldown: record global outreach for saturation tracking
+                try:
+                    from app.services.cooldown_service import record_outreach
+                    record_outreach(to_email, uid)
+                except Exception:
+                    pass
+
                 continue
 
             # Find contact with this thread (reply from contact)
