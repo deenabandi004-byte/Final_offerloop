@@ -418,7 +418,7 @@ def init_app_extensions(app: Flask):
         cors_config = {
             "origins": all_origins,
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-            "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+            "allow_headers": ["Content-Type", "Authorization", "X-Requested-With", "X-Session-Id"],
             "supports_credentials": True,
             "max_age": 3600,
             "expose_headers": ["Content-Type", "Authorization"]
@@ -434,7 +434,7 @@ def init_app_extensions(app: Flask):
         cors_config = {
             "origins": all_origins,
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-            "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+            "allow_headers": ["Content-Type", "Authorization", "X-Requested-With", "X-Session-Id"],
             "supports_credentials": True,
             "max_age": 3600,
             "expose_headers": ["Content-Type", "Authorization"]
