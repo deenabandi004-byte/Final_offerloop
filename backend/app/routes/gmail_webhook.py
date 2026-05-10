@@ -38,6 +38,41 @@ def _extract_email_from_header(from_header):
     return from_header.lower()
 
 
+def _lookup_impression_context(db, uid, contact_email):
+    """Find the most recent recommendation_shown event for this uid+contact_email.
+
+    Returns dict with request_id, session_id, rank, score, matched.
+    Returns empty/default values if no match (e.g. manual contact entry).
+    Never raises.
+    """
+    result = {"request_id": "", "session_id": "", "rank": None, "score": None, "matched": False}
+    try:
+        if not db or not contact_email:
+            return result
+        query = (
+            db.collection("recommendation_events")
+            .where("event_type", "==", "recommendation_shown")
+            .where("uid", "==", uid)
+            .where("contact_email", "==", contact_email.strip().lower())
+            .order_by("server_timestamp", direction="DESCENDING")
+            .limit(1)
+        )
+        docs = list(query.stream())
+        if docs:
+            data = docs[0].to_dict() or {}
+            result["request_id"] = data.get("request_id", "")
+            result["session_id"] = data.get("session_id", "")
+            result["rank"] = data.get("rank")
+            result["score"] = data.get("score")
+            result["matched"] = True
+        else:
+            # No impression found — user emailed someone not surfaced by the recommender
+            logger.info(f"[gmail_webhook] No impression found for uid={uid} contact_email={contact_email} (manual entry or pre-Track-C contact)")
+    except Exception as e:
+        logger.warning(f"[gmail_webhook] Impression lookup failed for uid={uid}: {e}")
+    return result
+
+
 def _process_gmail_notification(email_address, history_id):
     """
     Background worker: find user, fetch history, detect new replies, update contacts and notifications.
@@ -354,14 +389,24 @@ def _process_gmail_notification(email_address, history_id):
                     pass
 
                 # Recommendation event: email_sent
+                # Backfill impression context (request_id, session_id, rank, score)
+                # from the most recent recommendation_shown for this uid+contact_email.
                 try:
                     from app.utils.recommendation_events import log_recommendation_event
+                    impression_ctx = _lookup_impression_context(db, uid, to_email)
                     log_recommendation_event(
                         "email_sent",
                         uid,
                         contact_id=contact_doc.id,
                         contact_email=to_email,
+                        rank=impression_ctx.get("rank"),
+                        score=impression_ctx.get("score"),
                         surface="gmail_webhook",
+                        extra={
+                            "impression_request_id": impression_ctx.get("request_id", ""),
+                            "impression_session_id": impression_ctx.get("session_id", ""),
+                            "has_impression": impression_ctx.get("matched", False),
+                        },
                     )
                 except Exception:
                     pass
