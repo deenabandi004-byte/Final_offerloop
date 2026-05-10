@@ -12,6 +12,7 @@ from app.utils.users import (
     extract_hometown_from_resume,
     extract_companies_from_resume,
     get_university_shorthand,
+    get_university_mascot,
     get_current_season,
     determine_industry
 )
@@ -446,6 +447,7 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
         
         # === PERSONALIZED: Generate natural, personalized emails for each contact ===
         sender_university_short = get_university_shorthand(user_info.get('university', ''))
+        sender_school_nickname = get_university_mascot(user_info.get('university', ''))
         sender_name = (user_info.get('name') or '').strip() or 'Student'
         sender_firstname = sender_name.split()[0] if sender_name else 'Student'
 
@@ -785,6 +787,25 @@ CONTACTS:
 
             # Build tone guidance driven by the dominant warmth tier
             dominant_tier = max(tier_counts, key=tier_counts.get) if any(tier_counts.values()) else "cold"
+
+            # Derive sender metadata for prompt
+            sender_hometown = (norm_user.hometown or norm_user.current_location or '').strip()
+            sender_personal_context = norm_user.personal_note or ''
+
+            # Determine sender status from graduation year
+            _grad_year_str = norm_user.year or user_info.get('year', '')
+            try:
+                _grad_year = int(re.search(r'20\d{2}', str(_grad_year_str)).group()) if _grad_year_str else 0
+            except (AttributeError, ValueError):
+                _grad_year = 0
+            _current_year = datetime.now().year
+            sender_grad_year_int = _grad_year if _grad_year else None
+            if _grad_year > _current_year:
+                sender_status = 'current_student'
+            elif _grad_year == _current_year:
+                sender_status = 'recent_grad'
+            else:
+                sender_status = 'alum' if _grad_year else 'current_student'
 
             # Sender-status-aware example openers — prevents the LLM from saying
             # "fellow alum" when the sender is still a student.
