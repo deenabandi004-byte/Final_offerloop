@@ -448,9 +448,15 @@ def build_user_profile(
         m = re.search(r'20\d{2}', str(rp_edu["graduation"]))
         year = m.group() if m else ""
 
-    # Hometown / location
-    hometown = (up.get("hometown") or prof.get("hometown") or "").strip().lower()
-    current_location = (up.get("location") or prof.get("location") or "").strip().lower()
+    # Hometown / location (location may be a dict from onboarding or a string)
+    def _loc_str(val):
+        if isinstance(val, dict):
+            parts = [val.get("city", ""), val.get("state", "")]
+            return ", ".join(p for p in parts if p).strip().lower()
+        return (val or "").strip().lower()
+
+    hometown = _loc_str(up.get("hometown") or prof.get("hometown") or "")
+    current_location = _loc_str(up.get("location") or prof.get("location") or "")
 
     # Past roles -- from resumeParsed.experience (structured, not regex)
     past_roles = []
