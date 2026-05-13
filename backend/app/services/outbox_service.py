@@ -216,6 +216,19 @@ def get_outbox_contacts(uid, include_archived=False):
     return results
 
 
+def get_recent_outbox_contacts(uid, limit=50):
+    """Bounded outbox query for suggestion engine. Returns most recent by updatedAt."""
+    db = get_db()
+    contacts_ref = db.collection("users").document(uid).collection("contacts")
+    query = (contacts_ref
+        .where("inOutbox", "==", True)
+        .order_by("updatedAt", direction="DESCENDING")
+        .limit(limit))
+    docs = list(query.stream())
+    return [_contact_to_dict(doc.id, doc.to_dict() or {}) for doc in docs
+            if not (doc.to_dict() or {}).get("archivedAt")]
+
+
 def get_outbox_stats(uid):
     """
     Compute outbox statistics from indexed query.

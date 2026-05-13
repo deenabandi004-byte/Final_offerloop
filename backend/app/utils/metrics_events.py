@@ -19,6 +19,9 @@ VALID_EVENT_TYPES = {
     "coffee_chat_prep_used",
     "onboarding_step_viewed",
     "onboarding_step_completed",
+    "suggestion_shown",
+    "suggestion_clicked",
+    "suggestion_dismissed",
 }
 
 
