@@ -245,9 +245,13 @@ const InterviewPrepPage: React.FC = () => {
           }
         }
         
-        trackFeatureActionCompleted('interview_prep', 'generate', true, {
-          credits_spent: INTERVIEW_PREP_CREDITS,
-        });
+        // TODO(#13): PostHog was reset and never re-configured. This event fired
+        // into a void. Rewire through /api/metrics/events or replacement analytics
+        // system per https://github.com/deenabandi004-byte/Final_offerloop/issues/13
+        // <ORIGINAL CALL COMMENTED BELOW>
+        // trackFeatureActionCompleted('interview_prep', 'generate', true, {
+        //   credits_spent: INTERVIEW_PREP_CREDITS,
+        // });
         
         flushSync(() => {
           setInterviewPrepLoading(false);

@@ -74,7 +74,11 @@ function FallbackChips({
             disabled={disabled}
             onClick={() => {
               setSelectedId(chip.id);
-              posthog.capture('suggestion_chip_clicked', { chip_id: chip.id, category: chip.category, label: chip.label, tab: type });
+              // TODO(#13): PostHog was reset and never re-configured. This event fired
+              // into a void. Rewire through /api/metrics/events or replacement analytics
+              // system per https://github.com/deenabandi004-byte/Final_offerloop/issues/13
+              // <ORIGINAL CALL COMMENTED BELOW>
+              // posthog.capture('suggestion_chip_clicked', { chip_id: chip.id, category: chip.category, label: chip.label, tab: type });
               onSelect(chip.prompt);
               setTimeout(() => setSelectedId(null), 300);
             }}
@@ -145,7 +149,11 @@ const SuggestionChips: React.FC<SuggestionChipsProps> = ({
   useEffect(() => {
     if (!prevHasSearched.current && hasSearched) {
       onCollapse(true);
-      posthog.capture('suggestions_collapsed', { tab: type, trigger: 'auto' });
+      // TODO(#13): PostHog was reset and never re-configured. This event fired
+      // into a void. Rewire through /api/metrics/events or replacement analytics
+      // system per https://github.com/deenabandi004-byte/Final_offerloop/issues/13
+      // <ORIGINAL CALL COMMENTED BELOW>
+      // posthog.capture('suggestions_collapsed', { tab: type, trigger: 'auto' });
     }
     prevHasSearched.current = hasSearched;
   }, [hasSearched, onCollapse, type]);
@@ -153,13 +161,21 @@ const SuggestionChips: React.FC<SuggestionChipsProps> = ({
   const toggleCollapse = useCallback(() => {
     const next = !collapsed;
     onCollapse(next);
-    posthog.capture(next ? 'suggestions_collapsed' : 'suggestions_expanded', { tab: type, ...(next ? { trigger: 'manual' } : {}) });
+    // TODO(#13): PostHog was reset and never re-configured. This event fired
+    // into a void. Rewire through /api/metrics/events or replacement analytics
+    // system per https://github.com/deenabandi004-byte/Final_offerloop/issues/13
+    // <ORIGINAL CALL COMMENTED BELOW>
+    // posthog.capture(next ? 'suggestions_collapsed' : 'suggestions_expanded', { tab: type, ...(next ? { trigger: 'manual' } : {}) });
   }, [collapsed, onCollapse, type]);
 
   const handleCardClick = useCallback((company: RecommendedCompany) => {
-    posthog.capture('recommendation_card_clicked', {
-      company: company.company, industry: company.industry, score: company.score, tab: type,
-    });
+    // TODO(#13): PostHog was reset and never re-configured. This event fired
+    // into a void. Rewire through /api/metrics/events or replacement analytics
+    // system per https://github.com/deenabandi004-byte/Final_offerloop/issues/13
+    // <ORIGINAL CALL COMMENTED BELOW>
+    // posthog.capture('recommendation_card_clicked', {
+    //   company: company.company, industry: company.industry, score: company.score, tab: type,
+    // });
     if (type === 'people') {
       const uni = shortUniversity(userCtx.university);
       const loc = userCtx.preferredLocations[0] || '';
@@ -257,7 +273,11 @@ const SuggestionChips: React.FC<SuggestionChipsProps> = ({
                 type="button"
                 disabled={disabled}
                 onClick={() => {
-                  posthog.capture('suggestion_chip_clicked', { chip_id: chip.id, category: chip.category, label: chip.label, tab: type });
+                  // TODO(#13): PostHog was reset and never re-configured. This event fired
+                  // into a void. Rewire through /api/metrics/events or replacement analytics
+                  // system per https://github.com/deenabandi004-byte/Final_offerloop/issues/13
+                  // <ORIGINAL CALL COMMENTED BELOW>
+                  // posthog.capture('suggestion_chip_clicked', { chip_id: chip.id, category: chip.category, label: chip.label, tab: type });
                   if (chip.prompt.startsWith('__school_affinity__') && onSchoolAffinitySelect) {
                     const parts = chip.prompt.split('__').filter(Boolean);
                     const university = parts[1] || '';

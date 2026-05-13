@@ -1346,10 +1346,14 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
         setSearchComplete(true);
       }
 
-      trackFeatureActionCompleted('contact_search', 'search', true, {
-        results_count: result.contacts.length,
-        credits_spent: creditsUsed,
-      });
+      // TODO(#13): PostHog was reset and never re-configured. This event fired
+      // into a void. Rewire through /api/metrics/events or replacement analytics
+      // system per https://github.com/deenabandi004-byte/Final_offerloop/issues/13
+      // <ORIGINAL CALL COMMENTED BELOW>
+      // trackFeatureActionCompleted('contact_search', 'search', true, {
+      //   results_count: result.contacts.length,
+      //   credits_spent: creditsUsed,
+      // });
 
       if (user?.uid && result.contacts.length > 0) {
         try {

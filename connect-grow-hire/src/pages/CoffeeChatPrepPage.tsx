@@ -292,10 +292,14 @@ const CoffeeChatPrepPage: React.FC = () => {
           setCoffeeChatPrepId((statusResult as any).id || prepId);
         });
         
-        trackFeatureActionCompleted('coffee_chat_prep', 'generate', true, {
-          company: contactData.company || contactData.companyName || '',
-          role: contactData.jobTitle || contactData.title || undefined,
-        });
+        // TODO(#13): PostHog was reset and never re-configured. This event fired
+        // into a void. Rewire through /api/metrics/events or replacement analytics
+        // system per https://github.com/deenabandi004-byte/Final_offerloop/issues/13
+        // <ORIGINAL CALL COMMENTED BELOW>
+        // trackFeatureActionCompleted('coffee_chat_prep', 'generate', true, {
+        //   company: contactData.company || contactData.companyName || '',
+        //   role: contactData.jobTitle || contactData.title || undefined,
+        // });
         
         toast({
           title: "Coffee Chat Prep Ready!",
