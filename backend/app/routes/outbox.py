@@ -12,6 +12,7 @@ from app.services.outbox_service import (
     clear_unread_reply,
     get_outbox_contacts,
     get_outbox_stats,
+    get_recent_outbox_contacts,
     mark_contact_resolution,
     mark_contact_won,
     snooze_contact,
@@ -29,8 +30,12 @@ outbox_bp = Blueprint("outbox", __name__, url_prefix="/api/outbox")
 @require_firebase_auth
 def list_threads():
     uid = request.firebase_user["uid"]
-    include_archived = request.args.get("include_archived", "").lower() == "true"
-    contacts = get_outbox_contacts(uid, include_archived=include_archived)
+    limit_str = request.args.get("limit", "")
+    if limit_str.isdigit() and int(limit_str) > 0:
+        contacts = get_recent_outbox_contacts(uid, limit=min(int(limit_str), 200))
+    else:
+        include_archived = request.args.get("include_archived", "").lower() == "true"
+        contacts = get_outbox_contacts(uid, include_archived=include_archived)
     return jsonify({"threads": contacts}), 200
 
 

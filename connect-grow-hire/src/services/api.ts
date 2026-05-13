@@ -1,4 +1,6 @@
 // src/services/api.ts
+import { auth } from '../lib/firebase';
+
 export const BACKEND_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/api\/?$/, '') ||
   (['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname)
@@ -1754,13 +1756,15 @@ async getAutoPrep(contactId: string): Promise<AutoPrepStatus | ErrorResponse> {
 // Outbox API
 // ================================
 
-/** Get all Outbox contacts */
+/** Get Outbox contacts. Pass limit for bounded query (suggestion engine). */
 async getOutboxThreads(params?: {
   include_archived?: boolean;
+  limit?: number;
 }): Promise<{ threads: OutboxThread[] } | { error: string }> {
   const headers = await this.getAuthHeaders();
   const searchParams = new URLSearchParams();
   if (params?.include_archived) searchParams.set("include_archived", "true");
+  if (params?.limit) searchParams.set("limit", String(params.limit));
   const qs = searchParams.toString();
   const url = qs ? `/outbox/threads?${qs}` : '/outbox/threads';
   return this.makeRequest<{ threads: OutboxThread[] } | { error: string }>(url, { method: 'GET', headers });
@@ -2378,6 +2382,24 @@ export function isSuggestionsResult(result: OptimizationResult): result is Sugge
  */
 export function isTemplateRebuildResult(result: OptimizationResult): result is TemplateRebuildResult {
   return result.mode === 'template_rebuild';
+}
+
+export async function trackSuggestionEvent(
+  eventType: 'suggestion_shown' | 'suggestion_clicked' | 'suggestion_dismissed',
+  properties: Record<string, unknown> = {},
+): Promise<void> {
+  try {
+    const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    fetch(`${API_BASE_URL}/metrics/events`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ event_type: eventType, properties }),
+    });
+  } catch {
+    // fire-and-forget, swallow
+  }
 }
 
 export const enrichLinkedInOnboarding = async (linkedinUrl: string) => {

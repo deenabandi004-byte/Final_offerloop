@@ -962,6 +962,17 @@ export const firebaseApi = {
       throw error;
     }
   },
+  // ================================
+  // FEATURE FLAGS
+  // ================================
+  async getFeatureFlags(): Promise<{ suggestions_enabled?: boolean }> {
+    try {
+      const flagDoc = await getDoc(doc(db, 'system', 'feature_flags'));
+      return flagDoc.exists() ? (flagDoc.data() as { suggestions_enabled?: boolean }) : {};
+    } catch {
+      return {};
+    }
+  },
 };
 
 export default firebaseApi;
