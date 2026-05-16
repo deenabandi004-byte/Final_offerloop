@@ -403,6 +403,20 @@ def prompt_search():
         # Trim to the originally requested count (whether or not dedup ran)
         contacts = contacts[:max_contacts]
 
+        # Enrich contacts with real-time web data (Perplexity)
+        enrichment_data = {}
+        try:
+            from app.services.perplexity_client import batch_enrich_contacts
+            enrichment_data = batch_enrich_contacts(contacts)
+            for idx, contact in enumerate(contacts):
+                enrich = enrichment_data.get(idx, {})
+                if enrich.get("talking_points"):
+                    contact["enrichment_talking_points"] = enrich["talking_points"]
+                if enrich.get("recent_activity"):
+                    contact["enrichment_recent_activity"] = enrich["recent_activity"]
+        except Exception:
+            print("⚠️ Contact enrichment failed, continuing without", flush=True)
+
         # Same pipeline as free-run: template, emails, drafts, deduct, save
         # A4: Build rich user profile from root doc + professionalInfo subcollection
         user_profile = data.get("userProfile") or (user_data or {}).get("userProfile")
@@ -495,6 +509,7 @@ def prompt_search():
                 auth_display_name=auth_display_name,
                 warmth_data=warmth_data,
                 uid=user_id,
+                enrichment_data=enrichment_data,
             )
         except Exception as e:
             print(f"[Runs] Email generation failed (prompt-search): {e}")
@@ -700,6 +715,10 @@ def prompt_search():
                         contact_doc["qualityRegenerated"] = True
                     if contact.get("briefing"):
                         contact_doc["briefing"] = contact["briefing"]
+                    if contact.get("enrichment_talking_points"):
+                        contact_doc["enrichmentTalkingPoints"] = contact["enrichment_talking_points"][:5]
+                    if contact.get("enrichment_recent_activity"):
+                        contact_doc["enrichmentRecentActivity"] = contact["enrichment_recent_activity"]
                     if contact.get("gmailDraftId") or contact.get("gmailDraftUrl"):
                         contact_doc["pipelineStage"] = "draft_created"
                     now_iso = datetime.utcnow().isoformat() + "Z"  # TODO: deprecated in Python 3.12
