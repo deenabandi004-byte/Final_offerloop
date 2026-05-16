@@ -421,6 +421,7 @@ class TestFetchComprehensiveResearch:
     """Test parallel SERP research orchestration."""
 
     @patch("app.services.coffee_chat.SERPAPI_KEY", "")
+    @patch("app.services.perplexity_client.PERPLEXITY_API_KEY", "")
     def test_no_api_key_returns_empty(self):
         from app.services.coffee_chat import fetch_comprehensive_research
         result = fetch_comprehensive_research("Acme", "tech", "Engineer", "John", "Doe")
@@ -431,10 +432,11 @@ class TestFetchComprehensiveResearch:
             "industry_trends": [],
         }
 
+    @patch("app.services.perplexity_client.PERPLEXITY_API_KEY", "")
     @patch("app.services.coffee_chat.SERPAPI_KEY", "test-key")
     @patch("app.services.coffee_chat.GoogleSearch")
     def test_parallel_execution_four_queries(self, mock_search_cls):
-        """All 4 SERP queries run and results are returned."""
+        """All 4 SERP queries run and results are returned (SerpAPI fallback)."""
         from app.services.coffee_chat import fetch_comprehensive_research
 
         mock_instance = MagicMock()
@@ -461,6 +463,7 @@ class TestFetchComprehensiveResearch:
         assert len(result["company_news"]) > 0 or len(result["company_overview"]) > 0
         assert mock_search_cls.call_count == 4  # 4 parallel searches
 
+    @patch("app.services.perplexity_client.PERPLEXITY_API_KEY", "")
     @patch("app.services.coffee_chat.SERPAPI_KEY", "test-key")
     @patch("app.services.coffee_chat.GoogleSearch")
     def test_no_company_skips_company_searches(self, mock_search_cls):
@@ -481,6 +484,7 @@ class TestFetchComprehensiveResearch:
         assert result["company_news"] == []
         assert result["company_overview"] == []
 
+    @patch("app.services.perplexity_client.PERPLEXITY_API_KEY", "")
     @patch("app.services.coffee_chat.SERPAPI_KEY", "test-key")
     @patch("app.services.coffee_chat.GoogleSearch")
     def test_dynamic_year_in_queries(self, mock_search_cls):
@@ -499,6 +503,7 @@ class TestFetchComprehensiveResearch:
         combined = " ".join(all_queries)
         assert str(current_year) in combined
 
+    @patch("app.services.perplexity_client.PERPLEXITY_API_KEY", "")
     @patch("app.services.coffee_chat.SERPAPI_KEY", "test-key")
     @patch("app.services.coffee_chat.GoogleSearch")
     def test_search_failure_returns_empty_list(self, mock_search_cls):
@@ -513,6 +518,7 @@ class TestFetchComprehensiveResearch:
         assert result["company_news"] == []
         assert result["company_overview"] == []
 
+    @patch("app.services.perplexity_client.PERPLEXITY_API_KEY", "")
     @patch("app.services.coffee_chat.SERPAPI_KEY", "test-key")
     @patch("app.services.coffee_chat.GoogleSearch")
     def test_source_dict_handling(self, mock_search_cls):
@@ -533,6 +539,7 @@ class TestFetchComprehensiveResearch:
         if result["company_news"]:
             assert result["company_news"][0]["source"] == "Reuters"
 
+    @patch("app.services.perplexity_client.PERPLEXITY_API_KEY", "")
     @patch("app.services.coffee_chat.SERPAPI_KEY", "test-key")
     @patch("app.services.coffee_chat.GoogleSearch")
     def test_extra_context_params_used(self, mock_search_cls):

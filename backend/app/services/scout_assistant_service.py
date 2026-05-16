@@ -754,6 +754,14 @@ _INTENT_PATTERNS = {
         r"how (?:should|do) i (?:network|start|approach)|next steps|strategy for)",
         re.IGNORECASE,
     ),
+    "research": re.compile(
+        r"(?:tell me about|what is|what are|describe|explain|info(?:rmation)? (?:on|about)|"
+        r"research|how does .+ (?:work|hire|recruit)|"
+        r"(?:interview|hiring|recruiting) (?:process|culture|timeline) (?:at|for)|"
+        r"what.+(?:like|about).+(?:work|working).+at|"
+        r"(?:culture|salary|compensation|benefits|interview) at)",
+        re.IGNORECASE,
+    ),
 }
 
 
@@ -807,7 +815,7 @@ class ScoutAssistantService:
     """Service for Scout product assistant functionality."""
 
     DEFAULT_MODEL = "gpt-4o-mini"
-    CLAUDE_MODEL = "claude-3-haiku-20240307"
+    CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 
     def __init__(self):
         self._openai = get_async_openai_client()
@@ -884,6 +892,15 @@ class ScoutAssistantService:
                 messages.append({
                     "role": "user",
                     "content": f"{message}\n\n[SAVED OFFERLOOP CONTACTS — these are the user's saved networking contacts. Summarize them in your response. Do NOT confuse with Google/Gmail contacts.]\n{contacts_info}",
+                })
+            else:
+                messages.append({"role": "user", "content": message})
+        elif intent == "research":
+            research_context = await self._fetch_research_context(message)
+            if research_context:
+                messages.append({
+                    "role": "user",
+                    "content": f"{message}\n\n[REAL-TIME RESEARCH DATA — use this to give a detailed, specific answer. Cite sources when relevant.]\n{research_context}",
                 })
             else:
                 messages.append({"role": "user", "content": message})
@@ -969,6 +986,22 @@ class ScoutAssistantService:
                 return result
         except Exception as e:
             print(f"[ScoutAssistant] Pre-load contacts failed: {e}")
+        return None
+
+    async def _fetch_research_context(self, message: str) -> Optional[str]:
+        """Fetch real-time research data via Perplexity for research-intent queries."""
+        try:
+            from app.services.perplexity_client import quick_search
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, lambda: quick_search(message))
+            if result and result.get("content"):
+                citations = result.get("citations", [])
+                context = result["content"]
+                if citations:
+                    context += "\n\nSources:\n" + "\n".join(f"- {c}" for c in citations[:5])
+                return context
+        except Exception as e:
+            print(f"[ScoutAssistant] Perplexity research failed: {e}")
         return None
 
     async def _call_llm_json(self, messages: List[Dict], system_prompt: str) -> str:
@@ -1209,6 +1242,16 @@ class ScoutAssistantService:
                 messages.append({
                     "role": "user",
                     "content": f"{message}\n\n[SAVED OFFERLOOP CONTACTS — these are the user's saved networking contacts. Summarize them in your response. Do NOT confuse with Google/Gmail contacts.]\n{contacts_info}",
+                })
+            else:
+                messages.append({"role": "user", "content": message})
+        elif intent == "research":
+            # Fetch real-time data via Perplexity for research queries
+            research_context = await self._fetch_research_context(message)
+            if research_context:
+                messages.append({
+                    "role": "user",
+                    "content": f"{message}\n\n[REAL-TIME RESEARCH DATA — use this to give a detailed, specific answer. Cite sources when relevant.]\n{research_context}",
                 })
             else:
                 messages.append({"role": "user", "content": message})

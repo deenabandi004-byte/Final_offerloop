@@ -462,13 +462,29 @@ class ScoutService:
             r'\bwhat.*(like|about)\b.*\b(work|working)\b.*\bat\b',
             r'\b(interview process|hiring process)\b',
             r'\bhow (hard|difficult|easy)\b.*\b(get|land)\b.*\b(job|role|position)\b',
+            # "tell me about X" / "what is X" / "describe X" where X contains a company-like name
+            r'\b(tell me about|what is|what are|describe|explain|info on|information about|research)\b\s+.{3,}',
+            # "how does X work" / "what does X do"
+            r'\b(how does|what does)\b.*\b(work|do|operate|hire)\b',
         ]
         for pattern in research_patterns:
             if re.search(pattern, message, re.IGNORECASE):
-                # Extract company if mentioned
+                # Extract company if mentioned — try multiple patterns
                 company_match = re.search(r'\bat\s+([A-Z][A-Za-z0-9\s&]+)', message)
                 if company_match:
                     extracted["company"] = company_match.group(1).strip()
+                if not extracted.get("company"):
+                    # "tell me about McKinsey" / "what is Goldman Sachs"
+                    about_match = re.search(
+                        r'\b(?:tell me about|what is|what are|describe|explain|info on|information about|research)\s+([A-Z][A-Za-z0-9\s&\'\.]+)',
+                        message
+                    )
+                    if about_match:
+                        candidate = about_match.group(1).strip().rstrip(".'\"")
+                        # Remove trailing common words that aren't company names
+                        candidate = re.sub(r"\b(office|team|division|group|department)\b.*$", "", candidate, flags=re.IGNORECASE).strip()
+                        if candidate and len(candidate) > 1:
+                            extracted["company"] = candidate
                 return "RESEARCH", extracted
         
         # Fall back to LLM classification for ambiguous cases
