@@ -450,6 +450,31 @@ def get_best_job_link(job: Dict[str, Any]) -> str:
     return ""
 
 
+def fetch_jobs(query, location, num_results=10, user_id=None):
+    """Job search — Perplexity primary, SerpAPI fallback during transition."""
+    # PRIMARY: Perplexity
+    try:
+        from app.services.perplexity_client import search_jobs_live
+        from app.services.enrichment_cache import get_cached, set_cached
+
+        cache_key = [query, location, str(num_results)]
+        cached = get_cached("job_search", cache_key)
+        if cached:
+            return cached if isinstance(cached, list) else cached.get("jobs", []), cached.get("next_token")
+
+        jobs = search_jobs_live(query, location, limit=num_results,
+                                domain_filter=["linkedin.com", "greenhouse.io",
+                                               "lever.co", "workday.com", "indeed.com"])
+        if jobs:
+            set_cached("job_search", cache_key, {"jobs": jobs})
+            return jobs, None
+    except Exception:
+        logger.warning("Perplexity job search failed, falling back to SerpAPI", exc_info=True)
+
+    # FALLBACK: SerpAPI (DEPRECATED: remove in Phase 8)
+    return fetch_jobs_from_serpapi(query, location, num_results, user_id)
+
+
 def fetch_jobs_from_serpapi(
     query: str,
     location: str = "United States",
@@ -460,6 +485,7 @@ def fetch_jobs_from_serpapi(
     user_id: Optional[str] = None,  # PHASE 5: For cache invalidation checking
 ) -> tuple[List[Dict[str, Any]], Optional[str]]:
     """
+    DEPRECATED: remove in Phase 8.
     Fetch job listings from SerpAPI Google Jobs with Firestore caching.
     Uses next_page_token for pagination (start parameter is deprecated).
     

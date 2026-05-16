@@ -111,7 +111,7 @@ def normalize_linkedin_url(url: str) -> str | None:
 
 # ── Enrichment tier helpers ─────────────────────────────────────────────────
 
-def fetch_linkedin_jina(linkedin_url: str) -> dict | None:
+def fetch_linkedin_jina(linkedin_url: str) -> dict | None:  # DEPRECATED: remove in Phase 8
     """
     Fetch a public LinkedIn profile page via Jina Reader.
     Returns a wrapper dict { "markdown": str, "url": str } or None.
@@ -151,6 +151,16 @@ def fetch_linkedin_jina(linkedin_url: str) -> dict | None:
     return {"markdown": content, "url": linkedin_url}
 
 
+def fetch_linkedin_firecrawl(linkedin_url: str) -> dict | None:
+    """Scrape LinkedIn profile via Firecrawl (replaces Jina)."""
+    try:
+        from app.services.firecrawl_client import scrape_linkedin_profile
+        return scrape_linkedin_profile(linkedin_url)
+    except Exception:
+        logger.warning("Firecrawl LinkedIn scrape failed for %s", linkedin_url, exc_info=True)
+        return None
+
+
 def _try_pdl(url: str) -> tuple[dict | None, str]:
     try:
         try:
@@ -181,7 +191,7 @@ def _try_brightdata(url: str) -> tuple[dict | None, str]:
     return None, ""
 
 
-def _try_jina(url: str) -> tuple[dict | None, str]:
+def _try_jina(url: str) -> tuple[dict | None, str]:  # DEPRECATED: remove in Phase 8
     try:
         result = fetch_linkedin_jina(url)
         if result:
@@ -190,6 +200,14 @@ def _try_jina(url: str) -> tuple[dict | None, str]:
     except Exception as e:
         logger.warning(f"[Enrichment] Jina failed: {e}")
     return None, ""
+
+
+def _try_firecrawl(url):
+    """Try Firecrawl for LinkedIn profile extraction."""
+    result = fetch_linkedin_firecrawl(url)
+    if result:
+        return result, "firecrawl"
+    return None, "firecrawl_fail"
 
 
 # ── Enrichment chain ────────────────────────────────────────────────────────
@@ -203,7 +221,7 @@ def get_enrichment_tiers(prefer_scrape: bool = False):
     (e.g. a LinkedIn login wall served to Jina).
     """
     if prefer_scrape:
-        return [_try_jina, _try_brightdata, _try_pdl]
+        return [_try_firecrawl, _try_jina, _try_brightdata, _try_pdl]
     return [_try_pdl, _try_brightdata]
 
 
@@ -231,7 +249,7 @@ def enrich_linkedin_with_fallback(
         return None, ""
 
     chain = (
-        [_try_jina, _try_brightdata, _try_pdl]
+        [_try_firecrawl, _try_jina, _try_brightdata, _try_pdl]
         if prefer_scrape
         else [_try_pdl, _try_brightdata]
     )

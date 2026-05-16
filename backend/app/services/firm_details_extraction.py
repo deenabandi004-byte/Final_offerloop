@@ -71,14 +71,41 @@ def _search_linkedin_url(firm_name: str, location: Dict[str, Optional[str]] = No
     Perform a specific search for LinkedIn company page.
     This is a fallback if LinkedIn isn't found in the main search.
     """
+    # PRIMARY: Perplexity
+    try:
+        from app.services.perplexity_client import pro_search
+        loc_hint = ""
+        if location and location.get("locality"):
+            loc_hint = f" in {location['locality']}"
+        result = pro_search(f"{firm_name}{loc_hint} LinkedIn company page URL")
+        if result.get("content"):
+            content = result["content"]
+            # Extract LinkedIn company URL from response
+            import re as _re
+            linkedin_match = _re.search(r'https?://(?:www\.)?linkedin\.com/company/[\w-]+', content)
+            if linkedin_match:
+                linkedin_url = linkedin_match.group(0)
+                logger.info("Found LinkedIn URL via Perplexity for %s: %s", firm_name, linkedin_url)
+                return linkedin_url
+            # Also check citations
+            for citation in result.get("citations", []):
+                if "linkedin.com/company" in citation.lower():
+                    if not citation.startswith("http"):
+                        citation = f"https://{citation}"
+                    logger.info("Found LinkedIn URL in Perplexity citations for %s: %s", firm_name, citation)
+                    return citation
+    except Exception:
+        logger.warning("Perplexity failed for LinkedIn URL search (%s), falling back to SerpAPI", firm_name, exc_info=True)
+
+    # DEPRECATED: remove in Phase 8 — existing SerpAPI code
     if not SERPAPI_KEY:
         return None
-    
+
     # Build LinkedIn-specific search query
     query = f"{firm_name} LinkedIn company"
     if location and location.get("locality"):
         query += f" {location['locality']}"
-    
+
     params = {
         "q": query,
         "api_key": SERPAPI_KEY,
@@ -87,14 +114,14 @@ def _search_linkedin_url(firm_name: str, location: Dict[str, Optional[str]] = No
         "hl": "en",
         "gl": "us"
     }
-    
+
     try:
         # requests.Session is thread-safe for concurrent requests, no lock needed
         response = _serp_session.get(SERPAPI_BASE_URL, params=params, timeout=timeout)
         if response.status_code == 200:
             data = response.json()
             organic_results = data.get("organic_results", [])
-            
+
             # Look for LinkedIn URL
             for result in organic_results:
                 link = result.get('link', '').lower()
@@ -106,7 +133,7 @@ def _search_linkedin_url(firm_name: str, location: Dict[str, Optional[str]] = No
                     return linkedin_url
     except Exception as e:
         print(f"⚠️ LinkedIn search failed for {firm_name}: {e}")
-    
+
     return None
 
 
@@ -150,17 +177,44 @@ def _fetch_serp_results_only(
     Returns raw SERP data for batch processing.
     """
     start_time = time.time()
-    
+
+    # PRIMARY: Perplexity
+    try:
+        from app.services.perplexity_client import pro_search
+        loc_parts = []
+        if location:
+            if location.get("locality"):
+                loc_parts.append(location["locality"])
+            if location.get("region"):
+                loc_parts.append(location["region"])
+        loc_hint = " ".join(loc_parts)
+        query = f"{firm_name} company {loc_hint}".strip()
+        result = pro_search(query)
+        if result.get("content"):
+            duration = time.time() - start_time
+            logger.info("perplexity_single_fetch succeeded for %s in %.2fs", firm_name, duration)
+            return {
+                "firm_name": firm_name,
+                "location": location,
+                "knowledge_graph": None,
+                "organic_results": [],
+                "_perplexity_content": result["content"],
+                "_perplexity_citations": result.get("citations", []),
+            }
+    except Exception:
+        logger.warning("Perplexity failed for _fetch_serp_results_only (%s), falling back to SerpAPI", firm_name, exc_info=True)
+
+    # DEPRECATED: remove in Phase 8 — existing SerpAPI code
     if not SERPAPI_KEY:
         return None
-    
+
     query = f"{firm_name} company"
     if location:
         if location.get("locality"):
             query += f" {location['locality']}"
         if location.get("region"):
             query += f" {location['region']}"
-    
+
     params = {
         "q": query,
         "api_key": SERPAPI_KEY,
@@ -169,13 +223,13 @@ def _fetch_serp_results_only(
         "hl": "en",
         "gl": "us"
     }
-    
+
     try:
         # requests.Session is thread-safe for concurrent requests, no lock needed
         response = _serp_session.get(SERPAPI_BASE_URL, params=params, timeout=timeout)
-        
+
         duration = time.time() - start_time
-        
+
         if response.status_code != 200:
             logger.debug("serp_single_fetch", extra={
                 "search_id": search_id,
@@ -185,7 +239,7 @@ def _fetch_serp_results_only(
                 "status_code": response.status_code
             })
             return None
-        
+
         data = response.json()
         result = {
             "firm_name": firm_name,
@@ -193,7 +247,7 @@ def _fetch_serp_results_only(
             "knowledge_graph": data.get("knowledge_graph"),
             "organic_results": data.get("organic_results", [])
         }
-        
+
         logger.debug("serp_single_fetch", extra={
             "search_id": search_id,
             "firm": firm_name,
@@ -202,7 +256,7 @@ def _fetch_serp_results_only(
             "has_knowledge_graph": bool(data.get("knowledge_graph")),
             "organic_results_count": len(data.get("organic_results", []))
         })
-        
+
         return result
     except requests.exceptions.Timeout:
         duration = time.time() - start_time
@@ -590,32 +644,162 @@ Return ONLY a JSON array (no markdown, no explanations):
 
 
 def search_firm_details_with_serp(
-    firm_name: str, 
+    firm_name: str,
     location: Dict[str, Optional[str]] = None,
     timeout: int = 6
 ) -> Optional[Dict[str, Any]]:
     """
     Search for a specific firm using SERP API and extract its details.
     OPTIMIZED: Includes caching and timeout handling.
-    
+
     Args:
         firm_name: Name of the firm to search for
         location: Optional location dict to help narrow results
         timeout: Request timeout in seconds (default: 6)
-    
+
     Returns:
         Dictionary with firm details or None if not found
     """
-    if not SERPAPI_KEY:
-        return None
-    
     # Check cache first
     cache_key = _get_cache_key(firm_name, location)
     cached_result = _get_cached_firm(cache_key)
     if cached_result:
         print(f"✅ Cache hit for {firm_name}")
         return cached_result
-    
+
+    # PRIMARY: Firecrawl (extract_company_profile) then Perplexity (pro_search)
+    try:
+        from app.services.perplexity_client import pro_search as _pro_search
+        loc_parts = []
+        if location:
+            if location.get("locality"):
+                loc_parts.append(location["locality"])
+            if location.get("region"):
+                loc_parts.append(location["region"])
+        loc_hint = ", ".join(loc_parts) if loc_parts else ""
+
+        # Step 1 — ask Perplexity for a company website so we can Firecrawl it
+        website_url_for_firecrawl = None
+        perplexity_result = _pro_search(
+            f"{firm_name} company {loc_hint} official website LinkedIn employee count headquarters founded".strip()
+        )
+        perplexity_content = perplexity_result.get("content", "")
+
+        if perplexity_content:
+            # Try to extract a website URL from Perplexity response
+            import re as _re
+            url_match = _re.search(
+                r'https?://(?:www\.)?(?!linkedin\.com)[\w.-]+\.(?:com|org|io|co|net)(?:/[\w./-]*)?',
+                perplexity_content
+            )
+            if url_match:
+                website_url_for_firecrawl = url_match.group(0)
+
+        # Step 2 — try Firecrawl on the website if we found one
+        firecrawl_data = {}
+        if website_url_for_firecrawl:
+            try:
+                from app.services.firecrawl_client import extract_company_profile
+                firecrawl_data = extract_company_profile(website_url_for_firecrawl) or {}
+                if firecrawl_data:
+                    logger.info("Firecrawl extract_company_profile succeeded for %s (%s)", firm_name, website_url_for_firecrawl)
+            except Exception:
+                logger.warning("Firecrawl failed for %s, continuing with Perplexity data", firm_name, exc_info=True)
+
+        # Step 3 — build result from combined Perplexity + Firecrawl data
+        if perplexity_content or firecrawl_data:
+            # Extract LinkedIn URL from Perplexity content or citations
+            import re as _re
+            linkedin_url = None
+            linkedin_match = _re.search(r'https?://(?:www\.)?linkedin\.com/company/[\w-]+', perplexity_content)
+            if linkedin_match:
+                linkedin_url = linkedin_match.group(0)
+            else:
+                for citation in perplexity_result.get("citations", []):
+                    if "linkedin.com/company" in citation.lower():
+                        linkedin_url = citation if citation.startswith("http") else f"https://{citation}"
+                        break
+
+            # Use AI to parse Perplexity prose into structured JSON
+            combined_context = f"Perplexity research:\n{perplexity_content}"
+            if firecrawl_data:
+                combined_context += f"\n\nFirecrawl company profile:\n{json.dumps(firecrawl_data, indent=2)}"
+
+            system_prompt = (
+                "You are an expert at extracting company information. "
+                "Return ONLY valid JSON, no markdown, no explanations."
+            )
+            user_prompt = f"""Company Name: {firm_name}
+Requested Location: {loc_hint or 'Not specified'}
+
+Research Data:
+{combined_context}
+
+Extract:
+- name: Official company name
+- website: Official website URL
+- linkedinUrl: LinkedIn company page URL (format: https://linkedin.com/company/slug)
+- location: {{"city": str|null, "state": str|null, "country": str|null}}
+- industry: Primary industry
+- employeeCount: integer or null
+- sizeBucket: "small" (1-50), "mid" (51-500), "large" (500+), or null
+- founded: 4-digit year or null
+
+Return ONLY JSON:
+{{"name":"...","website":"...","linkedinUrl":"...","location":{{"city":"...","state":"...","country":"..."}},"industry":"...","employeeCount":null,"sizeBucket":null,"founded":null}}"""
+
+            result_text = _call_ai(system_prompt, user_prompt, max_tokens=800, label="FIRM-DETAIL-PERPLEXITY")
+            if result_text:
+                # Clean up response
+                if result_text.startswith("```"):
+                    result_text = result_text.split("```")[1]
+                    if result_text.startswith("json"):
+                        result_text = result_text[4:]
+                result_text = result_text.strip()
+                try:
+                    company_data = json.loads(result_text)
+                    if company_data.get("name"):
+                        # Override linkedinUrl if we found one directly
+                        if linkedin_url and not company_data.get("linkedinUrl"):
+                            company_data["linkedinUrl"] = linkedin_url
+                        if website_url_for_firecrawl and not company_data.get("website"):
+                            company_data["website"] = website_url_for_firecrawl
+                        # Merge Firecrawl data for any missing fields
+                        if firecrawl_data:
+                            if not company_data.get("employeeCount") and firecrawl_data.get("employee_count"):
+                                company_data["employeeCount"] = firecrawl_data["employee_count"]
+                            if not company_data.get("founded") and firecrawl_data.get("founded"):
+                                company_data["founded"] = firecrawl_data["founded"]
+                            if not company_data.get("industry") and firecrawl_data.get("industries"):
+                                industries = firecrawl_data["industries"]
+                                if isinstance(industries, list) and industries:
+                                    company_data["industry"] = industries[0]
+                        # Calculate sizeBucket if missing
+                        if not company_data.get("sizeBucket") and company_data.get("employeeCount"):
+                            emp = company_data["employeeCount"]
+                            if isinstance(emp, (int, float)):
+                                if emp <= 50:
+                                    company_data["sizeBucket"] = "small"
+                                elif emp <= 500:
+                                    company_data["sizeBucket"] = "mid"
+                                else:
+                                    company_data["sizeBucket"] = "large"
+                        # Ensure location is a dict
+                        if not isinstance(company_data.get("location"), dict):
+                            company_data["location"] = {}
+                        # Cache and return
+                        _set_cached_firm(cache_key, company_data)
+                        logger.info("Perplexity+Firecrawl firm detail extraction succeeded for %s", firm_name)
+                        return company_data
+                except json.JSONDecodeError:
+                    logger.warning("Failed to parse Perplexity+Firecrawl AI result for %s", firm_name)
+    except Exception:
+        logger.warning("Perplexity/Firecrawl failed for search_firm_details_with_serp (%s), falling back to SerpAPI", firm_name, exc_info=True)
+
+    # DEPRECATED: remove in Phase 8 — existing SerpAPI code
+    if not SERPAPI_KEY:
+        return None
+
     # Build search query - search for the firm name with LinkedIn hint
     # For better results, include "LinkedIn" in the query to prioritize LinkedIn pages
     query = f"{firm_name} company"
@@ -624,7 +808,7 @@ def search_firm_details_with_serp(
             query += f" {location['locality']}"
         if location.get("region"):
             query += f" {location['region']}"
-    
+
     params = {
         "q": query,
         "api_key": SERPAPI_KEY,
@@ -633,7 +817,7 @@ def search_firm_details_with_serp(
         "hl": "en",
         "gl": "us"
     }
-    
+
     try:
         # requests.Session is thread-safe for concurrent requests, no lock needed
         response = _serp_session.get(SERPAPI_BASE_URL, params=params, timeout=timeout)

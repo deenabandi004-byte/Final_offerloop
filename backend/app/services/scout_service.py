@@ -700,16 +700,37 @@ Return format:
         return response
     
     async def _fetch_url_content(self, url: str) -> Optional[str]:
-        """Fetch URL content using Jina Reader API."""
+        """Fetch URL content using Firecrawl (primary) or Jina Reader API (fallback)."""
+        # --- Firecrawl primary ---
+        try:
+            from app.services.firecrawl_client import scrape_url
+            if "linkedin.com/jobs" in url or "greenhouse.io" in url or "lever.co" in url:
+                extract_type = "job_posting"
+            elif "linkedin.com/company" in url:
+                extract_type = "company"
+            else:
+                extract_type = "general"
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, lambda: scrape_url(url, extract_type=extract_type))
+            if result:
+                content = json.dumps(result) if isinstance(result, dict) else str(result)
+                if len(content) > 15000:
+                    content = content[:15000] + "\n... [truncated]"
+                return content
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning("Firecrawl failed, falling back to Jina", exc_info=True)
+
+        # DEPRECATED: remove in Phase 8 — Jina Reader fallback
         client = None
         try:
             client = await self._get_http_client()
             jina_url = f"{JINA_READER_URL}{url}"
-            
+
             headers = {}
             if JINA_API_KEY:
                 headers["Authorization"] = f"Bearer {JINA_API_KEY}"
-            
+
             # Use shorter timeout to match the outer wait_for timeout (5s)
             # This prevents long waits and reduces chance of cancellation issues
             response = await client.get(jina_url, headers=headers, timeout=4.5)
@@ -1641,6 +1662,41 @@ Return JSON only:
             if cached:
                 return cached
             
+            # --- Perplexity primary ---
+            try:
+                from app.services.perplexity_client import search_jobs_live
+                loop = asyncio.get_event_loop()
+                pplx_results = await loop.run_in_executor(
+                    None, lambda: search_jobs_live(query, location="United States", limit=10)
+                )
+                if pplx_results:
+                    jobs = []
+                    for r in pplx_results:
+                        title = (r.get("title") or "").strip()
+                        company = (r.get("company") or "").strip()
+                        location = (r.get("location") or "").strip()
+                        link = (r.get("url") or "").strip() or None
+                        snippet = (r.get("summary") or r.get("snippet") or "")[:200] or None
+                        if not title or not company:
+                            continue
+                        simplified_title = self._simplify_job_title(title)
+                        normalized_company = self._normalize_company(company) if company else None
+                        normalized_location = self._normalize_location(location) if location else None
+                        jobs.append(JobListing(
+                            title=simplified_title,
+                            company=normalized_company or company,
+                            location=normalized_location or location,
+                            url=link,
+                            snippet=snippet,
+                            source="perplexity"
+                        ))
+                    if jobs:
+                        self._cache.set(cache_key, jobs, ttl=1800)
+                        return jobs
+            except Exception as _pplx_err:
+                print(f"[Scout] Perplexity job search failed, falling back to SerpAPI: {_pplx_err}")
+
+            # DEPRECATED: remove in Phase 8 — SerpAPI fallback
             # Use Google Jobs engine for better results
             search = GoogleSearch({
             "engine": "google_jobs",
@@ -1650,13 +1706,13 @@ Return JSON only:
             "hl": "en",
                 "gl": "us",
             })
-            
+
             # Run in thread pool to not block
             loop = asyncio.get_event_loop()
             results = await loop.run_in_executor(None, search.get_dict)
-            
+
             jobs = []
-            
+
             # Parse jobs_results from Google Jobs
             for result in results.get("jobs_results", [])[:10]:
                 title = result.get("title", "").strip()
@@ -2092,29 +2148,47 @@ If you can infer specific titles they should try, list them.
             search_query = f"{extracted['company']} {message}"
         
         # Search for information
+        research_context = ""
+
+        # --- Perplexity primary ---
         try:
-            search = GoogleSearch({
-                "q": search_query,
-                "api_key": SERPAPI_KEY,
-                "num": 5,
-            })
-            
+            from app.services.perplexity_client import quick_search
             loop = asyncio.get_event_loop()
-            results = await loop.run_in_executor(None, search.get_dict)
-            
-            # Collect snippets for context
-            snippets = []
-            for result in results.get("organic_results", [])[:5]:
-                snippet = result.get("snippet", "")
-                source = result.get("displayed_link", "")
-                if snippet:
-                    snippets.append(f"[{source}]: {snippet}")
-            
-            research_context = "\n".join(snippets)
-            
-        except Exception as e:
-            print(f"[Scout] Research SERP failed: {e}")
-            research_context = ""
+            pplx = await loop.run_in_executor(None, lambda: quick_search(search_query))
+            if pplx and pplx.get("content"):
+                citations = pplx.get("citations", [])
+                cite_str = "\n".join(f"[{c}]" for c in citations[:5]) if citations else ""
+                research_context = pplx["content"]
+                if cite_str:
+                    research_context += "\n\nSources:\n" + cite_str
+        except Exception as _pplx_err:
+            print(f"[Scout] Perplexity research failed, falling back to SerpAPI: {_pplx_err}")
+
+        # DEPRECATED: remove in Phase 8 — SerpAPI fallback
+        if not research_context:
+            try:
+                search = GoogleSearch({
+                    "q": search_query,
+                    "api_key": SERPAPI_KEY,
+                    "num": 5,
+                })
+
+                loop = asyncio.get_event_loop()
+                results = await loop.run_in_executor(None, search.get_dict)
+
+                # Collect snippets for context
+                snippets = []
+                for result in results.get("organic_results", [])[:5]:
+                    snippet = result.get("snippet", "")
+                    source = result.get("displayed_link", "")
+                    if snippet:
+                        snippets.append(f"[{source}]: {snippet}")
+
+                research_context = "\n".join(snippets)
+
+            except Exception as e:
+                print(f"[Scout] Research SERP failed: {e}")
+                research_context = ""
         
         # Generate response with LLM
         if not self._openai:

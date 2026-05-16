@@ -376,9 +376,51 @@ def fetch_serp_research(
     language: str = "en",
 ) -> Tuple[List[NewsItem], str]:
     """
-    Fetch up to five relevant news items plus an industry summary using SerpAPI
-    and OpenAI summarisation.
+    Fetch up to five relevant news items plus an industry summary.
+    Primary: Perplexity quick_search.  Fallback: SerpAPI + OpenAI summarisation.
     """
+    # ── PRIMARY: Perplexity (replaces SerpAPI) ──────────────────────────
+    try:
+        from app.services.perplexity_client import quick_search
+
+        query_parts = [p for p in [company, division, office, industry] if p]
+        query = " ".join(query_parts) + " recent news updates"
+        result = quick_search(query, recency="month")
+        if result.get("content"):
+            # Parse Perplexity response into NewsItem list
+            domain = _classify_domain(job_title)
+            content = result["content"]
+            citations = result.get("citations", [])
+
+            # Build a single high-confidence NewsItem from the Perplexity response
+            news_items: List[NewsItem] = []
+            # Split content into paragraphs to create individual news items
+            paragraphs = [p.strip() for p in content.split("\n") if p.strip() and len(p.strip()) > 20]
+            for i, para in enumerate(paragraphs[:5]):
+                url = citations[i] if i < len(citations) else ""
+                news_items.append(
+                    NewsItem(
+                        title=para[:120],
+                        url=url,
+                        source="Perplexity",
+                        published_at=None,
+                        summary=para,
+                        relevance_tag="division" if division and division.lower() in para.lower() else "industry",
+                        confidence="high",
+                    )
+                )
+
+            base_industry = industry or company or "the industry"
+            industry_summary = _generate_industry_overview(
+                base_industry, news_items, company, domain
+            )
+            logger.info("Perplexity quick_search succeeded for coffee-chat research")
+            return news_items, industry_summary
+    except Exception:
+        logger.warning("Perplexity quick_search failed, falling back to SerpAPI", exc_info=True)
+
+    # ── FALLBACK: existing SerpAPI code (kept until Phase 8) ────────────
+    # DEPRECATED: remove in Phase 8
     if not SERPAPI_KEY:
         print("⚠️ SERPAPI_KEY missing; skipping newsroom enrichment")
         return [], ""
@@ -500,8 +542,8 @@ def fetch_comprehensive_research(
     language: str = "en",
 ) -> dict:
     """
-    Run 4 targeted SERP searches in parallel. Returns structured research dict with
-    company_news, company_overview, person_mentions, industry_trends.
+    Run comprehensive research. Primary: single Perplexity deep_research call
+    (replaces 4 parallel SerpAPI calls). Fallback: SerpAPI.
     """
     import concurrent.futures
 
@@ -512,6 +554,80 @@ def fetch_comprehensive_research(
         "industry_trends":  [],
     }
 
+    # ── PRIMARY: Perplexity deep_research (one call replaces all 4 SerpAPI calls) ──
+    try:
+        from app.services.perplexity_client import deep_research
+
+        query_parts = []
+        if company:
+            query_parts.append(f'company "{company}"')
+        if first_name and last_name:
+            query_parts.append(f'person "{first_name} {last_name}"')
+        if industry:
+            query_parts.append(f"industry {industry}")
+        if job_title:
+            query_parts.append(f"role {job_title}")
+        if division:
+            query_parts.append(f"division {division}")
+
+        query = (
+            "Comprehensive research for a coffee chat: "
+            + ", ".join(query_parts)
+            + ". Include: recent company news, company overview, any public mentions of the person, and industry trends."
+        )
+
+        result = deep_research(query)
+        if result.get("content"):
+            content = result["content"]
+            citations = result.get("citations", [])
+
+            def _extract_section(text: str, header: str, next_headers: list) -> str:
+                """Extract text between header and next header."""
+                import re as _re
+                pattern = rf"(?:^|\n)#+\s*{_re.escape(header)}[^\n]*\n(.*?)(?=\n#+\s*(?:{'|'.join(_re.escape(h) for h in next_headers)})|$)"
+                match = _re.search(pattern, text, _re.DOTALL | _re.IGNORECASE)
+                return match.group(1).strip() if match else ""
+
+            def _to_items(text: str, max_items: int = 5) -> list:
+                """Convert text block into result dicts."""
+                items = []
+                for line in text.split("\n"):
+                    line = line.strip().lstrip("- ").lstrip("* ")
+                    if line and len(line) > 15:
+                        items.append({
+                            "title": line[:120],
+                            "url": citations[len(items)] if len(items) < len(citations) else "",
+                            "source": "Perplexity",
+                            "snippet": line,
+                            "date": "",
+                        })
+                    if len(items) >= max_items:
+                        break
+                return items
+
+            # Try to extract structured sections; fall back to using full content
+            sections = ["company news", "company overview", "person", "industry"]
+            news_text = _extract_section(content, "company news", sections)
+            overview_text = _extract_section(content, "company overview", sections)
+            person_text = _extract_section(content, "person", sections)
+            trends_text = _extract_section(content, "industry", sections)
+
+            # If no structured sections found, put everything in company_news
+            if not any([news_text, overview_text, person_text, trends_text]):
+                results["company_news"] = _to_items(content, 5)
+            else:
+                results["company_news"] = _to_items(news_text, 5) if news_text else []
+                results["company_overview"] = _to_items(overview_text, 3) if overview_text else []
+                results["person_mentions"] = _to_items(person_text, 3) if person_text else []
+                results["industry_trends"] = _to_items(trends_text, 3) if trends_text else []
+
+            logger.info("Perplexity deep_research succeeded for comprehensive research")
+            return results
+    except Exception:
+        logger.warning("Perplexity deep_research failed, falling back to SerpAPI", exc_info=True)
+
+    # ── FALLBACK: existing SerpAPI code (kept until Phase 8) ────────────
+    # DEPRECATED: remove in Phase 8
     if not SERPAPI_KEY:
         print("[SERP] SERPAPI_KEY missing; skipping research")
         return results
