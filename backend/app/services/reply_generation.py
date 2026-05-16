@@ -333,7 +333,7 @@ def _build_personalization_label(commonality_type, commonality_details, selected
     return "Role match"
 
 
-def batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None, pre_parsed_user_info=None, template_instructions="", email_template_purpose=None, resume_filename=None, subject_line=None, signoff_config=None, auth_display_name=None, personal_note="", dream_companies=None, warmth_data=None, uid=None):
+def batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None, pre_parsed_user_info=None, template_instructions="", email_template_purpose=None, resume_filename=None, subject_line=None, signoff_config=None, auth_display_name=None, personal_note="", dream_companies=None, warmth_data=None, uid=None, enrichment_data=None):
     """
     Generate all emails using the new compelling prompt template.
 
@@ -534,11 +534,21 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
             if strategy.supporting_details:
                 supporting_lines = "\n- Also relevant: " + "; ".join(strategy.supporting_details)
 
+            # Enrichment context from Perplexity (if available)
+            enrichment_lines = ""
+            if enrichment_data and enrichment_data.get(i):
+                enrich = enrichment_data[i]
+                talking_pts = enrich.get("talking_points", [])
+                if talking_pts:
+                    enrichment_lines += "\n- Recent activity/interests: " + "; ".join(talking_pts[:3])
+                if enrich.get("verified_role") is False:
+                    enrichment_lines += "\n- NOTE: Role may have changed — keep opening generic"
+
             contact_context = f"""Contact {i}: {firstname} {lastname}
 - Role: {title} at {company}
 - Industry: {industry}
 - Lead hook: {strategy.lead_hook}
-- Personalization instruction: {strategy.prompt_instruction}{supporting_lines}{avoid_lines}"""
+- Personalization instruction: {strategy.prompt_instruction}{supporting_lines}{avoid_lines}{enrichment_lines}"""
 
             contact_contexts.append(contact_context)
         

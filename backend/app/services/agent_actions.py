@@ -191,6 +191,18 @@ def execute_find_and_draft(
             "creditsSpent": 0,
         }
 
+    # Enrich contacts with real-time web data (Perplexity)
+    enrichment_data = {}
+    try:
+        from app.services.perplexity_client import batch_enrich_contacts
+        enrichment_data = batch_enrich_contacts(filtered)
+        for idx, c in enumerate(filtered):
+            enrich = enrichment_data.get(idx, {})
+            c["enrichment_talking_points"] = enrich.get("talking_points", [])
+            c["enrichment_recent_activity"] = enrich.get("recent_activity", "")
+    except Exception:
+        logger.warning("Contact enrichment failed, continuing without", exc_info=True)
+
     # Generate emails
     resume_text = user_data.get("resumeText") or ""
     career_interests = user_data.get("careerInterests") or []
@@ -228,6 +240,7 @@ def execute_find_and_draft(
                 "signatureBlock": config.get("signatureBlock") or "",
             },
             auth_display_name=user_data.get("name") or prof.get("name") or "",
+            enrichment_data=enrichment_data,
         )
     except Exception as e:
         logger.exception("Email generation failed for agent uid=%s", uid)
@@ -288,6 +301,17 @@ def execute_find_and_draft(
             contact_doc["warmthScore"] = contact["warmth_score"]
             contact_doc["warmthTier"] = contact.get("warmth_tier", "")
             contact_doc["warmthLabel"] = contact.get("warmth_label", "")
+
+        # Add enrichment data from Perplexity
+        enrich = enrichment_data.get(idx, {})
+        if enrich.get("talking_points"):
+            contact_doc["enrichmentTalkingPoints"] = enrich["talking_points"][:5]
+        if enrich.get("recent_activity"):
+            contact_doc["enrichmentRecentActivity"] = enrich["recent_activity"][:1000]
+        if enrich.get("citations"):
+            contact_doc["enrichmentCitations"] = enrich["citations"][:5]
+        if enrich:
+            contact_doc["enrichedAt"] = now_iso
 
         # Create Gmail draft if possible
         if email_data and email.strip():
