@@ -19,6 +19,8 @@ STRIPE_PUBLISHABLE_KEY = os.getenv('STRIPE_PUBLISHABLE_KEY')
 STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET')
 SERPAPI_KEY = os.getenv('SERPAPI_KEY')
 JINA_API_KEY = os.getenv("JINA_API_KEY", "")
+PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
+FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY")
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")  # Path to service account JSON
@@ -85,6 +87,62 @@ CREATE_GMAIL_DRAFTS = False  # Set True to create Gmail drafts; False to only re
 # Feature Flags
 # ========================================
 PROMPT_SEARCH_ENABLED = os.getenv('PROMPT_SEARCH_ENABLED', 'false').lower() == 'true'  # Experimental prompt-first search
+
+# ========================================
+# Personalization Controlled Vocab
+# ========================================
+# Keep in sync with connect-grow-hire/src/lib/constants.ts
+
+TARGET_INDUSTRIES = [
+    "Investment Banking",
+    "Management Consulting",
+    "Private Equity / VC",
+    "Technology",
+    "Sales & Trading",
+    "Corporate Finance / FP&A",
+    "Data Science / Analytics",
+    "Product Management",
+    "Software Engineering",
+    "Marketing",
+    "Healthcare",
+    "Real Estate",
+    "Media & Entertainment",
+    "Nonprofit / Public Sector",
+    "Other",
+]
+
+TARGET_ROLE_TYPES = [
+    "Internship",
+    "Full-Time",
+    "Part-Time",
+    "Co-op",
+    "Fellowship",
+]
+
+OPEN_TO_LOCATIONS = [
+    "New York, NY",
+    "San Francisco, CA",
+    "Los Angeles, CA",
+    "Chicago, IL",
+    "Boston, MA",
+    "Washington, DC",
+    "Seattle, WA",
+    "Dallas, TX",
+    "Houston, TX",
+    "Austin, TX",
+    "Atlanta, GA",
+    "Miami, FL",
+    "Denver, CO",
+    "Philadelphia, PA",
+    "Charlotte, NC",
+    "Nashville, TN",
+    "Detroit, MI",
+    "Minneapolis, MN",
+    "San Diego, CA",
+    "Portland, OR",
+    "Remote",
+    "Open to Relocation",
+]
 
 
 # ========================================
