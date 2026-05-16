@@ -11,6 +11,7 @@ from flask import Blueprint, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 
 from app.extensions import require_firebase_auth, get_db
+from app.services.feature_flags import PDL_OUTAGE_ACTIVE
 from app.services.resume_parser import extract_text_from_pdf
 from app.services.reply_generation import batch_generate_emails, email_body_mentions_resume
 from app.services.gmail_client import _load_user_gmail_creds, _gmail_service, create_gmail_draft_for_user, download_resume_from_url, clear_user_gmail_integration
@@ -607,6 +608,8 @@ def run_pro_tier_enhanced_final_with_text(job_title, company, location, resume_t
 @require_firebase_auth
 def free_run():
     """Free tier search endpoint"""
+    if PDL_OUTAGE_ACTIVE:
+        return jsonify({"error": "service_unavailable", "message": "Contact search temporarily unavailable.", "code": "PDL_OUTAGE"}), 503
     try:
         if request.is_json:
             data = request.get_json(silent=True) or {}
@@ -779,7 +782,9 @@ def pro_run():
     # OPTIONS requests are handled by CORS middleware, just return empty response
     if request.method == 'OPTIONS':
         return '', 200
-    
+    if PDL_OUTAGE_ACTIVE:
+        return jsonify({"error": "service_unavailable", "message": "Contact search temporarily unavailable.", "code": "PDL_OUTAGE"}), 503
+
     try:
         user_email = (request.firebase_user or {}).get("email") or ""
         

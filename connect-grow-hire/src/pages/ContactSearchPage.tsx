@@ -1451,12 +1451,20 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
         setProgressValue(0);
         return;
       }
-      toast({
-        title: "Search Failed",
-        description: error instanceof Error ? error.message : "Please try again.",
-        variant: "destructive",
-        duration: 5000,
-      });
+      if (error?.code === "PDL_OUTAGE") {
+        toast({
+          title: "Temporarily Unavailable",
+          description: "Find features are temporarily down due to a data provider update. We expect full service within 1–2 days.",
+          duration: 8000,
+        });
+      } else {
+        toast({
+          title: "Search Failed",
+          description: error instanceof Error ? error.message : "Please try again.",
+          variant: "destructive",
+          duration: 5000,
+        });
+      }
       setSearchComplete(false);
       setProgressValue(0);
     } finally {

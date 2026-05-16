@@ -7,6 +7,7 @@ import { Loader2, Lock } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
+import { PDLOutageBanner } from "@/components/PDLOutageBanner";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useAgentConfig } from "@/hooks/useAgent";
@@ -65,6 +66,7 @@ export default function AgentPage() {
         <AppSidebar />
         <MainContentWrapper>
           <AppHeader title="Agent" />
+          <PDLOutageBanner />
           <div className="flex-1 flex min-h-0 overflow-hidden">
             <div className="flex-1 overflow-y-auto">
               <div className="max-w-[760px] mx-auto px-4 sm:px-8 pb-20">

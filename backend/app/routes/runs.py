@@ -12,6 +12,7 @@ from app.services.prompt_parser import parse_search_prompt_structured
 from flask import Blueprint, request, jsonify
 
 from app.extensions import require_firebase_auth, get_db
+from app.services.feature_flags import PDL_OUTAGE_ACTIVE
 from app.services.reply_generation import batch_generate_emails, PURPOSES_INCLUDE_RESUME, email_body_mentions_resume, regenerate_with_feedback
 from app.services.gmail_client import _load_user_gmail_creds, download_resume_from_url, clear_user_gmail_integration
 from app.services.interview_prep.resume_parser import extract_text_from_pdf_bytes
@@ -198,6 +199,9 @@ def prompt_search():
     Request: { "prompt": "...", "batchSize": 5 }
     Response: same shape as free-run plus parsed_query.
     """
+    if PDL_OUTAGE_ACTIVE:
+        return jsonify({"error": "service_unavailable", "message": "Contact search temporarily unavailable.", "code": "PDL_OUTAGE"}), 503
+
     try:
         user_email = request.firebase_user.get("email")
         user_id = request.firebase_user["uid"]

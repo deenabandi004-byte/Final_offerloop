@@ -1178,6 +1178,16 @@ class ApiService {
       throw error;
     }
     
+    // For 503 with PDL_OUTAGE code, surface a clear outage message
+    if (response.status === 503 && data?.code === 'PDL_OUTAGE') {
+      const error: any = new Error(
+        data.message || 'Contact search temporarily unavailable.'
+      );
+      error.status = 503;
+      error.code = 'PDL_OUTAGE';
+      throw error;
+    }
+
     // For 502 (Bad Gateway / External API Error), provide user-friendly message
     if (response.status === 502 && data) {
       const error: any = new Error(

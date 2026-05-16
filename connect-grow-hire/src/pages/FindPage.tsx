@@ -13,6 +13,7 @@ import { firebaseApi } from "@/services/firebaseApi";
 import { EliteGateModal } from "@/components/EliteGateModal";
 import { NoSchoolEmptyState } from "@/components/NoSchoolEmptyState";
 import { GoalsPromptBanner } from "@/components/find/GoalsPromptBanner";
+import { PDLOutageBanner } from "@/components/PDLOutageBanner";
 import { IS_DEV_PREVIEW, DEV_MOCK_USER } from "@/lib/devPreview";
 import { getUniversityShortName } from "@/lib/universityUtils";
 import { useSchoolTitle } from "@/hooks/useSchoolTitle";
@@ -301,6 +302,7 @@ const FindPage: React.FC = () => {
         <AppSidebar />
         <MainContentWrapper>
           <AppHeader title="Find" />
+          <PDLOutageBanner />
           <GoalsPromptBanner />
 
           {/* Scrollable page body */}

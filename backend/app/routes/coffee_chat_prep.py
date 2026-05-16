@@ -12,6 +12,7 @@ from flask import Blueprint, jsonify, request
 
 from app.config import COFFEE_CHAT_CREDITS, TIER_CONFIGS
 from ..extensions import get_db, require_firebase_auth
+from app.services.feature_flags import PDL_OUTAGE_ACTIVE
 from app.services.auth import check_and_reset_credits, deduct_credits_atomic, refund_credits_atomic, check_and_reset_usage, can_access_feature
 from app.utils.exceptions import ValidationError, OfferloopException, InsufficientCreditsError, AuthorizationError
 from app.utils.validation import CoffeeChatPrepRequest, validate_request
@@ -303,6 +304,8 @@ def process_coffee_chat_prep_background(
 @require_firebase_auth
 def create_coffee_chat_prep():
     """Create a new coffee chat prep"""
+    if PDL_OUTAGE_ACTIVE:
+        return jsonify({"error": "service_unavailable", "message": "Coffee Chat Prep temporarily unavailable due to a data provider update.", "code": "PDL_OUTAGE"}), 503
     try:
         print("\n=== COFFEE CHAT PREP START ===")
         db = get_db()

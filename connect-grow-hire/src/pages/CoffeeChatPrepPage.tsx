@@ -4,6 +4,7 @@ import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
+import { PDLOutageBanner } from "@/components/PDLOutageBanner";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import {
@@ -623,6 +624,7 @@ const CoffeeChatPrepPage: React.FC = () => {
 
         <MainContentWrapper>
           <AppHeader title="Coffee Chat Prep" />
+          <PDLOutageBanner />
 
           <ProGate title="Coffee Chat Prep" description="Get AI-generated talking points, background research, and conversation starters for any professional — just paste their LinkedIn." videoId="D1--4aVisho" bypass={IS_DEV_PREVIEW}>
           <main data-tour="tour-coffee-chat-prep" style={{ background: 'var(--warm-bg, #FEFDFB)', flex: 1, overflowY: 'auto' }}>

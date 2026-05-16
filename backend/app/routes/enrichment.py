@@ -9,6 +9,7 @@ import traceback
 logger = logging.getLogger(__name__)
 
 from app.extensions import require_firebase_auth, get_db
+from app.services.feature_flags import PDL_OUTAGE_ACTIVE
 from app.services.pdl_client import get_autocomplete_suggestions, enrich_job_title_with_pdl
 from app.services.resume_parser import extract_text_from_file
 from app.services.resume_capabilities import is_valid_resume_file, get_file_extension
@@ -28,6 +29,8 @@ enrichment_bp = Blueprint('enrichment', __name__, url_prefix='/api')
 @require_firebase_auth
 def autocomplete_api(data_type):
     """Enhanced API endpoint for frontend autocomplete with better error handling"""
+    if PDL_OUTAGE_ACTIVE:
+        return jsonify({"error": "service_unavailable", "message": "Autocomplete temporarily unavailable.", "code": "PDL_OUTAGE", "suggestions": []}), 503
     try:
         query = request.args.get('query', '').strip()
         
@@ -93,6 +96,8 @@ def autocomplete_api(data_type):
 @require_firebase_auth
 def enrich_job_title_api():
     """API endpoint for job title enrichment"""
+    if PDL_OUTAGE_ACTIVE:
+        return jsonify({"error": "service_unavailable", "message": "Enrichment temporarily unavailable.", "code": "PDL_OUTAGE"}), 503
     try:
         data = request.json
         job_title = data.get('jobTitle', '').strip()
