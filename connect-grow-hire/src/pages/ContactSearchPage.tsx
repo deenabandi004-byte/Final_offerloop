@@ -500,7 +500,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
     }
   }, [searchParams]);
 
-  // Read URL parameters (e.g., from "View Contacts" in Firm Library)
+  // Read URL parameters (e.g., from "View Contacts" in Firm Library, suggestion cards)
   useEffect(() => {
     const companyParam = searchParams.get('company');
     const locationParam = searchParams.get('location');
@@ -516,7 +516,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
 
       setSearchParams({}, { replace: true });
     }
-  }, []); // Run once on mount
+  }, [searchParams]); // React to param changes from suggestion cards and other navigations
 
   // Auto-trigger search when pre-filled from URL params (e.g. job board "Find Contact")
   useEffect(() => {
