@@ -365,9 +365,11 @@ def execute_find_jobs(
     config: dict,
     user_data: dict,
 ) -> dict:
-    """Find jobs matching user's target roles + companies via SerpAPI."""
-    from app.routes.job_board import fetch_jobs_from_serpapi
+    """Find jobs matching user's target roles + companies.
 
+    Primary: Perplexity + Firecrawl for enriched job data.
+    Fallback: SerpAPI google_jobs if Perplexity is unavailable.
+    """
     company = action.get("company", "")
     role = action.get("role", "")
     count = min(action.get("count", 5), 10)
@@ -378,11 +380,49 @@ def execute_find_jobs(
     if not query:
         query = "internship"
 
+    jobs = []
+    source = "serpapi"
+
+    # PRIMARY: Perplexity job search + Firecrawl enrichment
     try:
-        jobs, _ = fetch_jobs_from_serpapi(query, location, num_results=10, user_id=uid)
-    except Exception as e:
-        logger.exception("SerpAPI job search failed for agent uid=%s", uid)
-        return {"jobsFound": 0, "jobs": [], "creditsSpent": 0, "error": str(e)}
+        from app.services.perplexity_client import search_jobs_live
+        from app.services.firecrawl_client import extract_job_posting
+
+        raw_jobs = search_jobs_live(
+            query=query, location=location, limit=10,
+            domain_filter=["linkedin.com", "greenhouse.io", "lever.co", "workday.com"],
+        )
+
+        if raw_jobs:
+            # Enrich top 5 with Firecrawl structured extraction
+            enriched_jobs = []
+            for job in raw_jobs[:5]:
+                enriched = dict(job)
+                if job.get("url"):
+                    try:
+                        structured = extract_job_posting(job["url"])
+                        if structured:
+                            enriched.update(structured)
+                    except Exception:
+                        pass
+                enriched_jobs.append(enriched)
+            # Add remaining un-enriched jobs
+            enriched_jobs.extend(raw_jobs[5:count])
+            jobs = enriched_jobs
+            source = "perplexity"
+    except Exception:
+        logger.warning("Perplexity job search failed, falling back to SerpAPI", exc_info=True)
+
+    # FALLBACK: SerpAPI (kept until Phase 8 removes it)
+    if not jobs:
+        try:
+            from app.routes.job_board import fetch_jobs_from_serpapi
+            serpapi_jobs, _ = fetch_jobs_from_serpapi(query, location, num_results=10, user_id=uid)
+            jobs = serpapi_jobs or []
+            source = "serpapi"
+        except Exception as e:
+            logger.exception("SerpAPI job search also failed for agent uid=%s", uid)
+            return {"jobsFound": 0, "jobs": [], "creditsSpent": 0, "error": str(e)}
 
     if not jobs:
         return {"jobsFound": 0, "jobs": [], "creditsSpent": 0}
@@ -400,12 +440,19 @@ def execute_find_jobs(
         doc = {
             "cycleId": action.get("cycleId"),
             "title": job.get("title", ""),
-            "company": job.get("company_name", company),
+            "company": job.get("company_name", job.get("company", company)),
             "location": job.get("location", ""),
-            "description": (job.get("description", ""))[:500],
-            "applyLink": job.get("apply_link", "") or job.get("link", ""),
+            "description": (job.get("description", job.get("summary", "")))[:500],
+            "applyLink": job.get("apply_link", "") or job.get("link", "") or job.get("url", ""),
             "matchReasons": job.get("_matchReasons", []),
-            "source": "serpapi",
+            "source": source,
+            # Enriched fields from Firecrawl (empty if SerpAPI fallback)
+            "requirements": job.get("requirements", [])[:10],
+            "salaryRange": job.get("salary_range", ""),
+            "teamOrDepartment": job.get("team_or_department", ""),
+            "hiringManagerName": job.get("hiring_manager", ""),
+            "sourceUrl": job.get("url", ""),
+            "enrichedAt": now_iso if source == "perplexity" else "",
             "hmFound": False,
             "hmContactId": None,
             "createdAt": now_iso,
@@ -433,16 +480,53 @@ def execute_discover_companies(
     config: dict,
     user_data: dict,
 ) -> dict:
-    """Find similar companies to user's targets using recommendation engine."""
-    from app.services.company_recommendations import get_recommendations
+    """Discover companies with live market intelligence.
 
+    Primary: Perplexity discovers + Firecrawl enriches.
+    Fallback: static recommendation engine.
+    """
+    companies = []
+
+    # PRIMARY: Perplexity-powered discovery
     try:
-        result = get_recommendations(user_data)
-    except Exception as e:
-        logger.exception("Company recommendations failed for agent uid=%s", uid)
-        return {"companiesDiscovered": 0, "companies": [], "creditsSpent": 0, "error": str(e)}
+        from app.services.perplexity_client import discover_companies_live
+        from app.services.firecrawl_client import extract_company_profile
 
-    companies = result.get("companies", [])
+        prof = user_data.get("professionalInfo") or {}
+        perplexity_companies = discover_companies_live(
+            industries=config.get("targetIndustries", []),
+            locations=config.get("targetLocations", []),
+            roles=config.get("targetRoles", []),
+            similar_to=config.get("targetCompanies", []),
+            university=prof.get("university", ""),
+            career_track=prof.get("careerTrack", ""),
+        )
+
+        # Enrich top 3 with Firecrawl website extraction
+        for co in perplexity_companies[:5]:
+            website = co.get("website")
+            if website:
+                try:
+                    profile = extract_company_profile(website)
+                    if profile:
+                        co.update(profile)
+                except Exception:
+                    pass
+
+        if perplexity_companies:
+            companies = perplexity_companies
+    except Exception:
+        logger.warning("Perplexity company discovery failed, falling back to recommendations", exc_info=True)
+
+    # FALLBACK: static recommendation engine
+    if not companies:
+        try:
+            from app.services.company_recommendations import get_recommendations
+            result = get_recommendations(user_data)
+            companies = result.get("companies", [])
+        except Exception as e:
+            logger.exception("Company recommendations also failed for agent uid=%s", uid)
+            return {"companiesDiscovered": 0, "companies": [], "creditsSpent": 0, "error": str(e)}
 
     # Filter out companies user already targets
     target_set = {c.lower() for c in config.get("targetCompanies", [])}
@@ -478,6 +562,12 @@ def execute_discover_companies(
             "jobsFound": 0,
             "createdAt": now_iso,
             "status": "new",
+            # Enriched fields from Perplexity/Firecrawl
+            "hiringSignal": co.get("hiring_signal", ""),
+            "recentNews": co.get("recent_news", ""),
+            "website": co.get("website", "") or co.get("careers_url", ""),
+            "description": (co.get("description", ""))[:500],
+            "cultureKeywords": co.get("culture_keywords", [])[:5],
         }
         ref = cos_ref.add(doc)
         saved.append({
@@ -530,6 +620,26 @@ def execute_find_hiring_managers(
 
     hms = result.get("hiringManagers", result.get("hiring_managers", []))
     emails_list = result.get("emails", [])
+
+    # Verify HMs are still active via Perplexity
+    try:
+        from app.services.perplexity_client import verify_hiring_managers
+        verifications = verify_hiring_managers(hms, company, job_title)
+        # Filter out HMs who have left the company
+        active_hms = []
+        active_emails = []
+        for i, (hm, v) in enumerate(zip(hms, verifications)):
+            if v.get("verified", True):
+                active_hms.append(hm)
+                if i < len(emails_list):
+                    active_emails.append(emails_list[i])
+        if active_hms:
+            hms = active_hms
+            emails_list = active_emails
+            logger.info("HM verification: %d/%d verified active at %s",
+                        len(active_hms), len(verifications), company)
+    except Exception:
+        logger.warning("HM verification failed, using all candidates", exc_info=True)
 
     db = get_db()
     contacts_ref = db.collection("users").document(uid).collection("contacts")
@@ -641,17 +751,32 @@ def execute_follow_up(
                 continue
             contact = doc.to_dict()
 
-            nudge = _generate_nudge_text(contact, user_data)
+            # Get recent company news for follow-up hook
+            news_hook = ""
+            company = contact.get("company", "")
+            if company:
+                try:
+                    from app.services.perplexity_client import get_company_news_brief
+                    news = get_company_news_brief(company, timeframe="week")
+                    if news:
+                        news_hook = news[0]
+                except Exception:
+                    pass
+
+            nudge = _generate_nudge_text(contact, user_data, news_hook=news_hook)
             if not nudge:
                 continue
 
             # Update contact with nudge
-            contacts_ref.document(cid).update({
+            update_fields = {
                 "lastNudgeAt": now_iso,
                 "nudgeSuggestion": nudge.get("suggestion", ""),
                 "followUpDraft": nudge.get("followUpDraft", ""),
                 "lastActivityAt": now_iso,
-            })
+            }
+            if news_hook:
+                update_fields["followUpNewsHook"] = news_hook
+            contacts_ref.document(cid).update(update_fields)
             sent.append({
                 "id": cid,
                 "name": f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip(),

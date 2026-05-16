@@ -38,7 +38,18 @@ def generate_action_plan(
             "plannerLog": {"prompt": ..., "response": ..., "model": ..., "latencyMs": ...}
         }
     """
-    prompt = _build_prompt(config, user_data, pipeline_state)
+    # Pre-planning market research via Perplexity
+    market_context = {}
+    try:
+        from app.services.perplexity_client import get_market_context
+        market_context = get_market_context(
+            target_companies=config.get("targetCompanies", []),
+            target_industries=config.get("targetIndustries", []),
+        )
+    except Exception:
+        logger.warning("Market context fetch failed, planning without", exc_info=True)
+
+    prompt = _build_prompt(config, user_data, pipeline_state, market_context)
 
     start_ms = time.time() * 1000
     raw_response = _call_claude(prompt)
@@ -58,7 +69,7 @@ def generate_action_plan(
     }
 
 
-def _build_prompt(config: dict, user_data: dict, pipeline_state: dict) -> str:
+def _build_prompt(config: dict, user_data: dict, pipeline_state: dict, market_context: dict | None = None) -> str:
     # User context
     prof = user_data.get("professionalInfo") or {}
     university = prof.get("university", "Unknown")
@@ -170,7 +181,9 @@ def _build_prompt(config: dict, user_data: dict, pipeline_state: dict) -> str:
 - Blocked Companies: {', '.join(blocklist.get('companies', [])) or 'None'}
 - Blocked Titles: {', '.join(blocklist.get('titles', [])) or 'None'}
 
-## Rules
+{_build_market_section(market_context) if market_context else ''}## Rules
+- If market intelligence indicates a company announced layoffs or a hiring freeze, reduce contact count for that company
+- If a company announced expansion or a hiring surge, increase contact count
 1. ALWAYS include "find" actions to search for contacts — this is the core action. Every cycle must find at least some contacts.
 2. Distribute contacts across target companies evenly (max 3 NEW contacts per company per cycle)
 3. Prioritize companies with fewer existing contacts
@@ -193,6 +206,18 @@ Action types:
 Return ONLY the JSON array, no other text."""
 
     return prompt
+
+
+def _build_market_section(market_context: dict) -> str:
+    """Build the market intelligence section for the planner prompt."""
+    if not market_context:
+        return ""
+    sections = ["## Real-Time Market Intelligence (from web research)\n"]
+    if market_context.get("hiring_intel"):
+        sections.append(f"### Hiring Activity\n{market_context['hiring_intel']}\n")
+    if market_context.get("cycle_intel"):
+        sections.append(f"### Recruiting Cycle\n{market_context['cycle_intel']}\n")
+    return "\n".join(sections) + "\n"
 
 
 def _call_claude(prompt: str) -> str:

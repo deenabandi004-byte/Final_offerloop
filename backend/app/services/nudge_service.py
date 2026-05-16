@@ -199,7 +199,7 @@ def _get_eligible_contacts(db, uid: str, followup_days: int = DEFAULT_FOLLOWUP_D
 # AI nudge generation (GPT-4o-mini)
 # ---------------------------------------------------------------------------
 
-def _generate_nudge_text(contact: dict, user_data: dict) -> dict | None:
+def _generate_nudge_text(contact: dict, user_data: dict, news_hook: str = "") -> dict | None:
     """
     Generate nudge suggestion text and a follow-up email draft using GPT-4o-mini.
     Returns {"suggestion": str, "followUpDraft": str} or None on failure.
@@ -259,10 +259,11 @@ CONTACT (the recipient):
 - University: {college or 'not specified'}
 {shared_section}
 
-RULES:
+{"RECENT NEWS HOOK (use this to make the follow-up timely and specific):\n- " + news_hook + chr(10) if news_hook else ""}RULES:
 - NEVER say "as a fellow X" or "you both attended X" unless X appears in SHARED BACKGROUND above.
 - If there is no shared background, reference the CONTACT's role or company as the reason to follow up.
 - Do not invent facts about the student that are not listed above.
+- If a RECENT NEWS HOOK is provided, reference it naturally in the follow-up (e.g. "I saw {company} just...").
 
 Generate two things:
 1. SUGGESTION: A brief 1-2 sentence nudge explaining why they should follow up and what angle to take (20-40 words).
