@@ -44,6 +44,7 @@ interface User {
   emailsUsedThisMonth?: number;
   emailsMonthKey?: string;
   needsOnboarding?: boolean;
+  careerTrack?: string;
 
 }
 
@@ -153,7 +154,7 @@ export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ childr
           emailsMonthKey: d.emailsMonthKey || getMonthKey(),
           emailsUsedThisMonth: d.emailsUsedThisMonth ?? 0,
           needsOnboarding: d.needsOnboarding ?? false,
-          
+          careerTrack: d.careerTrack || (d as any).goals?.careerTrack || (d as any).professionalInfo?.careerTrack,
         };
         setUser(userData);
         // Identify user after data is loaded

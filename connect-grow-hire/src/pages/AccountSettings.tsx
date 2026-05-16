@@ -213,7 +213,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ id, icon: Icon, title
 export default function AccountSettings() {
   console.log("⚙️ [ACCOUNT SETTINGS] Component rendering");
   const navigate = useNavigate();
-  const { user, signOut } = useFirebaseAuth();
+  const { user, signOut, updateUser } = useFirebaseAuth();
   console.log("⚙️ [ACCOUNT SETTINGS] User state:", { hasUser: !!user, email: user?.email || "none" });
   
   // Active section for sidebar
@@ -599,6 +599,11 @@ export default function AccountSettings() {
       });
 
       await updateDoc(userRef, updates);
+
+      // Sync careerTrack to auth context so GoalsPromptBanner hides immediately
+      if (goalsInfo.careerTrack) {
+        await updateUser({ careerTrack: goalsInfo.careerTrack });
+      }
 
       setShowSaveToast(true);
       setTimeout(() => setShowSaveToast(false), 5000);

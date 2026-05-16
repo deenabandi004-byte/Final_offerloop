@@ -31,10 +31,8 @@ export function GoalsPromptBanner() {
   // Don't show if dismissed, no user, or user already has careerTrack set
   if (dismissed || !user) return null;
 
-  // Check if goals data exists (user doc fields available via auth context)
-  const userData = user as any;
-  const hasCareerTrack = !!(userData.careerTrack || userData.goals?.careerTrack);
-  if (hasCareerTrack) return null;
+  // Check if goals data exists (careerTrack loaded in auth context from Firestore)
+  if (user.careerTrack) return null;
 
   return (
     <div
