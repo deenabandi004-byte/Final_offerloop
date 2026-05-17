@@ -348,6 +348,7 @@ def update_contact_stage(uid, contact_id, new_stage):
         raise ValueError(f"Invalid stage: {new_stage}. Must be one of: {', '.join(sorted(ALLOWED_PIPELINE_STAGES))}")
 
     ref, data = _get_contact(uid, contact_id)
+    prev_stage = data.get("pipelineStage") or ""
     updates = {
         "pipelineStage": new_stage,
         "updatedAt": _now_iso(),
@@ -364,6 +365,19 @@ def update_contact_stage(uid, contact_id, new_stage):
 
     ref.update(updates)
     data.update(updates)
+
+    # Cooldown: record outreach on first transition into a send stage.
+    # Gated on prev_stage so we don't double-count when the Gmail webhook
+    # (which calls record_outreach directly) has already moved the stage.
+    if new_stage in ("email_sent", "waiting_on_reply") and prev_stage not in POST_SEND_STAGES:
+        contact_email = data.get("draftToEmail") or data.get("email")
+        if contact_email:
+            try:
+                from app.services.cooldown_service import record_outreach
+                record_outreach(contact_email, uid)
+            except Exception as cd_err:
+                logger.warning(f"[outbox] cooldown record failed for contact={contact_id}: {cd_err}")
+
     return _contact_to_dict(contact_id, data)
 
 

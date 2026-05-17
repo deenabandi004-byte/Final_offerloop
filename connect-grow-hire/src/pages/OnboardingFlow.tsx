@@ -102,7 +102,7 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
     setCurrentStep("goals");
   };
 
-  const handleGoalsData = (goalsData: { careerTrack: string; dreamCompanies: string[]; personalNote: string }) => {
+  const handleGoalsData = (goalsData: { careerTrack: string; dreamCompanies: string[] }) => {
     setOnboardingData((prev) => ({
       ...prev,
       goals: { careerTrack: goalsData.careerTrack, dreamCompanies: goalsData.dreamCompanies },

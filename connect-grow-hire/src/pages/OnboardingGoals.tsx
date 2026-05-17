@@ -17,7 +17,6 @@ const CAREER_TRACKS = [
 interface GoalsData {
   careerTrack: string;
   dreamCompanies: string[];
-  personalNote: string;
 }
 
 interface OnboardingGoalsProps {
@@ -47,7 +46,7 @@ export const OnboardingGoals = ({
     if (pending && !dreamCompanies.includes(pending)) {
       final = [...dreamCompanies, pending];
     }
-    onNext({ careerTrack, dreamCompanies: final, personalNote: "" });
+    onNext({ careerTrack, dreamCompanies: final });
   };
 
   return (

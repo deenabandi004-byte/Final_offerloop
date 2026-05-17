@@ -48,6 +48,9 @@ from .app.routes.search_suggestions import search_suggestions_bp
 from .app.routes.briefing import briefing_bp
 from .app.routes.agent import agent_bp
 from .app.routes.metrics import metrics_bp
+from .app.routes.events import events_bp
+from .app.routes.company_contexts import company_contexts_bp
+from .app.routes.company_recommendations import company_recommendations_bp
 from .app.extensions import init_app_extensions
 
 def create_app() -> Flask:
@@ -212,6 +215,9 @@ def create_app() -> Flask:
     app.register_blueprint(briefing_bp)
     app.register_blueprint(agent_bp)
     app.register_blueprint(metrics_bp)
+    app.register_blueprint(events_bp)
+    app.register_blueprint(company_contexts_bp)
+    app.register_blueprint(company_recommendations_bp)
 
     # --- Debug route to check frontend build (dev only) ---
     @app.route('/api/debug/frontend')
