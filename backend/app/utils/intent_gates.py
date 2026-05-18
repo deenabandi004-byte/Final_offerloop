@@ -75,8 +75,15 @@ _NON_ENTRY_LEVEL_VALUES = {
 def build_user_intent(profile: dict) -> dict:
     """Extract the gate-relevant fields from a user profile.
 
-    Returns a normalized dict so downstream gates don't have to handle the
-    dozen ways profile fields can be shaped.
+    The onboarding flow writes intent fields to several different paths
+    (legacy schema vs current schema vs partial writes). Read every known
+    path so the gates work for users onboarded at any point in history.
+
+    Audited 2026-05-18:
+      - careerInterests lives in `location.careerInterests` for 45.5% of users,
+        `location.interests` for 50.8%, top-level `careerInterests` for 6.2%,
+        and `goals.careerInterests` for 0% (despite what the audit doc assumed)
+      - dreamCompanies adoption is 2.1% — separate UX issue, not a path issue
     """
     goals = profile.get("goals") or {}
     rp = profile.get("resumeParsed") or {}
@@ -98,12 +105,46 @@ def build_user_intent(profile: dict) -> dict:
     pref_loc = loc.get("preferredLocation") or profile.get("preferredLocation")
     preferred_locations = _safe_str_list(pref_loc)
 
+    # careerInterests: union across every path the onboarding flow has
+    # written to. Dedup is downstream — gate just needs the membership set.
+    interest_sources = [
+        goals.get("careerInterests"),
+        loc.get("careerInterests"),
+        loc.get("interests"),
+        loc.get("career_interests"),
+        profile.get("careerInterests"),
+    ]
+    seen = set()
+    career_interests: list[str] = []
+    for src in interest_sources:
+        for v in _safe_str_list(src):
+            if v not in seen:
+                seen.add(v)
+                career_interests.append(v)
+
+    # Career track lives under goals; tolerate accidental top-level write too
+    raw_track = goals.get("careerTrack") or profile.get("careerTrack")
+    career_track = raw_track.lower().strip() if isinstance(raw_track, str) else ""
+
+    # Dream companies — same union pattern in case any user has them top-level
+    dream_sources = [goals.get("dreamCompanies"), profile.get("dreamCompanies")]
+    seen_dc = set()
+    dream_companies: list[str] = []
+    for src in dream_sources:
+        for v in _safe_str_list(src):
+            if v not in seen_dc:
+                seen_dc.add(v)
+                dream_companies.append(v)
+
+    major_raw = edu.get("major") or profile.get("major")
+    major = major_raw.lower().strip() if isinstance(major_raw, str) else ""
+
     return {
         "preferred_locations": preferred_locations,
-        "career_interests": _safe_str_list(goals.get("careerInterests")),
-        "career_track": (goals.get("careerTrack") or "").lower().strip() if isinstance(goals.get("careerTrack"), str) else "",
-        "dream_companies": _safe_str_list(goals.get("dreamCompanies")),
-        "major": (edu.get("major") or profile.get("major") or "").lower().strip() if isinstance(edu.get("major") or profile.get("major"), str) else "",
+        "career_interests": career_interests,
+        "career_track": career_track,
+        "dream_companies": dream_companies,
+        "major": major,
         "graduation_year": grad_year,
     }
 
