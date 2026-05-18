@@ -390,6 +390,86 @@ def _mark_unranked(jobs: list[dict]) -> list[dict]:
 GPT_RANK_COUNT = 20  # Send only top N to GPT; rest get deterministic scores
 
 
+# Generic/uninformative phrases the GPT model falls back to when it can't find
+# a real signal. We replace these with data-derived reasons in post-processing.
+_BANNED_REASON_SUBSTRINGS = (
+    "your skill", "your profile", "your background", "your resume",
+    "matches your", "fits your", "aligns with your", "matched your",
+    "strong match", "good match", "great match", "great fit",
+    "perfect fit", "good fit", "well-suited", "well suited",
+    "matched by skills and profile", "matches skills and profile",
+)
+
+
+def _is_generic_reason(reason) -> bool:
+    """Return True if the reason is too vague to be useful to the user."""
+    if not isinstance(reason, str):
+        return True
+    r = reason.lower().strip()
+    if len(r) < 8:
+        return True
+    return any(p in r for p in _BANNED_REASON_SUBSTRINGS)
+
+
+def _derive_reason(job: dict, profile: dict) -> str:
+    """Build a specific match reason from actual job + profile data.
+
+    Used both for jobs in the deterministic-fallback tier (positions 21-50,
+    not sent to GPT) AND as the replacement when GPT returns a banned/generic
+    phrase. Always tries to mention a real attribute: team, level, a specific
+    matched skill, or the user's major.
+    """
+    structured = job.get("structured") or {}
+
+    # 1) specific skill match against the structured requirements
+    try:
+        user_skills_list = flatten_skills(
+            (profile.get("resumeParsed") or {}).get("skills", [])
+        )
+    except Exception:
+        user_skills_list = []
+    user_skills = {s.lower() for s in user_skills_list if isinstance(s, str) and len(s) > 2}
+    reqs = structured.get("requirements") or []
+    if user_skills and isinstance(reqs, list):
+        for req in reqs:
+            if not isinstance(req, str):
+                continue
+            req_lower = req.lower()
+            for skill in user_skills:
+                if skill in req_lower:
+                    return f"Requires {skill} — on your resume"
+
+    # 2) the job's team/department
+    team = structured.get("team")
+    if isinstance(team, str) and team.strip():
+        return f"{team.strip()} role · matches your interests"
+
+    # 3) experience level + type ("Entry-level internship")
+    level = structured.get("experience_level")
+    typ = job.get("type") or ""
+    if isinstance(level, str) and level.strip():
+        type_label = {
+            "INTERNSHIP": "internship",
+            "FULLTIME": "full-time role",
+            "PARTTIME": "part-time role",
+        }.get(typ, "role")
+        return f"{level.strip()} {type_label}"
+
+    # 4) major
+    edu = (profile.get("resumeParsed") or {}).get("education") or {}
+    major = (edu.get("major") if isinstance(edu, dict) else None) or profile.get("major")
+    if isinstance(major, str) and major.strip():
+        return f"{major.strip()} fit"
+
+    # 5) last resort — at least cite a concrete substring from the title
+    title = job.get("title") or ""
+    if isinstance(title, str) and title.strip():
+        first_word = title.strip().split()[0]
+        return f"{first_word} role"
+
+    return "Recent posting"
+
+
 def rank_with_gpt(jobs: list[dict], profile: dict) -> list[dict]:
     from backend.app.services.openai_client import client
     from openai import RateLimitError
@@ -456,8 +536,25 @@ def rank_with_gpt(jobs: list[dict], profile: dict) -> list[dict]:
 
     system_prompt = """You are a job matching assistant for college students.
 Rank jobs by fit: 1) Field alignment with major 2) Job type fit 3) Skills match 4) Seniority fit.
-match_reason: max 12 words, mention their major OR a specific skill.
-Return ONLY JSON array: [{"job_id":"...","match_score":85,"match_reason":"..."}]
+
+match_reason rules (CRITICAL):
+- Max 12 words. Concrete and specific to THIS job.
+- MUST cite either (a) a specific skill from their resume, (b) their major, OR
+  (c) a specific requirement from the job posting that they meet.
+- BANNED phrases (do not use, ever): "your skills", "your profile",
+  "matches your", "fits your", "aligns with your background", "strong match",
+  "good match", "great fit", "perfect fit".
+- BAD examples (too vague):
+    * "Matches your skills and profile"
+    * "Strong match for your background"
+    * "Good fit for your resume"
+- GOOD examples (specific):
+    * "Python + scikit-learn role — matches your ML coursework"
+    * "Econ major fits this banking analyst posting"
+    * "Tableau experience matches their BI stack"
+    * "Entry-level data science — aligns with DSCI 351"
+
+Return ONLY a JSON array: [{"job_id":"...","match_score":85,"match_reason":"..."}]
 Include every job_id. Order by match_score descending."""
 
     messages = [
@@ -493,27 +590,38 @@ Include every job_id. Order by match_score descending."""
             for item in json.loads(raw) if "job_id" in item
         }
 
-        # Apply GPT scores to top 20
+        # Apply GPT scores to top 20. Post-process reasons: replace any
+        # generic/banned phrase the model fell back to with a data-derived
+        # specific reason so the SPA never shows "Matched your skills and
+        # profile"-style filler.
         ranked = []
+        scrubbed = 0
         for job in gpt_jobs:
             if job["job_id"] in ranking_map:
+                gpt_reason = ranking_map[job["job_id"]]["match_reason"]
+                if _is_generic_reason(gpt_reason):
+                    job["match_reason"] = _derive_reason(job, profile)
+                    scrubbed += 1
+                else:
+                    job["match_reason"] = gpt_reason
                 job["match_score"] = ranking_map[job["job_id"]]["match_score"]
-                job["match_reason"] = ranking_map[job["job_id"]]["match_reason"]
                 job["ranked"] = True
             else:
                 job["match_score"] = None
                 job["match_reason"] = None
                 job["ranked"] = False
             ranked.append(job)
+        if scrubbed:
+            logger.info("Scrubbed %d generic GPT reasons → derived", scrubbed)
 
-        # Apply deterministic scores (scaled to 0-100) for jobs 21-50
+        # Apply deterministic scores (scaled to 0-100) for jobs 21-50.
+        # Reasons are derived from real data, not a generic string.
         if fallback_jobs:
             det_scored = [(j, deterministic_score(j, profile)) for j in fallback_jobs]
             max_det = max((s for _, s in det_scored), default=1) or 1
             for job, det_s in det_scored:
-                # Scale deterministic score to 0-49 range (always below GPT-ranked)
                 job["match_score"] = int((det_s / max_det) * 49)
-                job["match_reason"] = "Matched by skills and profile"
+                job["match_reason"] = _derive_reason(job, profile)
                 job["ranked"] = True
                 ranked.append(job)
 
