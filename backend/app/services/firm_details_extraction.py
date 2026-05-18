@@ -1,10 +1,13 @@
 """
-Firm Details Extraction - Uses SERP API to get detailed information about specific firms
+Firm Details Extraction - Perplexity pro_search + Firecrawl extract_company_profile
+to get detailed information about specific firms. Legacy SerpAPI fallback is
+gated by ENABLE_SERPAPI_FALLBACK env var (off by default).
 OPTIMIZED: Parallel processing, caching, timeout handling, enhanced data extraction
 """
 import requests
 import json
 import hashlib
+import os
 import time
 import re
 import logging
@@ -95,7 +98,11 @@ def _search_linkedin_url(firm_name: str, location: Dict[str, Optional[str]] = No
                     logger.info("Found LinkedIn URL in Perplexity citations for %s: %s", firm_name, citation)
                     return citation
     except Exception:
-        logger.warning("Perplexity failed for LinkedIn URL search (%s), falling back to SerpAPI", firm_name, exc_info=True)
+        logger.warning("Perplexity failed for LinkedIn URL search (%s); SerpAPI fallback gated by ENABLE_SERPAPI_FALLBACK", firm_name, exc_info=True)
+
+    # SerpAPI fallback disabled by default. Set ENABLE_SERPAPI_FALLBACK=1 to re-enable.
+    if not os.getenv("ENABLE_SERPAPI_FALLBACK"):
+        return None
 
     # DEPRECATED: remove in Phase 8 — existing SerpAPI code
     if not SERPAPI_KEY:
@@ -202,7 +209,11 @@ def _fetch_serp_results_only(
                 "_perplexity_citations": result.get("citations", []),
             }
     except Exception:
-        logger.warning("Perplexity failed for _fetch_serp_results_only (%s), falling back to SerpAPI", firm_name, exc_info=True)
+        logger.warning("Perplexity failed for _fetch_serp_results_only (%s); SerpAPI fallback gated by ENABLE_SERPAPI_FALLBACK", firm_name, exc_info=True)
+
+    # SerpAPI fallback disabled by default. Set ENABLE_SERPAPI_FALLBACK=1 to re-enable.
+    if not os.getenv("ENABLE_SERPAPI_FALLBACK"):
+        return None
 
     # DEPRECATED: remove in Phase 8 — existing SerpAPI code
     if not SERPAPI_KEY:
@@ -794,7 +805,11 @@ Return ONLY JSON:
                 except json.JSONDecodeError:
                     logger.warning("Failed to parse Perplexity+Firecrawl AI result for %s", firm_name)
     except Exception:
-        logger.warning("Perplexity/Firecrawl failed for search_firm_details_with_serp (%s), falling back to SerpAPI", firm_name, exc_info=True)
+        logger.warning("Perplexity/Firecrawl failed for search_firm_details_with_serp (%s); SerpAPI fallback gated by ENABLE_SERPAPI_FALLBACK", firm_name, exc_info=True)
+
+    # SerpAPI fallback disabled by default. Set ENABLE_SERPAPI_FALLBACK=1 to re-enable.
+    if not os.getenv("ENABLE_SERPAPI_FALLBACK"):
+        return None
 
     # DEPRECATED: remove in Phase 8 — existing SerpAPI code
     if not SERPAPI_KEY:

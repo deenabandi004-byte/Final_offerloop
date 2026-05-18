@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -417,7 +418,11 @@ def fetch_serp_research(
             logger.info("Perplexity quick_search succeeded for coffee-chat research")
             return news_items, industry_summary
     except Exception:
-        logger.warning("Perplexity quick_search failed, falling back to SerpAPI", exc_info=True)
+        logger.warning("Perplexity quick_search failed; SerpAPI fallback gated by ENABLE_SERPAPI_FALLBACK", exc_info=True)
+
+    # SerpAPI fallback disabled by default. Set ENABLE_SERPAPI_FALLBACK=1 to re-enable.
+    if not os.getenv("ENABLE_SERPAPI_FALLBACK"):
+        return [], ""
 
     # ── FALLBACK: existing SerpAPI code (kept until Phase 8) ────────────
     # DEPRECATED: remove in Phase 8
@@ -624,7 +629,11 @@ def fetch_comprehensive_research(
             logger.info("Perplexity deep_research succeeded for comprehensive research")
             return results
     except Exception:
-        logger.warning("Perplexity deep_research failed, falling back to SerpAPI", exc_info=True)
+        logger.warning("Perplexity deep_research failed; SerpAPI fallback gated by ENABLE_SERPAPI_FALLBACK", exc_info=True)
+
+    # SerpAPI fallback disabled by default. Set ENABLE_SERPAPI_FALLBACK=1 to re-enable.
+    if not os.getenv("ENABLE_SERPAPI_FALLBACK"):
+        return results
 
     # ── FALLBACK: existing SerpAPI code (kept until Phase 8) ────────────
     # DEPRECATED: remove in Phase 8

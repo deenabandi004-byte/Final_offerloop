@@ -132,7 +132,10 @@ Browser ──► React SPA (Vite build in connect-grow-hire/dist/)
               │                ──► Hunter.io (email verification)
               │                ──► Gmail API (drafts, thread sync, webhooks)
               │                ──► Stripe (subscriptions)
-              │                ──► SerpAPI (job search, firm discovery)
+              │                ──► Perplexity (live search: jobs, companies, news, market context)
+              │                ──► Firecrawl (web extraction: job postings, company profiles, LinkedIn)
+              │                ──► Bright Data (LinkedIn profile enrichment)
+              │                ──► SerpAPI / Jina Reader (legacy fallbacks, off by default)
               │                ──► Prerender.io (bot/crawler SSR)
               ▼
            Static files (/, /assets/*, /sitemap.xml, /robots.txt, /llms.txt)
@@ -178,14 +181,14 @@ Chrome Extension ──► same Flask API at https://final-offerloop.onrender.co
 **Key files**: `backend/app/services/resume_parser_v2.py`, `backend/app/services/resume_optimizer_v2.py`, `backend/app/services/ats_scorer.py`, `backend/app/routes/resume_workshop.py` (1900 lines)
 
 ### 7. Job Board
-**How it works**: SerpAPI queries for job listings → job relevance ranking against user profile → resume matching scores → hiring manager/recruiter discovery via `recruiter_finder.py`.
+**How it works**: Job search routes through the `fetch_jobs` wrapper (`job_board.py:453`) — Perplexity `search_jobs_live` primary, SerpAPI fallback gated by `ENABLE_SERPAPI_FALLBACK`. Migration in progress: some legacy call sites still invoke `fetch_jobs_from_serpapi` directly. Results are ranked against the user profile, scored against the user's resume, and combined with hiring-manager/recruiter discovery via `recruiter_finder.py`.
 
-**Key files**: `backend/app/routes/job_board.py` (8800+ lines -- the largest route file), `backend/app/services/recruiter_finder.py` (1325 lines), `backend/app/services/serp_client.py`
+**Key files**: `backend/app/routes/job_board.py` (8800+ lines -- the largest route file), `backend/app/services/recruiter_finder.py` (1325 lines), `backend/app/services/perplexity_client.py`, `backend/app/services/serp_client.py` (legacy fallback)
 
 ### 8. Firm Search
-**How it works**: User searches for companies → SerpAPI + web scraping → firm details extraction (culture, recruiting info, alumni connections) → results with contact suggestions.
+**How it works**: User searches for companies → Perplexity `pro_search` for discovery + Firecrawl `extract_company_profile` for structured detail extraction (culture, recruiting info, alumni connections) → results with contact suggestions. SerpAPI fallback in `firm_details_extraction.py` is gated by `ENABLE_SERPAPI_FALLBACK` (off by default).
 
-**Key files**: `backend/app/services/company_search.py` (1240 lines), `backend/app/services/firm_details_extraction.py` (1192 lines), `backend/app/routes/firm_search.py`
+**Key files**: `backend/app/services/company_search.py` (1240 lines), `backend/app/services/firm_details_extraction.py` (1192 lines), `backend/app/routes/firm_search.py`, `backend/app/services/perplexity_client.py`, `backend/app/services/firecrawl_client.py`
 
 ### 9. Scout AI Assistant
 **How it works**: Conversational AI search assistant (Cmd+K to open). Multi-turn conversations stored in Firestore subcollection. Uses OpenAI with context from user profile and search history.
@@ -460,14 +463,19 @@ Path alias: `@` maps to `./src`.
 - `PEOPLE_DATA_LABS_API_KEY` -- Contact search (2.2B contacts)
 - `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` -- Payments
 - `STRIPE_PRO_PRICE_ID`, `STRIPE_ELITE_PRICE_ID` -- Stripe price overrides (defaults hardcoded)
-- `SERPAPI_KEY` -- Job/firm search
+- `PERPLEXITY_API_KEY` -- Live search (jobs, companies, news, market context) — primary search provider
+- `FIRECRAWL_API_KEY` -- Structured web extraction (job postings, company profiles, LinkedIn scrapes) — primary scraping provider
+- `BRIGHTDATA_API_KEY` -- LinkedIn profile enrichment (Bright Data dataset API)
+- `SERPAPI_KEY` -- LEGACY. Used only when `ENABLE_SERPAPI_FALLBACK=1`. Kept as emergency fallback in `coffee_chat.py`, `scout_service.py`, `firm_details_extraction.py`, `agent_actions.py`, and `job_board.py` (the latter migration in progress — direct `fetch_jobs_from_serpapi` callers still bypass the gate).
+- `JINA_API_KEY` -- LEGACY. Used only when `ENABLE_JINA_FALLBACK=1`. Kept as emergency fallback in `scout_service.py` and `linkedin_enrichment.py`.
+- `ENABLE_SERPAPI_FALLBACK` -- Set to `1` to re-enable the SerpAPI fallback path during a Perplexity incident. Off by default.
+- `ENABLE_JINA_FALLBACK` -- Set to `1` to re-enable the Jina Reader fallback path during a Firecrawl incident. Off by default.
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` -- Gmail OAuth
 - `GOOGLE_APPLICATION_CREDENTIALS` -- Path to Firebase service account JSON
 - `GOOGLE_SERVICE_ACCOUNT_FILE`, `GOOGLE_SERVICE_ACCOUNT_EMAIL` -- Service account config
 - `GOOGLE_CLOUD_PROJECT_ID` -- GCP project (default: `offerloop-native`)
 - `GMAIL_PUBSUB_TOPIC` -- Pub/Sub topic for Gmail webhooks
 - `GMAIL_WEBHOOK_SECRET` -- Pub/Sub webhook verification
-- `JINA_API_KEY` -- Web content extraction
 - `PRERENDER_TOKEN` -- SSR for bots (default hardcoded in wsgi.py)
 - `PROMPT_SEARCH_ENABLED` -- Experimental natural language search (default: false)
 - `CREATE_GMAIL_DRAFTS` -- Create actual Gmail drafts vs compose links (default: false)
@@ -574,7 +582,7 @@ Set `FLASK_ENV=testing` for test runs. Markers: `unit`, `integration`, `slow`.
 - **Legacy `tier` field** still exists alongside `subscriptionTier` in Firestore. Should be migrated.
 - **No frontend tests** -- entire test coverage is backend-only.
 - **`contacts.db` SQLite dependency** -- legacy file that must exist in production but isn't in git.
-- **Untracked new files** in working tree: `bright_data_client.py` -- appears to be in-progress work.
+- **Search/scraping migration partially complete** -- `coffee_chat.py`, `scout_service.py`, `firm_details_extraction.py`, `linkedin_enrichment.py`, and `agent_actions.py` are on Perplexity + Firecrawl with SerpAPI/Jina gated by env-var flags. `job_board.py` still has direct `fetch_jobs_from_serpapi` call sites (L376, L6320, L6735) that bypass the new `fetch_jobs` wrapper -- migration in progress.
 - **Duplicate onboarding location references** -- `OnboardingLocationPreferences.tsx` page exists alongside the multi-step `OnboardingFlow.tsx`.
 
 ---
@@ -584,7 +592,7 @@ Set `FLASK_ENV=testing` for test runs. Markers: `unit`, `integration`, `slow`.
 Based on git status and recent commits:
 - **Onboarding redesign**: 5-step flow (welcome, profile, academics, location, goals) with new illustrations
 - **Recruiter spreadsheets**: New hiring manager/recruiter data views
-- **Contact enrichment**: New `bright_data_client.py` being developed
+- **Search/scraping migration to Perplexity + Firecrawl** (Phase 7): replacing SerpAPI / Jina / GoogleSearch across the codebase. Done in agent flows, firm details, and partially in coffee chat / scout / LinkedIn enrichment. `job_board.py` direct call sites still pending.
 - **Frontend build**: Updated dist assets indicate recent frontend changes across many components
 
 ---
@@ -600,13 +608,15 @@ Based on git status and recent commits:
 | Hunter.io | Email discovery, verification | `backend/app/services/hunter.py` |
 | Stripe | Subscriptions (Pro $9.99/mo, Elite $34.99/mo) | `backend/app/services/stripe_client.py`, `backend/app/routes/billing.py` |
 | Gmail API | OAuth, drafts, thread sync, push via Pub/Sub | `backend/app/services/gmail_client.py`, `backend/app/routes/gmail_oauth.py` |
-| SerpAPI | Google Search, Google Jobs, firm discovery | `backend/app/services/serp_client.py` |
+| Perplexity | Primary live search: jobs, companies, news, market context, hiring-manager verification | `backend/app/services/perplexity_client.py` |
+| Firecrawl | Primary web extraction: job postings, company profiles, LinkedIn pages | `backend/app/services/firecrawl_client.py` |
+| Bright Data | LinkedIn profile enrichment via dataset API | `backend/app/services/bright_data_client.py` |
 | Prerender.io | SSR for bot crawlers (40+ user agents) | `backend/wsgi.py` middleware |
 | PostHog | Frontend analytics | `connect-grow-hire/src/lib/posthog.ts` |
 | Sentry | Backend error tracking (dev only) | `backend/app/utils/sentry_config.py` |
 | Google Cloud Pub/Sub | Gmail webhook notifications | `backend/app/routes/gmail_webhook.py` |
-| Jina Reader | Web content extraction | Referenced in `backend/app/config.py` |
-| Bright Data | Web scraping (in development) | `backend/app/services/bright_data_client.py` |
+| SerpAPI (legacy) | Google Search / Google Jobs — fallback only, gated by `ENABLE_SERPAPI_FALLBACK` | `backend/app/services/serp_client.py` |
+| Jina Reader (legacy) | Web content extraction — fallback only, gated by `ENABLE_JINA_FALLBACK` | `backend/app/utils/linkedin_enrichment.py`, `backend/app/services/scout_service.py` |
 
 ---
 

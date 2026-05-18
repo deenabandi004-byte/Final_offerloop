@@ -2,13 +2,16 @@
 Agent Actions — real executors that wrap existing services.
 
 Each action (find, find_jobs, discover_companies, find_hiring_managers)
-calls the actual PDL / SerpAPI / email generation services.
-Contacts are saved to Firestore and emails are generated immediately.
+calls the actual PDL / Perplexity / Firecrawl / email generation services.
+SerpAPI fallback for job search is gated by ENABLE_SERPAPI_FALLBACK
+(off by default). Contacts are saved to Firestore and emails are generated
+immediately.
 """
 from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 
 from app.extensions import get_db
@@ -411,10 +414,10 @@ def execute_find_jobs(
             jobs = enriched_jobs
             source = "perplexity"
     except Exception:
-        logger.warning("Perplexity job search failed, falling back to SerpAPI", exc_info=True)
+        logger.warning("Perplexity job search failed; SerpAPI fallback gated by ENABLE_SERPAPI_FALLBACK", exc_info=True)
 
-    # FALLBACK: SerpAPI (kept until Phase 8 removes it)
-    if not jobs:
+    # FALLBACK: SerpAPI (kept until Phase 8 removes it, gated by ENABLE_SERPAPI_FALLBACK)
+    if not jobs and os.getenv("ENABLE_SERPAPI_FALLBACK"):
         try:
             from app.routes.job_board import fetch_jobs_from_serpapi
             serpapi_jobs, _ = fetch_jobs_from_serpapi(query, location, num_results=10, user_id=uid)

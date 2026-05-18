@@ -5,13 +5,15 @@ Two enrichment chains:
 
 - Default (`prefer_scrape=False`): PDL → Bright Data — used for *contact lookups*
   where the target is an established professional (good PDL coverage).
-- Self-enrichment (`prefer_scrape=True`): Jina → Bright Data → PDL — used for
-  the *user's own* LinkedIn during onboarding/profile. Most users are college
-  students with thin PDL records, so direct page scrapes via Jina yield far
-  richer data (full work history, skills, projects, certifications) than PDL.
+- Self-enrichment (`prefer_scrape=True`): Firecrawl → Bright Data → PDL — used
+  for the *user's own* LinkedIn during onboarding/profile. Most users are
+  college students with thin PDL records, so direct page scrapes via Firecrawl
+  yield far richer data (full work history, skills, projects, certifications)
+  than PDL. Legacy Jina Reader fallback can be re-enabled by setting
+  ENABLE_JINA_FALLBACK=1 (inserts _try_jina between Firecrawl and Bright Data).
 
 LLM enrichment layer structures raw data into resumeParsed format
-(source-specific prompts: PDL / Bright Data / Jina markdown).
+(source-specific prompts: PDL / Bright Data / scraped markdown).
 Merge logic combines LinkedIn data with existing resume data.
 """
 import json
@@ -221,7 +223,10 @@ def get_enrichment_tiers(prefer_scrape: bool = False):
     (e.g. a LinkedIn login wall served to Jina).
     """
     if prefer_scrape:
-        return [_try_firecrawl, _try_jina, _try_brightdata, _try_pdl]
+        chain = [_try_firecrawl, _try_brightdata, _try_pdl]
+        if os.getenv("ENABLE_JINA_FALLBACK"):
+            chain.insert(1, _try_jina)
+        return chain
     return [_try_pdl, _try_brightdata]
 
 
@@ -235,11 +240,12 @@ def enrich_linkedin_with_fallback(
         Use for contact lookups (the user is researching an established
         professional whose record PDL has rich coverage of).
 
-    prefer_scrape=True: Jina → Bright Data → PDL
+    prefer_scrape=True: Firecrawl → Bright Data → PDL
         Use for the user's own LinkedIn during onboarding/profile. Most users
         are college students whose PDL records are thin. Direct LinkedIn page
-        scrapes (via Jina markdown rendering) yield richer education, work,
-        skill, and project history. PDL is kept as a last resort.
+        scrapes (via Firecrawl markdown rendering) yield richer education,
+        work, skill, and project history. PDL is kept as a last resort.
+        Legacy Jina fallback is re-enabled by setting ENABLE_JINA_FALLBACK=1.
 
     Returns (raw_data, source) or (None, "").
     """
@@ -248,11 +254,12 @@ def enrich_linkedin_with_fallback(
         logger.warning(f"[Enrichment] Invalid LinkedIn URL: {linkedin_url}")
         return None, ""
 
-    chain = (
-        [_try_firecrawl, _try_jina, _try_brightdata, _try_pdl]
-        if prefer_scrape
-        else [_try_pdl, _try_brightdata]
-    )
+    if prefer_scrape:
+        chain = [_try_firecrawl, _try_brightdata, _try_pdl]
+        if os.getenv("ENABLE_JINA_FALLBACK"):
+            chain.insert(1, _try_jina)
+    else:
+        chain = [_try_pdl, _try_brightdata]
 
     for tier in chain:
         result, source = tier(normalized)
@@ -395,6 +402,67 @@ OUTPUT SCHEMA (follow exactly):
 SOURCE DATA (Bright Data LinkedIn scrape):
 """
 
+# TODO: PersonProfileExtract (extraction_schemas.py) is intentionally minimal —
+# only 6 fields. To get richer onboarding profiles (full experience history,
+# education, languages), expand PersonProfileExtract and update the rules below
+# to mine the additional fields.
+LLM_PROMPT_FIRECRAWL = """You are a data extraction assistant. The source below is a structured JSON object returned by Firecrawl's schema-guided extraction of a public LinkedIn profile. It contains a small set of fields — populate what is supported and leave the rest null.
+
+CRITICAL RULES:
+1. Output ONLY valid JSON. No markdown, no preamble, no explanation.
+2. Only include information explicitly present in the source. Do not fabricate education, experience history, or contact info.
+3. The source provides exactly these fields: name, current_title, current_company, summary, recent_posts (array of strings), interests (array of strings). Any field NOT in that list is unavailable — output null or [].
+4. The current role goes into experience[] as a SINGLE entry: {"title": current_title, "company": current_company, "dates": null, "location": null, "bullets": []}. Do not invent prior roles.
+5. ALWAYS leave "bullets": [] empty — NEVER write experience descriptions.
+6. For "objective": use the summary field verbatim if present, trimmed to one or two sentences; else null.
+7. For skills.technical / skills.tools: mine recent_posts AND interests for technologies, tools, programming languages, and frameworks explicitly mentioned. Do not infer from job title alone — only extract what is stated.
+8. For career_interests: MUST be populated — derive from interests array, current_title, and signals in recent_posts. Always return at least 1-2.
+9. For extracurriculars: extract clubs, organizations, or volunteer work explicitly mentioned in recent_posts.
+10. education.* fields are ALL null — Firecrawl's minimal schema does not include education. Do not infer or hallucinate education data.
+11. languages, certifications, awards, projects: leave as [] unless explicitly mentioned in recent_posts.
+
+OUTPUT SCHEMA (follow exactly):
+{
+  "name": "string",
+  "contact": {
+    "email": null,
+    "phone": null,
+    "linkedin": null,
+    "location": null
+  },
+  "objective": "string or null",
+  "education": {
+    "university": null,
+    "degree": null,
+    "major": null,
+    "graduation": null,
+    "gpa": null
+  },
+  "experience": [
+    {
+      "title": "string",
+      "company": "string",
+      "dates": null,
+      "location": null,
+      "bullets": []
+    }
+  ],
+  "skills": {
+    "technical": ["programming languages, frameworks, methodologies"],
+    "tools": ["software tools, platforms, products"],
+    "soft_skills": [],
+    "languages": []
+  },
+  "projects": [],
+  "extracurriculars": ["club or org names from recent_posts"],
+  "certifications": [],
+  "awards": [],
+  "career_interests": ["from interests array and current role"]
+}
+
+SOURCE DATA (Firecrawl JSON extraction):
+"""
+
 LLM_PROMPT_JINA = """You are a data extraction assistant. The source below is a markdown-rendered scrape of a public LinkedIn profile page (via Jina Reader). Extract structured data into the exact JSON schema below.
 
 CRITICAL RULES:
@@ -529,6 +597,8 @@ def llm_enrich_profile(raw_data: dict, source: str) -> dict:
             system_prompt = LLM_PROMPT_PDL
         elif source == "jina":
             system_prompt = LLM_PROMPT_JINA
+        elif source == "firecrawl":
+            system_prompt = LLM_PROMPT_FIRECRAWL
         else:
             system_prompt = LLM_PROMPT_BRIGHTDATA
 

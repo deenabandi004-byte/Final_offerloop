@@ -1,6 +1,8 @@
 """
 Scout Service v2.0 - Conversational job search assistant with URL parsing,
-job discovery, and SERP-powered research capabilities.
+job discovery, and Perplexity-powered research (Firecrawl for URL extraction).
+Legacy SerpAPI / Jina fallbacks are gated by ENABLE_SERPAPI_FALLBACK /
+ENABLE_JINA_FALLBACK env vars (off by default).
 """
 from __future__ import annotations
 
@@ -735,7 +737,11 @@ Return format:
                 return content
         except Exception:
             import logging
-            logging.getLogger(__name__).warning("Firecrawl failed, falling back to Jina", exc_info=True)
+            logging.getLogger(__name__).warning("Firecrawl failed; Jina fallback gated by ENABLE_JINA_FALLBACK", exc_info=True)
+
+        # Jina fallback disabled by default. Set ENABLE_JINA_FALLBACK=1 to re-enable.
+        if not os.getenv("ENABLE_JINA_FALLBACK"):
+            return None
 
         # DEPRECATED: remove in Phase 8 — Jina Reader fallback
         client = None
@@ -1710,7 +1716,11 @@ Return JSON only:
                         self._cache.set(cache_key, jobs, ttl=1800)
                         return jobs
             except Exception as _pplx_err:
-                print(f"[Scout] Perplexity job search failed, falling back to SerpAPI: {_pplx_err}")
+                print(f"[Scout] Perplexity job search failed; SerpAPI fallback gated by ENABLE_SERPAPI_FALLBACK: {_pplx_err}")
+
+            # SerpAPI fallback disabled by default. Set ENABLE_SERPAPI_FALLBACK=1 to re-enable.
+            if not os.getenv("ENABLE_SERPAPI_FALLBACK"):
+                return []
 
             # DEPRECATED: remove in Phase 8 — SerpAPI fallback
             # Use Google Jobs engine for better results
@@ -2180,8 +2190,8 @@ If you can infer specific titles they should try, list them.
         except Exception as _pplx_err:
             print(f"[Scout] Perplexity research failed, falling back to SerpAPI: {_pplx_err}")
 
-        # DEPRECATED: remove in Phase 8 — SerpAPI fallback
-        if not research_context:
+        # DEPRECATED: remove in Phase 8 — SerpAPI fallback (gated by ENABLE_SERPAPI_FALLBACK)
+        if not research_context and os.getenv("ENABLE_SERPAPI_FALLBACK"):
             try:
                 search = GoogleSearch({
                     "q": search_query,
