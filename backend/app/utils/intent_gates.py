@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -154,16 +154,46 @@ def build_user_intent(profile: dict) -> dict:
     edu = rp.get("education") or {}
     loc = profile.get("location") or {}
 
-    # graduation year — accept multiple field names
+    # graduation year — accept multiple field names (top-level + academics + resumeParsed)
+    academics = profile.get("academics") or {}
     grad_year = (
         edu.get("graduationYear")
         or edu.get("graduation_year")
+        or academics.get("graduationYear")
         or profile.get("graduationYear")
     )
     try:
         grad_year = int(grad_year) if grad_year is not None else None
     except (TypeError, ValueError):
         grad_year = None
+    # graduation month — used to compute months_until_grad accurately
+    grad_month_raw = (
+        edu.get("graduationMonth")
+        or academics.get("graduationMonth")
+        or profile.get("graduationMonth")
+    )
+    grad_month: int | None = None
+    if isinstance(grad_month_raw, int):
+        if 1 <= grad_month_raw <= 12:
+            grad_month = grad_month_raw
+    elif isinstance(grad_month_raw, str):
+        s = grad_month_raw.strip().lower()
+        if s.isdigit():
+            try:
+                n = int(s)
+                if 1 <= n <= 12:
+                    grad_month = n
+            except ValueError:
+                pass
+        else:
+            month_names = {
+                "january": 1, "february": 2, "march": 3, "april": 4,
+                "may": 5, "june": 6, "july": 7, "august": 8,
+                "september": 9, "october": 10, "november": 11, "december": 12,
+                "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7,
+                "aug": 8, "sep": 9, "sept": 9, "oct": 10, "nov": 11, "dec": 12,
+            }
+            grad_month = month_names.get(s)
 
     # preferredLocation may be a string OR a list (multi-city onboarding)
     pref_loc = loc.get("preferredLocation") or profile.get("preferredLocation")
@@ -210,6 +240,7 @@ def build_user_intent(profile: dict) -> dict:
         "dream_companies": dream_companies,
         "major": major,
         "graduation_year": grad_year,
+        "graduation_month": grad_month,
     }
 
 
@@ -227,8 +258,11 @@ def _gate_by_level(job: dict, intent: dict) -> bool:
     if grad_year is None:
         return False
 
-    current_year = datetime.now().year
-    months_until_grad = (grad_year - current_year) * 12
+    # Use UTC for consistency across deploy regions; assume May (month 5) when
+    # only year is known — typical US undergrad graduation month.
+    now_utc = datetime.now(timezone.utc)
+    grad_month = intent.get("graduation_month") or 5
+    months_until_grad = (grad_year - now_utc.year) * 12 + (grad_month - now_utc.month)
     if months_until_grad > 18:
         return False
 
@@ -289,6 +323,12 @@ def _gate_by_location(job: dict, intent: dict) -> bool:
     elif isinstance(raw_loc, str):
         loc_text = raw_loc.lower()
     else:
+        return False
+
+    # Empty location string — we can't evaluate the gate, so keep conservatively
+    # rather than silently dropping. Better to show a job we can't verify than
+    # to hide one the user might want.
+    if not loc_text.strip():
         return False
 
     if "remote" in loc_text or "anywhere" in loc_text or "any location" in loc_text:
