@@ -261,6 +261,87 @@ def set_feature_flag_override():
     return jsonify({"ok": True, "flag": flag_name, "uid": uid}), 200
 
 
+@admin_bp.get("/pipeline-health")
+def pipeline_health():
+    """
+    Return health of the job-board ingest pipeline.
+
+    Response:
+      {
+        "last_run_at": "<ISO timestamp or null>",
+        "minutes_since_last_run": <int or null>,
+        "stale": <bool>,                # true if no successful run in >6h
+        "recent_runs": [ { run_id, mode, started_at, ended_at, ok, written,
+                           skipped_duplicates, total, source_breakdown, error }, ... ]
+      }
+    """
+    _, err = _require_admin()
+    if err:
+        return err
+
+    try:
+        db = get_db()
+    except RuntimeError as e:
+        return jsonify({"error": "Database not initialized", "message": str(e)}), 500
+
+    from google.cloud.firestore_v1.base_query import FieldFilter  # local import
+
+    runs_query = (
+        db.collection("pipeline_runs")
+        .order_by("started_at", direction="DESCENDING")
+        .limit(10)
+    )
+    recent_runs = []
+    last_ok_at = None
+    for doc in runs_query.stream():
+        data = doc.to_dict() or {}
+        def _iso(dt):
+            try:
+                return dt.isoformat() if dt else None
+            except AttributeError:
+                return str(dt) if dt else None
+        run = {
+            "run_id": data.get("run_id") or doc.id,
+            "mode": data.get("mode"),
+            "started_at": _iso(data.get("started_at")),
+            "ended_at": _iso(data.get("ended_at")),
+            "duration_seconds": data.get("duration_seconds"),
+            "ok": data.get("ok", data.get("error") is None),
+            "written": data.get("written", 0),
+            "skipped_duplicates": data.get("skipped_duplicates", 0),
+            "total": data.get("total", 0),
+            "source_breakdown": data.get("source_breakdown") or {},
+            "deleted": data.get("deleted", 0),
+            "error": data.get("error"),
+        }
+        recent_runs.append(run)
+        if last_ok_at is None and run["ok"] and run["mode"] in ("full", "fantastic-only", "skip-fantastic"):
+            started = data.get("started_at")
+            if started:
+                last_ok_at = started
+
+    minutes_since = None
+    stale = True
+    last_run_iso = None
+    if last_ok_at is not None:
+        try:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            delta = now - last_ok_at
+            minutes_since = int(delta.total_seconds() // 60)
+            stale = minutes_since > 360  # 6h
+            last_run_iso = last_ok_at.isoformat()
+        except Exception:
+            pass
+
+    return jsonify({
+        "last_run_at": last_run_iso,
+        "minutes_since_last_run": minutes_since,
+        "stale": stale,
+        "recent_runs": recent_runs,
+    }), 200
+
+
 @admin_bp.post("/client-error")
 def report_client_error():
     """

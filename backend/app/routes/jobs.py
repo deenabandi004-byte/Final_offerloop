@@ -27,6 +27,72 @@ _ranking_lock = threading.Lock()
 _ranking_in_progress = set()  # UIDs currently being re-ranked
 _ranking_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="job-rank")
 
+_pipeline_summary_cache = {"data": None, "cached_at": 0.0}
+PIPELINE_SUMMARY_TTL = 60  # seconds
+
+
+def _format_freshness(minutes: int | None) -> str:
+    if minutes is None:
+        return "Unknown"
+    if minutes < 2:
+        return "Just now"
+    if minutes < 60:
+        return f"{minutes}m ago"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours}h ago"
+    days = hours // 24
+    return f"{days}d ago"
+
+
+def _get_pipeline_summary() -> dict:
+    """Return {last_pipeline_run, freshness_label, stale} for the feed response.
+
+    Cached in-process for PIPELINE_SUMMARY_TTL seconds. Safe no-op shape on any error.
+    """
+    import time
+    now = time.time()
+    cached = _pipeline_summary_cache.get("data")
+    if cached is not None and (now - _pipeline_summary_cache.get("cached_at", 0)) < PIPELINE_SUMMARY_TTL:
+        return cached
+
+    summary = {"last_pipeline_run": None, "freshness_label": "Unknown", "stale": True}
+    try:
+        db = get_db()
+        if not db:
+            return summary
+        query = (
+            db.collection("pipeline_runs")
+            .order_by("started_at", direction="DESCENDING")
+            .limit(5)
+        )
+        for doc in query.stream():
+            data = doc.to_dict() or {}
+            mode = data.get("mode")
+            ok = data.get("ok", data.get("error") is None)
+            if not ok or mode not in ("full", "fantastic-only", "skip-fantastic"):
+                continue
+            started = data.get("started_at")
+            if started is None:
+                continue
+            try:
+                delta = datetime.now(timezone.utc) - started
+                minutes = int(delta.total_seconds() // 60)
+            except Exception:
+                continue
+            summary = {
+                "last_pipeline_run": started.isoformat() if hasattr(started, "isoformat") else None,
+                "freshness_label": _format_freshness(minutes),
+                "stale": minutes > 360,  # >6h
+            }
+            break
+    except Exception:
+        logger.warning("pipeline summary lookup failed", exc_info=True)
+
+    _pipeline_summary_cache["data"] = summary
+    _pipeline_summary_cache["cached_at"] = now
+    return summary
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -61,6 +127,51 @@ def _serialize_jobs(jobs: list[dict]) -> list[dict]:
     return cleaned
 
 
+def _derive_match_signals(job: dict, profile: dict | None, saved_companies: set[str]) -> list[str]:
+    """Build the multi-line 'Why this ranked' signals shown in the editorial UI.
+
+    The ranker only stores a single `match_reason` string; this expands that
+    into the bullet-list shape the design expects without re-running GPT.
+    """
+    profile = profile or {}
+    signals: list[str] = []
+
+    reason = (job.get("match_reason") or "").strip()
+    if reason:
+        signals.append(reason)
+
+    company = (job.get("company") or "").strip()
+    if company and company.lower() in saved_companies:
+        signals.append(f"{company} is on your saved-companies list")
+
+    posted_at = job.get("posted_at")
+    if posted_at is not None:
+        try:
+            ts = posted_at if isinstance(posted_at, datetime) else None
+            if ts and ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            if ts:
+                delta_hours = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
+                if delta_hours <= 24:
+                    signals.append("Posted within the last 24 hours")
+                elif delta_hours >= 24 * 10:
+                    signals.append(f"Posted {int(delta_hours / 24)} days ago — may be stale")
+        except Exception:
+            pass
+
+    loc = (job.get("location") or "").strip()
+    target_locs = profile.get("targetLocations") or profile.get("preferredLocations") or []
+    if loc and target_locs:
+        if any(t and t.lower() in loc.lower() for t in target_locs if isinstance(t, str)):
+            signals.append(f"{loc} matches your geo preferences")
+
+    school = (profile.get("university") or profile.get("school") or "").strip()
+    if school and (job.get("alumni_count") or 0) > 0:
+        signals.append(f"{job['alumni_count']} {school} alum{'i' if job['alumni_count'] != 1 else 'us'} on team")
+
+    return signals[:4]
+
+
 # ---------------------------------------------------------------------------
 # GET /api/jobs/feed
 # ---------------------------------------------------------------------------
@@ -84,6 +195,44 @@ def get_feed():
         user_ref.update({"jobFeedCache": None})
 
     profile = user_doc.to_dict()
+
+    # Load negative-signal job_ids so dismissed rows stop reappearing.
+    dismissed_ids: set[str] = set()
+    try:
+        prefs_snap = (
+            user_ref.collection("jobPreferences")
+            .where("signal", "==", "negative")
+            .stream()
+        )
+        for d in prefs_snap:
+            pd = d.to_dict() or {}
+            jid = pd.get("job_id") or d.id
+            if jid:
+                dismissed_ids.add(jid)
+    except Exception as e:
+        logger.debug(f"could not load dismissed jobs for {uid}: {e}")
+
+    saved_companies: set[str] = set()
+    try:
+        saved_snap = user_ref.collection("savedJobs").stream()
+        for d in saved_snap:
+            sd = d.to_dict() or {}
+            co = (sd.get("company") or "").strip().lower()
+            if co:
+                saved_companies.add(co)
+    except Exception:
+        pass
+
+    def _enrich(jobs: list[dict]) -> list[dict]:
+        """Filter dismissed jobs and attach the editorial match_signals array."""
+        out: list[dict] = []
+        for j in jobs:
+            jid = j.get("job_id")
+            if jid and jid in dismissed_ids:
+                continue
+            j["match_signals"] = _derive_match_signals(j, profile, saved_companies)
+            out.append(j)
+        return out
 
     # Check cache
     cache = profile.get("jobFeedCache") or {}
@@ -176,8 +325,9 @@ def get_feed():
         cached_ids = cache.get("job_ids", [])
         cached_scores = cache.get("scores", {})
         cached_reasons = cache.get("reasons", {})
-        top_jobs = _load_top_jobs_from_cache(cached_ids, cached_scores, cached_reasons)
-        new_matches, nm_from_cache = _fetch_new_matches(cached_scores, cached_reasons)
+        top_jobs = _enrich(_load_top_jobs_from_cache(cached_ids, cached_scores, cached_reasons))
+        new_matches_raw, nm_from_cache = _fetch_new_matches(cached_scores, cached_reasons)
+        new_matches = _enrich(new_matches_raw)
 
         return jsonify({
             "new_matches": _serialize_jobs(new_matches) if not nm_from_cache else new_matches,
@@ -187,14 +337,16 @@ def get_feed():
             "ranked": True,
             "no_resume": False,
             "cached": True,
+            "summary": _get_pipeline_summary(),
         })
 
     if not cache_valid and cache_stale_ok:
         cached_ids = cache.get("job_ids", [])
         cached_scores = cache.get("scores", {})
         cached_reasons = cache.get("reasons", {})
-        top_jobs = _load_top_jobs_from_cache(cached_ids, cached_scores, cached_reasons)
-        new_matches, nm_from_cache = _fetch_new_matches(cached_scores, cached_reasons)
+        top_jobs = _enrich(_load_top_jobs_from_cache(cached_ids, cached_scores, cached_reasons))
+        new_matches_raw, nm_from_cache = _fetch_new_matches(cached_scores, cached_reasons)
+        new_matches = _enrich(new_matches_raw)
 
         # Trigger background re-rank if not already in progress
         if uid not in _ranking_in_progress:
@@ -211,12 +363,14 @@ def get_feed():
             "no_resume": False,
             "cached": True,
             "stale": True,
+            "summary": _get_pipeline_summary(),
         })
 
     # No resume — return unranked jobs by recency
     has_resume = bool(profile.get("resumeParsed") or profile.get("resumeText"))
     if not has_resume:
-        new_matches, nm_from_cache = _fetch_new_matches()
+        new_matches_raw, nm_from_cache = _fetch_new_matches()
+        new_matches = _enrich(new_matches_raw)
         top_query = (
             db.collection("jobs")
             .order_by("posted_at", direction="DESCENDING")
@@ -229,6 +383,7 @@ def get_feed():
             j["match_score"] = None
             j["match_reason"] = None
             j["ranked"] = False
+        top_jobs = _enrich(top_jobs)
 
         return jsonify({
             "new_matches": _serialize_jobs(new_matches) if not nm_from_cache else new_matches,
@@ -238,6 +393,7 @@ def get_feed():
             "ranked": False,
             "no_resume": True,
             "cached": False,
+            "summary": _get_pipeline_summary(),
         })
 
     # Has resume but no cache — return unranked jobs immediately, rank in background
@@ -253,8 +409,10 @@ def get_feed():
         j["match_score"] = None
         j["match_reason"] = None
         j["ranked"] = False
+    top_jobs = _enrich(top_jobs)
 
-    new_matches, nm_from_cache = _fetch_new_matches()
+    new_matches_raw, nm_from_cache = _fetch_new_matches()
+    new_matches = _enrich(new_matches_raw)
 
     # Trigger background ranking so next load is fast
     if uid not in _ranking_in_progress:
@@ -272,6 +430,7 @@ def get_feed():
         "no_resume": False,
         "cached": False,
         "ranking_in_progress": True,
+        "summary": _get_pipeline_summary(),
     })
 
 

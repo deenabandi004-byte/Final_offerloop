@@ -838,7 +838,34 @@ export interface FeedJob {
   posted_at: string;
   match_score: number | null;
   match_reason: string | null;
+  match_signals?: string[];
   ranked: boolean;
+}
+
+export interface SavedJob {
+  job_id: string;
+  title?: string;
+  company?: string;
+  location?: string;
+  apply_url?: string;
+  match_score?: number;
+  status?: string;
+  saved_at?: string;
+}
+
+export interface JobFeedSummary {
+  matched: number;
+  new_today: number;
+  saved: number;
+  ranking_active: boolean;
+  ranking_basis: string;
+  last_ranked_at: string | null;
+}
+
+export interface JobFeedSummaryMeta {
+  last_pipeline_run: string | null;
+  freshness_label: string;
+  stale: boolean;
 }
 
 export interface JobFeedResponse {
@@ -849,6 +876,9 @@ export interface JobFeedResponse {
   ranked: boolean;
   no_resume: boolean;
   cached: boolean;
+  stale?: boolean;
+  ranking_in_progress?: boolean;
+  summary?: JobFeedSummaryMeta;
 }
 
 export interface JobFeedbackRequest {
@@ -1980,6 +2010,41 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
       },
       body: JSON.stringify(params),
     });
+  }
+
+  async getJobFeedSummary(): Promise<JobFeedSummary> {
+    return this.makeRequest<JobFeedSummary>('/job-board/summary', {
+      method: 'GET',
+      headers: await this.getAuthHeaders(),
+    });
+  }
+
+  async listSavedJobs(): Promise<{ saved: SavedJob[]; count: number }> {
+    return this.makeRequest<{ saved: SavedJob[]; count: number }>('/job-board/saved-jobs', {
+      method: 'GET',
+      headers: await this.getAuthHeaders(),
+    });
+  }
+
+  async saveJob(job: SavedJob): Promise<{ success: boolean; job_id: string }> {
+    return this.makeRequest<{ success: boolean; job_id: string }>('/job-board/saved-jobs', {
+      method: 'POST',
+      headers: {
+        ...await this.getAuthHeaders(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(job),
+    });
+  }
+
+  async unsaveJob(jobId: string): Promise<{ success: boolean; job_id: string }> {
+    return this.makeRequest<{ success: boolean; job_id: string }>(
+      `/job-board/saved-jobs/${encodeURIComponent(jobId)}`,
+      {
+        method: 'DELETE',
+        headers: await this.getAuthHeaders(),
+      }
+    );
   }
 
   async optimizeResume(params: OptimizeResumeRequest): Promise<OptimizeResumeResponse> {

@@ -15,6 +15,9 @@ load_dotenv()
 import sys
 import os
 import logging
+import uuid
+from collections import Counter
+from datetime import datetime, timezone
 
 # Ensure project root (parent of backend/) is on sys.path so
 # `from backend.app.*` and `from app.*` imports both work.
@@ -29,12 +32,49 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+PIPELINE_RUNS_COLLECTION = "pipeline_runs"
+
 
 def _bootstrap_app():
     """Create a minimal Flask app and initialize Firebase (matching existing admin script pattern)."""
     app = Flask(__name__)
     init_firebase(app)
     return app
+
+
+def _source_breakdown(raw: list[dict]) -> dict:
+    counts = Counter((item.get("source") or "unknown") for item in raw)
+    return dict(counts)
+
+
+def _write_run_log(mode: str, started_at: datetime, result: dict | None, error: str | None = None):
+    """Write a pipeline_runs/{run_id} doc summarizing this run. Never raises."""
+    try:
+        from backend.app.extensions import get_db
+        db = get_db()
+        if not db:
+            logger.warning("Skipping pipeline_runs log: Firestore not initialized")
+            return
+        ended_at = datetime.now(timezone.utc)
+        run_id = ended_at.strftime("%Y%m%dT%H%M%SZ") + "_" + uuid.uuid4().hex[:6]
+        doc = {
+            "run_id": run_id,
+            "mode": mode,
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "duration_seconds": (ended_at - started_at).total_seconds(),
+            "written": (result or {}).get("written", 0),
+            "skipped_duplicates": (result or {}).get("skipped_duplicates", 0),
+            "total": (result or {}).get("total", 0),
+            "source_breakdown": (result or {}).get("source_breakdown") or {},
+            "deleted": (result or {}).get("deleted", 0),
+            "error": error,
+            "ok": error is None,
+        }
+        db.collection(PIPELINE_RUNS_COLLECTION).document(run_id).set(doc)
+        logger.info("pipeline_runs/%s written (ok=%s)", run_id, error is None)
+    except Exception as e:
+        logger.warning("Failed to write pipeline_runs log: %s", e)
 
 
 def run_pipeline(skip_fantastic: bool = False):
@@ -45,18 +85,21 @@ def run_pipeline(skip_fantastic: bool = False):
     sources = "Greenhouse, Lever, Ashby, Simplify" + ("" if skip_fantastic else ", Fantastic.jobs")
     logger.info("Fetching jobs from %s...", sources)
     raw = fetch_jobs(skip_fantastic=skip_fantastic)
+    breakdown = _source_breakdown(raw)
 
     logger.info("Normalizing %d raw results...", len(raw))
     normalized = normalize_all(raw)
 
     logger.info("Writing %d normalized jobs to Firestore...", len(normalized))
     result = write_jobs(normalized)
+    result["source_breakdown"] = breakdown
 
     print()
     print("Pipeline complete.")
     print(f"  New jobs written:     {result['written']}")
     print(f"  Duplicates skipped:   {result['skipped_duplicates']}")
     print(f"  Total processed:      {result['total']}")
+    print(f"  Source breakdown:     {breakdown}")
     return result
 
 
@@ -67,18 +110,21 @@ def run_fantastic_only():
 
     logger.info("Fetching jobs from Fantastic.jobs only...")
     raw = fetch_fantasticjobs()
+    breakdown = _source_breakdown(raw)
 
     logger.info("Normalizing %d raw results...", len(raw))
     normalized = normalize_all(raw)
 
     logger.info("Writing %d normalized jobs to Firestore...", len(normalized))
     result = write_jobs(normalized)
+    result["source_breakdown"] = breakdown
 
     print()
     print("Fantastic.jobs pipeline complete.")
     print(f"  New jobs written:     {result['written']}")
     print(f"  Duplicates skipped:   {result['skipped_duplicates']}")
     print(f"  Total processed:      {result['total']}")
+    print(f"  Source breakdown:     {breakdown}")
     return result
 
 
@@ -125,7 +171,7 @@ def run_cleanup():
     print()
     print("Cleanup complete.")
     print(f"  Expired jobs deleted: {deleted}")
-    return deleted
+    return {"deleted": deleted}
 
 
 if __name__ == "__main__":
@@ -133,12 +179,23 @@ if __name__ == "__main__":
 
     with app.app_context():
         if "--cleanup" in sys.argv:
-            run_cleanup()
+            mode, runner = "cleanup", run_cleanup
         elif "--fix-salaries" in sys.argv:
-            run_fix_salaries()
+            mode, runner = "fix-salaries", run_fix_salaries
         elif "--fantastic-only" in sys.argv:
-            run_fantastic_only()
+            mode, runner = "fantastic-only", run_fantastic_only
         elif "--skip-fantastic" in sys.argv:
-            run_pipeline(skip_fantastic=True)
+            mode, runner = "skip-fantastic", (lambda: run_pipeline(skip_fantastic=True))
         else:
-            run_pipeline()
+            mode, runner = "full", run_pipeline
+
+        started = datetime.now(timezone.utc)
+        try:
+            result = runner()
+            if not isinstance(result, dict):
+                result = {"total": int(result) if isinstance(result, (int, float)) else 0}
+            _write_run_log(mode, started, result, error=None)
+        except Exception as e:
+            logger.exception("Pipeline run failed: %s", e)
+            _write_run_log(mode, started, None, error=f"{type(e).__name__}: {e}")
+            sys.exit(1)
