@@ -384,10 +384,10 @@ export const JobBoardPage: React.FC = () => {
   const [sort, setSort] = useState("Best match");
   const [findHumansJob, setFindHumansJob] = useState<FindHumansJob | null>(null);
 
-  const loadFeed = useCallback(async (refresh = false) => {
+  const loadFeed = useCallback(async (refresh = false, opts?: { ungated?: boolean }) => {
     try {
       setFeedLoading(true);
-      const data = await apiService.getJobFeed({ refresh });
+      const data = await apiService.getJobFeed({ refresh, ungated: opts?.ungated });
       setFeed(data);
     } catch (err) {
       console.error("getJobFeed failed", err);
@@ -396,6 +396,14 @@ export const JobBoardPage: React.FC = () => {
       setFeedLoading(false);
     }
   }, []);
+
+  // Phase 2: "Show all" toggle bypasses hard intent gates on the next fetch
+  const [showAll, setShowAll] = useState(false);
+  const toggleShowAll = useCallback(() => {
+    const next = !showAll;
+    setShowAll(next);
+    loadFeed(true, { ungated: next });
+  }, [showAll, loadFeed]);
 
   const loadSummary = useCallback(async () => {
     try {
@@ -646,6 +654,85 @@ export const JobBoardPage: React.FC = () => {
                     {feedLoading && <div className="empty">Loading roles…</div>}
                     {!feedLoading && filteredJobs.length === 0 && (
                       <div className="empty">No roles match those filters yet.</div>
+                    )}
+                    {!feedLoading && feed?.gated?.applied && (
+                      (feed.gated.by_location + feed.gated.by_level + feed.gated.by_interest) > 0 && (
+                        <div
+                          role="status"
+                          style={{
+                            margin: "12px 0",
+                            padding: "10px 14px",
+                            background: "#FBF6E9",
+                            border: "1px solid #EEDFB0",
+                            borderRadius: 8,
+                            fontSize: "0.9em",
+                            color: "#5A4A1A",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 12,
+                          }}
+                        >
+                          <span>
+                            Filtered{" "}
+                            <strong>{feed.gated.by_location + feed.gated.by_level + feed.gated.by_interest}</strong>{" "}
+                            jobs that didn't match your preferences
+                            {feed.gated.by_level > 0 && ` · ${feed.gated.by_level} too senior`}
+                            {feed.gated.by_location > 0 && ` · ${feed.gated.by_location} wrong location`}
+                            {feed.gated.by_interest > 0 && ` · ${feed.gated.by_interest} off-topic`}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={toggleShowAll}
+                            style={{
+                              padding: "4px 10px",
+                              borderRadius: 6,
+                              border: "1px solid #C8A55E",
+                              background: "transparent",
+                              cursor: "pointer",
+                              fontWeight: 600,
+                              color: "#5A4A1A",
+                            }}
+                          >
+                            Show all
+                          </button>
+                        </div>
+                      )
+                    )}
+                    {!feedLoading && showAll && feed?.gated?.ungated && (
+                      <div
+                        role="status"
+                        style={{
+                          margin: "12px 0",
+                          padding: "10px 14px",
+                          background: "#F3F0E8",
+                          border: "1px solid #D7CDB5",
+                          borderRadius: 8,
+                          fontSize: "0.9em",
+                          color: "#544E3D",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 12,
+                        }}
+                      >
+                        <span>Showing all jobs (intent filters off).</span>
+                        <button
+                          type="button"
+                          onClick={toggleShowAll}
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: 6,
+                            border: "1px solid #8A8474",
+                            background: "transparent",
+                            cursor: "pointer",
+                            fontWeight: 600,
+                            color: "#544E3D",
+                          }}
+                        >
+                          Re-apply filters
+                        </button>
+                      </div>
                     )}
                     {!feedLoading && standouts.length > 0 && (
                       <div className="section">

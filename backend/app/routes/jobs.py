@@ -221,6 +221,9 @@ def get_feed():
     db = get_db()
     now = datetime.now(timezone.utc)
     refresh = request.args.get("refresh", "").lower() == "true"
+    # Phase 2 escape hatch: ?ungated=true skips hard intent gates even when
+    # the feature flag is on for this user. Useful for "Show all" toggle.
+    ungated = request.args.get("ungated", "").lower() == "true"
 
     # Load user profile
     user_ref = db.collection("users").document(uid)
@@ -228,11 +231,39 @@ def get_feed():
     if not user_doc.exists:
         return jsonify({"error": "User not found"}), 404
 
-    # Clear cache on explicit refresh
-    if refresh:
+    # Clear cache on explicit refresh OR ungated toggle (different feed shape)
+    if refresh or ungated:
         user_ref.update({"jobFeedCache": None})
 
     profile = user_doc.to_dict()
+
+    # ----- Phase 2: hard intent gates (feature-flag gated) ---------------
+    # Built once per request so all 4 return paths can call _apply_gates().
+    from backend.app.services import feature_flags
+    from backend.app.utils.intent_gates import build_user_intent, apply_intent_gates, intent_hash
+
+    _gating_on = (
+        not ungated
+        and feature_flags.is_enabled("hardIntentGating", uid=uid, default=False)
+    )
+    _user_intent = build_user_intent(profile) if _gating_on else None
+    _intent_hash_str = intent_hash(_user_intent) if _user_intent else None
+
+    def _apply_gates(new_matches, top_jobs):
+        """Return (new_matches, top_jobs, gated_dict) honoring flag + ungated."""
+        if not _gating_on or _user_intent is None:
+            return new_matches, top_jobs, {
+                "by_level": 0, "by_location": 0, "by_interest": 0,
+                "applied": False, "ungated": ungated,
+            }
+        gated_top, counts = apply_intent_gates(top_jobs, _user_intent)
+        gated_new, counts_new = apply_intent_gates(new_matches, _user_intent)
+        for k in ("by_level", "by_location", "by_interest"):
+            counts[k] = counts.get(k, 0) + counts_new.get(k, 0)
+        counts["applied"] = True
+        counts["ungated"] = False
+        counts["intent_hash"] = _intent_hash_str
+        return gated_new, gated_top, counts
 
     # Load negative-signal job_ids so dismissed rows stop reappearing.
     dismissed_ids: set[str] = set()
@@ -374,6 +405,7 @@ def get_feed():
         top_jobs = _enrich(_load_top_jobs_from_cache(cached_ids, cached_scores, cached_reasons))
         new_matches_raw, nm_from_cache = _fetch_new_matches(cached_scores, cached_reasons)
         new_matches = _enrich(new_matches_raw)
+        new_matches, top_jobs, gated_info = _apply_gates(new_matches, top_jobs)
 
         return jsonify({
             "new_matches": _serialize_jobs(new_matches) if not nm_from_cache else new_matches,
@@ -384,6 +416,7 @@ def get_feed():
             "no_resume": False,
             "cached": True,
             "summary": _get_pipeline_summary(),
+            "gated": gated_info,
         })
 
     if not cache_valid and cache_stale_ok:
@@ -400,6 +433,7 @@ def get_feed():
             _ranking_pool.submit(_background_rerank, uid)
             logger.info(f"Triggered background re-rank for {uid}")
 
+        new_matches, top_jobs, gated_info = _apply_gates(new_matches, top_jobs)
         return jsonify({
             "new_matches": _serialize_jobs(new_matches) if not nm_from_cache else new_matches,
             "top_jobs": _serialize_jobs(top_jobs),
@@ -410,6 +444,7 @@ def get_feed():
             "cached": True,
             "stale": True,
             "summary": _get_pipeline_summary(),
+            "gated": gated_info,
         })
 
     # No resume — return unranked jobs by recency
@@ -430,6 +465,7 @@ def get_feed():
             j["match_reason"] = None
             j["ranked"] = False
         top_jobs = _enrich(top_jobs)
+        new_matches, top_jobs, gated_info = _apply_gates(new_matches, top_jobs)
 
         return jsonify({
             "new_matches": _serialize_jobs(new_matches) if not nm_from_cache else new_matches,
@@ -440,6 +476,7 @@ def get_feed():
             "no_resume": True,
             "cached": False,
             "summary": _get_pipeline_summary(),
+            "gated": gated_info,
         })
 
     # Has resume but no cache — return unranked jobs immediately, rank in background
@@ -467,6 +504,7 @@ def get_feed():
         t.start()
         logger.info(f"Triggered background ranking for {uid} (first visit)")
 
+    new_matches, top_jobs, gated_info = _apply_gates(new_matches, top_jobs)
     return jsonify({
         "new_matches": _serialize_jobs(new_matches) if not nm_from_cache else new_matches,
         "top_jobs": _serialize_jobs(top_jobs),
@@ -477,6 +515,7 @@ def get_feed():
         "cached": False,
         "ranking_in_progress": True,
         "summary": _get_pipeline_summary(),
+        "gated": gated_info,
     })
 
 

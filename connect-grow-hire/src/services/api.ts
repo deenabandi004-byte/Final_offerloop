@@ -886,6 +886,17 @@ export interface JobFeedSummaryMeta {
   stale: boolean;
 }
 
+// Phase 2: counts of jobs dropped by the hard intent gates, per gate.
+// `applied: false` means gates were skipped (flag off OR ?ungated=true).
+export interface JobFeedGatedInfo {
+  by_level: number;
+  by_location: number;
+  by_interest: number;
+  applied: boolean;
+  ungated?: boolean;
+  intent_hash?: string;
+}
+
 export interface JobFeedResponse {
   new_matches: FeedJob[];
   top_jobs: FeedJob[];
@@ -897,6 +908,7 @@ export interface JobFeedResponse {
   stale?: boolean;
   ranking_in_progress?: boolean;
   summary?: JobFeedSummaryMeta;
+  gated?: JobFeedGatedInfo;
 }
 
 export interface JobFeedbackRequest {
@@ -2003,12 +2015,13 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
     return response;
   }
 
-  async getJobFeed(params?: { refresh?: boolean; type?: string; category?: string }): Promise<JobFeedResponse> {
+  async getJobFeed(params?: { refresh?: boolean; type?: string; category?: string; ungated?: boolean }): Promise<JobFeedResponse> {
     const headers = await this.getAuthHeaders();
     const searchParams = new URLSearchParams();
     if (params?.refresh) searchParams.set("refresh", "true");
     if (params?.type) searchParams.set("type", params.type);
     if (params?.category) searchParams.set("category", params.category);
+    if (params?.ungated) searchParams.set("ungated", "true");
     const qs = searchParams.toString();
     const url = qs ? `/jobs/feed?${qs}` : '/jobs/feed';
     return this.makeRequest<JobFeedResponse>(url, { method: 'GET', headers });
