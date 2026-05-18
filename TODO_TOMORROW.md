@@ -29,16 +29,33 @@ company-specific queries. Don't build until:
 2. dreamCompanies adoption is high enough that a polished fallback experience
    (e.g., "We hunted for X jobs at Stripe today — none found") is worth it
 
-### Phase 7 WIP still unstaged in working tree
+### Personalization-layer WIP — stashed for proper per-phase commits
 
-Files modified but not committed in any session (need attention or stash):
-- `backend/app/routes/job_board.py`
-- `backend/app/services/coffee_chat.py`
-- `backend/app/services/scout_service.py`
-- `backend/app/utils/linkedin_enrichment.py`
+The "unstaged sprawl" was actually a 9-phase **personalization data layer**
+(see `PERSONALIZATION_DATA_LAYER.md`) — ~3K LOC across 28 files, each phase
+feature-flag-gated default-OFF. Way too big for a tired commit.
 
-These predate tonight's session — leftover from an earlier Phase 7 migration
-attempt. Decide: commit, stash, or discard.
+**Now stashed** at `stash@{0}`:
+```
+git stash show -p stash@{0} | less   # review the diff
+git stash apply stash@{0}            # unstash without dropping the stash
+```
+
+The doc has per-phase file lists, so the natural workflow tomorrow is:
+1. `git stash apply stash@{0}` (don't pop yet)
+2. For each of P1-P9: `git add <files-from-doc>` + commit with phase name
+3. Push
+4. `git stash drop stash@{0}` once everything's committed
+
+Expected total: ~2-3 hours of careful work for a clean per-phase history.
+
+**Caveat — there were already 2 prior stashes** (`stash@{1}`, `stash@{2}`)
+from earlier sessions. Review all three before deciding what's still relevant:
+```
+git stash list
+git stash show stash@{1} --stat
+git stash show stash@{2} --stat
+```
 
 ### Smaller items
 
