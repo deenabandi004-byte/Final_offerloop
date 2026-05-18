@@ -886,12 +886,17 @@ export interface JobFeedSummaryMeta {
   stale: boolean;
 }
 
-// Phase 2: counts of jobs dropped by the hard intent gates, per gate.
+// Phase 2: counts of jobs dropped by the hard intent gates.
+// Per-gate counts (by_level, by_location, by_interest) are evaluated
+// independently — a job that fails two gates appears in both buckets,
+// so their sum may exceed `dropped`. Use `dropped` for the headline
+// "Filtered N jobs" count and the per-gate fields for the breakdown.
 // `applied: false` means gates were skipped (flag off OR ?ungated=true).
 export interface JobFeedGatedInfo {
   by_level: number;
   by_location: number;
   by_interest: number;
+  dropped: number;
   applied: boolean;
   ungated?: boolean;
   intent_hash?: string;

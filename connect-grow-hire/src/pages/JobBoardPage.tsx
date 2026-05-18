@@ -655,32 +655,29 @@ export const JobBoardPage: React.FC = () => {
                     {!feedLoading && filteredJobs.length === 0 && (
                       <div className="empty">No roles match those filters yet.</div>
                     )}
-                    {!feedLoading && feed?.gated?.applied && (
-                      (feed.gated.by_location + feed.gated.by_level + feed.gated.by_interest) > 0 && (
-                        <div
-                          role="status"
-                          style={{
-                            margin: "12px 0",
-                            padding: "10px 14px",
-                            background: "#FBF6E9",
-                            border: "1px solid #EEDFB0",
-                            borderRadius: 8,
-                            fontSize: "0.9em",
-                            color: "#5A4A1A",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            gap: 12,
-                          }}
-                        >
-                          <span>
-                            Filtered{" "}
-                            <strong>{feed.gated.by_location + feed.gated.by_level + feed.gated.by_interest}</strong>{" "}
-                            jobs that didn't match your preferences
-                            {feed.gated.by_level > 0 && ` · ${feed.gated.by_level} too senior`}
-                            {feed.gated.by_location > 0 && ` · ${feed.gated.by_location} wrong location`}
-                            {feed.gated.by_interest > 0 && ` · ${feed.gated.by_interest} off-topic`}
-                          </span>
+                    {!feedLoading && feed?.gated?.applied && (feed.gated.dropped ?? 0) > 0 && (
+                      <div
+                        role="status"
+                        style={{
+                          margin: "12px 0",
+                          padding: "10px 14px",
+                          background: "#FBF6E9",
+                          border: "1px solid #EEDFB0",
+                          borderRadius: 8,
+                          fontSize: "0.9em",
+                          color: "#5A4A1A",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 12,
+                        }}
+                      >
+                        <span>
+                          Filtered <strong>{feed.gated.dropped}</strong> jobs that didn't match your preferences
+                          {feed.gated.by_level > 0 && ` · ${feed.gated.by_level} too senior`}
+                          {feed.gated.by_location > 0 && ` · ${feed.gated.by_location} wrong location`}
+                          {feed.gated.by_interest > 0 && ` · ${feed.gated.by_interest} off-topic`}
+                        </span>
                           <button
                             type="button"
                             onClick={toggleShowAll}
@@ -697,7 +694,6 @@ export const JobBoardPage: React.FC = () => {
                             Show all
                           </button>
                         </div>
-                      )
                     )}
                     {!feedLoading && showAll && feed?.gated?.ungated && (
                       <div

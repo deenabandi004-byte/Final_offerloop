@@ -22,13 +22,33 @@ service cloud.firestore {
       // Users can read their own data
       allow read: if request.auth != null && request.auth.uid == userId;
       
-      // Users can update their own data EXCEPT tier-related fields
+      // Users can update their own data EXCEPT backend-managed fields.
+      //
+      // Three classes of protected fields:
+      //   1) tier/subscription — written only by Stripe webhook → backend
+      //   2) credit accounting — atomically deducted server-side; client write
+      //      would let a malicious user set `credits: 999999` to bypass paywalls
+      //   3) ranking/personalization caches — derived from server-side
+      //      computation, never user input; client write could spoof scoring
+      //      or rank-bias via fake embeddings
       allow update: if request.auth != null && request.auth.uid == userId
+        // (1) tier
         && !('tier' in request.resource.data.diff(resource.data).affectedKeys())
         && !('subscriptionTier' in request.resource.data.diff(resource.data).affectedKeys())
         && !('stripeSubscriptionId' in request.resource.data.diff(resource.data).affectedKeys())
         && !('stripeCustomerId' in request.resource.data.diff(resource.data).affectedKeys())
-        && !('maxCredits' in request.resource.data.diff(resource.data).affectedKeys());
+        // (2) credit accounting — `maxCredits` was already blocked; `credits`
+        // (current balance) and reset timer were not
+        && !('maxCredits' in request.resource.data.diff(resource.data).affectedKeys())
+        && !('credits' in request.resource.data.diff(resource.data).affectedKeys())
+        && !('lastCreditReset' in request.resource.data.diff(resource.data).affectedKeys())
+        && !('alumniSearchesUsed' in request.resource.data.diff(resource.data).affectedKeys())
+        && !('coffeeChatPrepsUsed' in request.resource.data.diff(resource.data).affectedKeys())
+        && !('interviewPrepsUsed' in request.resource.data.diff(resource.data).affectedKeys())
+        // (3) ranking + personalization caches
+        && !('resumeEmbedding' in request.resource.data.diff(resource.data).affectedKeys())
+        && !('resumeEmbeddingHash' in request.resource.data.diff(resource.data).affectedKeys())
+        && !('jobFeedCache' in request.resource.data.diff(resource.data).affectedKeys());
       
       // Users can create their own document on signup
       allow create: if request.auth != null && request.auth.uid == userId;

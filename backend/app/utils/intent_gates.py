@@ -428,30 +428,42 @@ def _gate_by_interest(job: dict, intent: dict) -> bool:
 def apply_intent_gates(jobs: list[dict], intent: dict) -> tuple[list[dict], dict]:
     """Run all three gates against the candidate pool.
 
-    Returns (kept_jobs, gated_counts) where gated_counts is
-    {"by_level": int, "by_location": int, "by_interest": int}.
+    Each gate is evaluated independently per job so a job that fails multiple
+    gates is counted in EACH bucket, not just the first one. This makes the
+    SPA banner ("12 too senior · 5 wrong location · 8 off-topic") truthful:
+    those counts now reflect actual gate failures, not "which gate happened
+    to short-circuit first".
+
+    A job is kept only if it passes all three gates. `dropped` (total unique
+    jobs removed from the feed) is also returned so the SPA can show an
+    accurate "N filtered" headline that isn't the sum of overlapping buckets.
     """
     if not jobs:
-        return [], {"by_level": 0, "by_location": 0, "by_interest": 0}
+        return [], {"by_level": 0, "by_location": 0, "by_interest": 0, "dropped": 0}
 
     kept = []
-    counts = {"by_level": 0, "by_location": 0, "by_interest": 0}
+    counts = {"by_level": 0, "by_location": 0, "by_interest": 0, "dropped": 0}
 
     for job in jobs:
-        if _gate_by_level(job, intent):
+        fails_level = _gate_by_level(job, intent)
+        fails_location = _gate_by_location(job, intent)
+        fails_interest = _gate_by_interest(job, intent)
+
+        if fails_level:
             counts["by_level"] += 1
-            continue
-        if _gate_by_location(job, intent):
+        if fails_location:
             counts["by_location"] += 1
-            continue
-        if _gate_by_interest(job, intent):
+        if fails_interest:
             counts["by_interest"] += 1
-            continue
-        kept.append(job)
+
+        if fails_level or fails_location or fails_interest:
+            counts["dropped"] += 1
+        else:
+            kept.append(job)
 
     logger.info(
-        "intent gates: kept %d/%d (by_level=%d, by_location=%d, by_interest=%d)",
-        len(kept), len(jobs),
+        "intent gates: kept %d/%d (dropped=%d, by_level=%d, by_location=%d, by_interest=%d)",
+        len(kept), len(jobs), counts["dropped"],
         counts["by_level"], counts["by_location"], counts["by_interest"],
     )
     return kept, counts
