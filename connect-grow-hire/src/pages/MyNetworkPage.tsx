@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { firebaseApi } from "@/services/firebaseApi";
+import { apiService } from "@/services/api";
 import { getCompanyLogoUrl } from "@/utils/suggestionChips";
 
 type TabId = "people" | "companies" | "managers";
@@ -224,7 +225,7 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
       <div>
         {row.linkedinUrl ? (
           <a
-            href={row.linkedinUrl}
+            href={row.linkedinUrl.startsWith('http') ? row.linkedinUrl : `https://${row.linkedinUrl}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-[11px] text-[#5B7799] hover:underline inline-flex items-center gap-1"
@@ -887,7 +888,7 @@ const ManagersTable: React.FC<{ rows: ManagerRow[] }> = ({ rows }) => {
             <div>
               {row.linkedinUrl ? (
                 <a
-                  href={row.linkedinUrl}
+                  href={row.linkedinUrl.startsWith('http') ? row.linkedinUrl : `https://${row.linkedinUrl}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-[11px] text-[#5B7799] hover:underline inline-flex items-center gap-1"
@@ -1089,6 +1090,33 @@ const MyNetworkPage: React.FC = () => {
     }).catch(() => {});
   }, [user?.uid]);
 
+  // Destructive bulk actions — confirm via window.confirm to match the
+  // pattern used elsewhere (e.g. RecruiterSpreadsheet.handleDeleteRecruiter).
+  const handleDeleteAllPeople = async () => {
+    if (!user?.uid || people.length === 0) return;
+    if (!window.confirm(`Delete all ${people.length} saved people? This cannot be undone.`)) return;
+    const ids = people.map((p) => p.id).filter(Boolean) as string[];
+    setPeople([]);
+    await Promise.all(ids.map((id) => firebaseApi.deleteContact(user.uid!, id).catch(() => {})));
+    // Drop the backend dedup cache so these people reappear in Find.
+    apiService.invalidateContactDedupCache().catch(() => {});
+  };
+
+  const handleDeleteAllManagers = async () => {
+    if (!user?.uid || managers.length === 0) return;
+    if (!window.confirm(`Delete all ${managers.length} hiring managers? This cannot be undone.`)) return;
+    const ids = managers.map((m) => m.id).filter(Boolean) as string[];
+    setManagers([]);
+    await Promise.all(ids.map((id) => firebaseApi.deleteRecruiter(user.uid!, id).catch(() => {})));
+  };
+
+  const handleClearExploringCompanies = () => {
+    if (exploringCompanies.length === 0) return;
+    if (!window.confirm(`Clear ${exploringCompanies.length} exploring companies? Companies tied to saved people will remain until you delete those people.`)) return;
+    localStorage.removeItem("ofl_exploring_companies");
+    setExploringCompanies([]);
+  };
+
   // Redirect bare /my-network to /my-network/people (AFTER all hooks)
   if (!tab) {
     return <Navigate to="/my-network/people" replace />;
@@ -1226,6 +1254,18 @@ const MyNetworkPage: React.FC = () => {
                       Clear filters
                     </button>
                   )}
+
+                  {/* Delete all — pushes to far right */}
+                  <button
+                    type="button"
+                    onClick={handleDeleteAllPeople}
+                    disabled={people.length === 0}
+                    title={people.length === 0 ? "No people to delete" : `Delete all ${people.length} saved people`}
+                    className="ml-auto inline-flex items-center gap-1 text-[12px] text-ink-3 hover:text-red-600 disabled:opacity-40 disabled:hover:text-ink-3 disabled:cursor-not-allowed"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete all
+                  </button>
                 </div>
               )}
 
@@ -1240,6 +1280,9 @@ const MyNetworkPage: React.FC = () => {
                     setPeople((prev) => prev.filter((p) => p.id !== id));
                     if (user?.uid) {
                       firebaseApi.deleteContact(user.uid, id).catch(() => {});
+                      // Drop the backend dedup cache so this person can
+                      // reappear in Find immediately.
+                      apiService.invalidateContactDedupCache().catch(() => {});
                     }
                   }}
                   onSaveNote={(id, note) => {
@@ -1259,11 +1302,27 @@ const MyNetworkPage: React.FC = () => {
               )}
               {activeTab === "companies" && (
                 <>
-                  <p className="text-[12px] text-ink-3 mb-3 leading-relaxed">
-                    Companies where you've saved contacts, plus ones you're
-                    exploring from Find. Click any card to see the people you
-                    know there.
-                  </p>
+                  <div className="flex items-start justify-between gap-4 mb-3">
+                    <p className="text-[12px] text-ink-3 leading-relaxed flex-1">
+                      Companies where you've saved contacts, plus ones you're
+                      exploring from Find. Click any card to see the people you
+                      know there.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleClearExploringCompanies}
+                      disabled={exploringCompanies.length === 0}
+                      title={
+                        exploringCompanies.length === 0
+                          ? "No exploring companies to clear"
+                          : `Clear ${exploringCompanies.length} exploring companies`
+                      }
+                      className="shrink-0 inline-flex items-center gap-1 text-[12px] text-ink-3 hover:text-red-600 disabled:opacity-40 disabled:hover:text-ink-3 disabled:cursor-not-allowed"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Clear exploring
+                    </button>
+                  </div>
                   <CompaniesTable
                     rows={companies}
                     onSelectCompany={(name) => {
@@ -1278,7 +1337,23 @@ const MyNetworkPage: React.FC = () => {
                   />
                 </>
               )}
-              {activeTab === "managers" && <ManagersTable rows={managers} />}
+              {activeTab === "managers" && (
+                <>
+                  <div className="flex justify-end mb-3">
+                    <button
+                      type="button"
+                      onClick={handleDeleteAllManagers}
+                      disabled={managers.length === 0}
+                      title={managers.length === 0 ? "No hiring managers to delete" : `Delete all ${managers.length} hiring managers`}
+                      className="inline-flex items-center gap-1 text-[12px] text-ink-3 hover:text-red-600 disabled:opacity-40 disabled:hover:text-ink-3 disabled:cursor-not-allowed"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Delete all
+                    </button>
+                  </div>
+                  <ManagersTable rows={managers} />
+                </>
+              )}
             </div>
           </div>
         </MainContentWrapper>

@@ -297,11 +297,18 @@ def discover_companies_live(
 
 
 def batch_enrich_contacts(contacts: list[dict]) -> dict[int, dict]:
-    """Enrich contacts with real-time web data.
+    """Enrich contacts with NON-LinkedIn web presence.
 
-    Uses shared cache so the same person isn't researched twice across users.
+    LinkedIn-sourced data is covered by the Apify pipeline; this call
+    deliberately excludes LinkedIn to avoid duplicate signals. Asks
+    Perplexity for podcast/talk/article/news/GitHub mentions, returns
+    structured categories with a bullet-list fallback when the model
+    doesn't produce clean JSON.
 
-    Returns dict keyed by index: {talking_points, recent_activity, verified_role, citations}.
+    Returns dict keyed by index:
+        media_appearances, published_writing, news_mentions,
+        talking_points (union, back-compat),
+        recent_activity (raw), verified_role (bool), citations.
     """
     client = _get_client()
     if not client:
@@ -319,32 +326,63 @@ def batch_enrich_contacts(contacts: list[dict]) -> dict[int, dict]:
             results[idx] = {}
             continue
 
-        cache_key = ["contact", name.lower(), company.lower()]
+        # v2 cache key — old payloads had a LinkedIn-overlapping shape.
+        cache_key = ["contact_v2", name.lower(), company.lower()]
         cached = get_cached("contact_enrichment", cache_key)
         if cached:
             results[idx] = cached
             continue
 
+        prompt = (
+            f"Find NON-LinkedIn web presence of {name}, {title} at {company} "
+            f"from the last 12 months. IGNORE LinkedIn entirely — that source "
+            f"is covered separately and any LinkedIn-sourced item is a duplicate. "
+            f"Look for: (1) podcast appearances or interviews; (2) conference "
+            f"talks, keynotes, or panels; (3) published articles, blog posts, "
+            f"or papers they authored; (4) news coverage or press mentions; "
+            f"(5) public GitHub projects; (6) substantive X/Twitter activity.\n\n"
+            f"Return ONLY a JSON object in this exact shape (omit any category "
+            f"with no items, but always include verified_role):\n"
+            f'{{\n'
+            f'  "media_appearances": ["one factual sentence per item with source name"],\n'
+            f'  "published_writing": ["..."],\n'
+            f'  "news_mentions": ["..."],\n'
+            f'  "verified_role": true\n'
+            f'}}\n'
+            f"verified_role = true if {title} at {company} appears to still "
+            f"be their current role, false if you find evidence they moved.\n"
+            f"If nothing notable beyond LinkedIn, return only "
+            f'{{"verified_role": true}} or {{"verified_role": false}}.'
+        )
+
         try:
             response = client.chat.completions.create(
                 model="sonar",
-                messages=[{
-                    "role": "user",
-                    "content": (
-                        f"Brief professional profile of {name}, {title} at {company}. "
-                        f"What have they published, presented, or been mentioned in recently? "
-                        f"What are their professional interests? Is this their current role? "
-                        f"Keep it to 3-4 bullet points."
-                    ),
-                }],
+                messages=[{"role": "user", "content": prompt}],
             )
-            content = response.choices[0].message.content
-            talking_points = _parse_bullet_points(content)
+            content = response.choices[0].message.content or ""
+            parsed = _parse_json_response(content)
+
+            if isinstance(parsed, dict) and "raw_text" not in parsed:
+                media = [s for s in (parsed.get("media_appearances") or []) if isinstance(s, str) and s.strip()]
+                writing = [s for s in (parsed.get("published_writing") or []) if isinstance(s, str) and s.strip()]
+                news = [s for s in (parsed.get("news_mentions") or []) if isinstance(s, str) and s.strip()]
+                verified = bool(parsed.get("verified_role", True))
+                talking_points = media + writing + news
+            else:
+                media = []
+                writing = []
+                news = []
+                talking_points = _parse_bullet_points(content)
+                verified = "current" in content.lower() or "still" in content.lower()
 
             enrichment = {
+                "media_appearances": media,
+                "published_writing": writing,
+                "news_mentions": news,
                 "talking_points": talking_points,
                 "recent_activity": content,
-                "verified_role": "current" in content.lower(),
+                "verified_role": verified,
                 "citations": _extract_citations(response),
             }
             results[idx] = enrichment
@@ -352,6 +390,77 @@ def batch_enrich_contacts(contacts: list[dict]) -> dict[int, dict]:
         except Exception:
             logger.warning("Perplexity enrichment failed for %s", name, exc_info=True)
             results[idx] = {}
+
+    return results
+
+
+def batch_enrich_company_news(contacts: list[dict]) -> dict[int, dict]:
+    """Fetch recent company news via Perplexity, batched per unique company.
+
+    Groups contacts by normalized company name; one search per company.
+    Shared cache means cross-user/cross-batch dedup too.
+
+    Returns dict keyed by contact index:
+        {company_recent_news: list[str], company_description: str}
+    """
+    client = _get_client()
+    if not client:
+        return {}
+
+    from app.services.enrichment_cache import get_cached, set_cached
+
+    name_to_indices: dict[str, list[int]] = {}
+    for idx, c in enumerate(contacts):
+        name = (c.get("Company") or c.get("company") or "").strip()
+        if not name:
+            continue
+        name_to_indices.setdefault(name.lower(), []).append(idx)
+
+    if not name_to_indices:
+        return {}
+
+    results: dict[int, dict] = {}
+    for key, indices in name_to_indices.items():
+        display_name = (contacts[indices[0]].get("Company") or contacts[indices[0]].get("company") or key).strip()
+
+        cache_key = ["company_news", key]
+        cached = get_cached("company_enrichment", cache_key)
+        if cached:
+            payload = cached
+        else:
+            try:
+                response = client.chat.completions.create(
+                    model="sonar",
+                    messages=[{
+                        "role": "user",
+                        "content": (
+                            f"What notable developments has {display_name} announced "
+                            f"in the last 3 months? Cover product launches, funding "
+                            f"rounds, leadership changes, major hires, or notable news. "
+                            f"Reply as 3-5 short bullet points, each one specific and "
+                            f"factual. If nothing notable, reply with 'NONE'."
+                        ),
+                    }],
+                    extra_body={"search_recency_filter": "month"},
+                )
+                content = response.choices[0].message.content or ""
+                if "NONE" in content.upper()[:20]:
+                    news = []
+                else:
+                    news = _parse_bullet_points(content)
+                payload = {
+                    "company_recent_news": news,
+                    "company_description": content[:500] if news else "",
+                }
+                if news:
+                    set_cached("company_enrichment", cache_key, payload)
+            except Exception:
+                logger.warning("Perplexity batch_enrich_company_news failed for %s", display_name, exc_info=True)
+                payload = {}
+
+        if payload:
+            for idx in indices:
+                results[idx] = payload
 
     return results
 

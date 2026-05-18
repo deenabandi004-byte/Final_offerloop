@@ -177,6 +177,10 @@ LEAD_TYPE_PRIORITY = [
     "recent_transition",
     "skills_overlap",
     "shared_hometown",
+    "linkedin_recent_activity",
+    "perplexity_web_mention",
+    "linkedin_interest_overlap",
+    "company_recent_news",
     "role_match",
     "general",
 ]
@@ -202,6 +206,10 @@ _TIER_UPGRADES: dict[str, int] = {
     "recent_transition": 0,
     "skills_overlap": 0,
     "shared_hometown": 1,
+    "linkedin_recent_activity": 0,
+    "perplexity_web_mention": 0,
+    "linkedin_interest_overlap": 0,
+    "company_recent_news": 0,
     "role_match": 0,
     "general": 0,
 }
@@ -231,6 +239,51 @@ _PERSONAL_FACT_PATTERNS = [
 
 RECENT_TRANSITION_MONTHS = 9
 PERSONAL_FACTS_CAP = 3
+
+
+# Templated cold-outreach phrases. Every strategy appends these to its
+# `avoid` list. Applies to the ENTIRE email body, not just the opener.
+BANNED_OPENERS: list[str] = [
+    "Never write 'fellow [school] alum,' 'fellow [school] grad,' or 'fellow Trojan/Bruin/etc.' anywhere",
+    "Never write 'as a fellow [anything]' anywhere in the email",
+    "Never write 'reaching out as a' or 'I'm reaching out because' anywhere",
+    "Never write 'I noticed we both' or 'I came across your profile' anywhere",
+    "Never write 'hope this finds you well' or 'I hope you're doing well' anywhere",
+    "Never write 'I admire your work,' 'impressive background,' or 'your work caught my attention'",
+    "Never write 'caught my attention,' 'caught my eye,' 'really interesting,' 'really resonated,' or 'stood out to me' anywhere",
+    "Never write 'it's great to connect' or 'great to e-meet you'",
+    "Never write 'was exciting to see,' 'exciting to see,' or any variant of generic 'this was X to see' acknowledgments",
+    "Never write 'must have been [significant/challenging/etc.]' or any phrase that editorializes on the obvious about their career — state facts, do not editorialize",
+    "Never write 'represents an interesting [career/path/evolution/move],' 'shows a fascinating X,' 'is a compelling [whatever]' or any phrase that labels a fact you just stated as interesting/impressive/fascinating. State the fact, ask the question, move on.",
+    "Never write 'for your reference' when mentioning the resume — it reads as filler",
+    "Never write 'any advice you might have' or any generic catch-all ask",
+    "Never refer to the sender in third person ('someone exploring X,' 'a student interested in Y') — always first person ('I'm exploring X')",
+    "Never frame the contact's current role as something they were 'drawn away to' or any phrasing that implies their previous job was the better choice",
+    "Never use 'would you have X minutes' or 'do you have time' — phrase the ask as a confident proposal ('Open to a 15-min call next week?')",
+    "Never call something a 'recent post' or 'your post about' unless it explicitly appears in the LINKEDIN POSTS section. Bio / About-section content is NOT a post — reference it as 'noted in your background' or similar.",
+    "If the LINKEDIN POSTS and NON-LINKEDIN WEB PRESENCE sections are BOTH empty, do NOT invent any 'recent post' or 'I saw your X' hook. Lead with COMPANY NEWS if present, otherwise lead with the personalization instruction's framing only.",
+    "No exclamation marks anywhere in the email",
+]
+
+
+def format_banned_phrases_block() -> str:
+    """Render BANNED_OPENERS as a top-of-prompt section with strong framing.
+
+    Lifting these rules out of per-contact AVOID (where they get buried in a
+    1500-char semicolon-joined line and skim-read by the LLM) into a dedicated
+    section at the top of the user prompt makes the LLM treat them as
+    first-class rules rather than late items in a long list.
+    """
+    lines = ["===== STRICTLY FORBIDDEN — DO NOT USE ANY OF THESE ANYWHERE IN THE EMAIL ====="]
+    lines.append(
+        "These phrases mark an email as templated / AI-generated. If you write any of them, "
+        "the email FAILS quality review and gets discarded. Honor every single rule below — "
+        "they are not suggestions:"
+    )
+    for rule in BANNED_OPENERS:
+        lines.append(f"  - {rule}")
+    lines.append("===== END FORBIDDEN PHRASES =====")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -286,6 +339,19 @@ class NormalizedContactProfile:
     tenure_years: int | None = None
     recently_joined: bool = False
     transition: dict | None = None
+
+    linkedin_recent_posts: list = field(default_factory=list)
+    linkedin_interests: list = field(default_factory=list)
+    linkedin_interests_lower: set = field(default_factory=set)
+    linkedin_summary: str = ""
+
+    company_recent_news: list = field(default_factory=list)
+    company_culture_keywords: list = field(default_factory=list)
+    company_description: str = ""
+
+    perplexity_media_appearances: list = field(default_factory=list)
+    perplexity_published_writing: list = field(default_factory=list)
+    perplexity_news_mentions: list = field(default_factory=list)
 
 
 @dataclass
@@ -706,6 +772,42 @@ def build_contact_profile(contact: dict) -> NormalizedContactProfile:
                 "to_title": cur.get("title", ""),
             }
 
+    # --- LinkedIn enrichment (Apify) -------------------------------------
+    li_recent_posts = [
+        p.strip() for p in (contact.get("linkedin_recent_posts") or [])
+        if isinstance(p, str) and p.strip()
+    ]
+    li_interests = [
+        i.strip() for i in (contact.get("linkedin_interests") or [])
+        if isinstance(i, str) and i.strip()
+    ]
+    li_interests_lower = {i.lower() for i in li_interests} - SKILLS_STOPLIST
+    # PDL exposes the LinkedIn About section as `summary`; use it as a
+    # fallback for linkedin_summary since Apify's post actor doesn't
+    # return profile text.
+    li_summary = (
+        contact.get("linkedin_summary") or contact.get("summary") or ""
+    ).strip()
+
+    # --- Company enrichment (Perplexity, per-company batched) ------------
+    co_news = [
+        n.strip() for n in (contact.get("company_recent_news") or [])
+        if isinstance(n, str) and n.strip()
+    ]
+    co_culture = [
+        k.strip() for k in (contact.get("company_culture_keywords") or [])
+        if isinstance(k, str) and k.strip()
+    ]
+    co_description = (contact.get("company_description") or "").strip()
+
+    # --- Perplexity non-LinkedIn web presence ----------------------------
+    def _clean_str_list(raw):
+        return [s.strip() for s in (raw or []) if isinstance(s, str) and s.strip()]
+
+    pplx_media = _clean_str_list(contact.get("perplexity_media_appearances"))
+    pplx_writing = _clean_str_list(contact.get("perplexity_published_writing"))
+    pplx_news = _clean_str_list(contact.get("perplexity_news_mentions"))
+
     return NormalizedContactProfile(
         first_name=first_name,
         last_name=last_name,
@@ -723,6 +825,16 @@ def build_contact_profile(contact: dict) -> NormalizedContactProfile:
         tenure_years=tenure_years,
         recently_joined=recently_joined,
         transition=transition,
+        linkedin_recent_posts=li_recent_posts,
+        linkedin_interests=li_interests,
+        linkedin_interests_lower=li_interests_lower,
+        linkedin_summary=li_summary,
+        company_recent_news=co_news,
+        company_culture_keywords=co_culture,
+        company_description=co_description,
+        perplexity_media_appearances=pplx_media,
+        perplexity_published_writing=pplx_writing,
+        perplexity_news_mentions=pplx_news,
     )
 
 
@@ -752,21 +864,32 @@ def _detect_all_signals(
                 hook_parts.append(f"studied {contact_major}")
             hook = " -- ".join(hook_parts)
 
+            major_clause = f" studying {user.major}" if user.major else ""
             instruction = (
-                f"Lead with the {user.university_short} alumni connection."
+                f"First sentence: introduce yourself as a current "
+                f"{user.university_short} student{major_clause}. The shared "
+                f"{user.university_short} background is context — work it "
+                f"into the self-intro naturally, do NOT make it the headline."
             )
             if contact_major and user.major:
                 if contact_major.lower().strip() != user.major.lower().strip():
                     instruction += (
-                        f" They studied {contact_major} while you're in "
-                        f"{user.major} -- acknowledge the different paths."
+                        f" Second sentence: acknowledge that they studied "
+                        f"{contact_major} (a different path from yours) and "
+                        f"tie that to a specific aspect of their current work."
                     )
                 else:
                     instruction += (
-                        f" You both studied {user.major} -- reference the "
-                        f"shared department."
+                        f" Second sentence: reference the shared "
+                        f"{user.major} department briefly, then pivot to "
+                        f"a specific aspect of their current work."
                     )
-            instruction += " One question only."
+            else:
+                instruction += (
+                    " Second sentence: pivot to a specific recent post or "
+                    "aspect of their role at " + (contact.company or "their company") + "."
+                )
+            instruction += " One thoughtful question, then the ask."
 
             signals.append({
                 "type": "alumni",
@@ -788,15 +911,17 @@ def _detect_all_signals(
             f"they're a {contact.title} there"
         )
         instruction = (
-            f"Show genuine interest in {contact.company} specifically -- "
-            f"not prestige, but something concrete about the company or "
-            f"their role as {contact.title}. Be direct that this is a "
-            f"company you're targeting."
+            f"First sentence: introduce yourself briefly ({user.university_short} "
+            f"student, what you're exploring). Second sentence: be direct that "
+            f"{contact.company} is on your shortlist — but back it up with "
+            f"something concrete about the company or their role as "
+            f"{contact.title}, not generic prestige. Never write 'admire,' "
+            f"'impressive,' or 'top-tier.'"
         )
         if contact.transition:
             instruction += (
-                f" Ask about their move from "
-                f"{contact.transition['from_company']}."
+                f" Use the ask to invite a conversation about their move "
+                f"from {contact.transition['from_company']}."
             )
 
         signals.append({
@@ -836,9 +961,13 @@ def _detect_all_signals(
                 f"they're a {c_role}"
             )
             instruction = (
-                f"Lead with the {co_name} connection. Mention your "
-                f"{'internship' if was_intern else 'time'} there "
-                f"specifically. Ask about their experience as {c_role}."
+                f"First sentence: introduce yourself and reference your "
+                f"{'internship' if was_intern else 'time'} at {co_name} as "
+                f"{u_title}. The shared employer is context — work it into "
+                f"the self-intro, do NOT lead with 'Fellow {co_name}-er' "
+                f"or similar canned phrasing. Second sentence: tie your "
+                f"experience there to one specific aspect of their work as "
+                f"{c_role}. One thoughtful question about that, then the ask."
             )
             signals.append({
                 "type": "shared_company",
@@ -927,12 +1056,18 @@ def _detect_all_signals(
                     )
 
                 instruction = (
-                    f"Reference the shared {c_major} background naturally."
+                    f"First sentence: introduce yourself as a "
+                    f"{user.university_short} {c_major} student. The "
+                    f"shared {c_major} background is context, not the "
+                    f"headline — never open with 'As a fellow {c_major} "
+                    f"major.' Second sentence: tie your {c_major} "
+                    f"background to a specific aspect of their work."
                 )
                 if contact.title:
                     instruction += (
-                        f" Ask how their {c_major} degree shaped their "
-                        f"path to {contact.title}."
+                        f" One question about how their {c_major} "
+                        f"background shaped their path to {contact.title}, "
+                        f"then the ask."
                     )
 
                 signals.append({
@@ -958,14 +1093,16 @@ def _detect_all_signals(
             hook += f" (from {from_co})"
 
         instruction = (
-            f"They just started at {to_co} -- ask how the transition "
-            f"has been"
+            f"First sentence: introduce yourself as a "
+            f"{user.university_short} student exploring "
+            f"{user.career_track or 'this space'}. Second sentence: "
+            f"reference that they recently joined {to_co} as {to_ttl}"
         )
         if from_co:
-            instruction += f" and what drew them from {from_co}"
+            instruction += f" coming from {from_co}"
         instruction += (
-            ". This is a natural, timely question that shows you're "
-            "paying attention."
+            " — show you've noticed without being presumptuous about why. "
+            "One thoughtful question about the transition itself, then the ask."
         )
 
         signals.append({
@@ -982,9 +1119,10 @@ def _detect_all_signals(
         top = sorted(overlap)[:4]
         hook = f"Shared skills: {', '.join(top)}"
         instruction = (
-            f"You share these skills: {', '.join(top)}. Reference a "
-            f"specific project or experience where you used one, then "
-            f"ask about their work with it. Be concrete."
+            f"First sentence: introduce yourself briefly. Second sentence: "
+            f"reference a specific project or experience where you used "
+            f"{top[0]}. Be concrete — say what you built or shipped. One "
+            f"question about their work with that same tooling, then the ask."
         )
         signals.append({
             "type": "skills_overlap",
@@ -1004,9 +1142,12 @@ def _detect_all_signals(
         if u_city and c_city and u_city == c_city:
             hook = f"Both from {contact.location or user.hometown}"
             instruction = (
-                f"Mention the shared {c_city.title()} connection "
-                f"naturally. Don't make it the whole email -- use it "
-                f"as a warm opener, then pivot to their work."
+                f"First sentence: introduce yourself briefly. Second "
+                f"sentence: weave in the shared {c_city.title()} "
+                f"background as a warm aside, then pivot to a specific "
+                f"aspect of their work — never make the hometown the "
+                f"whole point of the email. One question about their "
+                f"work, then the ask."
             )
             signals.append({
                 "type": "shared_hometown",
@@ -1016,7 +1157,124 @@ def _detect_all_signals(
                 "avoid": [],
             })
 
-    # 9. Role match -------------------------------------------------------
+    # 9. LinkedIn recent activity (Apify) ---------------------------------
+    if contact.linkedin_recent_posts:
+        candidates = [p for p in contact.linkedin_recent_posts if 20 <= len(p) <= 400]
+        post = candidates[0] if candidates else contact.linkedin_recent_posts[0]
+        snippet = post.strip()[:200].rstrip()
+        hook = f'Saw a recent LinkedIn post: "{snippet}"'
+        instruction = (
+            f"First sentence: introduce yourself briefly ("
+            f"{user.university_short or 'student'} student, what you're exploring). "
+            f"Second sentence: reference this specific recent LinkedIn post from "
+            f"the contact: \"{snippet}\". Quote or paraphrase one concrete idea "
+            f"from it — do NOT invent context that isn't in the post. One "
+            f"thoughtful question tied to that idea, then the ask."
+        )
+        signals.append({
+            "type": "linkedin_recent_activity",
+            "hook": hook,
+            "detail": "",
+            "instruction": instruction,
+            "avoid": [
+                "Don't paraphrase the post in a way that changes its meaning",
+                "Don't fabricate details that aren't in the post text",
+                "Don't say 'I saw your post' without referencing what it was about",
+            ],
+        })
+
+    # 9b. Perplexity non-LinkedIn web mention -----------------------------
+    pplx_items: list[tuple[str, str]] = []
+    for item in contact.perplexity_media_appearances:
+        pplx_items.append(("media", item))
+    for item in contact.perplexity_published_writing:
+        pplx_items.append(("writing", item))
+    for item in contact.perplexity_news_mentions:
+        pplx_items.append(("news", item))
+    if pplx_items:
+        category, item_text = pplx_items[0]
+        snippet = item_text.strip()[:200].rstrip()
+        category_label = {
+            "media": "podcast/talk",
+            "writing": "article",
+            "news": "news mention",
+        }.get(category, "web mention")
+        hook = f'Non-LinkedIn {category_label}: "{snippet}"'
+        instruction = (
+            f"First sentence: introduce yourself briefly. Second sentence: "
+            f"reference this specific {category_label}: \"{snippet}\". Attribute "
+            f"the source correctly — if it's a podcast, say 'I caught your "
+            f"{category_label}'; if an article, 'I read your piece on'; if news, "
+            f"name the publication if known. Do NOT say 'I saw your post about' "
+            f"— that phrasing belongs to LinkedIn-sourced items. One question "
+            f"tied to that, then the ask."
+        )
+        signals.append({
+            "type": "perplexity_web_mention",
+            "hook": hook,
+            "detail": "",
+            "instruction": instruction,
+            "avoid": [
+                "Don't attribute this item to LinkedIn — it came from another source",
+                "Don't paraphrase in a way that changes the meaning",
+                "Don't fabricate details not in the item text",
+            ],
+        })
+
+    # 9c. LinkedIn interest overlap ---------------------------------------
+    user_interest_pool = set(user.skills_lower) | set(user.extracurriculars_lower)
+    if user.career_track:
+        user_interest_pool.add(user.career_track.lower().strip())
+    li_overlap = user_interest_pool & contact.linkedin_interests_lower
+    if li_overlap:
+        shared = sorted(li_overlap)[:3]
+        hook = f"Shared LinkedIn interests: {', '.join(shared)}"
+        instruction = (
+            f"First sentence: introduce yourself briefly. Second sentence: "
+            f"name ONE shared interest from {', '.join(shared)} and tie it to "
+            f"your own experience or current work (be specific). One question "
+            f"about how that interest shows up in their role, then the ask. "
+            f"Never list multiple shared interests in the opener — pick one "
+            f"and go deep."
+        )
+        signals.append({
+            "type": "linkedin_interest_overlap",
+            "hook": hook,
+            "detail": f"{len(li_overlap)} shared interests",
+            "instruction": instruction,
+            "avoid": [
+                "Don't say 'I noticed we share similar interests'",
+                "Don't list multiple shared interests in the opener",
+            ],
+        })
+
+    # 9d. Company recent news (Perplexity, per-company batched) -----------
+    if contact.company_recent_news:
+        news = contact.company_recent_news[0].strip()
+        snippet = news[:200].rstrip()
+        co_label = contact.company or "their company"
+        hook = f'Recent news at {co_label}: "{snippet}"'
+        instruction = (
+            f"First sentence: introduce yourself briefly. Second sentence: "
+            f"reference this specific recent development at {co_label}: "
+            f"\"{snippet}\". Tie your interest in {co_label} to that "
+            f"development — don't praise the company in general, reference "
+            f"the specific news. One question about how it affects their "
+            f"team or work, then the ask."
+        )
+        signals.append({
+            "type": "company_recent_news",
+            "hook": hook,
+            "detail": "",
+            "instruction": instruction,
+            "avoid": [
+                "Don't praise the company generically ('great firm', 'industry leader')",
+                "Don't reference news that isn't in the specific item above",
+                f"Don't say 'I read that {co_label}...' — name the development",
+            ],
+        })
+
+    # 10. Role match ------------------------------------------------------
     if user.career_track and contact.title_lower:
         from app.utils.industry_classifier import (
             INDUSTRY_KEYWORDS, normalize_career_track,
@@ -1088,6 +1346,14 @@ def _build_label(
         return "Shared technical skills"
     if lead_type == "shared_hometown":
         return f"Both from {contact.location}" if contact.location else "Same hometown"
+    if lead_type == "linkedin_recent_activity":
+        return "Recent LinkedIn activity"
+    if lead_type == "perplexity_web_mention":
+        return "Recent web mention"
+    if lead_type == "linkedin_interest_overlap":
+        return "Shared LinkedIn interests"
+    if lead_type == "company_recent_news":
+        return f"Recent news at {contact.company}" if contact.company else "Recent company news"
     # career_path, role_match, general -> no label
     return ""
 
@@ -1174,10 +1440,11 @@ def build_personalization_strategy(
     # Warmth upgrade
     final_tier = _upgrade_warmth_tier(base_warmth_tier, lead_type)
 
-    # Avoid list: lead-specific + universal
+    # Avoid list: lead-specific only. Global BANNED_OPENERS are rendered
+    # once at the top of the user prompt via format_banned_phrases_block()
+    # instead of being repeated per-contact — keeps the per-contact AVOID
+    # focused on lead-type-specific items the LLM should pay attention to.
     avoid = list(lead.get("avoid", []))
-    if "Don't use 'I came across your background'" not in avoid:
-        avoid.append("Don't use 'I came across your background'")
 
     return PersonalizationStrategy(
         lead_hook=lead["hook"],

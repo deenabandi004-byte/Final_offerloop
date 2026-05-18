@@ -3,7 +3,7 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 // Hard-coded kill switch — set to true when PDL API is down, false when restored.
-const PDL_OUTAGE_ACTIVE = true;
+const PDL_OUTAGE_ACTIVE = false;
 
 const SESSION_KEY = "pdl_outage_banner_dismissed";
 

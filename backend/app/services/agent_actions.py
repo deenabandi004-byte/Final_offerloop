@@ -194,7 +194,7 @@ def execute_find_and_draft(
             "creditsSpent": 0,
         }
 
-    # Enrich contacts with real-time web data (Perplexity)
+    # Enrich contacts with non-LinkedIn web presence (Perplexity)
     enrichment_data = {}
     try:
         from app.services.perplexity_client import batch_enrich_contacts
@@ -203,8 +203,58 @@ def execute_find_and_draft(
             enrich = enrichment_data.get(idx, {})
             c["enrichment_talking_points"] = enrich.get("talking_points", [])
             c["enrichment_recent_activity"] = enrich.get("recent_activity", "")
+            if enrich.get("media_appearances"):
+                c["perplexity_media_appearances"] = enrich["media_appearances"]
+            if enrich.get("published_writing"):
+                c["perplexity_published_writing"] = enrich["published_writing"]
+            if enrich.get("news_mentions"):
+                c["perplexity_news_mentions"] = enrich["news_mentions"]
     except Exception:
         logger.warning("Contact enrichment failed, continuing without", exc_info=True)
+
+    # LinkedIn recent posts (Apify)
+    try:
+        from app.services.apify_client import batch_enrich_linkedin_posts_via_apify
+        apify_results = batch_enrich_linkedin_posts_via_apify(filtered) or {}
+        for idx, c in enumerate(filtered):
+            payload = apify_results.get(idx, {})
+            if payload.get("linkedin_recent_posts"):
+                c["linkedin_recent_posts"] = payload["linkedin_recent_posts"]
+    except Exception:
+        logger.warning("Apify LinkedIn enrichment failed, continuing", exc_info=True)
+
+    # Company news (Perplexity, batched per company)
+    try:
+        from app.services.perplexity_client import batch_enrich_company_news
+        co_results = batch_enrich_company_news(filtered) or {}
+        for idx, c in enumerate(filtered):
+            co = co_results.get(idx, {})
+            if co.get("company_recent_news"):
+                c["company_recent_news"] = co["company_recent_news"]
+            if co.get("company_description"):
+                c["company_description"] = co["company_description"]
+    except Exception:
+        logger.warning("Perplexity company enrichment failed, continuing", exc_info=True)
+
+    try:
+        _apify_post_count = sum(len(c.get("linkedin_recent_posts") or []) for c in filtered)
+        _pplx_person_hits = sum(
+            1 for c in filtered
+            if c.get("perplexity_media_appearances")
+            or c.get("perplexity_published_writing")
+            or c.get("perplexity_news_mentions")
+            or c.get("enrichment_talking_points")
+        )
+        _unique_companies = len({
+            (c.get("Company") or "").strip().lower()
+            for c in filtered if (c.get("Company") or "").strip()
+        })
+        logger.info(
+            f"[Enrich] uid={uid} contacts={len(filtered)} apify_posts={_apify_post_count} "
+            f"perplexity_person_hits={_pplx_person_hits} perplexity_company_unique={_unique_companies}"
+        )
+    except Exception:
+        pass
 
     # Generate emails
     resume_text = user_data.get("resumeText") or ""
@@ -315,6 +365,18 @@ def execute_find_and_draft(
             contact_doc["enrichmentCitations"] = enrich["citations"][:5]
         if enrich:
             contact_doc["enrichedAt"] = now_iso
+        if contact.get("perplexity_media_appearances"):
+            contact_doc["perplexityMediaAppearances"] = contact["perplexity_media_appearances"][:5]
+        if contact.get("perplexity_published_writing"):
+            contact_doc["perplexityPublishedWriting"] = contact["perplexity_published_writing"][:5]
+        if contact.get("perplexity_news_mentions"):
+            contact_doc["perplexityNewsMentions"] = contact["perplexity_news_mentions"][:5]
+        if contact.get("linkedin_recent_posts"):
+            contact_doc["linkedinRecentPosts"] = contact["linkedin_recent_posts"][:5]
+        if contact.get("company_recent_news"):
+            contact_doc["companyRecentNews"] = contact["company_recent_news"][:5]
+        if contact.get("company_description"):
+            contact_doc["companyDescription"] = contact["company_description"][:1000]
 
         # Create Gmail draft if possible
         if email_data and email.strip():

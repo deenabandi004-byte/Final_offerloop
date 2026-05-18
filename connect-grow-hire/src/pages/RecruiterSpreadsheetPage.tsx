@@ -28,6 +28,23 @@ import {
 } from "@/utils/suggestionChips";
 import { DEV_MOCK_USER } from "@/lib/devPreview";
 
+// Some job feeds (Greenhouse/Workday/LinkedIn JSON-LD) return location as a
+// schema.org PostalAddress object instead of a plain string. Flatten to text
+// so React doesn't try to render the object as a child.
+function locationToText(loc: unknown): string {
+  if (!loc) return '';
+  if (typeof loc === 'string') return loc;
+  if (typeof loc === 'object') {
+    const o = loc as Record<string, unknown>;
+    const parts = [o.addressLocality, o.addressRegion, o.addressCountry]
+      .filter((x): x is string => typeof x === 'string' && x.length > 0);
+    if (parts.length > 0) return parts.join(', ');
+    if (typeof o.streetAddress === 'string') return o.streetAddress;
+    return '';
+  }
+  return String(loc);
+}
+
 const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: boolean }> = ({ embedded = false, isDevPreview = false }) => {
   const { user: authUser } = useFirebaseAuth();
   const user = isDevPreview ? DEV_MOCK_USER as any : authUser;
@@ -262,7 +279,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
               jobTitleValue = parsedTitle;
             }
             if (parseResponse.job.location && !locationValue) {
-              locationValue = parseResponse.job.location;
+              locationValue = locationToText(parseResponse.job.location);
             }
             if (parseResponse.job.description && !description) {
               description = parseResponse.job.description;
@@ -630,7 +647,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                                         setJobPostingUrl(job.apply_url);
                                         setCompany(job.company);
                                         setJobTitle(job.title);
-                                        setLocation(job.location || '');
+                                        setLocation(locationToText(job.location));
                                         setChipsCollapsed(true);
                                       }}
                                       className="suggestion-row-enter"
@@ -729,13 +746,13 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                                             {job.match_score && job.match_score > 0 && job.location && (
                                               <span style={{ color: 'var(--ink-3, #8A8F9A)', margin: '0 4px' }}>&middot;</span>
                                             )}
-                                            {job.location && (
+                                            {job.location && locationToText(job.location) && (
                                               <em style={{
                                                 fontFamily: "'Instrument Serif', Georgia, serif",
                                                 fontStyle: 'italic',
                                                 color: 'var(--ink-2, #4A4F5B)',
                                               }}>
-                                                {job.location}
+                                                {locationToText(job.location)}
                                               </em>
                                             )}
                                           </div>

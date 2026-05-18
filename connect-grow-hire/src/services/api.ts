@@ -1354,6 +1354,20 @@ class ApiService {
    * Simple prompt-based search that parses prompt and returns contacts.
    * Uses existing search_contacts_with_smart_location_strategy() backend.
    */
+  /**
+   * Drop the backend's in-memory contact-dedup cache for the current user.
+   * Call this after deleting saved contact(s) so the deleted person can
+   * reappear in Find results immediately (instead of waiting for the
+   * 1-hour TTL).
+   */
+  async invalidateContactDedupCache(): Promise<{ ok: boolean } | ApiError> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ ok: boolean } | ApiError>('/contacts/invalidate-cache', {
+      method: 'POST',
+      headers,
+    });
+  }
+
   async promptSearch(prompt: string, maxContacts: number = 8): Promise<PromptSearchResponse | ApiError> {
     const headers = await this.getAuthHeaders();
     return this.makeRequest<PromptSearchResponse | ApiError>('/prompt-search', {

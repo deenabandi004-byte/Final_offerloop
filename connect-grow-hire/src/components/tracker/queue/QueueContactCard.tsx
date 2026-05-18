@@ -118,7 +118,7 @@ export function QueueContactCard({
           />
           {contact.linkedinUrl && !readOnly && (
             <a
-              href={contact.linkedinUrl}
+              href={contact.linkedinUrl.startsWith('http') ? contact.linkedinUrl : `https://${contact.linkedinUrl}`}
               target="_blank"
               rel="noreferrer"
               className="flex-shrink-0 text-gray-400 hover:text-[#3B82F6] p-1"

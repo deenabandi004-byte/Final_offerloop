@@ -127,7 +127,7 @@ function CandidateReceiptCard({ recruiter }: { recruiter: Recruiter }) {
 
         {recruiter.LinkedIn && (
           <a
-            href={recruiter.LinkedIn}
+            href={recruiter.LinkedIn.startsWith('http') ? recruiter.LinkedIn : `https://${recruiter.LinkedIn}`}
             target="_blank"
             rel="noreferrer noopener"
             className="mt-2 inline-flex items-center gap-1 text-xs text-[#2563EB] hover:underline"

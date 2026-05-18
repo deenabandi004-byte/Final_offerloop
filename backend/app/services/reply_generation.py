@@ -25,6 +25,7 @@ from app.utils.personalization import (
     build_user_profile,
     build_batch_strategies,
     PersonalizationStrategy,
+    format_banned_phrases_block,
 )
 from datetime import datetime
 from app.extensions import get_db
@@ -534,21 +535,106 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
             if strategy.supporting_details:
                 supporting_lines = "\n- Also relevant: " + "; ".join(strategy.supporting_details)
 
-            # Enrichment context from Perplexity (if available)
-            enrichment_lines = ""
+            # Source-labeled enrichment sections + cross-source dedup.
+            # Each section labeled by ORIGIN so the LLM cites correctly
+            # (LinkedIn post vs podcast vs company news).
+            li_posts_raw = contact.get("linkedin_recent_posts") or []
+            li_posts = [p.strip()[:200] for p in li_posts_raw[:3] if isinstance(p, str) and p.strip()]
+            li_interests = [s for s in (contact.get("linkedin_interests") or [])[:6] if isinstance(s, str) and s]
+            li_summary = (contact.get("linkedin_summary") or contact.get("summary") or "").strip()
+
+            pplx_media = [s for s in (contact.get("perplexity_media_appearances") or []) if isinstance(s, str) and s.strip()]
+            pplx_writing = [s for s in (contact.get("perplexity_published_writing") or []) if isinstance(s, str) and s.strip()]
+            pplx_news = [s for s in (contact.get("perplexity_news_mentions") or []) if isinstance(s, str) and s.strip()]
+
+            # Dedup Perplexity items against Apify post text (60% token overlap)
+            def _norm(s: str) -> set:
+                return set(w.lower() for w in re.findall(r"\w{4,}", s))
+            li_token_sets = [_norm(p) for p in li_posts]
+
+            def _is_dup(text: str) -> bool:
+                t = _norm(text)
+                if not t:
+                    return False
+                for lts in li_token_sets:
+                    if not lts:
+                        continue
+                    overlap = len(t & lts)
+                    if overlap >= max(3, int(0.6 * min(len(t), len(lts)))):
+                        return True
+                return False
+
+            pplx_media = [s for s in pplx_media if not _is_dup(s)]
+            pplx_writing = [s for s in pplx_writing if not _is_dup(s)]
+            pplx_news = [s for s in pplx_news if not _is_dup(s)]
+
+            legacy_talking = []
             if enrichment_data and enrichment_data.get(i):
-                enrich = enrichment_data[i]
-                talking_pts = enrich.get("talking_points", [])
-                if talking_pts:
-                    enrichment_lines += "\n- Recent activity/interests: " + "; ".join(talking_pts[:3])
-                if enrich.get("verified_role") is False:
-                    enrichment_lines += "\n- NOTE: Role may have changed — keep opening generic"
+                _structured_set = set(pplx_media + pplx_writing + pplx_news)
+                for pt in (enrichment_data[i].get("talking_points") or [])[:3]:
+                    if isinstance(pt, str) and pt.strip() and pt not in _structured_set and not _is_dup(pt):
+                        legacy_talking.append(pt.strip())
+
+            verified_role_warning = ""
+            if enrichment_data and enrichment_data.get(i, {}).get("verified_role") is False:
+                verified_role_warning = "\n- NOTE: Role may have changed — keep opening generic, don't assume current title"
+
+            sections = [
+                f"RECIPIENT (PDL identity):\n- {firstname} {lastname}\n- {title} at {company}\n- Industry: {industry}"
+            ]
+
+            li_section_lines = []
+            if li_posts:
+                li_section_lines.append("Recent posts (first-party, last 30d):")
+                for p in li_posts:
+                    li_section_lines.append(f"  - \"{p}\"")
+            if li_summary:
+                li_section_lines.append(f"About section: {li_summary[:300]}")
+            if li_interests:
+                li_section_lines.append(f"Declared interests: {', '.join(li_interests)}")
+            if li_section_lines:
+                sections.append("LINKEDIN (Apify / PDL):\n" + "\n".join(li_section_lines))
+
+            pplx_section_lines = []
+            if pplx_media:
+                pplx_section_lines.append("Podcasts / talks / interviews:")
+                for s in pplx_media[:3]:
+                    pplx_section_lines.append(f"  - {s.strip()[:280]}")
+            if pplx_writing:
+                pplx_section_lines.append("Published writing:")
+                for s in pplx_writing[:3]:
+                    pplx_section_lines.append(f"  - {s.strip()[:280]}")
+            if pplx_news:
+                pplx_section_lines.append("News mentions:")
+                for s in pplx_news[:3]:
+                    pplx_section_lines.append(f"  - {s.strip()[:280]}")
+            if legacy_talking:
+                pplx_section_lines.append("Other web findings:")
+                for s in legacy_talking:
+                    pplx_section_lines.append(f"  - {s[:280]}")
+            if pplx_section_lines:
+                sections.append("NON-LINKEDIN WEB PRESENCE (Perplexity):\n" + "\n".join(pplx_section_lines))
+
+            co_news = contact.get("company_recent_news") or []
+            co_news_clean = [n.strip()[:200] for n in co_news[:3] if isinstance(n, str) and n.strip()]
+            co_desc = (contact.get("company_description") or "").strip()
+            co_section_lines = []
+            if co_news_clean:
+                co_section_lines.append("Recent news (last 90d):")
+                for n in co_news_clean:
+                    co_section_lines.append(f"  - {n}")
+            if co_desc:
+                co_section_lines.append(f"Description: {co_desc[:300]}")
+            if co_section_lines:
+                sections.append(f"COMPANY NEWS — {company} (Perplexity):\n" + "\n".join(co_section_lines))
+
+            sources_block = "\n\n".join(sections)
 
             contact_context = f"""Contact {i}: {firstname} {lastname}
-- Role: {title} at {company}
-- Industry: {industry}
-- Lead hook: {strategy.lead_hook}
-- Personalization instruction: {strategy.prompt_instruction}{supporting_lines}{avoid_lines}{enrichment_lines}"""
+- Angle (internal): {strategy.lead_hook}
+- Personalization instruction: {strategy.prompt_instruction}{supporting_lines}{avoid_lines}{verified_role_warning}
+
+{sources_block}"""
 
             contact_contexts.append(contact_context)
         
@@ -663,9 +749,11 @@ The sender is exploring broadly and building their network.
         is_custom_purpose = email_template_purpose == "custom"
         include_resume_in_prompt = bool(resume_filename)
         if resume_filename:
+            # Resume mention: short and confident, never "for your reference"
+            # filler. The attachment speaks for itself.
             resume_line_section = f"""
 RESUME LINE (Third Paragraph - BEFORE signature):
-- "I've included my resume ({resume_filename}) for your reference."
+- "Resume attached: {resume_filename}."
 
 """
         else:
@@ -677,7 +765,9 @@ RESUME LINE (Third Paragraph - BEFORE signature):
 
         # For custom purpose: no networking-specific rules; user's template_instructions ARE the requirements
         if is_custom_purpose:
-            context_block = f"""TASK:
+            context_block = f"""{format_banned_phrases_block()}
+
+TASK:
 Generate {len(contacts)} personalized emails. Each email must be unique and written for that specific recipient.
 
 ABOUT THE SENDER:
@@ -794,6 +884,8 @@ Return ONLY valid JSON:
                 tier_counts[s.warmth_tier] = tier_counts.get(s.warmth_tier, 0) + 1
 
             context_block = f"""You write professional, natural networking emails for college students reaching out to industry professionals.
+
+{format_banned_phrases_block()}
 
 TASK:
 Write {len(contacts)} personalized networking emails.
@@ -931,20 +1023,20 @@ COMMON-GROUND DISCOVERY (warm-cold conversion):
 ===== EMAIL STRUCTURE =====
 
 1. Start with "Hi [FirstName],"
-2. Open naturally (see tone guide above, no forced pattern). IMPORTANT: vary the positioning sentence across the batch. Do NOT open every email with "I'm [name], a [major] student at [school] exploring [career] careers." Use different structures:
-   - "I'm [name], a [major] student at [school]..."
-   - "Currently a [year] at [school] studying [major],..."
-   - "As a [school] [major] student interested in [career],..."
-   - "[School] [major] student here,..."
+2. Open naturally (see tone guide above, no forced pattern). The first sentence MUST be a complete standalone introduction with subject + verb. Do NOT use comma-spliced fragments like "Currently a USC student studying X, and I saw...". IMPORTANT: vary the positioning sentence across the batch. Examples of acceptable openers (each is a complete sentence):
+   - "I'm [name], a [year] at [school] studying [major]."
+   - "I'm a [school] [major] student exploring [career]."
+   - "[Name] here — [year] at [school] focused on [major]."
+   - "I'm [name]. I'm currently a [school] [major] student looking into [career]."
    Each email in the batch must open differently.
 3. Show genuine interest in something specific about their work or background
 4. Ask ONE thoughtful, specific question
-5. Brief time ask — vary the phrasing across the batch. Use different wording each time, e.g.:
-   - "Would you have 15 minutes for a quick chat?"
-   - "Would you be open to a brief call?"
-   - "Could we set up a short conversation?"
-   - "Any chance you'd have time for a quick call?"
-   Do NOT use the same ask phrasing in more than one email in the batch.
+5. Confident, specific ask — propose a window, do NOT ask permission. Vary phrasing across the batch:
+   - "Open to a 15-min call next week?"
+   - "Could we grab 15 minutes before [month]?"
+   - "Up for a quick 15-min conversation in the next two weeks?"
+   - "Free for a 15-minute call sometime this month?"
+   NEVER use "Would you have X minutes," "do you have time," "any chance you'd," or any permission-seeking phrasing. Vary the phrasing across the batch — don't reuse the same ask twice.
 {resume_line_section}SIGNATURE (REQUIRED - every email MUST end with this):
 {signature_block_prompt}
 
@@ -984,7 +1076,41 @@ Return ONLY valid JSON:
                 "facts present in the contact's data. "
                 "(c) Common ground (shared hometown, shared school, shared interest from the "
                 "sender's personal context) gets ONE natural mention if clearly verifiable. "
-                "Otherwise omit. Never fabricate shared connections."
+                "Otherwise omit. Never fabricate shared connections.\n\n"
+                "SOURCE ATTRIBUTION — non-negotiable: "
+                "The contact context is structured into labeled sections (RECIPIENT, LINKEDIN, "
+                "NON-LINKEDIN WEB PRESENCE, COMPANY NEWS). When citing a fact, attribute it to the "
+                "section it came from. "
+                "(1) Phrases like \"your recent post,\" \"your LinkedIn post,\" or \"I saw your post about\" "
+                "are RESERVED for items listed under LINKEDIN > Recent posts. If that subsection is "
+                "absent or empty, do NOT use those phrases — bio / About-section content is NOT a "
+                "post, and inventing one is a hallucination. "
+                "(2) Podcasts, talks, articles, news mentions live under NON-LINKEDIN WEB PRESENCE — "
+                "cite them with appropriate verbs (\"caught your podcast,\" \"read your piece on,\" "
+                "\"saw the press coverage about\"). Never call them posts. "
+                "(3) If both LINKEDIN > Recent posts AND NON-LINKEDIN WEB PRESENCE are absent for "
+                "this contact, you MUST NOT invent a recent-activity hook. Lead with COMPANY NEWS "
+                "if present, otherwise lead with the personalization instruction's framing and a "
+                "thoughtful question grounded in the contact's role / career arc only.\n\n"
+                "TIGHT VOICE — non-negotiable: "
+                "(1) Exactly ONE question in the email, not two or three. Multiple questions read as "
+                "confused or demanding. Pick the single most thoughtful question and ask it. "
+                "(2) State facts about their career; never editorialize on them. Don't write \"must have "
+                "been challenging/significant/exciting\" or \"that's an impressive move\" — facts only. "
+                "(3) The ask must be a confident, specific proposal — not permission-seeking. Use "
+                "\"Open to a 15-min call next week?\" or \"Could we grab 15 minutes before [month]?\" "
+                "Never \"would you have X minutes,\" \"do you have time,\" or \"any advice you might have.\" "
+                "(4) Refer to the sender in FIRST PERSON ONLY. Write \"I'm exploring product management\" "
+                "not \"someone exploring product management\" or \"a student interested in.\" Third-person "
+                "self-reference is vague and reads as templated. "
+                "(5) Never frame the contact's current role as a step down or something they were "
+                "\"drawn away to.\" Their current job is their current job — ask about it directly. "
+                "(6) Target length: 80-120 words for the body. Three paragraphs max. "
+                "(7) The FIRST sentence must be a complete, standalone introduction of the sender "
+                "with a proper subject and verb (e.g. \"I'm a USC senior studying Data Science.\"). "
+                "Do NOT merge the self-intro and the hook into one comma-spliced sentence (\"Currently "
+                "a USC student studying X, and I saw your post...\"). Sentence 1 = sender intro. "
+                "Sentence 2 = the specific hook. Two separate sentences."
             )
 
         # Try Claude first, then GPT, then static fallback
@@ -1191,7 +1317,7 @@ Return ONLY valid JSON:
                     for mention in RESUME_MENTIONS:
                         for line in body.split('\n'):
                             if mention in line.lower():
-                                body = body.replace(line, f"I've included my resume ({resume_filename}) for your reference.")
+                                body = body.replace(line, f"Resume attached: {resume_filename}.")
                                 break
                         else:
                             continue
@@ -1202,7 +1328,7 @@ Return ONLY valid JSON:
                         custom_phrase = (signoff_config.get("signoffPhrase") or "").strip()
                         if custom_phrase not in sign_off_patterns:
                             sign_off_patterns.insert(0, custom_phrase)
-                    resume_line = f"I've included my resume ({resume_filename}) for your reference."
+                    resume_line = f"Resume attached: {resume_filename}."
                     
                     inserted = False
                     for pattern in sign_off_patterns:
@@ -1656,7 +1782,12 @@ def regenerate_with_feedback(contact, user_profile, original_email, failures):
                 f"Mention their company ({company}) or school ({college}) naturally."
             )
         elif f == "no_clear_ask":
-            failure_instructions.append("The email has no clear ask. Add a specific request like '15 minutes for a quick chat'.")
+            failure_instructions.append(
+                "The email has no clear ask. Add a confident, specific proposal — "
+                "for example 'Open to a 15-min call next week?' or 'Could we grab 15 minutes "
+                "before [month]?'. Do NOT use 'Would you have X minutes,' 'do you have time,' "
+                "'a quick chat,' or any permission-seeking phrasing."
+            )
         elif f == "weak_subject":
             failure_instructions.append("The subject line is too generic. Make it specific to the recipient or conversation topic (3-8 words).")
         elif f == "subject_no_contact_noun":
@@ -1677,11 +1808,16 @@ def regenerate_with_feedback(contact, user_profile, original_email, failures):
             failure_instructions.append(
                 f"This email is too similar to others in the batch. "
                 f"Rewrite the subject to be specific to {company} or {first_name}'s role as {title}. "
-                f"Also use a DIFFERENT opening sentence structure — do not use 'I'm [name], a [major] student at [school]'. "
-                f"Try alternatives like 'Currently studying [major] at [school],...' or 'As a [school] student interested in [career],...'."
+                f"Also vary the first-sentence self-intro — try a different phrasing of who you "
+                f"are (e.g. 'I'm a USC senior in Data Science exploring [field]' vs 'Senior "
+                f"at USC focused on [field] — exploring [target field]'). Always a complete "
+                f"sentence with subject + verb. Never use 'As a fellow [anything]' or any "
+                f"comma-spliced fragment like 'Currently a USC student studying X, and I saw...'."
             )
 
     prompt = f"""Improve this networking email. Fix ONLY the issues listed below. Keep the tone, structure, and intent.
+
+{format_banned_phrases_block()}
 
 ISSUES TO FIX:
 {chr(10).join(f'- {inst}' for inst in failure_instructions)}

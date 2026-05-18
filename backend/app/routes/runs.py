@@ -190,6 +190,21 @@ def _build_exclusion_data_from_firestore(db, user_id: str) -> dict:
 runs_bp = Blueprint('runs', __name__, url_prefix='/api')
 
 
+@runs_bp.route("/contacts/invalidate-cache", methods=["POST"])
+@require_firebase_auth
+def invalidate_contact_dedup_cache():
+    """Drop the in-memory contact-dedup cache for the authenticated user.
+
+    The Find feature uses an in-process cache (TTL 1h) of the user's saved
+    contacts to skip people they've already found. Frontend deletes go
+    direct-to-Firestore, so this endpoint must be called after deletes to
+    let the deleted person reappear in Find results immediately.
+    """
+    user_id = request.firebase_user["uid"]
+    _invalidate_exclusion_cache(user_id)
+    return jsonify({"ok": True}), 200
+
+
 @runs_bp.route("/prompt-search", methods=["POST"])
 @require_firebase_auth
 def prompt_search():
@@ -403,7 +418,7 @@ def prompt_search():
         # Trim to the originally requested count (whether or not dedup ran)
         contacts = contacts[:max_contacts]
 
-        # Enrich contacts with real-time web data (Perplexity)
+        # Enrich contacts with non-LinkedIn web presence (Perplexity)
         enrichment_data = {}
         try:
             from app.services.perplexity_client import batch_enrich_contacts
@@ -414,8 +429,61 @@ def prompt_search():
                     contact["enrichment_talking_points"] = enrich["talking_points"]
                 if enrich.get("recent_activity"):
                     contact["enrichment_recent_activity"] = enrich["recent_activity"]
+                if enrich.get("media_appearances"):
+                    contact["perplexity_media_appearances"] = enrich["media_appearances"]
+                if enrich.get("published_writing"):
+                    contact["perplexity_published_writing"] = enrich["published_writing"]
+                if enrich.get("news_mentions"):
+                    contact["perplexity_news_mentions"] = enrich["news_mentions"]
         except Exception:
             print("⚠️ Contact enrichment failed, continuing without", flush=True)
+
+        # Enrich contacts with LinkedIn recent posts (Apify)
+        try:
+            from app.services.apify_client import batch_enrich_linkedin_posts_via_apify
+            apify_results = batch_enrich_linkedin_posts_via_apify(contacts) or {}
+            for idx, contact in enumerate(contacts):
+                payload = apify_results.get(idx, {})
+                if payload.get("linkedin_recent_posts"):
+                    contact["linkedin_recent_posts"] = payload["linkedin_recent_posts"]
+        except Exception:
+            print("⚠️ Apify LinkedIn enrichment failed, continuing", flush=True)
+
+        # Enrich contacts with company news (Perplexity, batched per company)
+        try:
+            from app.services.perplexity_client import batch_enrich_company_news
+            company_enrichment = batch_enrich_company_news(contacts) or {}
+            for idx, contact in enumerate(contacts):
+                co = company_enrichment.get(idx, {})
+                if co.get("company_recent_news"):
+                    contact["company_recent_news"] = co["company_recent_news"]
+                if co.get("company_description"):
+                    contact["company_description"] = co["company_description"]
+        except Exception:
+            print("⚠️ Perplexity company enrichment failed, continuing", flush=True)
+
+        # Cost telemetry — single line per search so spend impact is visible.
+        try:
+            _apify_post_count = sum(len(c.get("linkedin_recent_posts") or []) for c in contacts)
+            _pplx_person_hits = sum(
+                1 for c in contacts
+                if c.get("perplexity_media_appearances")
+                or c.get("perplexity_published_writing")
+                or c.get("perplexity_news_mentions")
+                or c.get("enrichment_talking_points")
+            )
+            _unique_companies = len({
+                (c.get("Company") or "").strip().lower()
+                for c in contacts if (c.get("Company") or "").strip()
+            })
+            print(
+                f"[Enrich] uid={user_id} contacts={len(contacts)} "
+                f"apify_posts={_apify_post_count} perplexity_person_hits={_pplx_person_hits} "
+                f"perplexity_company_unique={_unique_companies}",
+                flush=True,
+            )
+        except Exception:
+            pass
 
         # Same pipeline as free-run: template, emails, drafts, deduct, save
         # A4: Build rich user profile from root doc + professionalInfo subcollection
@@ -719,6 +787,18 @@ def prompt_search():
                         contact_doc["enrichmentTalkingPoints"] = contact["enrichment_talking_points"][:5]
                     if contact.get("enrichment_recent_activity"):
                         contact_doc["enrichmentRecentActivity"] = contact["enrichment_recent_activity"]
+                    if contact.get("perplexity_media_appearances"):
+                        contact_doc["perplexityMediaAppearances"] = contact["perplexity_media_appearances"][:5]
+                    if contact.get("perplexity_published_writing"):
+                        contact_doc["perplexityPublishedWriting"] = contact["perplexity_published_writing"][:5]
+                    if contact.get("perplexity_news_mentions"):
+                        contact_doc["perplexityNewsMentions"] = contact["perplexity_news_mentions"][:5]
+                    if contact.get("linkedin_recent_posts"):
+                        contact_doc["linkedinRecentPosts"] = contact["linkedin_recent_posts"][:5]
+                    if contact.get("company_recent_news"):
+                        contact_doc["companyRecentNews"] = contact["company_recent_news"][:5]
+                    if contact.get("company_description"):
+                        contact_doc["companyDescription"] = contact["company_description"][:1000]
                     if contact.get("gmailDraftId") or contact.get("gmailDraftUrl"):
                         contact_doc["pipelineStage"] = "draft_created"
                     now_iso = datetime.utcnow().isoformat() + "Z"  # TODO: deprecated in Python 3.12

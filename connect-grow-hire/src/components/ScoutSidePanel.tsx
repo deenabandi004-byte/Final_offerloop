@@ -73,7 +73,7 @@ function ContactCard({ contact, onCopyEmail }: { contact: ContactResult; onCopyE
         )}
         {contact.linkedin_url && (
           <a
-            href={contact.linkedin_url}
+            href={contact.linkedin_url.startsWith('http') ? contact.linkedin_url : `https://${contact.linkedin_url}`}
             target="_blank"
             rel="noopener noreferrer"
             className="flex-shrink-0 text-xs text-blue-500 hover:text-blue-700 transition-colors"

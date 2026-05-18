@@ -27,7 +27,7 @@ class CompanyProfileExtract(BaseModel):
     industries: List[str] = []
     culture_keywords: List[str] = []
     careers_url: Optional[str] = None
-    leadership: List[dict] = []
+    leadership: List[str] = []
     recent_news: List[str] = []
 
 
