@@ -83,8 +83,11 @@ def quick_search(query: str, recency: str | None = None) -> dict:
             "model": "sonar",
             "messages": [{"role": "user", "content": query}],
         }
+        extra = {}
         if recency:
-            kwargs["search_recency_filter"] = recency
+            extra["search_recency_filter"] = recency
+        if extra:
+            kwargs["extra_body"] = extra
 
         response = client.chat.completions.create(**kwargs)
         result = {
@@ -119,8 +122,11 @@ def pro_search(query: str, recency: str | None = None) -> dict:
             "model": "sonar-pro",
             "messages": [{"role": "user", "content": query}],
         }
+        extra = {}
         if recency:
-            kwargs["search_recency_filter"] = recency
+            extra["search_recency_filter"] = recency
+        if extra:
+            kwargs["extra_body"] = extra
 
         response = client.chat.completions.create(**kwargs)
         result = {
@@ -208,7 +214,7 @@ def search_jobs_live(
         response = client.chat.completions.create(
             model="sonar",
             messages=[{"role": "user", "content": prompt}],
-            search_recency_filter="month",
+            extra_body={"search_recency_filter": "month"},
         )
         content = response.choices[0].message.content
         parsed = _parse_json_response(content)
@@ -441,7 +447,7 @@ def get_company_news_brief(
                     f"Return each as a single sentence."
                 ),
             }],
-            search_recency_filter=recency,
+            extra_body={"search_recency_filter": recency},
         )
         content = response.choices[0].message.content
         news_items = _parse_bullet_points(content)
@@ -487,7 +493,7 @@ def get_market_context(
                         f"in the last month? Brief summary."
                     ),
                 }],
-                search_recency_filter="month",
+                extra_body={"search_recency_filter": "month"},
             )
             context["hiring_intel"] = resp.choices[0].message.content
 

@@ -28,7 +28,11 @@ logger = logging.getLogger(__name__)
 
 MAX_FIRECRAWL_PER_RUN = 500
 DEFAULT_CONCURRENCY = 1     # cron path — safe, sequential
-BACKFILL_CONCURRENCY = 8    # one-shot backfill path — speed
+# Firecrawl Standard plan rate-limits at 175 req/min. With per-scrape time
+# variance, concurrency=2 keeps us comfortably under the limit even on
+# bursty Greenhouse/Lever pages. Raised concurrency burst-overruns the
+# limit and causes 90%+ failures (learned the hard way on the first backfill).
+BACKFILL_CONCURRENCY = 2
 
 ENRICHMENT_PENDING = "pending"
 ENRICHMENT_COMPLETED = "completed"
