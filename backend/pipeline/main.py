@@ -67,16 +67,26 @@ def _write_run_log(mode: str, started_at: datetime, result: dict | None, error: 
             return
         ended_at = datetime.now(timezone.utc)
         run_id = ended_at.strftime("%Y%m%dT%H%M%SZ") + "_" + uuid.uuid4().hex[:6]
+        r = result or {}
+        # The full-pipeline result dict uses {written, skipped_duplicates,
+        # total}; the enricher uses {processed, enriched, failed, skipped}.
+        # Fall back from total → processed so the unified `total` field on
+        # pipeline_runs is meaningful for BOTH modes. Without this fallback,
+        # enrich-only runs always logged total=0 even when they processed
+        # hundreds of jobs — masking real failures (see FIRECRAWL_API_KEY
+        # secret bug fixed today).
+        unified_total = r.get("total", r.get("processed", 0))
         doc = {
             "run_id": run_id,
             "mode": mode,
             "started_at": started_at,
             "ended_at": ended_at,
             "duration_seconds": (ended_at - started_at).total_seconds(),
-            "written": (result or {}).get("written", 0),
-            "skipped_duplicates": (result or {}).get("skipped_duplicates", 0),
-            "total": (result or {}).get("total", 0),
-            "source_breakdown": (result or {}).get("source_breakdown") or {},
+            "written": r.get("written", 0),
+            "skipped_duplicates": r.get("skipped_duplicates", 0),
+            "total": unified_total,
+            "processed": r.get("processed"),  # enricher-only, kept explicit too
+            "source_breakdown": r.get("source_breakdown") or {},
             "deleted": (result or {}).get("deleted", 0),
             "error": error,
             "ok": error is None,

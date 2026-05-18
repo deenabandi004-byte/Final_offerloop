@@ -23,7 +23,10 @@ on:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 50 min gives headroom for enrich-only runs (200 jobs * ~10s avg
+    # latency on Ashby/Workday retries can hit 25-30 min). Full
+    # pipeline runs typically finish in 2-5 min, well under cap.
+    timeout-minutes: 50
     steps:
       - name: Checkout repo
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
