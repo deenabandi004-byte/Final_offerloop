@@ -10,7 +10,8 @@ Usage:
     python pipeline/main.py --fix-salaries            # Recalculate WEEK salaries
     python pipeline/main.py --enrich-only             # Firecrawl JD enrichment for pending jobs
     python pipeline/main.py --enrich-only --limit=300 # Custom batch size (caps at 500)
-    python pipeline/main.py --backfill-enrich         # One-shot backfill for legacy jobs lacking enrichment_status
+    python pipeline/main.py --backfill-enrich                            # Backfill legacy jobs (default: last 14 days only)
+    python pipeline/main.py --backfill-enrich --since-days=30 --limit=2000  # Custom backfill window + cap
 """
 from dotenv import load_dotenv
 load_dotenv()
@@ -183,12 +184,13 @@ def run_cleanup():
     return {"deleted": deleted}
 
 
-def run_enrich(limit: int = 200, backfill: bool = False):
+def run_enrich(limit: int = 200, backfill: bool = False, since_days: int | None = None):
     """Firecrawl-backed JD enrichment: fill in `structured` on pending jobs."""
     from backend.pipeline.enricher import enrich_jobs
 
-    logger.info("Running enricher (limit=%d, backfill=%s)...", limit, backfill)
-    result = enrich_jobs(limit=limit, backfill=backfill)
+    logger.info("Running enricher (limit=%d, backfill=%s, since_days=%s)...",
+                limit, backfill, since_days)
+    result = enrich_jobs(limit=limit, backfill=backfill, since_days=since_days)
 
     print()
     print("Enrichment complete.")
@@ -210,6 +212,16 @@ def _parse_limit(default: int = 200) -> int:
     return default
 
 
+def _parse_since_days(default: int | None = None) -> int | None:
+    for arg in sys.argv:
+        if arg.startswith("--since-days="):
+            try:
+                return max(1, int(arg.split("=", 1)[1]))
+            except ValueError:
+                pass
+    return default
+
+
 if __name__ == "__main__":
     app = _bootstrap_app()
 
@@ -223,7 +235,10 @@ if __name__ == "__main__":
             mode, runner = "enrich-only", (lambda: run_enrich(limit=limit, backfill=False))
         elif "--backfill-enrich" in sys.argv:
             limit = _parse_limit(500)
-            mode, runner = "backfill-enrich", (lambda: run_enrich(limit=limit, backfill=True))
+            since_days = _parse_since_days(default=14)  # default: last 14 days only
+            mode, runner = "backfill-enrich", (
+                lambda: run_enrich(limit=limit, backfill=True, since_days=since_days)
+            )
         elif "--fantastic-only" in sys.argv:
             mode, runner = "fantastic-only", run_fantastic_only
         elif "--skip-fantastic" in sys.argv:

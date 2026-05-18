@@ -21,11 +21,14 @@ Cost guardrails:
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
 MAX_FIRECRAWL_PER_RUN = 500
+DEFAULT_CONCURRENCY = 1     # cron path — safe, sequential
+BACKFILL_CONCURRENCY = 8    # one-shot backfill path — speed
 
 ENRICHMENT_PENDING = "pending"
 ENRICHMENT_COMPLETED = "completed"
@@ -83,36 +86,76 @@ def _collect_pending(db, limit: int) -> list:
     return [(d.reference, d.to_dict() or {}) for d in query.stream()]
 
 
-def _collect_backfill(db, limit: int) -> list:
+def _collect_backfill(db, limit: int, since_days: int | None = None) -> list:
     """Return [(doc_ref, data), ...] for legacy jobs lacking enrichment_status.
 
-    Streams the whole `jobs` collection. Acceptable for one-shot backfill
-    (not for the regular cron). Jobs that already have `structured` from
-    some other path get auto-promoted to enrichment_status=completed and
-    don't count against `limit`.
+    Streams the `jobs` collection (no Firestore filter — "missing field"
+    queries aren't supported). Acceptable for one-shot backfill, NOT for
+    the regular cron path. Jobs with pre-existing `structured` payloads
+    are auto-promoted to enrichment_status=completed without burning a
+    Firecrawl scrape.
+
+    Args:
+        since_days: if set, only includes jobs with posted_at >=
+            (now - since_days). Avoids paying for jobs about to expire
+            from the 14-day TTL or stale postings.
     """
+    from datetime import datetime, timezone, timedelta
+    cutoff = None
+    if since_days is not None:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
+
     out = []
-    seen = 0
+    promoted = 0
+    skipped_old = 0
+    seen_total = 0
     for doc in db.collection("jobs").stream():
+        seen_total += 1
         data = doc.to_dict() or {}
         if data.get("enrichment_status"):
             continue
         if data.get("structured"):
-            # Pre-existing structured payload — just mark it complete, skip Firecrawl
             try:
                 doc.reference.update({"enrichment_status": ENRICHMENT_COMPLETED})
+                promoted += 1
             except Exception:
                 pass
             continue
+        if cutoff is not None:
+            posted = data.get("posted_at")
+            if posted is None:
+                skipped_old += 1
+                continue
+            # Normalize Firestore Timestamp / naive datetime to aware UTC
+            try:
+                if hasattr(posted, "timestamp") and posted.tzinfo is None:
+                    posted = posted.replace(tzinfo=timezone.utc)
+                if posted < cutoff:
+                    skipped_old += 1
+                    continue
+            except Exception:
+                skipped_old += 1
+                continue
         out.append((doc.reference, data))
-        seen += 1
-        if seen >= limit:
+        if len(out) >= limit:
             break
+
+    logger.info(
+        "backfill scan: %d total seen, %d eligible, %d auto-promoted, %d skipped (too old)",
+        seen_total, len(out), promoted, skipped_old,
+    )
     return out
 
 
-def enrich_jobs(limit: int = 200, backfill: bool = False) -> dict:
+def enrich_jobs(limit: int = 200, backfill: bool = False, since_days: int | None = None) -> dict:
     """Enrich up to `limit` pending jobs (capped at MAX_FIRECRAWL_PER_RUN).
+
+    Args:
+        limit: max jobs to enrich this run
+        backfill: True = scan whole collection for legacy entries; False = use
+            the indexed enrichment_status='pending' query (regular cron path)
+        since_days: backfill-only — only enrich jobs with posted_at within
+            the last N days. Prevents spending on stale postings.
 
     Returns {processed, enriched, failed, skipped, cost_estimate_usd, mode}.
     """
@@ -130,12 +173,20 @@ def enrich_jobs(limit: int = 200, backfill: bool = False) -> dict:
     if not db:
         raise RuntimeError("Firestore not initialized")
 
-    capped = min(max(1, limit), MAX_FIRECRAWL_PER_RUN)
+    # Cron is hard-capped for safety; manual --backfill-enrich runs use the
+    # user-specified limit so a one-shot backfill can do thousands in one pass.
+    if backfill:
+        capped = max(1, limit)
+    else:
+        capped = min(max(1, limit), MAX_FIRECRAWL_PER_RUN)
     mode = "backfill" if backfill else "cron"
 
     if backfill:
-        logger.info("Backfill mode: scanning jobs collection for legacy entries")
-        candidates = _collect_backfill(db, capped)
+        logger.info(
+            "Backfill mode: scanning jobs collection (since_days=%s)",
+            since_days if since_days is not None else "all",
+        )
+        candidates = _collect_backfill(db, capped, since_days=since_days)
     else:
         candidates = _collect_pending(db, capped)
 
@@ -146,21 +197,23 @@ def enrich_jobs(limit: int = 200, backfill: bool = False) -> dict:
             "cost_estimate_usd": 0.0, "mode": mode,
         }
 
-    logger.info("Enriching %d jobs (mode=%s)", len(candidates), mode)
+    concurrency = BACKFILL_CONCURRENCY if backfill else DEFAULT_CONCURRENCY
+    logger.info("Enriching %d jobs (mode=%s, concurrency=%d)",
+                len(candidates), mode, concurrency)
 
     enriched = 0
     failed = 0
     skipped = 0
+    processed = 0
 
-    for ref, data in candidates:
+    def _process_one(ref, data):
         url = data.get("apply_url") or data.get("url")
         if not url:
             try:
                 ref.update({"enrichment_status": ENRICHMENT_SKIPPED})
             except Exception:
                 pass
-            skipped += 1
-            continue
+            return "skipped"
 
         extracted = _extract_structured(url)
         if extracted:
@@ -170,19 +223,43 @@ def enrich_jobs(limit: int = 200, backfill: bool = False) -> dict:
                     "structured": structured,
                     "enrichment_status": ENRICHMENT_COMPLETED,
                 })
-                enriched += 1
+                return "enriched"
             except Exception as e:
                 logger.warning("Failed to write structured for %s: %s", url, e)
-                failed += 1
-        else:
-            try:
-                ref.update({
-                    "enrichment_status": ENRICHMENT_FAILED,
-                    "enrichment_failed_at": datetime.now(timezone.utc),
-                })
-            except Exception:
-                pass
-            failed += 1
+                return "failed"
+
+        try:
+            ref.update({
+                "enrichment_status": ENRICHMENT_FAILED,
+                "enrichment_failed_at": datetime.now(timezone.utc),
+            })
+        except Exception:
+            pass
+        return "failed"
+
+    if concurrency <= 1:
+        for ref, data in candidates:
+            outcome = _process_one(ref, data)
+            enriched += outcome == "enriched"
+            failed += outcome == "failed"
+            skipped += outcome == "skipped"
+            processed += 1
+    else:
+        with ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="enrich") as pool:
+            futures = [pool.submit(_process_one, ref, data) for ref, data in candidates]
+            for fut in as_completed(futures):
+                try:
+                    outcome = fut.result()
+                except Exception as e:
+                    logger.warning("worker raised: %s", e)
+                    outcome = "failed"
+                enriched += outcome == "enriched"
+                failed += outcome == "failed"
+                skipped += outcome == "skipped"
+                processed += 1
+                if processed % 100 == 0:
+                    logger.info("  progress: %d/%d (enriched=%d failed=%d skipped=%d)",
+                                processed, len(candidates), enriched, failed, skipped)
 
     result = {
         "processed": len(candidates),
