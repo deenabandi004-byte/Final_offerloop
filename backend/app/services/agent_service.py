@@ -58,6 +58,7 @@ DEFAULT_AGENT_CONFIG = {
     "enableJobDiscovery": True,
     "enableHiringManagers": True,
     "enableCompanyDiscovery": True,
+    "digestEnabled": True,
 }
 
 MUTABLE_CONFIG_FIELDS = {
@@ -68,6 +69,7 @@ MUTABLE_CONFIG_FIELDS = {
     "customInstructions", "signoffPhrase", "signatureBlock",
     "followUpEnabled", "followUpDays", "maxFollowUps", "blocklist",
     "enableJobDiscovery", "enableHiringManagers", "enableCompanyDiscovery",
+    "digestEnabled",
 }
 
 

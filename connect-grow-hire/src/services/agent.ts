@@ -69,6 +69,7 @@ export interface AgentConfig {
   enableJobDiscovery: boolean;
   enableHiringManagers: boolean;
   enableCompanyDiscovery: boolean;
+  digestEnabled: boolean;
 }
 
 export async function getAgentConfig(): Promise<AgentConfig> {
