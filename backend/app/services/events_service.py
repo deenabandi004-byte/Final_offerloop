@@ -104,44 +104,20 @@ def log_event(
     try:
         if doc_id:
             doc_ref = events_ref.document(doc_id)
-            # transaction.create fails if doc exists → idempotent
-            @_transactional_create
-            def _create(transaction, ref, data):
-                snap = ref.get(transaction=transaction)
-                if snap.exists:
-                    return None  # Already written, skip
-                transaction.create(ref, data)
-                return ref.id
-
-            result = _create(db.transaction(), doc_ref, doc_data)
-            if result is None:
-                logger.debug("Idempotent skip for event %s key=%s uid=%s", event_type_str, doc_id, uid)
-                return None
-            return result
+            # doc_ref.create() raises AlreadyExists if the doc exists → idempotent
+            doc_ref.create(doc_data)
+            return doc_ref.id
         else:
             # Auto-generate ID
             _, ref = events_ref.add(doc_data)
             return ref.id
     except Exception as e:
-        # Firestore ALREADY_EXISTS from transaction.create is the idempotency
-        # guard — treat it as a success (skip).
         err_str = str(e)
         if "ALREADY_EXISTS" in err_str or "already exists" in err_str.lower():
-            logger.debug("Idempotent skip (exception) for event %s key=%s uid=%s", event_type_str, doc_id, uid)
+            logger.debug("Idempotent skip for event %s key=%s uid=%s", event_type_str, doc_id, uid)
             return None
         logger.error("Failed to log event %s for uid=%s: %s", event_type_str, uid, e)
         return None
-
-
-def _transactional_create(fn):
-    """Decorator that passes transaction as first arg."""
-    import functools
-
-    @functools.wraps(fn)
-    def wrapper(transaction, *args, **kwargs):
-        return fn(transaction, *args, **kwargs)
-
-    return wrapper
 
 
 def log_event_batch(
