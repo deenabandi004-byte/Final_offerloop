@@ -29,6 +29,37 @@ def _get_client():
     return _client
 
 
+def _extract_json(result) -> dict:
+    """Pull structured JSON from a Firecrawl response.
+
+    The current SDK returns a `Document` object exposing `.json` directly;
+    older builds returned a plain dict with `json`/`extract` keys. Handle both
+    so we work regardless of SDK version.
+    """
+    json_payload = getattr(result, "json", None)
+    if isinstance(json_payload, dict):
+        return json_payload
+    if isinstance(result, dict):
+        cand = result.get("json")
+        if isinstance(cand, dict):
+            return cand
+        cand = result.get("extract")
+        if isinstance(cand, dict):
+            return cand
+    return {}
+
+
+def _extract_markdown_and_meta(result) -> dict:
+    """Pull markdown + metadata from a Firecrawl response (Document or dict)."""
+    md = getattr(result, "markdown", None)
+    if md is None and isinstance(result, dict):
+        md = result.get("markdown", "")
+    meta = getattr(result, "metadata", None)
+    if meta is None and isinstance(result, dict):
+        meta = result.get("metadata", {})
+    return {"markdown": md or "", "metadata": meta or {}}
+
+
 # ── Core scrape functions ────────────────────────────────────────────────
 
 
@@ -62,7 +93,7 @@ def extract_job_posting(url: str) -> dict:
             }],
             timeout=30000,
         )
-        extracted = result.get("json", result.get("extract", {})) if isinstance(result, dict) else {}
+        extracted = _extract_json(result)
         if extracted:
             set_cached("job_posting", cache_key, extracted)
         return extracted
@@ -98,7 +129,7 @@ def extract_company_profile(url: str) -> dict:
             }],
             timeout=30000,
         )
-        extracted = result.get("json", result.get("extract", {})) if isinstance(result, dict) else {}
+        extracted = _extract_json(result)
         if extracted:
             set_cached("company_profile", cache_key, extracted)
         return extracted
@@ -138,15 +169,10 @@ def scrape_url(url: str, extract_type: str = "general") -> dict:
                 }],
                 timeout=30000,
             )
-            return result.get("json", result.get("extract", {})) if isinstance(result, dict) else {}
+            return _extract_json(result)
         else:
             result = fc.scrape(url, formats=["markdown"], timeout=30000)
-            if isinstance(result, dict):
-                return {
-                    "markdown": result.get("markdown", ""),
-                    "metadata": result.get("metadata", {}),
-                }
-            return {"markdown": str(result)}
+            return _extract_markdown_and_meta(result)
     except Exception:
         logger.warning("Firecrawl scrape_url failed for %s", url, exc_info=True)
         return {}
@@ -179,7 +205,7 @@ def scrape_linkedin_profile(url: str) -> dict:
             }],
             timeout=30000,
         )
-        extracted = result.get("json", result.get("extract", {})) if isinstance(result, dict) else {}
+        extracted = _extract_json(result)
         if extracted:
             set_cached("contact_enrichment", cache_key, extracted)
         return extracted

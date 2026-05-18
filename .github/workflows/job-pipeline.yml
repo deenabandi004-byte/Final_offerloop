@@ -2,8 +2,9 @@ name: Job Pipeline
 
 on:
   schedule:
-    - cron: '0 */2 * * *'   # full pipeline every 2 hours
-    - cron: '0 3 * * *'     # cleanup once daily at 03:00 UTC
+    - cron: '0 */2 * * *'     # full pipeline every 2 hours
+    - cron: '15,45 * * * *'   # Firecrawl enrichment twice an hour (decoupled from full fetch)
+    - cron: '0 3 * * *'       # cleanup once daily at 03:00 UTC
   workflow_dispatch:
     inputs:
       mode:
@@ -13,6 +14,8 @@ on:
         options:
           - full
           - cleanup
+          - enrich-only
+          - backfill-enrich
           - fantastic-only
           - skip-fantastic
           - fix-salaries
@@ -50,6 +53,8 @@ jobs:
             MODE="${{ github.event.inputs.mode }}"
           elif [ "${{ github.event.schedule }}" = "0 3 * * *" ]; then
             MODE="cleanup"
+          elif [ "${{ github.event.schedule }}" = "15,45 * * * *" ]; then
+            MODE="enrich-only"
           else
             MODE="full"
           fi
@@ -60,12 +65,15 @@ jobs:
         env:
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
         run: |
           case "${{ steps.mode.outputs.mode }}" in
-            full)             python -m backend.pipeline.main ;;
-            cleanup)          python -m backend.pipeline.main --cleanup ;;
-            fantastic-only)   python -m backend.pipeline.main --fantastic-only ;;
-            skip-fantastic)   python -m backend.pipeline.main --skip-fantastic ;;
-            fix-salaries)     python -m backend.pipeline.main --fix-salaries ;;
+            full)              python -m backend.pipeline.main ;;
+            cleanup)           python -m backend.pipeline.main --cleanup ;;
+            enrich-only)       python -m backend.pipeline.main --enrich-only ;;
+            backfill-enrich)   python -m backend.pipeline.main --backfill-enrich ;;
+            fantastic-only)    python -m backend.pipeline.main --fantastic-only ;;
+            skip-fantastic)    python -m backend.pipeline.main --skip-fantastic ;;
+            fix-salaries)      python -m backend.pipeline.main --fix-salaries ;;
             *) echo "Unknown mode"; exit 1 ;;
           esac

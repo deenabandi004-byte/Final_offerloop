@@ -282,8 +282,20 @@ def deterministic_score(job: dict, profile: dict) -> float:
     elif not preferred_type:
         score += 15
     if user_skills:
-        desc_lower = job.get("description_raw", "").lower()
-        score += min(sum(1 for s in user_skills if s in desc_lower) * 4, 20)
+        # Phase 1: prefer Firecrawl-structured requirements list over the noisy
+        # description blob when available (higher signal: requirements is a
+        # short, canonical list rather than 8000 chars of fluff).
+        structured = job.get("structured") or {}
+        reqs = structured.get("requirements") or []
+        if isinstance(reqs, list) and reqs:
+            reqs_text = " ".join(r for r in reqs if isinstance(r, str)).lower()
+            nice = structured.get("nice_to_have") or []
+            if isinstance(nice, list):
+                reqs_text += " " + " ".join(n for n in nice if isinstance(n, str)).lower()
+            score += min(sum(1 for s in user_skills if s in reqs_text) * 6, 30)
+        else:
+            desc_lower = job.get("description_raw", "").lower()
+            score += min(sum(1 for s in user_skills if s in desc_lower) * 4, 20)
 
     # Graduation year fit
     education = (profile.get("resumeParsed") or {}).get("education", {}) or {}
@@ -422,11 +434,25 @@ def rank_with_gpt(jobs: list[dict], profile: dict) -> list[dict]:
         title = (job.get("title") or "")[:60]
         company = (job.get("company") or "")[:30]
         location = (_normalize_location(job.get("location")) or "")[:30]
-        desc = (job.get("description_raw") or "")[:100]
-        jobs_str += (
-            f'[{job["job_id"]}] {title} @ {company} | {location}\n'
-            f'  {job.get("type")} | {desc}\n'
-        )
+        # Phase 1: prefer the canonical requirements list from Firecrawl over
+        # the noisy 100-char description excerpt. Tighter, higher-signal context
+        # for GPT-4o-mini.
+        structured = job.get("structured") or {}
+        reqs = structured.get("requirements") or []
+        if isinstance(reqs, list) and reqs:
+            req_summary = "; ".join(str(r) for r in reqs[:3] if r)[:200]
+            level = structured.get("experience_level") or ""
+            level_tag = f" | {level}" if level else ""
+            jobs_str += (
+                f'[{job["job_id"]}] {title} @ {company} | {location}\n'
+                f'  {job.get("type")}{level_tag} | requires: {req_summary}\n'
+            )
+        else:
+            desc = (job.get("description_raw") or "")[:100]
+            jobs_str += (
+                f'[{job["job_id"]}] {title} @ {company} | {location}\n'
+                f'  {job.get("type")} | {desc}\n'
+            )
 
     system_prompt = """You are a job matching assistant for college students.
 Rank jobs by fit: 1) Field alignment with major 2) Job type fit 3) Skills match 4) Seniority fit.

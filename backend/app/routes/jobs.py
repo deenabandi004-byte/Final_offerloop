@@ -136,7 +136,7 @@ def _dedup_by_title_company(jobs: list[dict]) -> list[dict]:
 
 
 def _serialize_jobs(jobs: list[dict]) -> list[dict]:
-    """Convert Firestore timestamps to ISO strings and strip description_raw."""
+    """Convert Firestore timestamps to ISO strings, strip large/internal fields."""
     cleaned = []
     for job in jobs:
         doc = dict(job)
@@ -144,10 +144,17 @@ def _serialize_jobs(jobs: list[dict]) -> list[dict]:
             val = doc.get(ts_field)
             if val is not None and hasattr(val, "isoformat"):
                 doc[ts_field] = val.isoformat()
-            elif val is not None and hasattr(val, "timestamp"):
-                # Firestore DatetimeWithNanoseconds
-                doc[ts_field] = val.isoformat()
+        # Phase 1 structured payload: serialize its enriched_at timestamp
+        structured = doc.get("structured")
+        if isinstance(structured, dict):
+            sd = dict(structured)
+            ea = sd.get("enriched_at")
+            if ea is not None and hasattr(ea, "isoformat"):
+                sd["enriched_at"] = ea.isoformat()
+            doc["structured"] = sd
         doc.pop("description_raw", None)
+        # 12KB embedding vector — internal only, never send to the SPA
+        doc.pop("titleEmbedding", None)
         cleaned.append(doc)
     return cleaned
 

@@ -3,11 +3,14 @@
 Offerloop Job Pipeline — entry point.
 
 Usage:
-    python pipeline/main.py                  # Full pipeline: fetch → normalize → write
-    python pipeline/main.py --skip-fantastic  # Full pipeline, skip Fantastic.jobs
-    python pipeline/main.py --fantastic-only  # Fantastic.jobs only (finance/consulting/big tech)
-    python pipeline/main.py --cleanup        # Delete expired jobs only
-    python pipeline/main.py --fix-salaries   # Recalculate WEEK salaries
+    python pipeline/main.py                          # Full pipeline: fetch → normalize → write
+    python pipeline/main.py --skip-fantastic          # Full pipeline, skip Fantastic.jobs
+    python pipeline/main.py --fantastic-only          # Fantastic.jobs only
+    python pipeline/main.py --cleanup                 # Delete expired jobs only
+    python pipeline/main.py --fix-salaries            # Recalculate WEEK salaries
+    python pipeline/main.py --enrich-only             # Firecrawl JD enrichment for pending jobs
+    python pipeline/main.py --enrich-only --limit=300 # Custom batch size (caps at 500)
+    python pipeline/main.py --backfill-enrich         # One-shot backfill for legacy jobs lacking enrichment_status
 """
 from dotenv import load_dotenv
 load_dotenv()
@@ -19,9 +22,15 @@ import uuid
 from collections import Counter
 from datetime import datetime, timezone
 
-# Ensure project root (parent of backend/) is on sys.path so
-# `from backend.app.*` and `from app.*` imports both work.
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+# Ensure both project root (for `from backend.app.*`) and the backend/
+# directory (for `from app.*` — Flask-style relative imports used by
+# services like firecrawl_client) are on sys.path. The enricher transitively
+# imports modules that rely on the latter.
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))           # …/backend/pipeline
+_BACKEND_DIR = os.path.dirname(_THIS_DIR)                         # …/backend
+_PROJECT_ROOT = os.path.dirname(_BACKEND_DIR)                     # repo root
+sys.path.insert(0, _PROJECT_ROOT)
+sys.path.insert(0, _BACKEND_DIR)
 
 from flask import Flask
 from backend.app.extensions import init_firebase
@@ -174,6 +183,33 @@ def run_cleanup():
     return {"deleted": deleted}
 
 
+def run_enrich(limit: int = 200, backfill: bool = False):
+    """Firecrawl-backed JD enrichment: fill in `structured` on pending jobs."""
+    from backend.pipeline.enricher import enrich_jobs
+
+    logger.info("Running enricher (limit=%d, backfill=%s)...", limit, backfill)
+    result = enrich_jobs(limit=limit, backfill=backfill)
+
+    print()
+    print("Enrichment complete.")
+    print(f"  Processed:           {result.get('processed', 0)}")
+    print(f"  Enriched (structured saved): {result.get('enriched', 0)}")
+    print(f"  Failed:              {result.get('failed', 0)}")
+    print(f"  Skipped (no URL):    {result.get('skipped', 0)}")
+    print(f"  Estimated cost:      ${result.get('cost_estimate_usd', 0.0):.4f}")
+    return result
+
+
+def _parse_limit(default: int = 200) -> int:
+    for arg in sys.argv:
+        if arg.startswith("--limit="):
+            try:
+                return max(1, int(arg.split("=", 1)[1]))
+            except ValueError:
+                pass
+    return default
+
+
 if __name__ == "__main__":
     app = _bootstrap_app()
 
@@ -182,6 +218,12 @@ if __name__ == "__main__":
             mode, runner = "cleanup", run_cleanup
         elif "--fix-salaries" in sys.argv:
             mode, runner = "fix-salaries", run_fix_salaries
+        elif "--enrich-only" in sys.argv:
+            limit = _parse_limit(200)
+            mode, runner = "enrich-only", (lambda: run_enrich(limit=limit, backfill=False))
+        elif "--backfill-enrich" in sys.argv:
+            limit = _parse_limit(500)
+            mode, runner = "backfill-enrich", (lambda: run_enrich(limit=limit, backfill=True))
         elif "--fantastic-only" in sys.argv:
             mode, runner = "fantastic-only", run_fantastic_only
         elif "--skip-fantastic" in sys.argv:

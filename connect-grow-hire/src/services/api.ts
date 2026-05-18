@@ -823,6 +823,23 @@ export interface JobListingsResponse {
   cached?: boolean;
 }
 
+// Phase 1: Firecrawl-extracted structured fields. Populated by the
+// pipeline enricher (backend/pipeline/enricher.py) after the main fetch.
+// Optional — older jobs and jobs that failed enrichment will lack it.
+export interface JobStructured {
+  requirements?: string[];
+  nice_to_have?: string[];
+  responsibilities?: string[];
+  employment_type?: string | null;
+  experience_level?: string | null;
+  salary_range_text?: string | null;
+  team?: string | null;
+  hiring_manager?: string | null;
+  application_deadline?: string | null;
+  enriched_at?: string;
+  enrichment_source?: "firecrawl";
+}
+
 export interface FeedJob {
   job_id: string;
   title: string;
@@ -840,6 +857,7 @@ export interface FeedJob {
   match_reason: string | null;
   match_signals?: string[];
   ranked: boolean;
+  structured?: JobStructured;
 }
 
 export interface SavedJob {

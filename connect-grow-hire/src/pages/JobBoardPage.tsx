@@ -296,18 +296,55 @@ function JobRow({
         <div className="drawer" onClick={stop}>
           <div className="inner">
             <div>
-              <h4>The role</h4>
-              <p>
-                {(j as any).description?.slice(0, 380) ||
-                  "Open the listing to read the full job description."}
-                {(j as any).description && (j as any).description.length > 380 ? "…" : ""}
-              </p>
-              <h4>What they're looking for</h4>
-              <ul>
-                {((j as any).requirements as string[] | undefined)?.length
-                  ? ((j as any).requirements as string[]).slice(0, 6).map((r, i) => <li key={i}>{r}</li>)
-                  : (j.match_signals || []).map((r, i) => <li key={i}>{r}</li>)}
-              </ul>
+              {j.structured && (j.structured.experience_level || j.structured.salary_range_text || j.structured.team) && (
+                <div className="meta-line" style={{ marginBottom: 8, fontSize: "0.85em", color: "#6b6960" }}>
+                  {[
+                    j.structured.experience_level,
+                    j.structured.salary_range_text,
+                    j.structured.team,
+                  ].filter(Boolean).join(" · ")}
+                </div>
+              )}
+
+              {j.structured?.requirements?.length ? (
+                <>
+                  <h4>Requirements</h4>
+                  <ul>
+                    {j.structured.requirements.slice(0, 6).map((r, i) => <li key={`req-${i}`}>{r}</li>)}
+                  </ul>
+                </>
+              ) : (
+                <>
+                  <h4>The role</h4>
+                  <p>
+                    {(j as any).description?.slice(0, 380) ||
+                      "Open the listing to read the full job description."}
+                    {(j as any).description && (j as any).description.length > 380 ? "…" : ""}
+                  </p>
+                  <h4>What they're looking for</h4>
+                  <ul>
+                    {(j.match_signals || []).map((r, i) => <li key={`sig-${i}`}>{r}</li>)}
+                  </ul>
+                </>
+              )}
+
+              {j.structured?.nice_to_have?.length ? (
+                <>
+                  <h4>Nice to have</h4>
+                  <ul>
+                    {j.structured.nice_to_have.slice(0, 4).map((r, i) => <li key={`nth-${i}`}>{r}</li>)}
+                  </ul>
+                </>
+              ) : null}
+
+              {j.structured?.responsibilities?.length ? (
+                <>
+                  <h4>What you'll do</h4>
+                  <ul>
+                    {j.structured.responsibilities.slice(0, 5).map((r, i) => <li key={`resp-${i}`}>{r}</li>)}
+                  </ul>
+                </>
+              ) : null}
             </div>
             <div className="actions-bar">
               <button className="primary" type="button" onClick={() => onApply(j)}>

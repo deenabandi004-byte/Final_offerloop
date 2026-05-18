@@ -60,6 +60,9 @@ def write_jobs(normalized_jobs: list[dict]) -> dict:
         batch = db.batch()
         chunk = new_items[i : i + BATCH_WRITE_SIZE]
         for jid, doc in chunk:
+            # Flag for Phase 1 enricher; pipeline/enricher.py picks these up
+            # and fills in `structured` from Firecrawl.
+            doc.setdefault("enrichment_status", "pending")
             ref = db.collection(COLLECTION).document(jid)
             batch.set(ref, doc)
         batch.commit()
