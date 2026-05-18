@@ -51,6 +51,70 @@ def _safe_str_list(val) -> list[str]:
     return []
 
 
+# Split a free-text preference like "Los Angeles, CA" or "Data Science & Analytics"
+# into the meaningful tokens we want to match against.
+_PREF_TOKEN_SPLIT_RE = re.compile(r"[,&/]| and ", re.IGNORECASE)
+_GENERIC_TOKENS = {
+    # tokens too short/common to be discriminating
+    "ca", "ny", "tx", "wa", "ma", "il", "fl", "co", "ga", "pa", "nc", "va",
+    "and", "or", "the", "of", "in", "at", "for",
+    "usa", "us", "united", "states",
+}
+
+
+def _tokenize_preference(text: str) -> list[str]:
+    """Break a multi-word preference into discriminating tokens.
+
+    Examples:
+      "Los Angeles, CA" → ["los angeles"]
+      "Data Science & Analytics" → ["data science", "analytics"]
+      "Finance (Wealth Management, Private Equity, Hedge Funds)" → ["finance", "wealth management", "private equity", "hedge funds"]
+    """
+    if not text:
+        return []
+    t = text.lower().replace("(", " ").replace(")", " ")
+    raw_tokens = _PREF_TOKEN_SPLIT_RE.split(t)
+    tokens = []
+    for tok in raw_tokens:
+        tok = tok.strip()
+        if not tok or tok in _GENERIC_TOKENS:
+            continue
+        if len(tok) < 3:
+            continue
+        tokens.append(tok)
+    return tokens
+
+
+_STATE_CODES = {
+    "al", "ak", "az", "ar", "ca", "co", "ct", "de", "fl", "ga", "hi", "id",
+    "il", "in", "ia", "ks", "ky", "la", "me", "md", "ma", "mi", "mn", "ms",
+    "mo", "mt", "ne", "nv", "nh", "nj", "nm", "ny", "nc", "nd", "oh", "ok",
+    "or", "pa", "ri", "sc", "sd", "tn", "tx", "ut", "vt", "va", "wa", "wv",
+    "wi", "wy", "dc",
+}
+
+
+def _extract_state_codes(text: str) -> list[str]:
+    """Pull 2-letter US state codes from a location preference.
+
+    "Los Angeles, CA" → ["ca"]
+    "Boston, MA / Remote" → ["ma"]
+    "New York, NY, Chicago, IL" → ["ny", "il"]
+    Returns lowercase codes. Used as a relaxed-match fallback so a user who
+    picked specific cities in a state still sees other cities in that state
+    (Mountain View matches a "San Francisco, CA" preference via the "ca" state).
+    """
+    if not isinstance(text, str):
+        return []
+    out = []
+    # Look for 2-letter codes after a comma boundary (the canonical "City, ST" pattern)
+    for match in re.finditer(r"[,\s]([a-z]{2})\b", text.lower()):
+        code = match.group(1)
+        if code in _STATE_CODES and code not in out:
+            out.append(code)
+    return out
+
+
 # Title-pattern detection for senior roles (when structured.experience_level is missing)
 _SENIOR_TITLE_RE = re.compile(
     r"\b(senior|sr\.?|staff|principal|lead|director|head of|vp of|vice president|"
@@ -202,7 +266,13 @@ def _gate_by_level(job: dict, intent: dict) -> bool:
 
 
 def _gate_by_location(job: dict, intent: dict) -> bool:
-    """Drop jobs whose location doesn't intersect preferredLocation and aren't remote."""
+    """Drop jobs whose location doesn't intersect preferredLocation and aren't remote.
+
+    Tokenizes preferences so "Los Angeles, CA" matches a job in "Los Angeles"
+    even though the comma+state suffix differs. Also matches bidirectionally
+    — pref-in-loc OR loc-in-pref — so "LA" matches "Los Angeles" via the
+    common-prefix path.
+    """
     preferred = intent.get("preferred_locations") or []
     if not preferred:
         return False
@@ -213,34 +283,77 @@ def _gate_by_location(job: dict, intent: dict) -> bool:
 
     raw_loc = job.get("location")
     if isinstance(raw_loc, dict):
-        # JSON-LD PostalAddress shape
         loc_text = " ".join(
             str(v).lower() for v in raw_loc.values() if isinstance(v, str)
         )
     elif isinstance(raw_loc, str):
         loc_text = raw_loc.lower()
     else:
-        # No location data — conservative: keep
         return False
 
-    if "remote" in loc_text:
+    if "remote" in loc_text or "anywhere" in loc_text or "any location" in loc_text:
         return False
 
-    # Match if any preferred-location keyword appears in the job's location string
+    # 1) Match on discriminating city tokens (high confidence)
     for pref in preferred:
-        if pref and pref in loc_text:
+        for tok in _tokenize_preference(pref):
+            if tok in loc_text:
+                return False
+            if loc_text and loc_text in tok:
+                return False
+
+    # 2) State-level fallback: if user picked any city in a state, keep
+    #    other jobs in that same state. Respects metro-area intent without
+    #    requiring a metro lookup table. ("San Francisco, CA" pref →
+    #    Mountain View, CA job keeps via the "ca" state code.)
+    pref_states = set()
+    for pref in preferred:
+        pref_states.update(_extract_state_codes(pref))
+    if pref_states:
+        loc_states = set(_extract_state_codes(loc_text))
+        if loc_states & pref_states:
             return False
 
     return True
 
 
+_INTEREST_STOPWORDS = {
+    "and", "or", "the", "of", "in", "at", "for", "with", "to", "a", "an",
+    "&", "/", ",",
+}
+
+
+def _interest_keywords(interests: list[str]) -> set[str]:
+    """Expand interest phrases into a flat set of discriminating keywords.
+
+    "Data Science & Analytics" → {"data science", "analytics", "data", "science"}
+
+    Includes both multi-word tokens (precise) and their individual words
+    (loose), so a job titled "Engineering Intern - AI Agents - Data & Models"
+    still matches via the single-word "data" keyword.
+    """
+    keywords: set[str] = set()
+    for interest in interests:
+        for tok in _tokenize_preference(interest):
+            keywords.add(tok)
+            for word in tok.split():
+                w = word.strip(",.()/&-")
+                if len(w) >= 3 and w not in _INTEREST_STOPWORDS:
+                    keywords.add(w)
+    return keywords
+
+
 def _gate_by_interest(job: dict, intent: dict) -> bool:
-    """Drop jobs that don't show any user career interest in title/category/requirements."""
+    """Drop jobs that don't show any user career interest in title/category/requirements.
+
+    Two-stage keyword build: multi-word phrases ("data science") AND their
+    individual words ("data", "science"). Drops only when zero overlap with
+    the job's title/category/requirements/team.
+    """
     interests = intent.get("career_interests") or []
     if not interests:
         return False
 
-    # Collect every text signal we have for this job
     haystack_parts = []
     title = job.get("title")
     if isinstance(title, str):
@@ -257,13 +370,14 @@ def _gate_by_interest(job: dict, intent: dict) -> bool:
         haystack_parts.append(team.lower())
     haystack = " ".join(haystack_parts)
     if not haystack:
-        # No signal to evaluate — conservative: keep
         return False
 
-    for interest in interests:
-        if interest and interest in haystack:
+    keywords = _interest_keywords(interests)
+    if not keywords:
+        return False
+    for kw in keywords:
+        if kw in haystack:
             return False
-
     return True
 
 
