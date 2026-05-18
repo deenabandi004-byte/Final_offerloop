@@ -308,3 +308,109 @@ def log_onboarding_event():
     except Exception as e:
         print(f"[Onboarding] Event log error: {e}")
         return jsonify({"ok": True})  # Never fail the client
+
+
+# =============================================================================
+# Profile confirmation (Phase 1 — personalization data layer)
+# =============================================================================
+
+@users_bp.route('/profile-confirm', methods=['POST'])
+@require_firebase_auth
+def confirm_structured_profile():
+    """
+    Confirm structured profile fields. Writes normalized versions alongside
+    the raw values and stamps profileConfirmedAt + per-field provenance.
+
+    Body: {
+        "school": "University of Southern California",
+        "targetCompanies": ["Goldman Sachs", "McKinsey"],
+        "targetIndustries": ["Investment Banking", "Management Consulting"],
+        "targetRoleTypes": ["Internship"],
+        "openToLocations": ["New York, NY", "San Francisco, CA"],
+        "careerTrack": "Investment Banking"
+    }
+
+    All fields are optional — only provided fields are updated.
+    """
+    uid = request.firebase_user.get("uid")
+    if not uid:
+        return jsonify({"error": "uid required"}), 401
+
+    data = request.get_json(silent=True) or {}
+    if not data:
+        return jsonify({"error": "No fields provided"}), 400
+
+    from datetime import datetime, timezone
+    from app.models.users import normalize_company, normalize_school, SCHEMA_VERSION
+
+    db = get_db()
+    now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    updates = {
+        "profileConfirmedAt": now_iso,
+        "schemaVersion": SCHEMA_VERSION,
+    }
+    provenance_updates = {}
+
+    # School
+    if "school" in data and data["school"]:
+        school = data["school"].strip()
+        updates["school"] = school
+        updates["schoolNormalized"] = normalize_school(school)
+        provenance_updates["school"] = "explicit"
+
+    # Target companies (normalize each)
+    if "targetCompanies" in data and isinstance(data["targetCompanies"], list):
+        raw = [c.strip() for c in data["targetCompanies"] if isinstance(c, str) and c.strip()]
+        updates["targetCompanies"] = raw
+        updates["targetCompaniesNormalized"] = [normalize_company(c) for c in raw]
+        provenance_updates["targetCompanies"] = "explicit"
+
+    # Target industries (validate against controlled vocab)
+    if "targetIndustries" in data and isinstance(data["targetIndustries"], list):
+        from app.config import TARGET_INDUSTRIES
+        valid_set = set(TARGET_INDUSTRIES)
+        cleaned = [i for i in data["targetIndustries"] if isinstance(i, str) and i in valid_set]
+        updates["targetIndustries"] = cleaned
+        provenance_updates["targetIndustries"] = "explicit"
+
+    # Target role types
+    if "targetRoleTypes" in data and isinstance(data["targetRoleTypes"], list):
+        from app.config import TARGET_ROLE_TYPES
+        valid_set = set(TARGET_ROLE_TYPES)
+        cleaned = [r for r in data["targetRoleTypes"] if isinstance(r, str) and r in valid_set]
+        updates["targetRoleTypes"] = cleaned
+        provenance_updates["targetRoleTypes"] = "explicit"
+
+    # Open to locations
+    if "openToLocations" in data and isinstance(data["openToLocations"], list):
+        cleaned = [loc for loc in data["openToLocations"] if isinstance(loc, str) and loc.strip()]
+        updates["openToLocations"] = cleaned
+        provenance_updates["openToLocations"] = "explicit"
+
+    # Career track (legacy single field)
+    if "careerTrack" in data and isinstance(data["careerTrack"], str):
+        updates["careerTrack"] = data["careerTrack"].strip()
+        provenance_updates["careerTrack"] = "explicit"
+
+    # Write provenance map (merge, don't overwrite)
+    if provenance_updates:
+        updates["fieldProvenance"] = provenance_updates
+
+    try:
+        user_ref = db.collection("users").document(uid)
+        user_ref.set(updates, merge=True)
+
+        # Log event if events service is available
+        try:
+            from app.services.events_service import log_event
+            log_event(uid, "profile_confirmed", {
+                "fields": list(provenance_updates.keys()),
+            })
+        except Exception:
+            pass
+
+        return jsonify({"ok": True, "updatedFields": list(provenance_updates.keys())}), 200
+    except Exception as e:
+        print(f"[ProfileConfirm] Error for uid={uid}: {e}")
+        return jsonify({"error": "Failed to update profile"}), 500

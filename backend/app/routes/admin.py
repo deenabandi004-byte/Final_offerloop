@@ -10,6 +10,7 @@ from app.services.migration import backfill_pipeline_stages, deduplicate_contact
 from app.services.background_sync import sync_stale_threads
 from app.services.gmail_client import renew_gmail_watch
 from app.services.email_baseline import compute_email_baseline
+from app.services import feature_flags
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
 
@@ -175,6 +176,89 @@ def compute_baseline():
         return jsonify({"error": "Baseline computation failed", "message": str(e)}), 500
 
     return jsonify(baseline), 200
+
+
+# ---------------------------------------------------------------------------
+# Feature flags management
+# ---------------------------------------------------------------------------
+
+def _require_admin():
+    """Check if the request is from an admin user. Returns (uid, error_response)."""
+    admin_uids = [u.strip() for u in os.getenv("ADMIN_UIDS", "").split(",") if u.strip()]
+    if not admin_uids:
+        return None, (jsonify({"error": "ADMIN_UIDS not configured"}), 500)
+
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return None, (jsonify({"error": "Unauthorized"}), 401)
+
+    from firebase_admin import auth as fb_auth
+    token = auth_header.split("Bearer ", 1)[1]
+    try:
+        decoded = fb_auth.verify_id_token(token, clock_skew_seconds=5)
+    except Exception:
+        return None, (jsonify({"error": "Invalid token"}), 401)
+
+    uid = decoded.get("uid")
+    if uid not in admin_uids:
+        return None, (jsonify({"error": "Forbidden"}), 403)
+
+    return uid, None
+
+
+@admin_bp.get("/feature-flags")
+def list_feature_flags():
+    """List all feature flags (admin only)."""
+    _, err = _require_admin()
+    if err:
+        return err
+    return jsonify({"flags": feature_flags.get_all_flags()}), 200
+
+
+@admin_bp.post("/feature-flags")
+def update_feature_flag():
+    """
+    Update a feature flag.
+    Body: { "flag": "FLAG_NAME", "enabled": bool?, "rollout_pct": int? }
+    """
+    _, err = _require_admin()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    flag_name = data.get("flag")
+    if not flag_name:
+        return jsonify({"error": "flag is required"}), 400
+    feature_flags.set_flag(
+        flag_name,
+        enabled=data.get("enabled"),
+        rollout_pct=data.get("rollout_pct"),
+    )
+    return jsonify({"ok": True, "flag": flag_name}), 200
+
+
+@admin_bp.post("/feature-flags/override")
+def set_feature_flag_override():
+    """
+    Set or remove a per-uid override.
+    Body: { "flag": "FLAG_NAME", "uid": "...", "value": true/false/null }
+    value=null removes the override.
+    """
+    _, err = _require_admin()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    flag_name = data.get("flag")
+    uid = data.get("uid")
+    if not flag_name or not uid:
+        return jsonify({"error": "flag and uid are required"}), 400
+
+    value = data.get("value")
+    if value is None:
+        feature_flags.remove_user_override(flag_name, uid)
+    else:
+        feature_flags.set_user_override(flag_name, uid, bool(value))
+
+    return jsonify({"ok": True, "flag": flag_name, "uid": uid}), 200
 
 
 @admin_bp.post("/client-error")
