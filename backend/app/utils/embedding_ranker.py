@@ -5,9 +5,15 @@ between a resume embedding and per-job title+description embeddings.
 
 Both resume and job embeddings are cached:
   - resume embedding lives on the user doc (users/{uid}.resumeEmbedding +
-    resumeEmbeddingHash), invalidated when the resume text hash changes
-  - per-job embedding lives on the job doc (jobs/{job_id}.titleEmbedding),
-    computed once and reused for every user
+    resumeEmbeddingHash), invalidated when the resume text hash changes.
+    Kept on the user doc because user docs are not bulk-queried, so the
+    ~12KB embedding has negligible read cost.
+  - per-job embedding lives in its OWN collection
+    (job_embeddings/{job_id}.embedding), NOT on the jobs doc itself.
+    Reasoning: the rerank path queries 500 job docs via db.get_all; if the
+    12KB embedding lived on the job doc, every rerank would pay ~6MB of
+    Firestore egress just to read embeddings the SPA never needs. Keeping
+    embeddings in a separate collection lets the bulk jobs query stay lean.
 
 Fail-soft everywhere: any missing/failed embedding causes the caller to fall
 back to the deterministic ranker.
@@ -24,6 +30,12 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIM = 1536
 EMBED_BATCH_SIZE = 100
 MAX_INPUT_CHARS = 8000
+
+# Job embeddings live in their own collection (NOT on jobs/{job_id}) so the
+# main jobs collection stays small for bulk feed queries. Each embedding is
+# ~12KB; with 13K+ jobs that would add ~166MB to every db.get_all(refs) call
+# in the ranker. The separate collection keeps the bulk query lean.
+JOB_EMBEDDINGS_COLLECTION = "job_embeddings"
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +238,16 @@ def get_resume_embedding(uid: str, profile: dict, db=None) -> list[float] | None
 
 
 def get_job_embeddings(jobs: list[dict], db=None) -> dict[str, list[float]]:
-    """Return {job_id: embedding} for each job. Cached on the job doc itself."""
+    """Return {job_id: embedding} for each job.
+
+    Embeddings live in the `job_embeddings/{job_id}` collection so the bulk
+    `jobs` query stays lean. Reads in batches via db.get_all (cheap); writes
+    misses back to the same collection.
+
+    Backwards-compat: also accepts an embedding pre-attached on `j['titleEmbedding']`
+    (the legacy in-job-doc location), in case the migration hasn't completed for
+    a given doc yet. New writes go to the new collection.
+    """
     if db is None:
         from backend.app.extensions import get_db
         db = get_db()
@@ -234,20 +255,44 @@ def get_job_embeddings(jobs: list[dict], db=None) -> dict[str, list[float]]:
         return {}
 
     out: dict[str, list[float]] = {}
-    missing: list[tuple[str, str]] = []  # (job_id, text)
+    needs_lookup: list[str] = []
+    text_by_jid: dict[str, str] = {}
 
+    # First pass: pick up legacy in-doc embeddings + queue lookups for the rest
     for j in jobs:
         jid = j.get("job_id")
         if not jid:
             continue
-        cached = j.get("titleEmbedding")
-        if isinstance(cached, list) and len(cached) == EMBEDDING_DIM:
-            out[jid] = cached
+        legacy = j.get("titleEmbedding")
+        if isinstance(legacy, list) and len(legacy) == EMBEDDING_DIM:
+            out[jid] = legacy
             continue
+        needs_lookup.append(jid)
         text = _job_text(j)
         if text:
-            missing.append((jid, text))
+            text_by_jid[jid] = text
 
+    # Batch fetch from the separate collection
+    BATCH = 100
+    for i in range(0, len(needs_lookup), BATCH):
+        chunk = needs_lookup[i:i + BATCH]
+        refs = [db.collection(JOB_EMBEDDINGS_COLLECTION).document(jid) for jid in chunk]
+        try:
+            docs = db.get_all(refs)
+        except Exception as e:
+            logger.warning("job_embeddings get_all failed: %s", e)
+            continue
+        for d in docs:
+            if not d.exists:
+                continue
+            data = d.to_dict() or {}
+            emb = data.get("embedding")
+            if isinstance(emb, list) and len(emb) == EMBEDDING_DIM:
+                out[d.id] = emb
+
+    # Compute + write any that are still missing
+    missing = [(jid, text_by_jid[jid]) for jid in needs_lookup
+               if jid not in out and jid in text_by_jid]
     if not missing:
         return out
 
@@ -259,10 +304,16 @@ def get_job_embeddings(jobs: list[dict], db=None) -> dict[str, list[float]]:
                 continue
             out[jid] = emb
             try:
-                db.collection("jobs").document(jid).update({"titleEmbedding": emb})
-            except Exception:
-                pass
-    logger.info("Embedded %d new jobs (cache had %d)", len(missing), len(out) - len(missing))
+                db.collection(JOB_EMBEDDINGS_COLLECTION).document(jid).set({
+                    "embedding": emb,
+                    "model": EMBEDDING_MODEL,
+                    "dim": EMBEDDING_DIM,
+                })
+            except Exception as e:
+                logger.debug("failed to cache embedding for %s: %s", jid, e)
+
+    logger.info("Embedded %d new jobs (cache had %d, in-collection)",
+                len(missing), len(out) - len(missing))
     return out
 
 
