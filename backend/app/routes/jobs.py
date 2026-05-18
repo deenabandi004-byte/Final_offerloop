@@ -99,11 +99,36 @@ def _get_pipeline_summary() -> dict:
 # ---------------------------------------------------------------------------
 
 
+import re as _re
+
+_TITLE_NOISE_RE = _re.compile(
+    r"\s*[\(\[\-–—|/,]\s*(full[\s-]?time|part[\s-]?time|contract|temporary|temp|seasonal|"
+    r"remote|hybrid|on[\s-]?site|in[\s-]?person|i+|ii+|iii+|iv|v|jr|sr|junior|senior|"
+    r"associate|lead|level\s*\d+|l\d+|\d+|w\d+\b|location|posted|new)"
+    r"[^a-z0-9]*.*$",
+    _re.IGNORECASE,
+)
+
+
+def _normalize_title(title: str | None) -> str:
+    """Collapse title variants like 'Teller (Full Time)' / 'Teller (Part Time)' to 'teller'."""
+    if not title:
+        return ""
+    t = title.lower().strip()
+    t = _TITLE_NOISE_RE.sub("", t)
+    t = _re.sub(r"\s+", " ", t).strip(" -–—|/,([")
+    return t
+
+
 def _dedup_by_title_company(jobs: list[dict]) -> list[dict]:
-    """Deduplicate jobs by (title, company), keeping the higher-scored one."""
+    """Deduplicate jobs by (normalized_title, company), keeping the higher-scored one.
+
+    Normalization collapses 'Teller (Full Time)' and 'Teller (Part Time)' into
+    one bucket so they no longer escape `cap_per_company`.
+    """
     seen = {}
     for job in jobs:
-        key = ((job.get("title") or "").lower().strip(), (job.get("company") or "").lower().strip())
+        key = (_normalize_title(job.get("title")), (job.get("company") or "").lower().strip())
         existing = seen.get(key)
         if existing is None or (job.get("match_score") or 0) > (existing.get("match_score") or 0):
             seen[key] = job
@@ -159,7 +184,13 @@ def _derive_match_signals(job: dict, profile: dict | None, saved_companies: set[
         except Exception:
             pass
 
-    loc = (job.get("location") or "").strip()
+    loc_raw = job.get("location")
+    if isinstance(loc_raw, dict):
+        loc = " ".join(str(v) for v in loc_raw.values() if v).strip()
+    elif isinstance(loc_raw, str):
+        loc = loc_raw.strip()
+    else:
+        loc = ""
     target_locs = profile.get("targetLocations") or profile.get("preferredLocations") or []
     if loc and target_locs:
         if any(t and t.lower() in loc.lower() for t in target_locs if isinstance(t, str)):
@@ -269,13 +300,14 @@ def get_feed():
         """Fetch new_matches from Firestore, or return from cache if fresh."""
         if nm_valid:
             return nm_cache.get("jobs", []), True
+        # Pull a wider window so dedup + cap_per_company have headroom to keep 20 varied results
         new_query = (
             db.collection("jobs")
             .where("posted_at", ">=", twenty_four_hours_ago)
             .order_by("posted_at", direction="DESCENDING")
-            .limit(20)
+            .limit(120)
         )
-        new_matches = []
+        raw = []
         for d in new_query.stream():
             j = d.to_dict()
             if _is_international_job(j) or _is_excluded_job(j):
@@ -289,7 +321,14 @@ def get_feed():
                 j["match_score"] = None
                 j["match_reason"] = None
                 j["ranked"] = False
-            new_matches.append(j)
+            raw.append(j)
+
+        # Collapse title variants ("Teller (Full Time)" + "Teller (Part Time)" → one),
+        # then cap to max 2 per company so a single batch poster can't fill the feed.
+        deduped = _dedup_by_title_company(raw)
+        # _dedup_by_title_company sorts by score; for unranked new_matches we want recency.
+        deduped.sort(key=lambda j: (j.get("posted_at") or 0), reverse=True)
+        new_matches = cap_per_company(deduped, max_per_company=2)[:20]
         # Persist new_matches to cache (fire-and-forget)
         try:
             user_ref.update({
@@ -483,7 +522,25 @@ def _background_rerank(uid: str):
         prefs_query = user_ref.collection("jobPreferences").limit(100)
         preferences = [doc.to_dict() for doc in prefs_query.stream()]
 
-        candidates = prefilter_candidates(all_jobs, profile, top_n=50)
+        # Try semantic embedding-based prefilter (text-embedding-3-small),
+        # gated by feature flag for safe rollout. Falls back to deterministic
+        # keyword scoring if embeddings unavailable or flag disabled.
+        from backend.app.services import feature_flags
+        candidates = []
+        if feature_flags.is_enabled("embedding_ranker", uid=uid, default=False):
+            from backend.app.utils.embedding_ranker import embedding_rank
+            candidates = embedding_rank(all_jobs, profile, uid, top_n=50)
+            if candidates:
+                logger.info(
+                    "Embedding rank: top score %.1f, bottom %.1f (%d candidates)",
+                    candidates[0].get("_embedding_score", 0),
+                    candidates[-1].get("_embedding_score", 0),
+                    len(candidates),
+                )
+            else:
+                logger.info("Embedding rank returned empty, falling back to deterministic")
+        if not candidates:
+            candidates = prefilter_candidates(all_jobs, profile, top_n=50)
         ranked = rank_with_gpt(candidates, profile)
         adjusted = apply_feedback_adjustments(ranked, preferences)
 

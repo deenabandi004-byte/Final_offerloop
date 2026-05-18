@@ -84,9 +84,31 @@ FIELD_CATEGORY_MAP = {
 }
 
 
+def _safe_str(val) -> str:
+    """Coerce a profile field to a safe string. Lists join on ', '; dicts/None/other return ''."""
+    if val is None:
+        return ""
+    if isinstance(val, str):
+        return val
+    if isinstance(val, list):
+        return ", ".join(v for v in val if isinstance(v, str))
+    return ""
+
+
+def _safe_str_list(val) -> list[str]:
+    """Coerce a profile field to a list of strings. Skips non-strings silently."""
+    if val is None:
+        return []
+    if isinstance(val, str):
+        return [val] if val else []
+    if isinstance(val, list):
+        return [v for v in val if isinstance(v, str) and v]
+    return []
+
+
 def infer_field(profile: dict) -> Optional[str]:
     # 1. Explicit careerTrack from onboarding (highest priority)
-    career_track = (profile.get("goals") or {}).get("careerTrack", "").lower().strip()
+    career_track = _safe_str((profile.get("goals") or {}).get("careerTrack")).lower().strip()
     if career_track:
         category = CAREER_TRACK_MAP.get(career_track)
         if category:
@@ -94,7 +116,7 @@ def infer_field(profile: dict) -> Optional[str]:
 
     # 2. Fallback: infer from major
     education = (profile.get("resumeParsed") or {}).get("education", {}) or {}
-    major = (education.get("major") or profile.get("major") or "").lower().strip()
+    major = _safe_str(education.get("major") or profile.get("major")).lower().strip()
     for key, field in MAJOR_FIELD_MAP.items():
         if key in major:
             return field
@@ -279,15 +301,15 @@ def deterministic_score(job: dict, profile: dict) -> float:
             pass
 
     # Dream company bonus
-    dream_companies = (profile.get("goals") or {}).get("dreamCompanies") or []
+    dream_companies = _safe_str_list((profile.get("goals") or {}).get("dreamCompanies"))
     if dream_companies:
-        job_company = (job.get("company") or "").lower().strip()
+        job_company = _safe_str(job.get("company")).lower().strip()
         if job_company and any(dc.lower().strip() in job_company or job_company in dc.lower().strip()
                                for dc in dream_companies):
             score += 15
 
-    # Location preference bonus
-    pref_location = ((profile.get("location") or {}).get("preferredLocation") or "").strip()
+    # Location preference bonus — preferredLocation may be a string OR a list (multi-city onboarding)
+    pref_location = _safe_str((profile.get("location") or {}).get("preferredLocation")).strip()
     job_location = _normalize_location(job.get("location")).lower()
     if job.get("remote_derived") or "remote" in job_location:
         score += 5
@@ -315,10 +337,19 @@ def prefilter_candidates(jobs: list[dict], profile: dict, top_n: int = 30) -> li
             eligible.append(j)
     _logger.info("Excluded %d senior/irrelevant jobs, %d non-US jobs from %d total", excluded_count, non_us_count, len(jobs))
 
-    scored = sorted(
-        [(job, deterministic_score(job, profile)) for job in eligible],
-        key=lambda x: x[1], reverse=True
-    )
+    # Score each job defensively — one bad job (malformed field) shouldn't tank the rerank
+    scored_raw = []
+    score_errors = 0
+    for job in eligible:
+        try:
+            scored_raw.append((job, deterministic_score(job, profile)))
+        except Exception as e:
+            score_errors += 1
+            if score_errors <= 3:
+                _logger.warning("deterministic_score failed for job_id=%s: %s", job.get("job_id"), e)
+    if score_errors:
+        _logger.warning("Skipped %d jobs with scoring errors", score_errors)
+    scored = sorted(scored_raw, key=lambda x: x[1], reverse=True)
 
     # Apply minimum score threshold to avoid sending junk to GPT
     MIN_RESULTS = 20
