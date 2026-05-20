@@ -225,20 +225,19 @@ export function AgentSnapshot({
 
   const pendingApprovals = approvalsQuery.data?.approvals ?? [];
 
-  // Tab definitions
+  // Tab definitions — order matches the Variant C handoff
+  // (Overview · Drafts · Replies · Jobs · Pipeline · Activity · Approvals)
+  const repliesCount = pipelineCompanies.reduce((s, c) => s + (c.replies || 0), 0);
   const tabs = [
     { id: "today", label: "Overview" },
+    { id: "drafts", label: "Drafts", count: allContacts.length || undefined },
+    { id: "replies", label: "Replies", count: repliesCount || undefined },
+    { id: "jobs", label: "Jobs", count: recentJobs.length || undefined },
+    { id: "pipeline", label: "Pipeline", count: pipelineCompanies.length || undefined },
+    { id: "activity", label: "Activity" },
     ...(pendingApprovals.length > 0
       ? [{ id: "approvals", label: "Approvals", count: pendingApprovals.length }]
       : []),
-    { id: "drafts", label: "Drafts", count: allContacts.length || undefined },
-    { id: "jobs", label: "Jobs", count: recentJobs.length || undefined },
-    {
-      id: "companies",
-      label: "Companies",
-      count: recentCompanies.length || undefined,
-    },
-    { id: "activity", label: "Activity" },
   ];
 
   // ── Running state: full-content takeover ──
@@ -326,68 +325,165 @@ export function AgentSnapshot({
     );
   }
 
+  // Latest live action becomes the typewriter-style ticker line in the hero
+  const tickerLine: string | null = (() => {
+    const a = liveActions[0];
+    if (!a) return null;
+    const verb = ACTION_VERBS[a.action] || a.action;
+    const target = a.company || "";
+    return `${verb}${target ? ` ${target}` : ""}`.trim();
+  })();
+
   return (
     <div>
       <AgentStyles />
-      {/* ── Hero ── */}
-      <div className="text-center pt-10 sm:pt-14">
-        <h1
-          className="font-serif text-[32px] sm:text-[36px] leading-[1.1] tracking-[-0.02em]"
-          style={{ color: "var(--ink, #0F172A)" }}
-        >
-          Working on your{" "}
-          <em className="font-serif" style={{ fontWeight: 400 }}>
-            job search.
-          </em>
-        </h1>
-        <p className="mt-3 text-[13.5px] text-muted-foreground tracking-[-0.01em]">
-          Drafting outreach, finding jobs, watching for replies. Nothing sends
-          without your approval.
-        </p>
-        <div className="mt-3.5 flex items-center justify-center gap-2.5 text-xs text-muted-foreground">
-          {isActive && (
-            <>
-              <PulseDot />
-              <span>
-                Active · {contactsThisWeek} of {weeklyTarget} reached this week
-                {countdown && ` · Next cycle ${countdown}`}
-              </span>
-              <span style={{ opacity: 0.5 }}>·</span>
-              <ActivityBars />
-            </>
-          )}
-          {isPaused && (
-            <>
-              <PulseDot color="#f59e0b" />
-              <span>Paused</span>
-            </>
-          )}
-        </div>
-      </div>
+      {/* ── Hero (editorial masthead — Variant C) ── */}
+      <div className="pt-10 sm:pt-12 pb-7 border-b border-[#e9eaef]">
+        <div className="flex items-start justify-between gap-8 flex-wrap">
+          {/* Left: kicker + headline + live ticker */}
+          <div className="flex-1 min-w-0" style={{ minWidth: 280 }}>
+            <div
+              className="mb-3"
+              style={{
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                fontSize: 10,
+                color: "#8089a0",
+                letterSpacing: "0.16em",
+                textTransform: "uppercase",
+              }}
+            >
+              Agent · {new Date().toLocaleDateString(undefined, { weekday: "long" })}
+            </div>
+            <h1
+              className="font-serif leading-[1.05] tracking-[-0.025em]"
+              style={{
+                color: "var(--ink, #0F172A)",
+                fontSize: "clamp(28px, 4vw, 38px)",
+                fontWeight: 400,
+              }}
+            >
+              {cycleRunner.lastEndStatus === "awaiting_approval" ? (
+                <>
+                  Actions queued <em className="font-serif italic" style={{ fontWeight: 400 }}>for your approval</em>, {firstName}.
+                </>
+              ) : draftsReady > 0 || repliesWaiting > 0 ? (
+                <>
+                  Good {greetingPart()}, {firstName}. You have{" "}
+                  <em className="font-serif italic" style={{ fontWeight: 400 }}>
+                    {draftsReady === 1 ? "one draft" : `${draftsReady} drafts`}
+                  </em>
+                  {" "}and{" "}
+                  <em className="font-serif italic" style={{ fontWeight: 400 }}>
+                    {repliesWaiting === 1 ? "one reply" : `${repliesWaiting} replies`}
+                  </em>
+                  .
+                </>
+              ) : (
+                <>
+                  All caught up, {firstName}.{" "}
+                  <em className="font-serif italic" style={{ fontWeight: 400 }}>The agent will keep watching.</em>
+                </>
+              )}
+            </h1>
 
-      {/* ── Status italic ── */}
-      <div
-        className="font-serif text-center mt-8 text-[17px] italic text-muted-foreground tracking-[-0.01em]"
-        style={{ fontWeight: 400 }}
-      >
-        {cycleRunner.lastEndStatus === "awaiting_approval" ? (
-          <>Actions queued for your approval, {firstName}.</>
-        ) : draftsReady > 0 || repliesWaiting > 0 ? (
-          <>
-            {draftsReady > 0 &&
-              `${draftsReady} draft${draftsReady !== 1 ? "s" : ""} ready`}
-            {draftsReady > 0 && repliesWaiting > 0 && ", "}
-            {repliesWaiting > 0 &&
-              `${repliesWaiting} repl${repliesWaiting !== 1 ? "ies" : "y"} waiting`}
-            , {firstName}.
-          </>
-        ) : (
-          <>All caught up, {firstName}.</>
+            {/* Live ticker — typewriter line, animates on each new action */}
+            <div
+              className="mt-4 flex items-center gap-2.5"
+              style={{
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                fontSize: 12,
+                color: "#4b5567",
+              }}
+            >
+              {isActive && <PulseDot small />}
+              {isPaused && <PulseDot small color="#f59e0b" />}
+              {!isActive && !isPaused && <PulseDot small color="#8089a0" />}
+              <span
+                key={liveActions[0]?.id || "idle"}
+                className="animate-in fade-in slide-in-from-bottom-1 duration-300"
+                style={{ color: tickerLine ? "#4b5567" : "#8089a0" }}
+              >
+                {tickerLine ||
+                  (isActive
+                    ? "Watching for replies and new jobs"
+                    : isPaused
+                      ? "Paused — resume to continue"
+                      : "Idle. Deploy your agent to start.")}
+              </span>
+              {isActive && tickerLine && (
+                <>
+                  <span style={{ opacity: 0.4 }}>·</span>
+                  <ActivityBars />
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Right: big serif counters + status/pause */}
+          <div className="flex items-start gap-6">
+            <BigCounter n={draftsReady} label="drafts ready" />
+            <BigCounter n={repliesWaiting} label="replies waiting" />
+            <div
+              className="pl-5"
+              style={{ borderLeft: "1px solid #f1f1f4", minWidth: 110 }}
+            >
+              <div
+                style={{
+                  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                  fontSize: 10,
+                  color: "#8089a0",
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  marginBottom: 6,
+                }}
+              >
+                Status
+              </div>
+              <div className="flex items-center gap-2 mb-3">
+                <PulseDot
+                  color={isActive ? "#22c55e" : isPaused ? "#f59e0b" : "#8089a0"}
+                />
+                <span className="text-[13px] font-medium" style={{ color: "var(--ink, #0F172A)" }}>
+                  {isActive ? "Active" : isPaused ? "Paused" : "Idle"}
+                </span>
+              </div>
+              {isActive && (
+                <button
+                  onClick={() => lifecycle.pause.mutate()}
+                  disabled={lifecycle.pause.isPending}
+                  className="bg-white text-[var(--ink,#0F172A)] border border-[#e9eaef] rounded-md px-3 py-1.5 text-[12px] font-medium cursor-pointer hover:bg-[#fafafa] transition-colors disabled:opacity-50"
+                >
+                  Pause agent
+                </button>
+              )}
+              {isPaused && (
+                <button
+                  onClick={() => lifecycle.deploy.mutate()}
+                  disabled={lifecycle.deploy.isPending}
+                  className="bg-[var(--ink,#0F172A)] text-white border border-[var(--ink,#0F172A)] rounded-md px-3 py-1.5 text-[12px] font-medium cursor-pointer hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  Resume
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Sub-status sentence — small, below the masthead */}
+        {(isActive || isPaused) && (
+          <p
+            className="mt-5 text-[12.5px] text-muted-foreground tracking-[-0.01em]"
+            style={{ maxWidth: 560 }}
+          >
+            {isActive
+              ? `${contactsThisWeek} of ${weeklyTarget} contacts this week${countdown ? ` · next cycle ${countdown}` : ""}. Drafting outreach, finding jobs, watching for replies. Nothing sends without your approval.`
+              : "Agent paused. Drafts and replies are preserved; resume to continue cycles."}
+          </p>
         )}
       </div>
 
-      {/* ── Action buttons ── */}
-      <div className="flex justify-center gap-2.5 mt-5 flex-wrap">
+      {/* ── Action buttons (review CTA + run-now + configure) ── */}
+      <div className="flex items-center gap-2.5 mt-5 flex-wrap">
         {cycleRunner.lastEndStatus === "awaiting_approval" && (
           <button
             onClick={() => setActiveTab("approvals")}
@@ -397,11 +493,12 @@ export function AgentSnapshot({
           </button>
         )}
         {draftsReady > 0 && cycleRunner.lastEndStatus !== "awaiting_approval" && (
-          <Link to="/tracker">
-            <button className="bg-[var(--ink,#0F172A)] text-white border border-[var(--ink,#0F172A)] rounded-md px-4 py-2 text-[13px] font-medium tracking-[-0.01em] cursor-pointer hover:opacity-90 transition-opacity">
-              Review {draftsReady} draft{draftsReady !== 1 ? "s" : ""}
-            </button>
-          </Link>
+          <button
+            onClick={() => setActiveTab("drafts")}
+            className="bg-[var(--ink,#0F172A)] text-white border border-[var(--ink,#0F172A)] rounded-md px-4 py-2 text-[13px] font-medium tracking-[-0.01em] cursor-pointer hover:opacity-90 transition-opacity"
+          >
+            Review {draftsReady} draft{draftsReady !== 1 ? "s" : ""}
+          </button>
         )}
         {(isActive || isPaused) && (
           <button
@@ -418,24 +515,6 @@ export function AgentSnapshot({
         >
           <Settings className="h-3.5 w-3.5" /> Configure
         </button>
-        {isActive && (
-          <button
-            onClick={() => lifecycle.pause.mutate()}
-            disabled={lifecycle.pause.isPending}
-            className="bg-white text-muted-foreground border border-[#e9eaef] rounded-md px-3 py-2 text-[13px] tracking-[-0.01em] cursor-pointer hover:bg-[#fafafa] transition-colors disabled:opacity-50"
-          >
-            Pause
-          </button>
-        )}
-        {isPaused && (
-          <button
-            onClick={() => lifecycle.deploy.mutate()}
-            disabled={lifecycle.deploy.isPending}
-            className="bg-white text-[var(--ink,#0F172A)] border border-[#e9eaef] rounded-md px-3 py-2 text-[13px] font-medium tracking-[-0.01em] cursor-pointer hover:bg-[#fafafa] transition-colors disabled:opacity-50"
-          >
-            Resume
-          </button>
-        )}
       </div>
 
       {/* ── Telemetry strip ── */}
@@ -468,8 +547,8 @@ export function AgentSnapshot({
         </div>
       )}
 
-      {/* ── Tabs (underline style) ── */}
-      <div className="flex justify-center gap-7 mt-8 border-b border-[#e9eaef]">
+      {/* ── Tabs (underline style — left-aligned per Variant C) ── */}
+      <div className="flex gap-7 mt-8 border-b border-[#e9eaef]">
         {tabs.map((t) => {
           const on = t.id === activeTab;
           return (
@@ -519,31 +598,17 @@ export function AgentSnapshot({
         />
       )}
 
-      {activeTab === "approvals" && (
-        <div className="pt-9">
-          <SectionHead title="Pending approvals" />
-          {pendingApprovals.length > 0 ? (
-            pendingApprovals.map((a, i) => (
-              <ApprovalRow
-                key={a.id}
-                action={a}
-                onApprove={() => lifecycle.approve.mutateAsync(a.id).then(() => approvalsQuery.refetch())}
-                onReject={() => lifecycle.reject.mutateAsync(a.id).then(() => approvalsQuery.refetch())}
-                last={i === pendingApprovals.length - 1}
-              />
-            ))
-          ) : (
-            <EmptyText>No pending approvals.</EmptyText>
-          )}
-        </div>
-      )}
-
       {activeTab === "drafts" && (
         <div className="pt-9">
           <SectionHead title="Email drafts" />
           {allContacts.length > 0 ? (
             allContacts.map((d, i) => (
-              <DraftRow key={i} d={d} last={i === allContacts.length - 1} />
+              <NumberedDraftRow
+                key={i}
+                d={d}
+                index={i + 1}
+                last={i === allContacts.length - 1}
+              />
             ))
           ) : (
             <EmptyText>
@@ -553,13 +618,21 @@ export function AgentSnapshot({
         </div>
       )}
 
+      {activeTab === "replies" && (
+        <div className="pt-9">
+          <SectionHead
+            title="Replies"
+            action={<ViewAll to="/tracker">Open tracker →</ViewAll>}
+          />
+          <RepliesPanel pipelineCompanies={pipelineCompanies} />
+        </div>
+      )}
+
       {activeTab === "jobs" && (
         <div className="pt-9">
           <SectionHead title="Jobs matched to you" />
           {recentJobs.length > 0 ? (
-            recentJobs.map((j, i) => (
-              <JobRow key={j.id} j={j} last={i === recentJobs.length - 1} />
-            ))
+            <EditorialJobList jobs={recentJobs} />
           ) : (
             <EmptyText>
               No jobs found yet. Run a cycle to discover matching roles.
@@ -568,31 +641,55 @@ export function AgentSnapshot({
         </div>
       )}
 
-      {activeTab === "companies" && (
+      {activeTab === "pipeline" && (
         <div className="pt-9">
-          <SectionHead title="Companies" />
-          {recentCompanies.length > 0 ? (
-            recentCompanies.map((c, i) => (
-              <CompanyRow
-                key={c.id}
-                c={c}
-                last={i === recentCompanies.length - 1}
-              />
-            ))
+          <SectionHead
+            title="Pipeline"
+            action={<ViewAll to="/tracker">Open tracker →</ViewAll>}
+          />
+          {pipelineCompanies.length > 0 ? (
+            <PipelineKanban companies={pipelineCompanies} />
           ) : (
-            <EmptyText>No companies discovered yet.</EmptyText>
+            <EmptyText>
+              No pipeline yet. Once contacts are drafted or replied, they appear here.
+            </EmptyText>
           )}
         </div>
       )}
+
+      {/* Companies tab removed in Variant C — companies now fold into Pipeline.
+          recentCompanies data is still surfaced inside Overview's "Companies you might like" section. */}
 
       {activeTab === "activity" && (
         <div className="pt-9">
           <SectionHead title="Activity" />
           {liveActions.length > 0 ? (
-            <ActivityList items={liveActions} />
+            <ActivityTimeline items={liveActions} />
           ) : (
             <EmptyText>No activity yet. Deploy your agent to start.</EmptyText>
           )}
+        </div>
+      )}
+
+      {activeTab === "approvals" && (
+        <div className="pt-9 grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-8">
+          <div>
+            <SectionHead title="Pending approvals" />
+            {pendingApprovals.length > 0 ? (
+              pendingApprovals.map((a, i) => (
+                <ApprovalRow
+                  key={a.id}
+                  action={a}
+                  onApprove={() => lifecycle.approve.mutateAsync(a.id).then(() => approvalsQuery.refetch())}
+                  onReject={() => lifecycle.reject.mutateAsync(a.id).then(() => approvalsQuery.refetch())}
+                  last={i === pendingApprovals.length - 1}
+                />
+              ))
+            ) : (
+              <EmptyText>No pending approvals.</EmptyText>
+            )}
+          </div>
+          <ApprovalsPolicyRail config={config} stats={stats} />
         </div>
       )}
 
@@ -1069,49 +1166,7 @@ const ACTION_VERBS: Record<string, string> = {
   skip: "Skipped",
 };
 
-function ActivityList({ items }: { items: AgentAction[] }) {
-  return (
-    <div>
-      {items.map((a, idx) => (
-        <div
-          key={a.id}
-          className="flex gap-3.5 py-2.5 text-[12.5px] animate-in slide-in-from-top duration-300"
-          style={{ borderBottom: "1px solid #f1f1f4", animationDelay: `${idx * 50}ms` }}
-        >
-          <span className="text-[#8089a0] w-[90px] shrink-0">
-            {a.createdAt ? relativeTime(a.createdAt) : ""}
-          </span>
-          <span className="text-muted-foreground flex-1">
-            {a.status === "executing" && (
-              <Loader2 className="inline h-3 w-3 animate-spin mr-1 text-blue-500" />
-            )}
-            {ACTION_VERBS[a.action] || a.action}{" "}
-            <span
-              className="font-medium"
-              style={{ color: "var(--ink, #0F172A)" }}
-            >
-              {a.company || ""}
-            </span>
-            {a.status === "failed" && (
-              <span className="text-red-500 ml-1">· failed</span>
-            )}
-            {a.status === "executing" && (
-              <span className="text-blue-500 ml-1">· running</span>
-            )}
-            {a.status === "pending_approval" && (
-              <span className="text-amber-500 ml-1">· pending</span>
-            )}
-            {a.reason && (
-              <span className="block text-[11.5px] text-[#b3b8c7] mt-0.5">
-                {a.reason}
-              </span>
-            )}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
+// (Legacy flat ActivityList removed — replaced by ActivityTimeline with day grouping)
 
 // ── Flip counter (animated number with roll transition) ──────────────────
 
@@ -1298,5 +1353,598 @@ export function AgentActivityRail() {
         </div>
       )}
     </aside>
+  );
+}
+
+// ── New components ported from the Variant C handoff ────────────────────────
+
+function greetingPart(): string {
+  const h = new Date().getHours();
+  if (h < 12) return "morning";
+  if (h < 18) return "afternoon";
+  return "evening";
+}
+
+function BigCounter({ n, label }: { n: number; label: string }) {
+  return (
+    <div style={{ minWidth: 90 }}>
+      <div
+        className="font-serif tracking-[-0.03em]"
+        style={{
+          color: "var(--ink, #0F172A)",
+          fontSize: "clamp(40px, 5vw, 56px)",
+          lineHeight: 0.95,
+          fontVariantNumeric: "tabular-nums",
+          fontWeight: 400,
+        }}
+      >
+        {n}
+      </div>
+      <div
+        className="mt-1.5 text-[11.5px] text-muted-foreground"
+        style={{ letterSpacing: "-0.01em" }}
+      >
+        {label}
+      </div>
+    </div>
+  );
+}
+
+function NumberedDraftRow({
+  d,
+  index,
+  last,
+}: {
+  d: {
+    name: string;
+    role: string;
+    company: string;
+    subject: string;
+    preview: string;
+    isHm: boolean;
+    time: string;
+  };
+  index: number;
+  last: boolean;
+}) {
+  return (
+    <div
+      className="flex gap-5 py-4"
+      style={{ borderBottom: last ? "none" : "1px solid #f1f1f4" }}
+    >
+      <span
+        className="font-serif shrink-0"
+        style={{
+          fontSize: 28,
+          color: "#b3b8c7",
+          width: 36,
+          fontVariantNumeric: "tabular-nums",
+          lineHeight: 1,
+          paddingTop: 4,
+          fontWeight: 400,
+        }}
+      >
+        {String(index).padStart(2, "0")}
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap mb-1">
+          <span className="text-[13.5px] font-semibold tracking-[-0.01em]">
+            {d.name}
+          </span>
+          <span className="text-[12.5px] text-[#8089a0]">
+            {d.role}
+            {d.company && `, ${d.company}`}
+          </span>
+          {d.isHm && (
+            <span
+              className="font-serif text-[12px] italic text-muted-foreground"
+              style={{ fontWeight: 400 }}
+            >
+              · hiring manager
+            </span>
+          )}
+        </div>
+        {d.subject && (
+          <div
+            className="font-serif tracking-[-0.01em] mb-1"
+            style={{ fontSize: 17, color: "var(--ink, #0F172A)", fontWeight: 400 }}
+          >
+            {d.subject}
+          </div>
+        )}
+        {d.preview && (
+          <div className="text-[12.5px] text-[#8089a0] leading-snug line-clamp-2">
+            {d.preview}
+          </div>
+        )}
+      </div>
+      <div className="flex flex-col items-end gap-1.5 shrink-0">
+        {d.time && (
+          <span className="text-[11.5px] text-[#b3b8c7] whitespace-nowrap">
+            {d.time}
+          </span>
+        )}
+        <div className="flex gap-1.5">
+          <Link to="/tracker">
+            <button className="bg-white text-[var(--ink,#0F172A)] border border-[#e9eaef] rounded-md px-3 py-1.5 text-[12px] font-medium cursor-pointer hover:bg-[#fafafa] transition-colors">
+              Edit
+            </button>
+          </Link>
+          <Link to="/tracker">
+            <button className="bg-[var(--ink,#0F172A)] text-white border border-[var(--ink,#0F172A)] rounded-md px-3 py-1.5 text-[12px] font-medium cursor-pointer hover:opacity-90 transition-opacity">
+              Send
+            </button>
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RepliesPanel({
+  pipelineCompanies,
+}: {
+  pipelineCompanies: CompanyPipeline[];
+}) {
+  const withReplies = pipelineCompanies.filter((c) => (c.replies || 0) > 0);
+  if (withReplies.length === 0) {
+    return (
+      <EmptyText>
+        No replies yet. When contacts respond, they'll surface here — open in tracker for the full thread.
+      </EmptyText>
+    );
+  }
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
+      <aside
+        className="border border-[#e9eaef] rounded-lg overflow-hidden"
+        style={{ background: "#fff" }}
+      >
+        <div
+          className="px-3.5 py-3 border-b border-[#f1f1f4]"
+          style={{
+            fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+            fontSize: 10,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            color: "#8089a0",
+          }}
+        >
+          {withReplies.length} {withReplies.length === 1 ? "company" : "companies"} replied
+        </div>
+        {withReplies.map((c, i) => (
+          <Link
+            key={c.name}
+            to={`/tracker?company=${encodeURIComponent(c.name)}`}
+            className="block px-3.5 py-3 hover:bg-[#fafafa] transition-colors"
+            style={{
+              borderBottom:
+                i === withReplies.length - 1 ? "none" : "1px solid #f1f1f4",
+            }}
+          >
+            <div className="flex items-center gap-2.5 mb-1">
+              <Initial name={c.name} size={26} />
+              <span className="text-[13px] font-semibold tracking-[-0.01em]">
+                {c.name}
+              </span>
+              <span className="ml-auto text-[16a34a]" style={{ color: "#16a34a", fontSize: 11, fontWeight: 600 }}>
+                {c.replies} {c.replies === 1 ? "reply" : "replies"}
+              </span>
+            </div>
+            <div className="text-[11.5px] text-[#8089a0] pl-[34px]">
+              {c.contacts} contact{c.contacts !== 1 ? "s" : ""}
+              {c.draftsReady > 0 && ` · ${c.draftsReady} drafts`}
+            </div>
+          </Link>
+        ))}
+      </aside>
+      <section
+        className="border border-[#e9eaef] rounded-lg p-6"
+        style={{ background: "#fff" }}
+      >
+        <div
+          style={{
+            fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+            fontSize: 10,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            color: "#8089a0",
+            marginBottom: 14,
+          }}
+        >
+          How replies work
+        </div>
+        <p
+          className="font-serif italic"
+          style={{
+            fontSize: 18,
+            color: "var(--ink, #0F172A)",
+            fontWeight: 400,
+            lineHeight: 1.4,
+            marginBottom: 10,
+          }}
+        >
+          When a contact responds, Offerloop drafts a suggested reply and moves them into your tracker.
+        </p>
+        <p className="text-[13px] text-muted-foreground leading-relaxed">
+          Pick a company on the left to jump into the full conversation, see the agent-drafted response, and approve or edit before sending.
+        </p>
+        <Link
+          to="/tracker"
+          className="inline-block mt-4 text-[12px] font-medium"
+          style={{ color: "var(--ink, #0F172A)" }}
+        >
+          Open tracker →
+        </Link>
+      </section>
+    </div>
+  );
+}
+
+function EditorialJobList({ jobs }: { jobs: AgentJob[] }) {
+  return (
+    <div>
+      {jobs.map((j, i) => (
+        <div
+          key={j.id}
+          className="flex items-start gap-5 py-4"
+          style={{ borderBottom: i === jobs.length - 1 ? "none" : "1px solid #f1f1f4" }}
+        >
+          <span
+            className="font-serif shrink-0"
+            style={{
+              fontSize: 44,
+              color: i < 3 ? "var(--ink, #0F172A)" : "#b3b8c7",
+              width: 60,
+              lineHeight: 1,
+              letterSpacing: "-0.03em",
+              fontVariantNumeric: "tabular-nums",
+              fontWeight: 400,
+            }}
+          >
+            {String(i + 1).padStart(2, "0")}
+          </span>
+          <div className="flex-1 min-w-0">
+            <div
+              className="font-serif tracking-[-0.015em] mb-1.5"
+              style={{ fontSize: 18, color: "var(--ink, #0F172A)", fontWeight: 400 }}
+            >
+              {j.title}
+            </div>
+            <div className="text-[12.5px] text-[#8089a0] mb-2">
+              {j.company}
+              {j.location && ` · ${j.location}`}
+            </div>
+            {j.matchReasons?.length > 0 && (
+              <div className="flex gap-1.5 flex-wrap">
+                {j.matchReasons.slice(0, 3).map((r) => (
+                  <span
+                    key={r}
+                    className="rounded-full"
+                    style={{
+                      fontSize: 10.5,
+                      padding: "2.5px 9px",
+                      background: "#fafbff",
+                      border: "1px solid #e9eaef",
+                      color: "#4b5567",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {r}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+          {j.applyLink ? (
+            <a
+              href={j.applyLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 mt-1.5 text-[12px] font-medium hover:underline"
+              style={{ color: "var(--ink, #0F172A)" }}
+            >
+              View →
+            </a>
+          ) : (
+            <span className="shrink-0 text-[12px] text-[#8089a0]">no link</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PipelineKanban({ companies }: { companies: CompanyPipeline[] }) {
+  // Derive stage from existing per-company counts:
+  //   replies > 0          → Replied
+  //   draftsReady > 0      → Drafted
+  //   contacts > 0         → Researching
+  //   otherwise            → Closed
+  const columns: Record<"Researching" | "Drafted" | "Replied" | "Closed", CompanyPipeline[]> = {
+    Researching: [],
+    Drafted: [],
+    Replied: [],
+    Closed: [],
+  };
+  for (const c of companies) {
+    if ((c.replies || 0) > 0) columns.Replied.push(c);
+    else if ((c.draftsReady || 0) > 0) columns.Drafted.push(c);
+    else if ((c.contacts || 0) > 0) columns.Researching.push(c);
+    else columns.Closed.push(c);
+  }
+  const order: Array<keyof typeof columns> = ["Researching", "Drafted", "Replied", "Closed"];
+  return (
+    <div className="grid gap-3.5" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+      {order.map((col) => (
+        <div
+          key={col}
+          className="border border-[#e9eaef] rounded-lg p-3.5"
+          style={{ background: "#fff", minHeight: 240 }}
+        >
+          <div
+            className="flex items-baseline justify-between pb-2.5 mb-3"
+            style={{ borderBottom: "1px solid #f1f1f4" }}
+          >
+            <span className="text-[13px] font-semibold tracking-[-0.01em]" style={{ color: "var(--ink, #0F172A)" }}>
+              {col}
+            </span>
+            <span
+              style={{
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                fontSize: 11,
+                color: "#8089a0",
+              }}
+            >
+              {columns[col].length}
+            </span>
+          </div>
+          {columns[col].length === 0 ? (
+            <div className="text-[12px] text-[#b3b8c7] italic py-2">—</div>
+          ) : (
+            <div className="space-y-2">
+              {columns[col].map((c) => (
+                <Link
+                  key={c.name}
+                  to={`/tracker?company=${encodeURIComponent(c.name)}`}
+                  className="block rounded-md p-2.5 hover:bg-[#fafbff] transition-colors"
+                  style={{ border: "1px solid #f1f1f4", background: "#fafafa" }}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <Initial name={c.name} size={20} />
+                    <span className="text-[12.5px] font-semibold tracking-[-0.01em]">
+                      {c.name}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-[#8089a0] pl-[28px]">
+                    {c.contacts} contact{c.contacts !== 1 ? "s" : ""}
+                    {c.hms > 0 && ` · ${c.hms} HM`}
+                    {c.jobs > 0 && ` · ${c.jobs} job${c.jobs !== 1 ? "s" : ""}`}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ActivityTimeline({ items }: { items: AgentAction[] }) {
+  // Group items by calendar day (Today / Yesterday / Date)
+  const groups: Array<[string, AgentAction[]]> = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const labelFor = (iso: string | undefined): string => {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    if (isNaN(+d)) return "—";
+    const day = new Date(d);
+    day.setHours(0, 0, 0, 0);
+    if (+day === +today) return "Today";
+    if (+day === +yesterday) return "Yesterday";
+    return day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  };
+  for (const a of items) {
+    const label = labelFor(a.createdAt);
+    const last = groups[groups.length - 1];
+    if (last && last[0] === label) last[1].push(a);
+    else groups.push([label, [a]]);
+  }
+  return (
+    <div className="space-y-7">
+      {groups.map(([day, entries]) => (
+        <div key={day}>
+          <div
+            className="flex items-center gap-3 mb-3.5"
+            style={{
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+              fontSize: 10,
+              color: "#8089a0",
+              letterSpacing: "0.14em",
+              textTransform: "uppercase",
+            }}
+          >
+            <span style={{ flex: 1, height: 1, background: "#f1f1f4" }} />
+            {day}
+            <span style={{ flex: 1, height: 1, background: "#f1f1f4" }} />
+          </div>
+          <div
+            className="pl-5 ml-1.5"
+            style={{ borderLeft: "1px solid #f1f1f4" }}
+          >
+            {entries.map((a, i) => {
+              const kind = ACTION_KIND[a.action] || "watch";
+              const meta = KIND_META[kind];
+              const verb = ACTION_VERBS[a.action] || a.action;
+              const ts = a.createdAt
+                ? new Date(a.createdAt).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hour12: false,
+                  })
+                : "";
+              return (
+                <div key={a.id} className="relative pb-3.5" style={{ paddingLeft: 4 }}>
+                  <span
+                    style={{
+                      position: "absolute",
+                      left: -27,
+                      top: 6,
+                      width: 9,
+                      height: 9,
+                      borderRadius: "50%",
+                      background: meta.color,
+                      border: "2px solid #fff",
+                    }}
+                  />
+                  <div className="flex items-baseline gap-3">
+                    <span
+                      style={{
+                        fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                        fontSize: 11,
+                        color: "#8089a0",
+                        width: 56,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {ts}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div
+                        className="text-[13px] tracking-[-0.01em]"
+                        style={{ color: "var(--ink, #0F172A)" }}
+                      >
+                        <span className="font-semibold">{verb}</span>
+                        {a.company && (
+                          <span style={{ color: "#4b5567" }}> {a.company}</span>
+                        )}
+                        {a.status === "failed" && (
+                          <span className="text-red-500 ml-1">· failed</span>
+                        )}
+                        {a.status === "executing" && (
+                          <span className="text-blue-500 ml-1">· running</span>
+                        )}
+                      </div>
+                      {a.reason && (
+                        <div className="text-[11.5px] text-[#8089a0] mt-0.5">
+                          {a.reason}
+                        </div>
+                      )}
+                    </div>
+                    {a.creditsSpent > 0 && (
+                      <span
+                        style={{
+                          fontFamily:
+                            "ui-monospace, SFMono-Regular, Menlo, monospace",
+                          fontSize: 10.5,
+                          color: "#8089a0",
+                          padding: "2px 7px",
+                          borderRadius: 100,
+                          background: "#fafbff",
+                          border: "1px solid #f1f1f4",
+                        }}
+                      >
+                        {a.creditsSpent}c
+                      </span>
+                    )}
+                  </div>
+                  {i === entries.length - 1 && day !== groups[groups.length - 1][0] && (
+                    <span /> /* spacer */
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ApprovalsPolicyRail({
+  config,
+  stats,
+}: {
+  config: AgentConfig;
+  stats: ReturnType<typeof useAgentSnapshot>["stats"]["data"];
+}) {
+  const cadence = (() => {
+    const days = (config as { cycleScheduleDays?: number[] }).cycleScheduleDays;
+    if (Array.isArray(days)) {
+      if (days.length === 7) return "daily";
+      if (days.length === 5) return "weekday";
+      if (days.length === 1) return "weekly";
+      return `${days.length}×/week`;
+    }
+    return "daily";
+  })();
+  return (
+    <aside
+      className="lg:border-l lg:pl-6 lg:border-[#f1f1f4]"
+      style={{ alignSelf: "flex-start" }}
+    >
+      <div
+        className="mb-4"
+        style={{
+          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+          fontSize: 10,
+          color: "#8089a0",
+          letterSpacing: "0.16em",
+          textTransform: "uppercase",
+        }}
+      >
+        Budget · Policy
+      </div>
+      <PolicyRow label="Cadence" value={cadence} />
+      <PolicyRow
+        label="Credit budget / week"
+        value={`${config.creditBudgetPerWeek || 0}c`}
+      />
+      <PolicyRow
+        label="Credits spent / week"
+        value={`${stats?.creditsSpentThisWeek ?? 0}c`}
+      />
+      <PolicyRow
+        label="Target companies"
+        value={String(config.targetCompanies?.length || 0)}
+      />
+      <PolicyRow
+        label="Approval mode"
+        value={config.approvalMode === "autopilot" ? "autopilot" : "review first"}
+      />
+      <PolicyRow
+        label="Last cycle"
+        value={config.lastCycleAt ? relativeTime(config.lastCycleAt) : "never"}
+      />
+    </aside>
+  );
+}
+
+function PolicyRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="mb-3.5">
+      <div
+        style={{
+          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+          fontSize: 10,
+          color: "#8089a0",
+          letterSpacing: "0.12em",
+          textTransform: "uppercase",
+          marginBottom: 4,
+        }}
+      >
+        {label}
+      </div>
+      <div
+        className="text-[13px] font-medium"
+        style={{ color: "var(--ink, #0F172A)" }}
+      >
+        {value}
+      </div>
+    </div>
   );
 }

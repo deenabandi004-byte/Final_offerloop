@@ -397,17 +397,26 @@ def execute_find_and_draft(
                 logger.warning("Gmail draft creation failed: %s", e)
 
         doc_ref = contacts_ref.add(contact_doc)
+        contact_id = doc_ref[1].id if isinstance(doc_ref, tuple) else ""
         saved_contacts.append({
-            "id": doc_ref[1].id if isinstance(doc_ref, tuple) else "",
+            "id": contact_id,
+            "contactId": contact_id,  # explicit field for activity-feed deep links
             "name": contact_key,
+            "title": contact_doc.get("Title", ""),
             "company": contact_doc["company"],
             "hasEmail": bool(email_data),
             "emailSubject": email_data.get("subject", "") if email_data else "",
             "emailBodyPreview": (email_data.get("body", "") if email_data else "")[:200],
+            "gmailDraftId": contact_doc.get("gmailDraftId", ""),
+            "gmailDraftUrl": contact_doc.get("gmailDraftUrl", ""),
         })
 
-    # Deduct credits (1 credit per contact found)
-    credits_spent = len(saved_contacts)
+    # Deduct credits — 15 per contact + drafted email (Phase 8 repricing).
+    # Covers: PDL lookup ($0.10) + Apify LinkedIn ($0.003) + Perplexity person
+    # context ($0.01) + Claude draft ($0.012) + Hunter verify ($0.01) ≈ $0.135
+    # true COGS. 15 cr ≈ 75% of true cost in credit terms (25% subsidy).
+    CREDITS_PER_CONTACT = 15
+    credits_spent = len(saved_contacts) * CREDITS_PER_CONTACT
     try:
         deduct_credits_atomic(uid, credits_spent, "agent_find")
     except Exception:
@@ -532,8 +541,17 @@ def execute_find_jobs(
             "matchReasons": doc["matchReasons"],
         })
 
+    # 2 credits per job (Phase 8): covers Perplexity search + Firecrawl enrich
+    # + small OpenAI resume-score pass. True COGS ≈ $0.02 per job.
+    credits = len(saved) * 2
+    if credits > 0:
+        try:
+            deduct_credits_atomic(uid, credits, "agent_find_jobs")
+        except Exception:
+            logger.warning("Credit deduction failed for agent_find_jobs uid=%s", uid)
+
     logger.info("Agent find_jobs: uid=%s found %d jobs for %s", uid, len(saved), query)
-    return {"jobsFound": len(saved), "jobs": saved, "creditsSpent": 0}
+    return {"jobsFound": len(saved), "jobs": saved, "creditsSpent": credits}
 
 
 # ── DISCOVER_COMPANIES executor ───────────────────────────────────────────
@@ -643,8 +661,17 @@ def execute_discover_companies(
             "logoUrl": doc["logoUrl"],
         })
 
+    # 2 credits per company (Phase 8): Perplexity discover + Firecrawl enrich.
+    # True COGS ≈ $0.015 per company.
+    credits = len(saved) * 2
+    if credits > 0:
+        try:
+            deduct_credits_atomic(uid, credits, "agent_discover_companies")
+        except Exception:
+            logger.warning("Credit deduction failed for agent_discover_companies uid=%s", uid)
+
     logger.info("Agent discover_companies: uid=%s found %d companies", uid, len(saved))
-    return {"companiesDiscovered": len(saved), "companies": saved, "creditsSpent": 0}
+    return {"companiesDiscovered": len(saved), "companies": saved, "creditsSpent": credits}
 
 
 # ── FIND_HIRING_MANAGERS executor ─────────────────────────────────────────
@@ -767,17 +794,24 @@ def execute_find_hiring_managers(
                 logger.warning("Gmail draft creation for HM failed: %s", e)
 
         ref = contacts_ref.add(contact_doc)
+        contact_id = ref[1].id
         saved.append({
-            "id": ref[1].id,
+            "id": contact_id,
+            "contactId": contact_id,  # explicit field for activity-feed deep links
             "name": f"{first_name} {last_name}",
+            "title": contact_doc.get("Title", ""),
             "company": company,
             "hasEmail": bool(email_body),
             "emailSubject": email_subject,
             "emailBodyPreview": email_body[:200] if email_body else "",
             "isHiringManager": True,
+            "gmailDraftId": contact_doc.get("gmailDraftId", ""),
+            "gmailDraftUrl": contact_doc.get("gmailDraftUrl", ""),
         })
 
-    credits = len(saved) * 5  # 5 credits per HM
+    # 20 credits per HM (Phase 8 repricing): contact lookup + LinkedIn enrich
+    # + extra Perplexity verification + draft + Hunter ≈ $0.195 true COGS.
+    credits = len(saved) * 20
     if credits > 0:
         try:
             deduct_credits_atomic(uid, credits, "agent_find_hm")

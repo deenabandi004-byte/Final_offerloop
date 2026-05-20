@@ -38,6 +38,24 @@ def generate_action_plan(
             "plannerLog": {"prompt": ..., "response": ..., "model": ..., "latencyMs": ...}
         }
     """
+    # If the user wrote a Loop brief, prefer its parsed fields over the legacy
+    # targetCompanies/Industries/Roles/Locations. We don't mutate the caller's
+    # config — make a shallow copy with the brief values layered on top.
+    brief_parsed = config.get("briefParsed")
+    if isinstance(brief_parsed, dict) and any([
+        brief_parsed.get("companies"),
+        brief_parsed.get("industries"),
+        brief_parsed.get("roles"),
+        brief_parsed.get("locations"),
+    ]):
+        config = {
+            **config,
+            "targetCompanies": brief_parsed.get("companies") or config.get("targetCompanies", []),
+            "targetIndustries": brief_parsed.get("industries") or config.get("targetIndustries", []),
+            "targetRoles": brief_parsed.get("roles") or config.get("targetRoles", []),
+            "targetLocations": brief_parsed.get("locations") or config.get("targetLocations", []),
+        }
+
     # Pre-planning market research via Perplexity
     market_context = {}
     try:
@@ -87,6 +105,16 @@ def _build_prompt(config: dict, user_data: dict, pipeline_state: dict, market_co
     follow_up_enabled = config.get("followUpEnabled", True)
     follow_up_days = config.get("followUpDays", 7)
     blocklist = config.get("blocklist", {})
+
+    # Loop brief — surface the user's own words verbatim to the planner so
+    # email drafts pick up on the *why* (e.g. "summer internship recruiting"),
+    # not just the *who*.
+    brief_text = (config.get("briefText") or "").strip()
+    brief_parsed = config.get("briefParsed") or {}
+    email_purpose = brief_parsed.get("emailPurpose") if isinstance(brief_parsed, dict) else None
+    brief_constraints = brief_parsed.get("constraints") if isinstance(brief_parsed, dict) else []
+    if not isinstance(brief_constraints, list):
+        brief_constraints = []
 
     # Feature toggles
     enable_jobs = config.get("enableJobDiscovery", True)
@@ -166,11 +194,16 @@ def _build_prompt(config: dict, user_data: dict, pipeline_state: dict, market_co
 - Graduation Year: {graduation_year}
 - Career Interests: {', '.join(career_interests) if career_interests else 'Not specified'}
 
+## User's Loop Brief (their own words — top priority signal)
+{brief_text if brief_text else 'No brief provided; use the configuration below.'}
+
 ## Agent Configuration
 - Target Companies: {', '.join(targets) if targets else 'None specified'}
 - Target Industries: {', '.join(industries) if industries else 'None specified'}
 - Target Roles: {', '.join(roles) if roles else 'None specified'}
 - Target Locations: {', '.join(locations) if locations else 'Any'}
+- Email purpose: {email_purpose or 'general networking outreach'}
+- Brief constraints: {', '.join(brief_constraints) if brief_constraints else 'None'}
 - Weekly Contact Target: {weekly_target}
 - Prefer Alumni: {prefer_alumni}
 - Follow-up Enabled: {follow_up_enabled} (after {follow_up_days} days)

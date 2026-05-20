@@ -9,7 +9,7 @@ import {
   Download,
 } from "lucide-react";
 import { LoadingSkeleton } from "./LoadingSkeleton";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useFirebaseAuth } from '../contexts/FirebaseAuthContext';
 import {
   AlertDialog,
@@ -60,6 +60,13 @@ const RecruiterSpreadsheet: React.FC = () => {
   const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
   const [activeCell, setActiveCell] = useState<{ rowId: string; col: string } | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
+
+  // Deep-link from Loop activity feed: /hiring-manager-tracker?contact=<id>
+  // scrolls to and pulse-highlights the matching row. We track the
+  // highlighted ID separately so the visual fade-out doesn't fight the URL.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const rowRefs = useRef<Map<string, HTMLTableRowElement>>(new Map());
 
   // Track pending saves to prevent data loss
   const [pendingSaves, setPendingSaves] = useState<Set<string>>(new Set());
@@ -176,6 +183,30 @@ const RecruiterSpreadsheet: React.FC = () => {
       saveTimeoutRef.current.clear();
     };
   }, []);
+
+  // Deep-link target: when ?contact=<id> is in the URL AND that recruiter
+  // is loaded, scroll to it and pulse-highlight for 2s. Param is consumed
+  // (removed from the URL) so refresh doesn't keep re-highlighting.
+  useEffect(() => {
+    const targetId = searchParams.get("contact");
+    if (!targetId || recruiters.length === 0) return;
+    const exists = recruiters.some((r) => r.id === targetId);
+    if (!exists) return;
+
+    setHighlightedId(targetId);
+    // Wait one frame so the row is in the DOM, then scroll.
+    requestAnimationFrame(() => {
+      const el = rowRefs.current.get(targetId);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    // Clear the URL param so refresh is a no-op.
+    const next = new URLSearchParams(searchParams);
+    next.delete("contact");
+    setSearchParams(next, { replace: true });
+    // Fade highlight after 2s.
+    const t = setTimeout(() => setHighlightedId(null), 2000);
+    return () => clearTimeout(t);
+  }, [searchParams, recruiters, setSearchParams]);
 
   // Filter recruiters based on search query
   useEffect(() => {
@@ -739,12 +770,36 @@ const RecruiterSpreadsheet: React.FC = () => {
                     ...(activeCell?.rowId === recruiter.id && activeCell?.col === col ? { outline: '2px solid #2a2a2a', outlineOffset: -2, background: '#fff', zIndex: 1 } : {}),
                   });
 
+                  const isHighlighted = highlightedId === recruiter.id;
                   return (
                     <tr
                       key={recruiter.id}
-                      style={{ height: 32, borderBottom: '1px solid #F1F5F9', background: index % 2 === 1 ? '#F8FAFC' : 'white', transition: 'background 0.1s' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = '#EFF6FF'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = index % 2 === 1 ? '#F8FAFC' : 'white'; }}
+                      ref={(el) => {
+                        if (!recruiter.id) return;
+                        if (el) rowRefs.current.set(recruiter.id, el);
+                        else rowRefs.current.delete(recruiter.id);
+                      }}
+                      style={{
+                        height: 32,
+                        borderBottom: '1px solid #F1F5F9',
+                        background: isHighlighted
+                          ? '#FEF3C7'
+                          : index % 2 === 1
+                          ? '#F8FAFC'
+                          : 'white',
+                        transition: 'background 0.4s ease-out',
+                        boxShadow: isHighlighted
+                          ? 'inset 3px 0 0 #F59E0B'
+                          : 'none',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isHighlighted) e.currentTarget.style.background = '#EFF6FF';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isHighlighted) {
+                          e.currentTarget.style.background = index % 2 === 1 ? '#F8FAFC' : 'white';
+                        }
+                      }}
                     >
                       {/* Row Number */}
                       <td style={{ width: GUTTER_W, textAlign: 'center', fontSize: 10, color: '#999', background: '#ffffff', borderRight: '1px solid #e5e5e3', padding: '0 4px' }}

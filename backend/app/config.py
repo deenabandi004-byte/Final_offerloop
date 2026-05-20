@@ -194,7 +194,11 @@ TIER_CONFIGS = {
         'personalized_templates': False,
         'weekly_insights': False,
         'early_access': False,
-        'agent_enabled': False,
+        'agent_enabled': True,
+        'max_loops': 1,
+        # Per-Loop weekly credit budget (Phase 8 — automation/pricing)
+        'default_credit_budget_per_week_per_loop': 75,
+        'max_credit_budget_per_week_per_loop': 150,
     },
     'pro': {
         'max_contacts': 8,   # Maximum contacts returned per search
@@ -220,7 +224,11 @@ TIER_CONFIGS = {
         'personalized_templates': False,
         'weekly_insights': False,
         'early_access': False,
-        'agent_enabled': False,
+        'agent_enabled': True,
+        'max_loops': 5,
+        # Per-Loop weekly credit budget (Phase 8 — automation/pricing)
+        'default_credit_budget_per_week_per_loop': 200,
+        'max_credit_budget_per_week_per_loop': 600,
     },
     'elite': {
         'max_contacts': 15,  # Maximum contacts returned per search
@@ -247,6 +255,13 @@ TIER_CONFIGS = {
         'weekly_insights': True,
         'early_access': True,
         'agent_enabled': True,
+        # Elite is "unlimited" in copy; capped at 50 internally so a single
+        # account can't accidentally spin up hundreds of Loops + cycles.
+        'max_loops': 50,
+        # Per-Loop weekly credit budget. Elite max is None = bounded only by
+        # the monthly pool, so a power user can dial individual Loops up.
+        'default_credit_budget_per_week_per_loop': 400,
+        'max_credit_budget_per_week_per_loop': None,
     }
 }
 

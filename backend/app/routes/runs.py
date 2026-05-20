@@ -8,7 +8,8 @@ import threading
 from datetime import datetime
 from typing import Dict, Tuple, Optional
 from app.services.pdl_client import get_contact_identity, search_contacts_from_prompt
-from app.services.prompt_parser import parse_search_prompt_structured
+from app.services.prompt_parser import parse_search_prompt_structured, classify_query
+from app.services.hunter_person_search import search_people_via_hunter
 from flask import Blueprint, request, jsonify
 
 from app.extensions import require_firebase_auth, get_db
@@ -214,6 +215,11 @@ def prompt_search():
     Request: { "prompt": "...", "batchSize": 5 }
     Response: same shape as free-run plus parsed_query.
     """
+    # NOTE: PDL credits are exhausted. Person search now routes to Hunter
+    # (Domain Search) for any query that names a company; queries with no
+    # company short-circuit to a friendly 503 so the frontend can banner.
+    # PDL_OUTAGE_ACTIVE remains the global kill switch — if an operator
+    # flips it on, the whole route goes dark (Hunter included).
     if PDL_OUTAGE_ACTIVE:
         return jsonify({"error": "service_unavailable", "message": "Contact search temporarily unavailable.", "code": "PDL_OUTAGE"}), 503
 
@@ -288,14 +294,34 @@ def prompt_search():
                 "parsed_query": {k: parsed.get(k) for k in ("companies", "title_variations", "locations") if k in parsed},
             }), 400
 
-        # Request extra from PDL to account for dedup filtering (already-contacted users)
+        # Request extra from the provider to account for dedup filtering (already-contacted users)
         # Use seen_contact_set (already loaded for exclusion) instead of re-streaming Firestore
         existing_contact_count = len(seen_contact_set) if seen_contact_set else 0
         pdl_fetch_count = max_contacts + existing_contact_count + 2
 
-        # Fetch contacts
-        contacts, retry_level_used, already_saved_contacts, adjacency_metadata = search_contacts_from_prompt(parsed, pdl_fetch_count, exclude_keys=seen_contact_set, user_profile=user_data)
-        search_broadened = retry_level_used >= 1  # Any broadening at all
+        # Provider routing: PDL is offline (credits exhausted). Hunter Domain
+        # Search handles any query that names a company; queries with no
+        # company at all return a 503 with PDL_OUTAGE so the frontend banners.
+        classification = classify_query(parsed)
+        if not classification["has_company"]:
+            return jsonify({
+                "error": "service_unavailable",
+                "code": "PDL_OUTAGE",
+                "message": "Broad searches are paused while we upgrade our data provider. Try naming a company.",
+                "unsupported_filters": classification["unsupported_filters"],
+                "parsed_query": {
+                    "companies": parsed.get("companies", []),
+                    "title_variations": parsed.get("title_variations", []),
+                    "locations": parsed.get("locations", []),
+                    "schools": parsed.get("schools", []),
+                },
+            }), 503
+
+        # Fetch contacts via Hunter (PDL stopgap).
+        contacts, retry_level_used, already_saved_contacts, adjacency_metadata = search_people_via_hunter(
+            parsed, pdl_fetch_count, exclude_keys=seen_contact_set, user_profile=user_data
+        )
+        search_broadened = retry_level_used >= 1  # Hunter never broadens; kept for response shape parity
 
         # Surface which dimensions were dropped at the rung that succeeded so the
         # frontend can render an honest "we expanded by..." banner.
@@ -856,6 +882,10 @@ def prompt_search():
             "search_broadened": search_broadened,
             "retry_level_used": retry_level_used,
             "broadened_dimensions": broadened_dimensions,
+            # Surfacing filters Hunter cannot honor (school, location) so the
+            # frontend renders a "filter temporarily unavailable" disclaimer.
+            "unsupported_filters": classification["unsupported_filters"],
+            "provider": "hunter",
         }
         if search_broadened:
             response_data["broadening_level"] = retry_level_used

@@ -30,7 +30,22 @@ async function agentFetch(path: string, options: RequestInit = {}) {
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
+export interface ParsedBrief {
+  companies: string[];
+  industries: string[];
+  roles: string[];
+  locations: string[];
+  emailPurpose: string | null;
+  constraints: string[];
+}
+
 export interface AgentConfig {
+  // New (Loop UX) — primary fields the new frontend reads/writes
+  briefText: string;
+  briefParsed: ParsedBrief | null;
+  reviewBeforeSend: boolean;
+  smsEnabled: boolean;
+  // Legacy — still returned by the backend for backwards compat
   targetCompanies: string[];
   targetIndustries: string[];
   targetRoles: string[];
@@ -82,6 +97,21 @@ export async function updateAgentConfig(
   return agentFetch("/config", {
     method: "PUT",
     body: JSON.stringify(updates),
+  });
+}
+
+// ── Loop brief ──────────────────────────────────────────────────────────────
+
+/**
+ * Parse the user's natural-language Loop brief and save it on the config.
+ * Idempotent — call this whenever the textarea content settles.
+ */
+export async function parseBrief(
+  briefText: string
+): Promise<{ briefParsed: ParsedBrief; config: AgentConfig }> {
+  return agentFetch("/brief", {
+    method: "POST",
+    body: JSON.stringify({ briefText }),
   });
 }
 
@@ -209,6 +239,7 @@ export async function rejectAction(actionId: string): Promise<AgentAction> {
 
 export interface AgentCycle {
   id: string;
+  shortCode?: string;
   startedAt: string;
   completedAt: string | null;
   status: string;

@@ -746,6 +746,11 @@ const Pricing = () => {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 <ComparisonRow feature="Monthly Credits" free="300" pro="1,500" elite="3,000" />
+                {/* Phase 8 — Loop-specific rows. Numbers derived from
+                    (monthly_credits - manual_reserve) / cost_per_output. */}
+                <ComparisonRow feature="Loops (autonomous agents)" free="1" pro="5" elite="Unlimited" />
+                <ComparisonRow feature="Contacts found / month" free="~20" pro="~100" elite="~200" />
+                <ComparisonRow feature="Hiring managers / month" free="~15" pro="~75" elite="~150" />
                 <ComparisonRow feature="Contact Search" free="Basic" pro="Full" elite="Full + Priority" />
                 <ComparisonRow feature="Find Companies" free="✓ (credit-limited)" pro={true} elite={true} />
                 <ComparisonRow feature="Find Hiring Managers" free={false} pro={true} elite={true} />

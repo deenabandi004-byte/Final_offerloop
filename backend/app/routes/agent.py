@@ -13,6 +13,7 @@ import logging
 from flask import Blueprint, current_app, jsonify, request
 
 from app.extensions import require_firebase_auth, require_tier
+from app.services.agent_brief_parser import parse_brief
 from app.services.agent_service import (
     approve_action,
     deploy_agent,
@@ -54,6 +55,31 @@ def put_config():
     data = request.get_json() or {}
     config = update_agent_config(uid, data)
     return jsonify(config)
+
+
+@agent_bp.route("/brief", methods=["POST"])
+@require_firebase_auth
+@require_tier(['elite'])
+def parse_and_save_brief():
+    """Parse a free-text Loop brief and save it to the user's agent config.
+
+    Body: { "briefText": "..." }
+    Returns: { "briefParsed": {...}, "config": {...} }
+
+    Idempotent — saving the same brief twice is safe. The parsed result is
+    stored on the config so cycle execution can read it without re-calling
+    the LLM.
+    """
+    uid = request.firebase_user["uid"]
+    data = request.get_json() or {}
+    brief_text = (data.get("briefText") or "").strip()
+
+    parsed = parse_brief(brief_text)
+    config = update_agent_config(uid, {
+        "briefText": brief_text,
+        "briefParsed": parsed,
+    })
+    return jsonify({"briefParsed": parsed, "config": config})
 
 
 @agent_bp.route("/deploy", methods=["POST"])

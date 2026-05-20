@@ -47,6 +47,7 @@ from .app.routes.extension_logs import extension_logs_bp
 from .app.routes.search_suggestions import search_suggestions_bp
 from .app.routes.briefing import briefing_bp
 from .app.routes.agent import agent_bp
+from .app.routes.loops import loops_bp
 from .app.routes.metrics import metrics_bp
 from .app.routes.events import events_bp
 from .app.routes.company_contexts import company_contexts_bp
@@ -215,6 +216,7 @@ def create_app() -> Flask:
     app.register_blueprint(search_suggestions_bp)
     app.register_blueprint(briefing_bp)
     app.register_blueprint(agent_bp)
+    app.register_blueprint(loops_bp)
     app.register_blueprint(metrics_bp)
     app.register_blueprint(events_bp)
     app.register_blueprint(company_contexts_bp)
@@ -539,6 +541,36 @@ def create_app() -> Flask:
         _agent_logger.info("Agent daemon registered (first run in ~10 minutes)")
     else:
         _agent_logger.info("Agent daemon disabled via AGENT_DAEMON_ENABLED=false")
+
+    # ---- Loop scheduler daemon (every 1 hour) ────────────────────────────────
+    #
+    # Phase 8. Scans users/{uid}/loops/{loopId} for status='running' AND
+    # nextRunAt<=now. Gates each by cadence, credit pool, weekly per-Loop
+    # budget, inactivity, and quiet hours. Fires due cycles via RQ.
+    #
+    # Separate from the legacy agent daemon above — that one still serves
+    # users on the singleton agent_config doc until they get migrated.
+    _loop_sched_logger = logging.getLogger("loop_scheduler_daemon")
+
+    def _loop_scheduler_loop():
+        ONE_HOUR = 3600
+        _loop_sched_logger.info("Loop scheduler daemon started (interval=1 hour)")
+        time.sleep(600)  # boot stabilization
+        while True:
+            try:
+                with app.app_context():
+                    from .app.services.loop_scheduler import run_due_loops
+                    run_due_loops()
+            except Exception:
+                _loop_sched_logger.exception("Loop scheduler daemon failed")
+            time.sleep(ONE_HOUR)
+
+    if os.getenv("LOOP_SCHEDULER_ENABLED", "true").lower() == "true":
+        loop_sched_thread = threading.Thread(target=_loop_scheduler_loop, daemon=True)
+        loop_sched_thread.start()
+        _loop_sched_logger.info("Loop scheduler registered (first run in ~10 minutes)")
+    else:
+        _loop_sched_logger.info("Loop scheduler disabled via LOOP_SCHEDULER_ENABLED=false")
 
     # ---- Agent follow-up daemon (every 1 hour) ───────────────────────────────
     #

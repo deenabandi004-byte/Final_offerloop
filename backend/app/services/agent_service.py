@@ -10,20 +10,47 @@ Responsibilities:
 from __future__ import annotations
 
 import logging
+import secrets
 import uuid
 from datetime import datetime, timezone, timedelta
 
 from app.extensions import get_db
+
+
+def _generate_short_code() -> str:
+    """6-char base32 code for SMS reply targeting (e.g. 'K7M2P9').
+
+    Crockford-style alphabet: no 0/O/1/I to avoid SMS typos.
+    """
+    alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+    return "".join(secrets.choice(alphabet) for _ in range(6))
 
 logger = logging.getLogger(__name__)
 
 # ── Hard caps (guardrails) ─────────────────────────────────────────────────
 MAX_CONTACTS_PER_WEEK = 15
 MAX_CREDITS_PER_WEEK = 150
-MIN_CREDIT_BALANCE = 20
+# Raised from 20 to 25 so a user can still do one coffee chat prep (15cr) or
+# half an interview prep after the auto-pause kicks in.
+MIN_CREDIT_BALANCE = 25
 
 # ── Default config ─────────────────────────────────────────────────────────
+# New fields driving the "Start a Loop" rebrand:
+#   briefText / briefParsed — single natural-language goal the user typed
+#   smsEnabled              — feature flag while Twilio 10DLC is pending
+#   digestEnabled           — kept as fallback when smsEnabled=False
+#
+# Legacy fields (targetCompanies/Industries/Roles/Locations, approvalMode,
+# sendMode, emailTemplate*, customInstructions, signoffPhrase, signatureBlock,
+# follow-up controls, the *Discovery toggles) stay readable for backwards compat
+# but the new UX writes only briefText + weeklyContactTarget + reviewBeforeSend.
 DEFAULT_AGENT_CONFIG = {
+    # New (Loop UX)
+    "briefText": "",
+    "briefParsed": None,
+    "reviewBeforeSend": True,
+    "smsEnabled": False,
+    # Legacy targets — still honored if briefParsed is None
     "targetCompanies": [],
     "targetIndustries": [],
     "targetRoles": [],
@@ -62,6 +89,9 @@ DEFAULT_AGENT_CONFIG = {
 }
 
 MUTABLE_CONFIG_FIELDS = {
+    # New
+    "briefText", "briefParsed", "reviewBeforeSend",
+    # Legacy
     "targetCompanies", "targetIndustries", "targetRoles", "targetLocations",
     "preferAlumni", "weeklyContactTarget", "creditBudgetPerWeek",
     "approvalMode", "sendMode", "autoSendUnlocked",
@@ -78,7 +108,9 @@ def get_agent_config(uid: str) -> dict:
     doc = db.collection("users").document(uid) \
             .collection("settings").document("agent_config").get()
     if doc.exists:
-        return doc.to_dict()
+        # Merge defaults so new fields (briefText, reviewBeforeSend, etc.)
+        # appear in responses even when the stored doc predates them.
+        return {**DEFAULT_AGENT_CONFIG, **doc.to_dict()}
     return dict(DEFAULT_AGENT_CONFIG)
 
 
@@ -99,6 +131,15 @@ def update_agent_config(uid: str, updates: dict) -> dict:
             max(int(filtered["creditBudgetPerWeek"]), 10),
             MAX_CREDITS_PER_WEEK,
         )
+
+    # New UX writes reviewBeforeSend; cycle execution still reads approvalMode.
+    # Mirror both ways so old and new clients agree.
+    if "reviewBeforeSend" in filtered:
+        filtered["approvalMode"] = (
+            "review_first" if filtered["reviewBeforeSend"] else "autopilot"
+        )
+    elif "approvalMode" in filtered:
+        filtered["reviewBeforeSend"] = filtered["approvalMode"] == "review_first"
 
     ref = db.collection("users").document(uid) \
             .collection("settings").document("agent_config")
@@ -436,7 +477,17 @@ def get_cycle_status(uid: str, cycle_id: str) -> dict | None:
 # ── Daemon entry point ────────────────────────────────────────────────────
 
 def run_due_agent_cycles():
-    """Called by the agent daemon every hour. Finds active agents with due cycles."""
+    """Called by the agent daemon every hour. Finds active agents with due cycles.
+
+    Uses a Firestore collection-group query on the agent_config docs so we touch
+    only users with status='active' and nextCycleAt<=now, instead of streaming
+    every user in the system.
+
+    Required Firestore index (deploy alongside this code):
+        Collection group: settings
+        Fields: status (ASC), nextCycleAt (ASC), __name__ (ASC)
+        Query scope: Collection group
+    """
     db = get_db()
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
@@ -446,28 +497,69 @@ def run_due_agent_cycles():
     processed = 0
     errors = 0
 
-    for user_doc in db.collection("users").stream():
-        uid = user_doc.id
-        try:
-            config_ref = (
-                db.collection("users").document(uid)
-                  .collection("settings").document("agent_config")
-            )
-            config_doc = config_ref.get()
-            if not config_doc.exists:
-                continue
+    try:
+        # Collection-group query reaches every users/{uid}/settings/agent_config
+        # doc directly. Filter at the DB layer instead of streaming all users.
+        query = (
+            db.collection_group("settings")
+              .where("status", "==", "active")
+              .where("nextCycleAt", "<=", now_iso)
+        )
+        due_configs = list(query.stream())
+    except Exception:
+        # Falls back to the legacy full scan if the index hasn't been deployed.
+        # Logged loudly so we notice and create the index.
+        logger.exception(
+            "Agent daemon: collection_group query failed (missing index?). "
+            "Falling back to full user scan."
+        )
+        due_configs = None
 
-            config = config_doc.to_dict()
-            if config.get("status") != "active":
-                continue
-            if config.get("cycleRunning"):
-                continue
+    if due_configs is not None:
+        for config_doc in due_configs:
+            # Doc path is users/{uid}/settings/agent_config — uid is the parent
+            # of the parent.
+            try:
+                uid = config_doc.reference.parent.parent.id
+                config = config_doc.to_dict() or {}
+                if config_doc.id != "agent_config":
+                    continue  # other settings docs share the same collection name
+                if config.get("cycleRunning"):
+                    continue
 
-            next_cycle = config.get("nextCycleAt")
-            if not next_cycle:
-                continue
+                logger.info("Agent daemon: running cycle for uid=%s", uid)
+                try:
+                    _run_cycle(uid, config)
+                    processed += 1
+                except Exception:
+                    logger.exception("Agent cycle failed for uid=%s", uid)
+                    errors += 1
+            except Exception:
+                logger.exception("Agent daemon: error processing config doc")
+                errors += 1
+    else:
+        # Legacy path — only runs if the index is missing.
+        for user_doc in db.collection("users").stream():
+            uid = user_doc.id
+            try:
+                config_ref = (
+                    db.collection("users").document(uid)
+                      .collection("settings").document("agent_config")
+                )
+                config_doc = config_ref.get()
+                if not config_doc.exists:
+                    continue
 
-            if next_cycle <= now_iso:
+                config = config_doc.to_dict()
+                if config.get("status") != "active":
+                    continue
+                if config.get("cycleRunning"):
+                    continue
+
+                next_cycle = config.get("nextCycleAt")
+                if not next_cycle or next_cycle > now_iso:
+                    continue
+
                 logger.info("Agent daemon: running cycle for uid=%s", uid)
                 try:
                     _run_cycle(uid, config)
@@ -476,9 +568,9 @@ def run_due_agent_cycles():
                     logger.exception("Agent cycle failed for uid=%s", uid)
                     errors += 1
 
-        except Exception:
-            logger.exception("Agent daemon: error checking uid=%s", uid)
-            errors += 1
+            except Exception:
+                logger.exception("Agent daemon: error checking uid=%s", uid)
+                errors += 1
 
     logger.info(
         "Agent daemon: scan complete. processed=%d errors=%d", processed, errors
@@ -722,12 +814,15 @@ def _run_cycle(uid: str, config: dict, cycle_id: str | None = None) -> dict:
 
     is_review_first = config.get("approvalMode") == "review_first"
 
-    # Create cycle doc
+    # Create cycle doc. shortCode is what users will text back to send drafts
+    # ("SEND K7M2P9") — too short to collide meaningfully within one user's
+    # history of ~hundreds of cycles, and the SMS handler scopes by uid first.
     cycle_ref = (
         db.collection("users").document(uid)
           .collection("agent_cycles").document(cycle_id)
     )
     cycle_ref.set({
+        "shortCode": _generate_short_code(),
         "startedAt": now.isoformat(),
         "completedAt": None,
         "status": "running",

@@ -54,6 +54,8 @@ const RecruitingTimelinePage = React.lazy(() => import("./pages/RecruitingTimeli
 const DashboardPage = React.lazy(() => import("./pages/DashboardPage"));
 const AgentPage = React.lazy(() => import("./pages/AgentPage"));
 const AgentSetup = React.lazy(() => import("./pages/AgentSetup"));
+const LoopsPage = React.lazy(() => import("./pages/LoopsPage"));
+const LoopDetailPage = React.lazy(() => import("./pages/LoopDetailPage"));
 const ResumeWorkshopPage = React.lazy(() => import("./pages/ResumeWorkshopPage"));
 const ResumePage = React.lazy(() => import("./pages/ResumePage"));
 const CoverLetterPage = React.lazy(() => import("./pages/CoverLetterPage"));
@@ -302,8 +304,13 @@ const AppRoutes: React.FC = () => {
       <Route path="/scout" element={<ProtectedRoute><ScoutRedirect /></ProtectedRoute>} />
       <Route path="/application-lab" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ApplicationLabPage /></Suspense></ProtectedRoute>} />
       <Route path="/recruiting-timeline" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><RecruitingTimelinePage /></Suspense></ProtectedRoute>} />
-      <Route path="/agent" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AgentPage /></Suspense></ProtectedRoute>} />
+      {/* /agent is now the multi-Loop fleet view (LoopsPage). The legacy
+          single-agent dashboard lives at /agent/legacy until the old data
+          is fully migrated and AgentSnapshot is reworked to take a loopId. */}
+      <Route path="/agent" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><LoopsPage /></Suspense></ProtectedRoute>} />
+      <Route path="/agent/legacy" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AgentPage /></Suspense></ProtectedRoute>} />
       <Route path="/agent/setup" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AgentSetup /></Suspense></ProtectedRoute>} />
+      <Route path="/agent/:loopId" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><LoopDetailPage /></Suspense></ProtectedRoute>} />
 
       {/* Write Pages - Resume & Cover Letter */}
       <Route path="/write/resume" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ResumeWorkshopPage /></Suspense></ProtectedRoute>} />

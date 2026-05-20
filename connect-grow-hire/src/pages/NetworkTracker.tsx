@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { RefreshCw, Search, Loader2, AlertCircle } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -64,6 +64,20 @@ export default function NetworkTracker() {
       window.history.replaceState({}, "");
     }
   }, [location.state]);
+
+  // Deep-link from Loop activity feed: /tracker?contact=<id> opens that
+  // contact's conversation panel. We strip the param after consuming it so
+  // a refresh doesn't keep re-opening the same one.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const id = searchParams.get("contact");
+    if (id) {
+      setSelectedContactId(id);
+      const next = new URLSearchParams(searchParams);
+      next.delete("contact");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   // --- queries ---
 

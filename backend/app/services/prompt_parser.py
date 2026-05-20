@@ -201,6 +201,35 @@ def _validate_structured_parse(parsed: Dict, original_prompt: str) -> Dict[str, 
 
 
 # ---------------------------------------------------------------------------
+# Query classification — used by /api/prompt-search to decide whether the
+# current provider (Hunter, while PDL credits are exhausted) can serve the
+# query at all, and which user-requested filters it must skip.
+# ---------------------------------------------------------------------------
+
+def classify_query(parsed: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Return a routing decision for a parsed prompt while PDL is offline:
+
+        {
+          "has_company": bool,            # Hunter can attempt iff True
+          "unsupported_filters": [str],   # filters Hunter cannot honor
+        }
+
+    Hunter Domain Search requires a company domain. Other filters
+    (school, location-of-person, past-company) are reported back so the
+    route can include them in the response payload and the frontend can
+    render a "filter temporarily unavailable" disclaimer.
+    """
+    has_company = bool(parsed.get("companies"))
+    unsupported: list[str] = []
+    if parsed.get("schools"):
+        unsupported.append("school")
+    if parsed.get("locations"):
+        unsupported.append("location")
+    return {"has_company": has_company, "unsupported_filters": unsupported}
+
+
+# ---------------------------------------------------------------------------
 # Legacy adapter: used by /api/search/parse-prompt route (parse_prompt.py)
 # Converts structured output → legacy flat-array format
 # ---------------------------------------------------------------------------
