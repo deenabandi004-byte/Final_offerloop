@@ -10,10 +10,12 @@ from typing import Dict, Tuple, Optional
 from app.services.pdl_client import get_contact_identity, search_contacts_from_prompt
 from app.services.prompt_parser import parse_search_prompt_structured, classify_query
 from app.services.hunter_person_search import search_people_via_hunter
+from app.services import coresignal_client
 from flask import Blueprint, request, jsonify
 
 from app.extensions import require_firebase_auth, get_db
-from app.services.feature_flags import PDL_OUTAGE_ACTIVE
+from app.services.feature_flags import PDL_OUTAGE_ACTIVE, is_enabled
+from app.services.metering import attach_request_context, spend_summary, spend_by_user
 from app.services.reply_generation import batch_generate_emails, PURPOSES_INCLUDE_RESUME, email_body_mentions_resume, regenerate_with_feedback
 from app.services.gmail_client import _load_user_gmail_creds, download_resume_from_url, clear_user_gmail_integration
 from app.services.interview_prep.resume_parser import extract_text_from_pdf_bytes
@@ -228,6 +230,10 @@ def prompt_search():
         user_id = request.firebase_user["uid"]
         db = get_db()
 
+        # Set request-scoped context so the @meter_call decorator can attribute
+        # every provider HTTP call in this request to the right user / search.
+        attach_request_context(user_id=user_id)
+
         data = request.get_json(silent=True) or {}
         prompt = (data.get("prompt") or "").strip()
         batch_size = data.get("batchSize")
@@ -295,9 +301,12 @@ def prompt_search():
             }), 400
 
         # Request extra from the provider to account for dedup filtering (already-contacted users)
-        # Use seen_contact_set (already loaded for exclusion) instead of re-streaming Firestore
+        # Use seen_contact_set (already loaded for exclusion) instead of re-streaming Firestore.
+        # Cap existing-contact contribution at 3 — old behavior unconditionally added
+        # len(seen_contact_set), so power users with 100+ saved contacts caused 100+ extra
+        # records to be fetched, burning provider credits 10x what the UI showed.
         existing_contact_count = len(seen_contact_set) if seen_contact_set else 0
-        pdl_fetch_count = max_contacts + existing_contact_count + 2
+        pdl_fetch_count = max_contacts + min(existing_contact_count, 3) + 2
 
         # Provider routing: PDL is offline (credits exhausted). Hunter Domain
         # Search handles any query that names a company; queries with no
@@ -317,10 +326,33 @@ def prompt_search():
                 },
             }), 503
 
-        # Fetch contacts via Hunter (PDL stopgap).
-        contacts, retry_level_used, already_saved_contacts, adjacency_metadata = search_people_via_hunter(
-            parsed, pdl_fetch_count, exclude_keys=seen_contact_set, user_profile=user_data
-        )
+        # Fetch contacts. Provider selection:
+        #   - CORESIGNAL_PRIMARY (Firestore feature flag) routes to Coresignal,
+        #     which restores school/alumni filtering that Hunter cannot do.
+        #   - When Coresignal returns 0 we fall back to Hunter so the user
+        #     still sees results during the bridge.
+        #   - Default (flag off) keeps the existing Hunter-only path.
+        if is_enabled("CORESIGNAL_PRIMARY", user_id, default=False):
+            contacts, retry_level_used, already_saved_contacts, adjacency_metadata = coresignal_client.search_contacts_from_prompt(
+                parsed, pdl_fetch_count, exclude_keys=seen_contact_set, user_profile=user_data
+            )
+            adjacency_metadata = adjacency_metadata or {}
+            adjacency_metadata.setdefault("provider", "coresignal")
+            if not contacts:
+                # Cross-vendor fallback: Coresignal missed; try Hunter so the
+                # user isn't shown an empty result page during the bridge.
+                fb_contacts, fb_retry, fb_saved, fb_meta = search_people_via_hunter(
+                    parsed, pdl_fetch_count, exclude_keys=seen_contact_set, user_profile=user_data
+                )
+                if fb_contacts:
+                    contacts, retry_level_used, already_saved_contacts = fb_contacts, fb_retry, fb_saved
+                    adjacency_metadata = (fb_meta or {})
+                    adjacency_metadata["fallback_used"] = "hunter"
+                    adjacency_metadata["primary_provider"] = "coresignal"
+        else:
+            contacts, retry_level_used, already_saved_contacts, adjacency_metadata = search_people_via_hunter(
+                parsed, pdl_fetch_count, exclude_keys=seen_contact_set, user_profile=user_data
+            )
         search_broadened = retry_level_used >= 1  # Hunter never broadens; kept for response shape parity
 
         # Surface which dimensions were dropped at the rung that succeeded so the
@@ -945,3 +977,59 @@ def prompt_search():
         print(f"Prompt-search error: {e}")
         traceback.print_exc()
         raise OfferloopException(f"Prompt search failed: {str(e)}", error_code="PROMPT_SEARCH_ERROR")
+
+
+# =============================================================================
+# ADMIN METERING ENDPOINTS
+# Read-only dashboards for provider spend. Gated to UIDs listed in the
+# ADMIN_UIDS env var (comma-separated) so only the founder can see them.
+# Lives in runs.py to avoid wsgi.py blueprint-registration churn.
+# =============================================================================
+
+
+def _is_admin(uid: str) -> bool:
+    """True if uid is in the comma-separated ADMIN_UIDS env var."""
+    import os as _os
+    admins = (_os.environ.get("ADMIN_UIDS") or "").split(",")
+    return bool(uid) and uid in {a.strip() for a in admins if a.strip()}
+
+
+@runs_bp.route("/admin/metering/spend-by-provider", methods=["GET"])
+@require_firebase_auth
+def admin_spend_by_provider():
+    """GET /api/admin/metering/spend-by-provider?days=7
+    Returns total calls / credits / $cost grouped by provider × endpoint."""
+    uid = request.firebase_user.get("uid")
+    if not _is_admin(uid):
+        return jsonify({"error": "forbidden"}), 403
+    try:
+        days = max(1, min(90, int(request.args.get("days", 7))))
+    except (TypeError, ValueError):
+        days = 7
+    return jsonify(spend_summary(days=days)), 200
+
+
+@runs_bp.route("/admin/metering/spend-by-user", methods=["GET"])
+@require_firebase_auth
+def admin_spend_by_user():
+    """GET /api/admin/metering/spend-by-user?days=7&limit=25
+    Returns top users by est_cost_usd over the window."""
+    uid = request.firebase_user.get("uid")
+    if not _is_admin(uid):
+        return jsonify({"error": "forbidden"}), 403
+    try:
+        days = max(1, min(90, int(request.args.get("days", 7))))
+        limit = max(1, min(100, int(request.args.get("limit", 25))))
+    except (TypeError, ValueError):
+        days, limit = 7, 25
+    return jsonify(spend_by_user(days=days, limit=limit)), 200
+
+
+@runs_bp.route("/admin/metering/ping", methods=["GET"])
+@require_firebase_auth
+def admin_metering_ping():
+    """Health check: confirms admin auth works and metering module is loaded."""
+    uid = request.firebase_user.get("uid")
+    if not _is_admin(uid):
+        return jsonify({"error": "forbidden"}), 403
+    return jsonify({"ok": True, "uid": uid, "admin": True}), 200

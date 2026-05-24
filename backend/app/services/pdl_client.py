@@ -17,6 +17,7 @@ from app.config import (
     pdl_cache, CACHE_DURATION
 )
 from app.services.openai_client import get_openai_client
+from app.services.metering import meter_call
 from app.utils.retry import retry_with_backoff
 
 # Create a session with connection pooling for better performance
@@ -1588,6 +1589,7 @@ def add_pdl_enrichment_fields_optimized(contact, person_data):
         requests.exceptions.ConnectionError,
     ),
 )
+@meter_call("pdl", "person_search")
 def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page_size=50, verbose=False, skip_count=0, target_company=None):
     """
     Execute PDL search with pagination
@@ -3474,6 +3476,7 @@ def build_coffee_chat_data(pdl_person: dict, best_email: str) -> dict:
     }
 
 
+@meter_call("pdl", "person_enrich")
 def enrich_linkedin_profile(linkedin_url):
     """Use PDL to enrich LinkedIn profile"""
     try:
