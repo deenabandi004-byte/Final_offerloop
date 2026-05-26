@@ -130,19 +130,6 @@ export const PAGES = {
     keywords: ["settings", "account", "profile", "resume", "gmail", "connect", "preferences", "upload"]
   },
 
-  contactDirectory: {
-    route: "/contact-directory",
-    name: "Contact Directory",
-    description: "View and manage all your saved contacts from previous searches.",
-    features: [
-      "View all saved contacts",
-      "Search and filter contacts",
-      "Export contacts",
-      "Remove contacts"
-    ],
-    keywords: ["contacts", "directory", "library", "saved", "list"]
-  },
-
   coffeeChatLibrary: {
     route: "/coffee-chat-library",
     name: "Coffee Chat Library",
@@ -514,7 +501,7 @@ export const ROUTE_MAPPING = {
     "/coffee-chat-prep": ["coffee chat", "coffee prep", "networking prep", "informational", "prep materials"],
     "/pricing": ["pricing", "plans", "upgrade", "subscription", "pro", "elite", "credits", "billing", "payment"],
     "/account-settings": ["settings", "account", "profile", "gmail", "resume upload", "preferences"],
-    "/contact-directory": ["contact directory", "contact library", "saved contacts", "my contacts"],
+    "/my-network": ["my network", "contacts", "contact directory", "contact library", "saved contacts", "my contacts", "people", "companies"],
     "/coffee-chat-library": ["coffee chat library", "past preps", "prep history"],
     "/home?tab=outbox": ["outbox", "emails", "drafts", "sent", "replies", "messages"]
   },
@@ -527,7 +514,7 @@ export const ROUTE_MAPPING = {
     prepareCoffeeChat: "/coffee-chat-prep",
     viewPricing: "/pricing",
     manageAccount: "/account-settings",
-    viewSavedContacts: "/contact-directory",
+    viewSavedContacts: "/my-network",
     viewEmails: "/home?tab=outbox",
     connectGmail: "/account-settings",
     uploadResume: "/account-settings",

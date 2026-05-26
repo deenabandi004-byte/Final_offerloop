@@ -27,7 +27,6 @@ import UscBeta from "@/pages/UscBeta";
 const AboutUs = React.lazy(() => import("./pages/AboutUs"));
 const NetworkTracker = React.lazy(() => import("./pages/NetworkTracker"));
 const CoffeeChatLibrary = React.lazy(() => import("./pages/CoffeeChatLibrary"));
-const ContactDirectory = React.lazy(() => import("./pages/ContactDirectory"));
 const ContactUs = React.lazy(() => import("./pages/ContactUs"));
 const PrivacyPolicy = React.lazy(() => import("./pages/PrivacyPolicy"));
 const ExtensionPrivacyPolicy = React.lazy(() => import("./pages/ExtensionPrivacyPolicy"));
@@ -272,7 +271,7 @@ const AppRoutes: React.FC = () => {
       <Route path="/outbox" element={<Navigate to="/tracker" replace />} />
       {/* Legacy /home redirect to contact search */}
       <Route path="/home" element={<Navigate to="/dashboard" replace />} />
-      <Route path="/contact-directory" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ContactDirectory /></Suspense></ProtectedRoute>} />
+      <Route path="/contact-directory" element={<Navigate to="/my-network/people" replace />} />
       <Route path="/coffee-chat-library" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoffeeChatLibrary /></Suspense></ProtectedRoute>} />
       <Route path="/account-settings" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AccountSettings /></Suspense></ProtectedRoute>} />
       <Route path="/pricing" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><Pricing /></Suspense></ProtectedRoute>} />
