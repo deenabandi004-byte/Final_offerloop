@@ -26,14 +26,12 @@ import UscBeta from "@/pages/UscBeta";
 // Lazy load heavy pages for code splitting
 const AboutUs = React.lazy(() => import("./pages/AboutUs"));
 const NetworkTracker = React.lazy(() => import("./pages/NetworkTracker"));
-const Contact = React.lazy(() => import("./pages/Contact"));
 const CoffeeChatLibrary = React.lazy(() => import("./pages/CoffeeChatLibrary"));
 const ContactDirectory = React.lazy(() => import("./pages/ContactDirectory"));
 const ContactUs = React.lazy(() => import("./pages/ContactUs"));
 const PrivacyPolicy = React.lazy(() => import("./pages/PrivacyPolicy"));
 const ExtensionPrivacyPolicy = React.lazy(() => import("./pages/ExtensionPrivacyPolicy"));
 const TermsOfService = React.lazy(() => import("./pages/TermsOfService"));
-const TermsOfServiceSettings = React.lazy(() => import("./pages/TermsOfServiceSettings"));
 const AccountSettings = React.lazy(() => import("./pages/AccountSettings"));
 const Pricing = React.lazy(() => import("./pages/Pricing"));
 const DocumentationPage = React.lazy(() => import("./pages/DocumentationPage"));
@@ -267,7 +265,6 @@ const AppRoutes: React.FC = () => {
       {/* Protected App Pages - Wrapped in Suspense for lazy loading */}
       <Route path="/dashboard" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><DashboardPage /></Suspense></ProtectedRoute>} />
       <Route path="/find" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><FindPage /></Suspense></ProtectedRoute>} />
-      <Route path="/profile" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ProfilePreview /></Suspense></ProtectedRoute>} />
       <Route path="/my-network" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><MyNetworkPage /></Suspense></ProtectedRoute>} />
       <Route path="/my-network/:tab" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><MyNetworkPage /></Suspense></ProtectedRoute>} />
       <Route path="/contact-search" element={<Navigate to="/find" replace />} />
@@ -293,11 +290,8 @@ const AppRoutes: React.FC = () => {
       <Route path="/company-tracker" element={<Navigate to="/find?tab=companies" replace />} />
       <Route path="/scout" element={<ProtectedRoute><ScoutRedirect /></ProtectedRoute>} />
       <Route path="/recruiting-timeline" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><RecruitingTimelinePage /></Suspense></ProtectedRoute>} />
-      {/* /agent is now the multi-Loop fleet view (LoopsPage). The legacy
-          single-agent dashboard lives at /agent/legacy until the old data
-          is fully migrated and AgentSnapshot is reworked to take a loopId. */}
+      {/* /agent is the multi-Loop fleet view (LoopsPage). */}
       <Route path="/agent" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><LoopsPage /></Suspense></ProtectedRoute>} />
-      <Route path="/agent/legacy" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AgentPage /></Suspense></ProtectedRoute>} />
       <Route path="/agent/setup" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AgentSetup /></Suspense></ProtectedRoute>} />
       <Route path="/agent/:loopId" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><LoopDetailPage /></Suspense></ProtectedRoute>} />
 
@@ -328,7 +322,7 @@ const AppRoutes: React.FC = () => {
 
       {/* Public informational pages */}
       <Route path="/about" element={<Suspense fallback={<PageLoader />}><AboutUs /></Suspense>} />
-      <Route path="/contact" element={<Suspense fallback={<PageLoader />}><Contact /></Suspense>} />
+      <Route path="/contact" element={<Navigate to="/contact-us" replace />} />
       <Route path="/contact-us" element={<Suspense fallback={<PageLoader />}><ContactUs /></Suspense>} />
 
       {/* Legal pages + canonical redirects */}
@@ -337,9 +331,6 @@ const AppRoutes: React.FC = () => {
       <Route path="/privacy-policy" element={<Navigate to="/privacy" replace />} />
       <Route path="/terms-of-service" element={<Suspense fallback={<PageLoader />}><TermsOfService /></Suspense>} />
       <Route path="/terms" element={<Navigate to="/terms-of-service" replace />} />
-
-      {/* Settings-specific Terms (kept public like in your file) */}
-      <Route path="/terms-of-service-settings" element={<PublicRoute><Suspense fallback={<PageLoader />}><TermsOfServiceSettings /></Suspense></PublicRoute>} />
 
       {/* 404 */}
       <Route path="*" element={<Suspense fallback={<PageLoader />}><NotFound /></Suspense>} />
