@@ -120,21 +120,6 @@ export const PAGES = {
     keywords: ["interview", "prep", "preparation", "questions", "practice", "prepare", "company research"]
   },
 
-  applicationLab: {
-    route: "/application-lab",
-    name: "Application Lab",
-    description: "Deep job fit analysis and application strengthening. Get detailed analysis of how well you match a job, resume edits, and cover letter generation.",
-    features: [
-      "Job fit score and analysis",
-      "Requirement-by-requirement matching",
-      "AI-suggested resume edits",
-      "Custom cover letter generation",
-      "Score breakdown and improvement tips"
-    ],
-    creditCost: "Uses credits for analysis and generation",
-    keywords: ["application", "lab", "fit", "analysis", "resume", "cover letter", "match", "score", "optimize"]
-  },
-
   pricing: {
     route: "/pricing",
     name: "Pricing",
@@ -330,24 +315,6 @@ export const FEATURES = {
       "Update your resume when you have new experiences",
       "Resume is used for Coffee Chat Prep similarity analysis too"
     ]
-  },
-
-  applicationLab: {
-    name: "Application Lab",
-    whatItDoes: "Deep analysis of how well you match a specific job. Get requirement-by-requirement breakdown, resume edit suggestions, and custom cover letters.",
-    howToUse: [
-      "Go to Application Lab",
-      "Paste a job posting URL or description",
-      "Click Analyze",
-      "Review your fit score and requirement matches",
-      "Apply suggested resume edits",
-      "Generate a custom cover letter"
-    ],
-    tips: [
-      "Use this for jobs you're serious about",
-      "Apply the high-priority resume edits first",
-      "The cover letter addresses specific requirements automatically"
-    ]
   }
 } as const;
 
@@ -509,7 +476,6 @@ export const CREDIT_SYSTEM = {
         "All Pro features",
         "Unlimited Coffee Chat Prep",
         "Unlimited Interview Prep",
-        "Application Lab access",
         "Advanced analytics"
       ]
     }
@@ -614,7 +580,6 @@ export const ROUTE_MAPPING = {
     "/job-board": ["job board", "jobs", "job listings", "openings", "positions", "resume", "cover letter", "recruiter"],
     "/coffee-chat-prep": ["coffee chat", "coffee prep", "networking prep", "informational", "prep materials"],
     "/interview-prep": ["interview prep", "interview preparation", "prepare interview", "interview questions"],
-    "/application-lab": ["application lab", "fit analysis", "job fit", "resume edits", "analyze application"],
     "/pricing": ["pricing", "plans", "upgrade", "subscription", "pro", "elite", "credits", "billing", "payment"],
     "/account-settings": ["settings", "account", "profile", "gmail", "resume upload", "preferences"],
     "/contact-directory": ["contact directory", "contact library", "saved contacts", "my contacts"],
@@ -630,7 +595,6 @@ export const ROUTE_MAPPING = {
     browseJobs: "/job-board",
     prepareCoffeeChat: "/coffee-chat-prep",
     prepareInterview: "/interview-prep",
-    analyzeApplication: "/application-lab",
     viewPricing: "/pricing",
     manageAccount: "/account-settings",
     viewSavedContacts: "/contact-directory",

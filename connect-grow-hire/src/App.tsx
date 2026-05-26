@@ -49,7 +49,6 @@ const CoffeeChatPrepPage = React.lazy(() => import("./pages/CoffeeChatPrepPage")
 const FindPage = React.lazy(() => import("./pages/FindPage"));
 const EmailTemplatesPage = React.lazy(() => import("./pages/EmailTemplatesPage"));
 const InterviewPrepPage = React.lazy(() => import("./pages/InterviewPrepPage"));
-const ApplicationLabPage = React.lazy(() => import("./pages/ApplicationLabPage"));
 const RecruitingTimelinePage = React.lazy(() => import("./pages/RecruitingTimelinePage"));
 const DashboardPage = React.lazy(() => import("./pages/DashboardPage"));
 const AgentPage = React.lazy(() => import("./pages/AgentPage"));
@@ -302,7 +301,6 @@ const AppRoutes: React.FC = () => {
       <Route path="/hiring-manager-tracker" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><HiringManagerTrackerPage /></Suspense></ProtectedRoute>} />
       <Route path="/company-tracker" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CompanyTrackerPage /></Suspense></ProtectedRoute>} />
       <Route path="/scout" element={<ProtectedRoute><ScoutRedirect /></ProtectedRoute>} />
-      <Route path="/application-lab" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ApplicationLabPage /></Suspense></ProtectedRoute>} />
       <Route path="/recruiting-timeline" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><RecruitingTimelinePage /></Suspense></ProtectedRoute>} />
       {/* /agent is now the multi-Loop fleet view (LoopsPage). The legacy
           single-agent dashboard lives at /agent/legacy until the old data
