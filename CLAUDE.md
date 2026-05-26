@@ -49,7 +49,7 @@ Offerloop/
 │   │   │   ├── tracker/        # 4 network pipeline/Kanban components
 │   │   │   ├── search/         # 3 natural language search components
 │   │   │   ├── resume/         # 3 resume builder tabs
-│   │   │   ├── gates/          # 3 feature gating components (FeatureGate, UpgradeModal, UsageMeter)
+│   │   │   ├── gates/          # 2 feature gating components (FeatureGate, UpgradeModal) — UsageMeter was orphan, removed
 │   │   │   └── background/     # 2 animated backgrounds
 │   │   ├── services/           # 6 API service modules (~4000 lines total)
 │   │   ├── contexts/           # 3 React contexts (Auth, Scout, Tour)
@@ -170,47 +170,27 @@ Chrome Extension ──► same Flask API at https://final-offerloop.onrender.co
 
 **Key files**: `backend/app/services/coffee_chat.py` (714 lines), `backend/app/routes/coffee_chat_prep.py`, `connect-grow-hire/src/pages/CoffeeChatPrepPage.tsx`
 
-### 5. Interview Prep
-**How it works**: Multi-source content aggregation (Reddit, YouTube transcripts, Glassdoor, job postings) → AI personalizes prep based on user profile → generates PDF with behavioral/technical questions, company research, and strategy. Costs 25 credits.
-
-**Key files**: `backend/app/services/interview_prep/` (8 submodules: content_aggregator, reddit_scraper, youtube_scraper, glassdoor_scraper, question_extractor, personalization, pdf_generator, job_posting_parser), `backend/app/routes/interview_prep.py`
-
-### 6. Resume Workshop
-**How it works**: Upload PDF/DOCX → parse with `resume_parser_v2.py` (layout preservation) → ATS scoring via `ats_scorer.py` → AI optimization suggestions via `resume_optimizer_v2.py` → PDF generation with `pdf_builder.py` (ReportLab/WeasyPrint).
-
-**Key files**: `backend/app/services/resume_parser_v2.py`, `backend/app/services/resume_optimizer_v2.py`, `backend/app/services/ats_scorer.py`, `backend/app/routes/resume_workshop.py` (1900 lines)
-
-### 7. Job Board
+### 5. Job Board
 **How it works**: Job search routes through the `fetch_jobs` wrapper (`job_board.py:453`) — Perplexity `search_jobs_live` primary, SerpAPI fallback gated by `ENABLE_SERPAPI_FALLBACK`. Migration in progress: some legacy call sites still invoke `fetch_jobs_from_serpapi` directly. Results are ranked against the user profile, scored against the user's resume, and combined with hiring-manager/recruiter discovery via `recruiter_finder.py`.
 
 **Key files**: `backend/app/routes/job_board.py` (8800+ lines -- the largest route file), `backend/app/services/recruiter_finder.py` (1325 lines), `backend/app/services/perplexity_client.py`, `backend/app/services/serp_client.py` (legacy fallback)
 
-### 8. Firm Search
+### 6. Firm Search
 **How it works**: User searches for companies → Perplexity `pro_search` for discovery + Firecrawl `extract_company_profile` for structured detail extraction (culture, recruiting info, alumni connections) → results with contact suggestions. SerpAPI fallback in `firm_details_extraction.py` is gated by `ENABLE_SERPAPI_FALLBACK` (off by default).
 
 **Key files**: `backend/app/services/company_search.py` (1240 lines), `backend/app/services/firm_details_extraction.py` (1192 lines), `backend/app/routes/firm_search.py`, `backend/app/services/perplexity_client.py`, `backend/app/services/firecrawl_client.py`
 
-### 9. Scout AI Assistant
-**How it works**: Conversational AI search assistant (Cmd+K to open). Multi-turn conversations stored in Firestore subcollection. Uses OpenAI with context from user profile and search history.
+### 7. Scout AI Assistant
+**How it works**: Conversational AI assistant in a side panel (Cmd+K or top-right Scout button to open). Multi-turn conversations stored in Firestore. Backend: `services/scout_assistant_service.py` (~2,700 lines) + `services/scout/` package (cache, chat_persistence, metrics, page_registry, router, strategy, tools, workflow_state).
 
-**Key files**: `backend/app/services/scout_service.py` (3400+ lines), `backend/app/services/scout_assistant_service.py` (1074 lines), `connect-grow-hire/src/contexts/ScoutContext.tsx`
+**Key files**: `backend/app/services/scout_assistant_service.py`, `backend/app/services/scout/`, `connect-grow-hire/src/components/ScoutSidePanel.tsx`, `connect-grow-hire/src/contexts/ScoutContext.tsx`
 
-### 10. Cover Letter Workshop
-**How it works**: AI generates cover letters tailored to specific job postings using user's resume and target role context.
-
-**Key files**: `backend/app/routes/cover_letter_workshop.py`, `connect-grow-hire/src/services/coverLetterWorkshop.ts`
-
-### 11. Application Lab
-**How it works**: Application tracking with status management, deadline tracking, and export functionality.
-
-**Key files**: `backend/app/services/application_lab_service.py` (3082 lines), `backend/app/routes/application_lab.py`, `connect-grow-hire/src/services/applicationLab.ts`
-
-### 12. Gmail Integration
+### 8. Gmail Integration
 **How it works**: 3-legged OAuth flow → credentials stored in Firestore at `users/{uid}/integrations/gmail` → drafts creation, thread sync, reply detection via Pub/Sub webhooks → watch renewal daemon thread runs every 6 days.
 
 **Key files**: `backend/app/services/gmail_client.py` (1394 lines), `backend/app/routes/gmail_oauth.py`, `backend/app/routes/gmail_webhook.py`
 
-### 13. Chrome Extension
+### 9. Chrome Extension
 **How it works**: Manifest V3 extension injects buttons on LinkedIn profiles and 8 job boards (Greenhouse, Lever, Workday, Indeed, Handshake, Glassdoor, ZipRecruiter, Wellfound). Scrapes profile/job data, calls backend API for email generation and contact lookup. Detects LinkedIn SPA navigation via `pushState`/`replaceState` interception.
 
 **Key files**: `chrome-extension/content.js` (~3800 lines), `chrome-extension/popup.js` (~5200 lines), `chrome-extension/background.js`
@@ -254,13 +234,11 @@ Three tiers defined in `backend/app/config.py` (frontend mirror in `connect-grow
 
 | | Free | Pro ($9.99/mo) | Elite ($34.99/mo) |
 |---|---|---|---|
-| Credits/month | 300 | 1500 | 3000 |
+| Credits/month | 500 | 3000 | 12000 |
 | Contacts/search | 3 | 8 | 15 |
 | Batch size | 1 | 5 | 15 |
-| Resume tools | No | Yes | Yes |
 | Firm search | No | Yes | Yes |
 | Coffee chat preps | 3 lifetime | 10/mo | Unlimited |
-| Interview preps | 2 lifetime | 5/mo | Unlimited |
 | Alumni searches | 10 | Unlimited | Unlimited |
 | Smart filters | No | Yes | Yes |
 | Bulk drafting | No | Yes | Yes |
@@ -269,13 +247,17 @@ Three tiers defined in `backend/app/config.py` (frontend mirror in `connect-grow
 | Personalized templates | No | No | Yes |
 | Weekly insights | No | No | Yes |
 
-**Credit costs**: Coffee chat = 15, Interview prep = 25, Scout = 5.
+**Credit costs**: Coffee chat = 15, Scout = 5.
 
 Credits reset at calendar month boundary (not billing cycle). Atomic Firestore deduction prevents double-spend. Free tier has lifetime limits on some features; Pro/Elite reset monthly.
 
 **Stripe Price IDs**: Pro = `price_1ScLXrERY2WrVHp1bYgdMAu4`, Elite = `price_1ScLcfERY2WrVHp1c5rcONJ3`. 30-day free trial.
 
-**Known inconsistency**: Frontend `constants.ts` shows Free tier as 150 credits; backend `config.py` shows 300. Backend is source of truth.
+**KNOWN PRICING ISSUE**: `Pricing.tsx` displays Pro at $14.99/mo but `STRIPE_PRO_PRICE_ID` still charges $9.99. Create new Stripe Price at $14.99 + rotate constant, or revert displayed price.
+
+**TODO**: Annual price IDs (`VITE_STRIPE_PRO_ANNUAL_PRICE_ID`, `VITE_STRIPE_ELITE_ANNUAL_PRICE_ID`) aren't set yet — annual CTA falls back to monthly checkout.
+
+**TODO**: `isStudent` field is read by `Pricing.tsx:152` via `(user as any).isStudent` but not yet populated during onboarding when a .edu email is verified.
 
 ---
 
@@ -287,19 +269,20 @@ Credits reset at calendar month boundary (not billing cycle). Atomic Firestore d
 - Profile: `email`, `name`, `professionalInfo`, `needsOnboarding`
 - Billing: `subscriptionTier` (source of truth), `tier` (legacy fallback), `stripeCustomerId`, `stripeSubscriptionId`, `subscriptionStatus`
 - Credits: `credits`, `maxCredits`, `lastCreditReset`
-- Usage counters: `alumniSearchesUsed`, `coffeeChatPrepsUsed`, `interviewPrepsUsed`
+- Usage counters: `alumniSearchesUsed`, `coffeeChatPrepsUsed`
 
 **Subcollections** under `users/{uid}/`:
-- `contacts/` -- saved contacts with pipeline stages and Gmail tracking fields
+- `contacts/` -- saved contacts with pipeline stages and Gmail tracking fields (My Network reads these)
 - `integrations/gmail` -- OAuth tokens, watch expiration
-- `calendar_events/` -- scheduled meetings
-- `recruiters/` -- hiring manager tracker
+- `calendar_events/` -- legacy: scheduled meetings (Calendar page killed 2026-05-26; Dashboard still displays events inline)
+- `recruiters/` -- hiring manager pipeline (Find tab `/find?tab=hiring-managers` reads these)
+- `manual_firms/` -- user-added companies (added by Nick's My Network redesign)
 - `scoutConversations/` -- Scout AI chat history
-- `coffee-chat-preps/`, `interview-preps/` -- generated prep documents
-- `resume_library/`, `resume_scores/`, `cover_letter_library/`
+- `coffee-chat-preps/` -- generated coffee chat prep documents
+- `scoutChats/`, `messages/` -- Scout assistant chat persistence (TTL on `expires_at`)
 - `notifications/`, `activity/`, `searchHistory/`, `firmSearches/`, `exports/`, `goals/`
 
-**Legacy**: `contacts.db` (SQLite) at repo root powers the contact directory feature (`backend/app/routes/contacts.py`, `ContactDirectory.tsx`). It's gitignored but must exist in production.
+Note: `interview-preps/`, `resume_library/`, `resume_scores/`, `cover_letter_library/`, `application_lab/` (or similar) Firestore subcollections may still hold legacy data for users who used those features before the 2026-05-26 cleanup. No live code reads/writes them now — safe to leave the data in production.
 
 **Security rules** (`firestore.rules`): User-scoped access only. Clients cannot write `tier`, `subscriptionTier`, `stripeSubscriptionId`, `stripeCustomerId`, or `maxCredits`. Pro/Elite features gated by tier check in rules.
 
@@ -389,26 +372,36 @@ Custom exception hierarchy in `app/utils/exceptions.py`:
 
 **Public pages**: `/`, `/signin`, `/blog`, `/blog/:slug`, `/about`, `/privacy`, `/terms-of-service`, `/compare/*`, plus 40+ SEO template routes (`/networking/:slug`, `/alumni/:slug`, `/cold-email/:slug`, etc.)
 
-**Protected pages** (require auth + onboarding):
-- `/find` -- Main search hub (tabs: People, Companies, Hiring Managers). Default landing for authenticated users.
-- `/tracker` -- Network pipeline (Kanban-style buckets: Needs Attention, Active, Done)
-- `/coffee-chat-prep`, `/interview-prep` -- AI generation with stepped progress bars
-- `/coffee-chat-library` -- Library of past coffee chat preps
+**Sidebar (post-2026-05-26 Nick redesign + cleanup) — 7 main + 2 utility + 5 dropdown + Scout side panel = 14 user-reachable routes:**
+- `/dashboard` -- **Home** (Nick's 1030-line personalized home page)
+- `/agent` -- **Loops** (multi-Loop fleet view via LoopsPage)
+- `/find` -- Find (People / Companies / Hiring Managers tabs; embeds ContactSearchPage, FirmSearchPage, RecruiterSpreadsheetPage as tab content)
+- `/my-network` -- My Network (auto-redirects to `/my-network/people`)
+- `/coffee-chat-prep` -- **Meeting Prep** (label-only rename; route + backend keep "coffee_chat" naming). Has internal "Coffee Library" tab + header "View Library" button → `/coffee-chat-library`
+- `/tracker` -- Network pipeline
 - `/job-board` -- Job listings with resume matching
-- `/contact-directory` -- Saved contacts library
-- `/write/resume`, `/write/resume-library` -- Resume builder and library
-- `/write/cover-letter`, `/write/cover-letter-library` -- Cover letter builder
-- `/application-lab` -- Application tracking
-- `/hiring-manager-tracker` -- Hiring manager tracking
-- `/company-tracker` -- Company tracking Kanban
-- `/calendar` -- Event scheduling
-- `/email-templates` -- Email template management
-- `/account-settings` -- Profile, subscription, resume upload
-- `/pricing` -- Pricing page
-- `/documentation` -- Help docs
-- `/onboarding` -- Multi-step first-time setup (welcome, profile, academics, location, goals)
+- `/pricing`, `/documentation` (utility nav)
+- `/account-settings`, `/about`, `/contact-us`, `/privacy`, `/terms-of-service` (user dropdown)
+- **Scout side panel** — top-right button or Cmd+K; opens `ScoutSidePanel.tsx`, not a route
 
-**Redirects**: `/dashboard` `/home` `/contact-search` → `/find`. `/outbox` → `/tracker`. `/firm-search` → `/find?tab=companies`. `/recruiter-spreadsheet` → `/find?tab=hiring-managers`. `/scout` opens Scout panel then redirects to `/find`.
+**Other live routes** (not in sidebar but reachable via deep-link / cross-page):
+- `/coffee-chat-library` -- Library of past coffee chat preps (button in Meeting Prep header)
+- `/agent/setup`, `/agent/:loopId` -- Agent flow
+- `/email-templates` (`/find/templates`) -- Email template management
+- `/onboarding`, `/onboarding/*` -- First-time setup
+- `/dev/onboarding-preview`, `/dev/profile-preview` -- Designer preview routes
+
+**Redirects** (gracefully forward old/bookmarked URLs):
+- `/home`, `/contact-search` → `/find`
+- `/firm-search`, `/company-tracker` → `/find?tab=companies`
+- `/recruiter-spreadsheet`, `/hiring-manager-tracker` → `/find?tab=hiring-managers`
+- `/outbox` → `/tracker`
+- `/contact-directory` → `/my-network/people` (Contact Directory page killed; My Network reads same data)
+- `/contact` → `/contact-us`
+- `/privacy-policy` → `/privacy`, `/terms` → `/terms-of-service`
+- `/scout` opens panel then redirects to `/find`
+
+**Killed in 2026-05-26 cleanup (do not reference)**: `/interview-prep`, `/application-lab`, `/write/resume*`, `/write/cover-letter*`, `/my-resume`, `/calendar`, `/profile` (sidebar-link removed), `/agent/legacy`, `/terms-of-service-settings`. See git log for details.
 
 ### Component patterns
 
@@ -466,10 +459,14 @@ Path alias: `@` maps to `./src`.
 - `PERPLEXITY_API_KEY` -- Live search (jobs, companies, news, market context) — primary search provider
 - `FIRECRAWL_API_KEY` -- Structured web extraction (job postings, company profiles, LinkedIn scrapes) — primary scraping provider
 - `BRIGHTDATA_API_KEY` -- LinkedIn profile enrichment (Bright Data dataset API)
-- `SERPAPI_KEY` -- LEGACY. Used only when `ENABLE_SERPAPI_FALLBACK=1`. Kept as emergency fallback in `coffee_chat.py`, `scout_service.py`, `firm_details_extraction.py`, `agent_actions.py`, and `job_board.py` (the latter migration in progress — direct `fetch_jobs_from_serpapi` callers still bypass the gate).
-- `JINA_API_KEY` -- LEGACY. Used only when `ENABLE_JINA_FALLBACK=1`. Kept as emergency fallback in `scout_service.py` and `linkedin_enrichment.py`.
+- `SERPAPI_KEY` -- LEGACY. Used only when `ENABLE_SERPAPI_FALLBACK=1`. Kept as emergency fallback in `coffee_chat.py`, `firm_details_extraction.py`, `agent_actions.py`, and `job_board.py` (the latter migration in progress — direct `fetch_jobs_from_serpapi` callers still bypass the gate). Note: scout_service.py was deleted 2026-05-26 as part of Application Lab cleanup.
+- `JINA_API_KEY` -- LEGACY. Used only when `ENABLE_JINA_FALLBACK=1`. Kept as emergency fallback in `linkedin_enrichment.py`.
 - `ENABLE_SERPAPI_FALLBACK` -- Set to `1` to re-enable the SerpAPI fallback path during a Perplexity incident. Off by default.
 - `ENABLE_JINA_FALLBACK` -- Set to `1` to re-enable the Jina Reader fallback path during a Firecrawl incident. Off by default.
+- `ENABLE_HM_PERPLEXITY_ENRICHMENT` -- Set to `1` to enable Perplexity-backed hiring-manager enrichment in `find_hiring_manager` (verify candidates are still at the company before Hunter check; inject recent company news into outreach email prompts). Off by default. See `recruiter_finder.py` and `perplexity_client.verify_hiring_managers_v2`.
+- `HM_PERPLEXITY_DOGFOOD_UIDS` -- Comma-separated Firebase UIDs that get HM Perplexity enrichment even when the global flag above is off. Per-user dogfood/canary path before flipping the global switch. Example: `uid1,uid2,uid3`.
+- `ENABLE_HM_FIRECRAWL_JOB_URL` -- Set to `1` to enable Firecrawl extraction of the hiring-manager name from a pasted job-posting URL in `find_hiring_manager`. When a name is extracted, it seeds a Tier-0 PDL lookup (and falls back to a synthetic record if PDL doesn't know the person) so they always reach the result set. Off by default. ~5 Firecrawl credits per cache miss, 6h cache. See `firecrawl_client.extract_job_posting` and `recruiter_finder._seed_from_firecrawl_name`.
+- `HM_FIRECRAWL_DOGFOOD_UIDS` -- Comma-separated Firebase UIDs that get the Firecrawl job-URL seed path even when the global flag is off.
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` -- Gmail OAuth
 - `GOOGLE_APPLICATION_CREDENTIALS` -- Path to Firebase service account JSON
 - `GOOGLE_SERVICE_ACCOUNT_FILE`, `GOOGLE_SERVICE_ACCOUNT_EMAIL` -- Service account config
@@ -477,7 +474,6 @@ Path alias: `@` maps to `./src`.
 - `GMAIL_PUBSUB_TOPIC` -- Pub/Sub topic for Gmail webhooks
 - `GMAIL_WEBHOOK_SECRET` -- Pub/Sub webhook verification
 - `PRERENDER_TOKEN` -- SSR for bots (default hardcoded in wsgi.py)
-- `PROMPT_SEARCH_ENABLED` -- Experimental natural language search (default: false)
 - `CREATE_GMAIL_DRAFTS` -- Create actual Gmail drafts vs compose links (default: false)
 - `FLASK_SECRET` -- Flask secret key (default: "dev")
 - `FLASK_ENV` -- Environment detection (production / testing / development)
@@ -503,13 +499,14 @@ pytest tests/ -m unit                # by marker: unit, integration, slow
 pytest tests/ --cov=app              # with coverage
 ```
 
-**31 test files** covering:
-- Email generation, coffee chat, interview prep, resume workshop
-- Contact import, firm search, job board, outbox
+**Test files** covering:
+- Email generation, coffee chat
+- Contact import, firm search, job board, outbox, hiring manager
 - Credit system (credit reset audit, coffee chat audit)
 - Validation (Pydantic schemas), exceptions
-- Content aggregation, scraping (Reddit, YouTube, Glassdoor)
-- PDF patching, search pipeline, recruiter email generation
+- Scout assistant (cutover, cache, chat persistence, metrics, router, strategy, workflow state)
+- Search pipeline, recruiter email generation
+- Several Interview Prep / Resume Workshop / Application Lab test files were removed in the 2026-05-26 cleanup along with their feature code.
 
 **Fixtures** in `conftest.py`: `mock_firebase_user`, `mock_db`, `app`, `client`, `authenticated_request`.
 
@@ -578,11 +575,9 @@ Set `FLASK_ENV=testing` for test runs. Markers: `unit`, `integration`, `slow`.
 ### Technical debt
 
 - **`job_board.py` is 8,800+ lines** -- the largest single route file. Should be broken into smaller modules.
-- **`scout_service.py` is 3,400+ lines** -- another oversized service file.
 - **Legacy `tier` field** still exists alongside `subscriptionTier` in Firestore. Should be migrated.
 - **No frontend tests** -- entire test coverage is backend-only.
-- **`contacts.db` SQLite dependency** -- legacy file that must exist in production but isn't in git.
-- **Search/scraping migration partially complete** -- `coffee_chat.py`, `scout_service.py`, `firm_details_extraction.py`, `linkedin_enrichment.py`, and `agent_actions.py` are on Perplexity + Firecrawl with SerpAPI/Jina gated by env-var flags. `job_board.py` still has direct `fetch_jobs_from_serpapi` call sites (L376, L6320, L6735) that bypass the new `fetch_jobs` wrapper -- migration in progress.
+- **Search/scraping migration partially complete** -- `coffee_chat.py`, `firm_details_extraction.py`, `linkedin_enrichment.py`, and `agent_actions.py` are on Perplexity + Firecrawl with SerpAPI/Jina gated by env-var flags. `job_board.py` still has direct `fetch_jobs_from_serpapi` call sites that bypass the new `fetch_jobs` wrapper -- migration in progress.
 - **Duplicate onboarding location references** -- `OnboardingLocationPreferences.tsx` page exists alongside the multi-step `OnboardingFlow.tsx`.
 
 ---
@@ -616,79 +611,25 @@ Based on git status and recent commits:
 | Sentry | Backend error tracking (dev only) | `backend/app/utils/sentry_config.py` |
 | Google Cloud Pub/Sub | Gmail webhook notifications | `backend/app/routes/gmail_webhook.py` |
 | SerpAPI (legacy) | Google Search / Google Jobs — fallback only, gated by `ENABLE_SERPAPI_FALLBACK` | `backend/app/services/serp_client.py` |
-| Jina Reader (legacy) | Web content extraction — fallback only, gated by `ENABLE_JINA_FALLBACK` | `backend/app/utils/linkedin_enrichment.py`, `backend/app/services/scout_service.py` |
+| Jina Reader (legacy) | Web content extraction — fallback only, gated by `ENABLE_JINA_FALLBACK` | `backend/app/utils/linkedin_enrichment.py` |
 
 ---
 
-## GStack Tools
-
-This project has access to GStack browser tools and Claude Code skills for development workflows:
-
-### Available Skills (invoke with `/skill-name`)
-
-| Skill | When to use |
-|-------|-------------|
-| `/browse` | Fast headless browser for QA testing, site dogfooding, navigating URLs, verifying deployments |
-| `/gstack` | Same as browse -- headless browser for QA and testing |
-| `/qa` | Systematically QA test the app and fix bugs found |
-| `/qa-only` | QA testing that reports bugs without fixing |
-| `/ship` | Ship workflow: tests, review, changelog, PR creation |
-| `/review` | Pre-landing PR review for structural issues |
-| `/land-and-deploy` | Merge PR, wait for CI, verify production health |
-| `/investigate` | Systematic debugging with root cause analysis |
-| `/design-review` | Visual QA: finds spacing, hierarchy, and consistency issues |
-| `/design-shotgun` | Generate multiple design variants for comparison |
-| `/design-consultation` | Design system creation (aesthetic, typography, color) |
-| `/design-html` | Generate production-quality HTML/CSS |
-| `/health` | Code quality dashboard with composite score |
-| `/benchmark` | Performance regression detection |
-| `/canary` | Post-deploy monitoring for errors and regressions |
-| `/cso` | Security audit (secrets, dependencies, CI/CD, OWASP) |
-| `/codex` | OpenAI Codex second opinion (review, challenge, consult) |
-| `/plan-ceo-review` | CEO/founder plan review (scope expansion/reduction) |
-| `/plan-eng-review` | Engineering architecture review |
-| `/plan-design-review` | Designer's eye plan review |
-| `/plan-devex-review` | Developer experience audit |
-| `/autoplan` | Auto-run all plan reviews sequentially |
-| `/retro` | Weekly engineering retrospective |
-| `/office-hours` | YC-style brainstorming and idea validation |
-| `/checkpoint` | Save/resume working state across sessions |
-| `/freeze` | Restrict file edits to a specific directory |
-| `/guard` | Full safety mode (destructive warnings + edit restrictions) |
-| `/careful` | Warn before destructive commands |
-| `/learn` | Manage project learnings across sessions |
-| `/setup-deploy` | Configure deployment settings |
-| `/setup-browser-cookies` | Import cookies for authenticated QA testing |
-| `/open-gstack-browser` | Launch visible AI-controlled Chromium |
-
-### Using `/browse` for QA
-
-The `/browse` skill launches a headless Chromium browser (~100ms per command) for:
-- Navigating to any URL and verifying page content
-- Clicking elements, filling forms, testing user flows
-- Taking screenshots for visual verification
-- Testing responsive layouts
-- Checking for console errors
-- Verifying deployments
-
-Use `/browse` whenever you need to verify that a change works end-to-end in the browser, dogfood a feature, or capture evidence of a bug.
-
 ## Skill routing
 
-When the user's request matches an available skill, ALWAYS invoke it using the Skill
-tool as your FIRST action. Do NOT answer directly, do NOT use other tools first.
-The skill has specialized workflows that produce better results than ad-hoc answers.
+GStack skills are auto-loaded into context (see system reminder for full list). When a request matches a skill, invoke it via the Skill tool as the first action — don't answer ad-hoc.
 
 Key routing rules:
-- Product ideas, "is this worth building", brainstorming → invoke office-hours
-- Bugs, errors, "why is this broken", 500 errors → invoke investigate
-- Ship, deploy, push, create PR → invoke ship
-- QA, test the site, find bugs → invoke qa
-- Code review, check my diff → invoke review
-- Update docs after shipping → invoke document-release
-- Weekly retro → invoke retro
-- Design system, brand → invoke design-consultation
-- Visual audit, design polish → invoke design-review
-- Architecture review → invoke plan-eng-review
-- Save progress, checkpoint, resume → invoke checkpoint
-- Code quality, health check → invoke health
+- Product ideas, brainstorming → office-hours
+- Bugs, errors, 500s, "why is this broken" → investigate
+- Ship, deploy, push, create PR → ship
+- QA, test the site, find bugs → qa (or qa-only for report only)
+- Code review, check my diff → review
+- Update docs after shipping → document-release
+- Weekly retro → retro
+- Design system, brand → design-consultation
+- Visual audit, design polish → design-review
+- Architecture review → plan-eng-review
+- Save/resume progress → context-save / context-restore
+- Code quality, health check → health
+- Browser QA, dogfood a flow, verify deploy → browse
