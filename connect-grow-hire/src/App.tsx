@@ -54,8 +54,6 @@ const AgentPage = React.lazy(() => import("./pages/AgentPage"));
 const AgentSetup = React.lazy(() => import("./pages/AgentSetup"));
 const LoopsPage = React.lazy(() => import("./pages/LoopsPage"));
 const LoopDetailPage = React.lazy(() => import("./pages/LoopDetailPage"));
-const ResumeWorkshopPage = React.lazy(() => import("./pages/ResumeWorkshopPage"));
-const ResumePage = React.lazy(() => import("./pages/ResumePage"));
 const CoverLetterPage = React.lazy(() => import("./pages/CoverLetterPage"));
 // New Lovable Onboarding Flow
 const OnboardingFlow = React.lazy(() => import("./pages/OnboardingFlow").then(m => ({ default: m.OnboardingFlow })));
@@ -308,10 +306,7 @@ const AppRoutes: React.FC = () => {
       <Route path="/agent/setup" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AgentSetup /></Suspense></ProtectedRoute>} />
       <Route path="/agent/:loopId" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><LoopDetailPage /></Suspense></ProtectedRoute>} />
 
-      {/* Write Pages - Resume & Cover Letter */}
-      <Route path="/write/resume" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ResumeWorkshopPage /></Suspense></ProtectedRoute>} />
-      <Route path="/write/resume-library" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ResumeWorkshopPage /></Suspense></ProtectedRoute>} />
-      <Route path="/my-resume" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ResumePage /></Suspense></ProtectedRoute>} />
+      {/* Write Pages - Cover Letter */}
       <Route path="/write/cover-letter" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoverLetterPage /></Suspense></ProtectedRoute>} />
       <Route path="/write/cover-letter-library" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoverLetterPage /></Suspense></ProtectedRoute>} />
 
