@@ -21,7 +21,6 @@ from .app.routes.interview_prep import interview_prep_bp
 from .app.routes.billing import billing_bp
 from .app.routes.users import users_bp
 from .app.routes.outbox import outbox_bp
-from .app.routes.scout import scout_bp
 from .app.routes.firm_search import firm_search_bp
 from .app.routes.school_affinity import school_affinity_bp
 from .app.routes.dashboard import dashboard_bp
@@ -191,7 +190,6 @@ def create_app() -> Flask:
     app.register_blueprint(billing_bp)
     app.register_blueprint(users_bp)
     app.register_blueprint(outbox_bp)
-    app.register_blueprint(scout_bp)
     app.register_blueprint(firm_search_bp)
     app.register_blueprint(school_affinity_bp)
     app.register_blueprint(dashboard_bp)
