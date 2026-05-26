@@ -327,7 +327,7 @@ const PrivacyPolicy = () => {
                   <li><strong>identity</strong> — Authenticates you via Google OAuth through the Chrome Identity API.</li>
                   <li><strong>contextMenus</strong> — Provides right-click menu options for quick access to extension features.</li>
                   <li><strong>notifications</strong> — Displays browser notifications when actions complete (e.g., draft saved).</li>
-                  <li><strong>downloads</strong> — Enables downloading of generated PDFs (Coffee Chat Prep, Interview Prep).</li>
+                  <li><strong>downloads</strong> — Enables downloading of generated PDFs (Coffee Chat Prep).</li>
                 </ul>
                 <p className="text-gray-600">
                   Host permissions are limited to <code className="text-sm bg-gray-100 px-1 rounded">https://*.linkedin.com/*</code> (to read LinkedIn page content) and our backend server (to process requests).
@@ -339,7 +339,7 @@ const PrivacyPolicy = () => {
                   page, the extension reads publicly visible information from that page — such as the person's name,
                   headline, current position, company, and profile URL, or job title, company, and description — and
                   transmits it to our servers to power features like email lookup, outreach drafting, Coffee Chat Prep,
-                  Interview Prep, and cover letter generation.
+                  and cover letter generation.
                 </p>
                 <p className="text-gray-600">
                   <strong>Authentication Data:</strong> Your Google account email and profile information are collected
@@ -355,7 +355,7 @@ const PrivacyPolicy = () => {
                   <li>Looking up professional email addresses via our backend (People Data Labs).</li>
                   <li>Generating personalized outreach emails using AI (OpenAI).</li>
                   <li>Saving email drafts to your connected Gmail account at your request.</li>
-                  <li>Generating Coffee Chat Prep and Interview Prep documents.</li>
+                  <li>Generating Coffee Chat Prep documents.</li>
                   <li>Generating cover letters based on job posting details.</li>
                   <li>Tracking your credit usage and subscription status.</li>
                 </ul>

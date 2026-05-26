@@ -426,7 +426,7 @@ export const firebaseApi = {
   // ================================
   async logActivity(
     uid: string,
-    type: 'firmSearch' | 'contactSearch' | 'coffeePrep' | 'interviewPrep',
+    type: 'firmSearch' | 'contactSearch' | 'coffeePrep',
     summary: string,
     metadata?: any
   ): Promise<void> {

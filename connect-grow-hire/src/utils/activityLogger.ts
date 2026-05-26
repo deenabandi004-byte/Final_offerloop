@@ -12,7 +12,7 @@ interface ActivityMetadata {
  */
 export async function logActivity(
   userId: string,
-  type: 'firmSearch' | 'contactSearch' | 'coffeePrep' | 'interviewPrep',
+  type: 'firmSearch' | 'contactSearch' | 'coffeePrep',
   summary: string,
   metadata?: ActivityMetadata
 ): Promise<void> {
@@ -119,19 +119,4 @@ export function generateCoffeeChatPrepSummary(params: {
     return `Created coffee chat prep for ${params.contactName}`;
   }
   return 'Created coffee chat prep';
-}
-
-/**
- * Generate interview prep summary
- */
-export function generateInterviewPrepSummary(params: {
-  roleTitle?: string;
-  company?: string;
-}): string {
-  if (params.roleTitle && params.company) {
-    return `Created interview prep for ${params.roleTitle} at ${params.company}`;
-  } else if (params.roleTitle) {
-    return `Created interview prep for ${params.roleTitle}`;
-  }
-  return 'Created interview prep';
 }

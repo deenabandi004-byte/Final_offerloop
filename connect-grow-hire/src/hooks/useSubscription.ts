@@ -14,8 +14,6 @@ export interface SubscriptionData {
   alumniSearchesLimit: number | 'unlimited';
   coffeeChatPrepsUsed: number;
   coffeeChatPrepsLimit: number | 'unlimited';
-  interviewPrepsUsed: number;
-  interviewPrepsLimit: number | 'unlimited';
   resumeFileName?: string;
 }
 
@@ -64,8 +62,6 @@ export function useSubscription() {
         alumniSearchesLimit: 10,
         coffeeChatPrepsUsed: 0,
         coffeeChatPrepsLimit: 1,
-        interviewPrepsUsed: 0,
-        interviewPrepsLimit: 1,
       });
     } finally {
       setLoading(false);

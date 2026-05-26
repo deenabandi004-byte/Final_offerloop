@@ -87,7 +87,7 @@ const ExtensionPrivacyPolicy = () => {
                   <li>Generate personalized outreach emails using AI.</li>
                   <li>Save email drafts to your connected Gmail account.</li>
                   <li>Generate Coffee Chat Prep documents.</li>
-                  <li>Generate Interview Prep documents and cover letters from job postings.</li>
+                  <li>Generate cover letters from job postings.</li>
                 </ul>
 
                 <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">2. Information We Collect</h2>
@@ -140,7 +140,7 @@ const ExtensionPrivacyPolicy = () => {
                   <li>Look up professional email addresses via our backend service (People Data Labs).</li>
                   <li>Generate personalized outreach emails using AI (OpenAI).</li>
                   <li>Save email drafts to your connected Gmail account at your request.</li>
-                  <li>Generate Coffee Chat Prep, Interview Prep, and cover letter documents.</li>
+                  <li>Generate Coffee Chat Prep and cover letter documents.</li>
                   <li>Authenticate your account and manage your subscription.</li>
                   <li>Track credit usage across your account.</li>
                 </ul>
@@ -172,7 +172,7 @@ const ExtensionPrivacyPolicy = () => {
                   <li><strong>identity</strong> — Authenticates you via Google OAuth through Chrome's Identity API.</li>
                   <li><strong>contextMenus</strong> — Provides right-click menu options for quick access to Extension features.</li>
                   <li><strong>notifications</strong> — Shows browser notifications when actions complete (e.g., "Draft saved to Gmail").</li>
-                  <li><strong>downloads</strong> — Enables downloading generated PDF documents (Coffee Chat Prep, Interview Prep).</li>
+                  <li><strong>downloads</strong> — Enables downloading generated PDF documents (Coffee Chat Prep).</li>
                 </ul>
                 <p className="text-gray-600">
                   Host permissions are limited to{" "}
