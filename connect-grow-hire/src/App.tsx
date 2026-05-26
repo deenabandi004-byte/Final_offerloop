@@ -26,7 +26,6 @@ import UscBeta from "@/pages/UscBeta";
 // Lazy load heavy pages for code splitting
 const AboutUs = React.lazy(() => import("./pages/AboutUs"));
 const NetworkTracker = React.lazy(() => import("./pages/NetworkTracker"));
-const CompanyTrackerPage = React.lazy(() => import("./pages/CompanyTrackerPage"));
 const Contact = React.lazy(() => import("./pages/Contact"));
 const CoffeeChatLibrary = React.lazy(() => import("./pages/CoffeeChatLibrary"));
 const ContactDirectory = React.lazy(() => import("./pages/ContactDirectory"));
@@ -39,7 +38,6 @@ const AccountSettings = React.lazy(() => import("./pages/AccountSettings"));
 const Pricing = React.lazy(() => import("./pages/Pricing"));
 const DocumentationPage = React.lazy(() => import("./pages/DocumentationPage"));
 const JobBoardPage = React.lazy(() => import("./pages/JobBoardPage"));
-const HiringManagerTrackerPage = React.lazy(() => import("./pages/HiringManagerTrackerPage"));
 const MyNetworkPage = React.lazy(() => import("./pages/MyNetworkPage"));
 const NotFound = React.lazy(() => import("./pages/NotFound"));
 const PaymentSuccess = React.lazy(() => import("./pages/PaymentSuccess"));
@@ -291,8 +289,8 @@ const AppRoutes: React.FC = () => {
       <Route path="/firm-search" element={<Navigate to="/find?tab=companies" replace />} />
       <Route path="/job-board" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><JobBoardPage /></Suspense></ProtectedRoute>} />
       <Route path="/recruiter-spreadsheet" element={<Navigate to="/find?tab=hiring-managers" replace />} />
-      <Route path="/hiring-manager-tracker" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><HiringManagerTrackerPage /></Suspense></ProtectedRoute>} />
-      <Route path="/company-tracker" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CompanyTrackerPage /></Suspense></ProtectedRoute>} />
+      <Route path="/hiring-manager-tracker" element={<Navigate to="/find?tab=hiring-managers" replace />} />
+      <Route path="/company-tracker" element={<Navigate to="/find?tab=companies" replace />} />
       <Route path="/scout" element={<ProtectedRoute><ScoutRedirect /></ProtectedRoute>} />
       <Route path="/recruiting-timeline" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><RecruitingTimelinePage /></Suspense></ProtectedRoute>} />
       {/* /agent is now the multi-Loop fleet view (LoopsPage). The legacy
