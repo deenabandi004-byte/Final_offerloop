@@ -18,7 +18,7 @@ from app.services.feature_flags import PDL_OUTAGE_ACTIVE, is_enabled
 from app.services.metering import attach_request_context, spend_summary, spend_by_user
 from app.services.reply_generation import batch_generate_emails, PURPOSES_INCLUDE_RESUME, email_body_mentions_resume, regenerate_with_feedback
 from app.services.gmail_client import _load_user_gmail_creds, download_resume_from_url, clear_user_gmail_integration
-from app.services.interview_prep.resume_parser import extract_text_from_pdf_bytes
+from app.services.resume_parser import extract_text_from_pdf_bytes
 from app.routes.gmail_oauth import build_gmail_oauth_url_for_user
 from app.services.auth import check_and_reset_credits, deduct_credits_atomic
 from app.config import TIER_CONFIGS

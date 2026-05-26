@@ -327,8 +327,6 @@ def complete_upgrade():
             'lastCreditReset': datetime.now().isoformat(),
             'coffeeChatPrepsUsed': 0,
             'coffeeChatPrepsLimit': tier_config['coffee_chat_preps'],
-            'interviewPrepsUsed': 0,
-            'interviewPrepsLimit': tier_config['interview_preps']
         }
         
         if customer_id:
@@ -437,13 +435,11 @@ def get_user_subscription():
                 'alumniSearchesLimit': TIER_CONFIGS['free']['alumni_searches'],
                 'coffeeChatPrepsUsed': 0,
                 'coffeeChatPrepsLimit': TIER_CONFIGS['free']['coffee_chat_preps'],
-                'interviewPrepsUsed': 0,
-                'interviewPrepsLimit': TIER_CONFIGS['free']['interview_preps'],
             }), 200
-        
+
         user_ref = db.collection('users').document(user_id)
         user_doc = user_ref.get()
-        
+
         if not user_doc.exists:
             return jsonify({
                 'tier': 'free',
@@ -453,8 +449,6 @@ def get_user_subscription():
                 'alumniSearchesLimit': TIER_CONFIGS['free']['alumni_searches'],
                 'coffeeChatPrepsUsed': 0,
                 'coffeeChatPrepsLimit': TIER_CONFIGS['free']['coffee_chat_preps'],
-                'interviewPrepsUsed': 0,
-                'interviewPrepsLimit': TIER_CONFIGS['free']['interview_preps'],
             }), 200
         
         user_data = user_doc.to_dict()
@@ -475,8 +469,6 @@ def get_user_subscription():
             'alumniSearchesLimit': tier_config['alumni_searches'],
             'coffeeChatPrepsUsed': user_data.get('coffeeChatPrepsUsed', 0),
             'coffeeChatPrepsLimit': tier_config['coffee_chat_preps'],
-            'interviewPrepsUsed': user_data.get('interviewPrepsUsed', 0),
-            'interviewPrepsLimit': tier_config['interview_preps'],
             'resumeFileName': user_data.get('resumeFileName'),
         })
         
@@ -560,7 +552,6 @@ def increment_usage():
         field_map = {
             'alumni_search': 'alumniSearchesUsed',
             'coffee_chat_prep': 'coffeeChatPrepsUsed',
-            'interview_prep': 'interviewPrepsUsed',
         }
         
         field_name = field_map.get(feature)

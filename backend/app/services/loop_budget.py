@@ -22,13 +22,14 @@ from app.extensions import get_db
 
 logger = logging.getLogger(__name__)
 
-# Phase 8 — locked credit prices per agent output. Mirror these in
-# agent_actions.py if they ever change; both files must agree.
+# Phase 8.5 — Agent Mode credit prices. Single source of truth: agent_actions.py
+# reads from this dict directly via `from app.services.loop_budget import CREDIT_COSTS`.
+# Frontend mirror lives in LoopActivityFeed.tsx (CREDIT_COST_BY_TYPE) — keep in sync.
 CREDIT_COSTS = {
-    "contact": 15,         # find + draft via execute_find_and_draft
-    "hiring_manager": 20,  # find + draft via execute_find_hiring_managers
-    "job": 2,              # execute_find_jobs (per saved job)
-    "company": 2,          # execute_discover_companies (per saved company)
+    "contact": 9,          # find + draft via execute_find_and_draft  (was 15)
+    "hiring_manager": 13,  # find + draft via execute_find_hiring_managers  (was 20)
+    "job": 1,              # execute_find_jobs (per saved job)  (was 2)
+    "company": 1,          # execute_discover_companies (per saved company)  (was 2)
 }
 
 # Hours per cycle by cadence. None = manual, never auto-fires.
@@ -232,7 +233,6 @@ def usage_breakdown_this_month(uid: str) -> dict:
         "companies": 0,
         "manual": 0,
         "coffee_chat_preps": 0,
-        "interview_preps": 0,
         "scout": 0,
         "other": 0,
     }
@@ -264,7 +264,7 @@ def usage_breakdown_this_month(uid: str) -> dict:
     except Exception:
         logger.exception("usage_breakdown: failed to read agent_actions for uid=%s", uid)
 
-    # Walk credit_history for manual operations (coffee chat, interview, scout).
+    # Walk credit_history for manual operations (coffee chat, scout).
     try:
         hist_ref = (
             db.collection("users").document(uid)
@@ -279,8 +279,6 @@ def usage_breakdown_this_month(uid: str) -> dict:
             source = (data.get("source") or "").lower()
             if "coffee" in source:
                 buckets["coffee_chat_preps"] += amount
-            elif "interview" in source:
-                buckets["interview_preps"] += amount
             elif "scout" in source:
                 buckets["scout"] += amount
             elif source.startswith("agent_"):

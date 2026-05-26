@@ -144,7 +144,6 @@ def can_access_feature(tier: str, feature: str, user_data: dict, tier_config: di
     usage_map = {
         'alumni_search': ('alumniSearchesUsed', 'alumni_searches'),
         'coffee_chat_prep': ('coffeeChatPrepsUsed', 'coffee_chat_preps'),
-        'interview_prep': ('interviewPrepsUsed', 'interview_preps'),
     }
     
     if feature in usage_map:

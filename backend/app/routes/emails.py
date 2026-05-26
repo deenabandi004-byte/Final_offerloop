@@ -17,7 +17,7 @@ from app.config import GMAIL_SCOPES
 from ..extensions import require_firebase_auth
 from app.services.reply_generation import batch_generate_emails
 from app.services.gmail_client import get_gmail_service_for_user
-from app.services.interview_prep.resume_parser import extract_text_from_pdf_bytes
+from app.services.resume_parser import extract_text_from_pdf_bytes
 from app.utils.url_validator import validate_fetch_url, UnsafeURLError
 from app.utils.seniority import classify_seniority
 from app.utils.warmth_scoring import score_contacts_for_email
