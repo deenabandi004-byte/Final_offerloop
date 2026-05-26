@@ -80,10 +80,6 @@ export default defineConfig(({ mode }) => {
                   id.includes('class-variance-authority')) {
                 return 'vendor-utils';
               }
-              // Animation library that doesn't use React (confirmed)
-              if (id.includes('gsap')) {
-                return 'vendor-animations';
-              }
               // Date utilities (confirmed no React)
               if (id.includes('date-fns')) {
                 return 'vendor-dates';
