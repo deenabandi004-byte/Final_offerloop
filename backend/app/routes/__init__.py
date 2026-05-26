@@ -16,7 +16,6 @@ from app.routes.firm_search import firm_search_bp
 from app.routes.dashboard import dashboard_bp
 from app.routes.timeline import timeline_bp
 from app.routes.linkedin_import import linkedin_import_bp
-from app.routes.cover_letter_workshop import cover_letter_workshop_bp
 
 __all__ = [
     'health_bp',
@@ -34,6 +33,5 @@ __all__ = [
     'dashboard_bp',
     'timeline_bp',
     'linkedin_import_bp',
-    'cover_letter_workshop_bp'
 ]
 

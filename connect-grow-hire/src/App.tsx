@@ -54,7 +54,6 @@ const AgentPage = React.lazy(() => import("./pages/AgentPage"));
 const AgentSetup = React.lazy(() => import("./pages/AgentSetup"));
 const LoopsPage = React.lazy(() => import("./pages/LoopsPage"));
 const LoopDetailPage = React.lazy(() => import("./pages/LoopDetailPage"));
-const CoverLetterPage = React.lazy(() => import("./pages/CoverLetterPage"));
 // New Lovable Onboarding Flow
 const OnboardingFlow = React.lazy(() => import("./pages/OnboardingFlow").then(m => ({ default: m.OnboardingFlow })));
 // Dev-only preview routes (no auth) for design iteration on the new Profile page
@@ -305,10 +304,6 @@ const AppRoutes: React.FC = () => {
       <Route path="/agent/legacy" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AgentPage /></Suspense></ProtectedRoute>} />
       <Route path="/agent/setup" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AgentSetup /></Suspense></ProtectedRoute>} />
       <Route path="/agent/:loopId" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><LoopDetailPage /></Suspense></ProtectedRoute>} />
-
-      {/* Write Pages - Cover Letter */}
-      <Route path="/write/cover-letter" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoverLetterPage /></Suspense></ProtectedRoute>} />
-      <Route path="/write/cover-letter-library" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoverLetterPage /></Suspense></ProtectedRoute>} />
 
       {/* Data & Stats */}
       <Route path="/data" element={<Suspense fallback={<PageLoader />}><DataStats /></Suspense>} />
