@@ -48,7 +48,6 @@ const PaymentSuccess = React.lazy(() => import("./pages/PaymentSuccess"));
 const CoffeeChatPrepPage = React.lazy(() => import("./pages/CoffeeChatPrepPage"));
 const FindPage = React.lazy(() => import("./pages/FindPage"));
 const EmailTemplatesPage = React.lazy(() => import("./pages/EmailTemplatesPage"));
-const InterviewPrepPage = React.lazy(() => import("./pages/InterviewPrepPage"));
 const RecruitingTimelinePage = React.lazy(() => import("./pages/RecruitingTimelinePage"));
 const DashboardPage = React.lazy(() => import("./pages/DashboardPage"));
 const AgentPage = React.lazy(() => import("./pages/AgentPage"));
@@ -294,7 +293,6 @@ const AppRoutes: React.FC = () => {
       <Route path="/coffee-chat-prep" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoffeeChatPrepPage /></Suspense></ProtectedRoute>} />
       <Route path="/contact-search/templates" element={<Navigate to="/find/templates" replace />} />
       <Route path="/find/templates" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><EmailTemplatesPage /></Suspense></ProtectedRoute>} />
-      <Route path="/interview-prep" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><InterviewPrepPage /></Suspense></ProtectedRoute>} />
       <Route path="/firm-search" element={<Navigate to="/find?tab=companies" replace />} />
       <Route path="/job-board" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><JobBoardPage /></Suspense></ProtectedRoute>} />
       <Route path="/recruiter-spreadsheet" element={<Navigate to="/find?tab=hiring-managers" replace />} />
