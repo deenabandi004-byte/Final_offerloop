@@ -41,8 +41,6 @@ pytest-mock==3.12.0
 # Use 0.23.x with pytest 7.x to avoid "cannot import name 'FixtureDef' from 'pytest'" (pytest-asyncio 1.x needs pytest 8+)
 pytest-asyncio==0.23.8
 aiohttp==3.12.15
-asyncpraw==7.8.1
-praw==7.8.1
 beautifulsoup4==4.12.3
 weasyprint==67.0
 jinja2==3.1.4
