@@ -2,7 +2,6 @@
 Routes package - all API route blueprints
 """
 from app.routes.health import health_bp
-from app.routes.spa import spa_bp
 from app.routes.gmail_oauth import gmail_oauth_bp
 from app.routes.emails import emails_bp
 from app.routes.contacts import contacts_bp
@@ -19,7 +18,6 @@ from app.routes.linkedin_import import linkedin_import_bp
 
 __all__ = [
     'health_bp',
-    'spa_bp',
     'gmail_oauth_bp',
     'emails_bp',
     'contacts_bp',
