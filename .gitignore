@@ -78,3 +78,17 @@ credentials.json
 .env
 research-outputs/*.json
 .gstack/
+
+
+# --- Cleanup 2026-05-26: prevent dev cruft from re-entering ---
+# Vite build output (rebuilds on every npm run build)
+connect-grow-hire/dist/
+# Loose audit/screenshot/baseline PNGs at repo root
+/audit-*.png
+/baseline-*.png
+/pass2-*.png
+/screenshot-*.png
+/devpreview-*.png
+/mid-*.png
+# Local zip archives at repo root
+/*.zip
