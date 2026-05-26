@@ -166,19 +166,6 @@ export const PAGES = {
       "Open emails in Gmail"
     ],
     keywords: ["outbox", "emails", "drafts", "sent", "replies", "threads", "messages"]
-  },
-
-  calendar: {
-    route: "/home?tab=calendar",
-    name: "Calendar",
-    description: "View your personalized recruiting timeline with key dates and milestones.",
-    features: [
-      "AI-generated recruiting timeline",
-      "Phase-based planning",
-      "Key milestones and deadlines",
-      "Customizable based on your goals"
-    ],
-    keywords: ["calendar", "timeline", "schedule", "dates", "deadlines", "milestones", "planning"]
   }
 } as const;
 
@@ -529,8 +516,7 @@ export const ROUTE_MAPPING = {
     "/account-settings": ["settings", "account", "profile", "gmail", "resume upload", "preferences"],
     "/contact-directory": ["contact directory", "contact library", "saved contacts", "my contacts"],
     "/coffee-chat-library": ["coffee chat library", "past preps", "prep history"],
-    "/home?tab=outbox": ["outbox", "emails", "drafts", "sent", "replies", "messages"],
-    "/home?tab=calendar": ["calendar", "timeline", "schedule", "deadlines", "milestones"]
+    "/home?tab=outbox": ["outbox", "emails", "drafts", "sent", "replies", "messages"]
   },
 
   // Intent to route mapping
@@ -543,7 +529,6 @@ export const ROUTE_MAPPING = {
     manageAccount: "/account-settings",
     viewSavedContacts: "/contact-directory",
     viewEmails: "/home?tab=outbox",
-    viewCalendar: "/home?tab=calendar",
     connectGmail: "/account-settings",
     uploadResume: "/account-settings",
     checkCredits: "/pricing"

@@ -27,7 +27,6 @@ import UscBeta from "@/pages/UscBeta";
 const AboutUs = React.lazy(() => import("./pages/AboutUs"));
 const NetworkTracker = React.lazy(() => import("./pages/NetworkTracker"));
 const CompanyTrackerPage = React.lazy(() => import("./pages/CompanyTrackerPage"));
-const CalendarPage = React.lazy(() => import("./pages/CalendarPage"));
 const Contact = React.lazy(() => import("./pages/Contact"));
 const CoffeeChatLibrary = React.lazy(() => import("./pages/CoffeeChatLibrary"));
 const ContactDirectory = React.lazy(() => import("./pages/ContactDirectory"));
@@ -276,7 +275,6 @@ const AppRoutes: React.FC = () => {
       <Route path="/contact-search" element={<Navigate to="/find" replace />} />
       <Route path="/tracker" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><NetworkTracker /></Suspense></ProtectedRoute>} />
       <Route path="/outbox" element={<Navigate to="/tracker" replace />} />
-      <Route path="/calendar" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CalendarPage /></Suspense></ProtectedRoute>} />
       {/* Legacy /home redirect to contact search */}
       <Route path="/home" element={<Navigate to="/dashboard" replace />} />
       <Route path="/contact-directory" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ContactDirectory /></Suspense></ProtectedRoute>} />
