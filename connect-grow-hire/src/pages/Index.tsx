@@ -983,7 +983,6 @@ const Index = () => {
               {[
                 { label: 'Find People', path: '/find' },
                 { label: 'Coffee Chat Prep', path: '/coffee-chat-prep' },
-                { label: 'Interview Prep', path: '/interview-prep' },
                 { label: 'Chrome Extension', href: CHROME_EXTENSION_URL },
                 { label: 'Job Board', path: '/job-board' },
               ].map((link) => (

@@ -18,6 +18,8 @@ Strategy: best-effort.
 import hashlib
 import os
 import time
+
+from app.services.metering import meter_call
 from typing import Dict, List, Optional, Tuple
 
 import requests
@@ -191,6 +193,7 @@ def get_unsupported_filters(parsed_prompt: Dict) -> List[str]:
     return unsupported
 
 
+@meter_call("hunter", "domain_search")
 def search_people_via_hunter(
     parsed_prompt: Dict,
     max_contacts: int,

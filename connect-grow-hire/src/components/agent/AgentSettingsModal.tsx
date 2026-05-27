@@ -33,6 +33,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useAgentLifecycle } from "@/hooks/useAgent";
 import type { AgentConfig } from "@/services/agent";
+import { firebaseApi } from "@/services/firebaseApi";
+import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+
+// Mirror of backend CREDIT_COSTS.contact in app/services/loop_budget.py.
+// Keep in sync with AgentSetupInline.tsx and LoopActivityFeed.tsx.
+const CREDIT_COST_PER_CONTACT = 9;
 
 // Keep in sync with AgentSetupInline.tsx — small list, low drift risk.
 const INDUSTRY_OPTIONS = [
@@ -57,6 +63,17 @@ export function AgentSettingsModal({
   config: AgentConfig;
 }) {
   const lifecycle = useAgentLifecycle();
+  const { user } = useFirebaseAuth();
+  const [university, setUniversity] = useState<string | null>(null);
+  const hasUniversity = !!(university && university.trim());
+
+  useEffect(() => {
+    if (!open || !user?.uid) return;
+    firebaseApi
+      .getUserOnboardingData(user.uid)
+      .then((d) => setUniversity(d.university || ""))
+      .catch(() => setUniversity(""));
+  }, [open, user?.uid]);
 
   const snapshot = (c: AgentConfig) => ({
     targetCompanies: c.targetCompanies ?? [],
@@ -67,7 +84,6 @@ export function AgentSettingsModal({
     weeklyContactTarget: c.weeklyContactTarget,
     creditBudgetPerWeek: c.creditBudgetPerWeek,
     approvalMode: c.approvalMode,
-    sendMode: c.sendMode,
     followUpEnabled: c.followUpEnabled,
     followUpDays: c.followUpDays,
     maxFollowUps: c.maxFollowUps,
@@ -106,6 +122,20 @@ export function AgentSettingsModal({
     return false;
   })();
 
+  // Guard: the agent has nothing to do if every discovery channel is off.
+  // We block Save (rather than silently letting cycles burn time finding zero
+  // contacts) and surface an inline warning so the user can re-enable one.
+  const allDiscoveryOff =
+    !local.enableJobDiscovery &&
+    !local.enableHiringManagers &&
+    !local.enableCompanyDiscovery;
+
+  // Guard: a weekly contact target costs ~9 credits per contact. If the
+  // budget can't cover the target, the agent stops mid-week. Block Save.
+  const estimatedWeeklyCredits =
+    local.weeklyContactTarget * CREDIT_COST_PER_CONTACT;
+  const budgetUnderfunded = local.creditBudgetPerWeek < estimatedWeeklyCredits;
+
   const updateList = (
     key: "targetCompanies" | "targetIndustries" | "targetRoles" | "targetLocations",
     next: string[]
@@ -127,7 +157,18 @@ export function AgentSettingsModal({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="overflow-y-auto">
         <SheetHeader>
-          <SheetTitle>Agent Settings</SheetTitle>
+          <SheetTitle className="flex items-center gap-2">
+            Agent Settings
+            {isDirty && (
+              <span
+                className="inline-flex items-center gap-1 text-[11px] font-normal text-amber-600"
+                aria-label="Unsaved changes"
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                Unsaved
+              </span>
+            )}
+          </SheetTitle>
         </SheetHeader>
 
         <div className="space-y-6 mt-6">
@@ -162,10 +203,15 @@ export function AgentSettingsModal({
             <div className="flex items-center justify-between pt-1">
               <div>
                 <Label className="text-sm">Prefer alumni</Label>
-                <p className="text-xs text-muted-foreground">Boost contacts from your university.</p>
+                <p className="text-xs text-muted-foreground">
+                  {hasUniversity
+                    ? "Boost contacts from your university."
+                    : "Set your university in Account Settings to use this."}
+                </p>
               </div>
               <Switch
-                checked={local.preferAlumni}
+                checked={hasUniversity && local.preferAlumni}
+                disabled={!hasUniversity}
                 onCheckedChange={(v) => setLocal((p) => ({ ...p, preferAlumni: v }))}
               />
             </div>
@@ -175,9 +221,23 @@ export function AgentSettingsModal({
           <div className="space-y-3">
             <h3 className="text-sm font-medium">Volume</h3>
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">
-                Weekly contact target: {local.weeklyContactTarget}
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-muted-foreground">
+                  Weekly contact target
+                </Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={15}
+                  step={1}
+                  value={local.weeklyContactTarget}
+                  onChange={(e) => {
+                    const n = Math.max(1, Math.min(15, Math.round(Number(e.target.value) || 1)));
+                    setLocal((p) => ({ ...p, weeklyContactTarget: n }));
+                  }}
+                  className="h-7 w-16 text-sm text-right"
+                />
+              </div>
               <Slider
                 min={1}
                 max={15}
@@ -187,9 +247,23 @@ export function AgentSettingsModal({
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">
-                Credit budget/week: {local.creditBudgetPerWeek}
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-muted-foreground">
+                  Credit budget/week
+                </Label>
+                <Input
+                  type="number"
+                  min={10}
+                  max={150}
+                  step={1}
+                  value={local.creditBudgetPerWeek}
+                  onChange={(e) => {
+                    const n = Math.max(10, Math.min(150, Math.round(Number(e.target.value) || 10)));
+                    setLocal((p) => ({ ...p, creditBudgetPerWeek: n }));
+                  }}
+                  className="h-7 w-16 text-sm text-right"
+                />
+              </div>
               <Slider
                 min={10}
                 max={150}
@@ -197,6 +271,14 @@ export function AgentSettingsModal({
                 value={[local.creditBudgetPerWeek]}
                 onValueChange={([v]) => setLocal((p) => ({ ...p, creditBudgetPerWeek: v }))}
               />
+              <p
+                className="text-xs"
+                style={{ color: budgetUnderfunded ? "#b91c1c" : undefined }}
+              >
+                {budgetUnderfunded
+                  ? `Budget too low: ${local.weeklyContactTarget} contacts/week needs ~${estimatedWeeklyCredits} credits.`
+                  : `${local.weeklyContactTarget} contacts/week ≈ ${estimatedWeeklyCredits} credits (each costs ${CREDIT_COST_PER_CONTACT}).`}
+              </p>
             </div>
           </div>
 
@@ -224,6 +306,12 @@ export function AgentSettingsModal({
                 onCheckedChange={(v) => setLocal((p) => ({ ...p, enableCompanyDiscovery: v }))}
               />
             </div>
+            {allDiscoveryOff && (
+              <p className="text-xs text-red-600 pt-1">
+                Turn on at least one discovery feature — otherwise your agent
+                will run cycles but find nothing.
+              </p>
+            )}
           </div>
 
           {/* Control */}
@@ -364,7 +452,12 @@ export function AgentSettingsModal({
             <Button
               size="sm"
               onClick={handleSave}
-              disabled={!isDirty || lifecycle.updateConfig.isPending}
+              disabled={
+                !isDirty ||
+                allDiscoveryOff ||
+                budgetUnderfunded ||
+                lifecycle.updateConfig.isPending
+              }
             >
               {lifecycle.updateConfig.isPending ? "Saving…" : "Save changes"}
             </Button>
@@ -421,7 +514,9 @@ function TagsField({
   const [val, setVal] = useState("");
   const add = () => {
     const t = val.trim();
-    if (t && !list.includes(t)) onChange([...list, t]);
+    if (t && !list.some((x) => x.toLowerCase() === t.toLowerCase())) {
+      onChange([...list, t]);
+    }
     setVal("");
   };
   return (

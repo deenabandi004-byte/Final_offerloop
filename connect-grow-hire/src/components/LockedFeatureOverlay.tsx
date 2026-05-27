@@ -30,11 +30,7 @@ const LockedFeatureOverlay: React.FC<LockedFeatureOverlayProps> = ({
               Upgrade to <span className="bg-gradient-to-r from-[#3B82F6] to-[#2563EB] bg-clip-text text-transparent">Pro</span> to Unlock
             </p>
             <p className="text-gray-400 text-base max-w-2xl mx-auto mb-6">
-              {featureName === "Interview Prep" ? (
-                <>Interview Prep scans real candidate reports, recent company developments, role-specific expectations, and division-level insights to give you a personalized briefing for your interview. It highlights the key skills interviewers look for, the structure of the interview process, and the types of behavioral, technical, or case questions you'll likely face. You also get tailored talking points and context about the team and industry trends, helping you walk into your interview confident, informed, and prepared to perform at your best.</>
-              ) : (
-                <>Coffee Chat Prep analyzes your contact's background, recent news, shared interests, and industry insights to generate a personalized conversation roadmap. It also highlights the projects they've recently worked on and company or industry developments directly tied to their role, giving you extremely specific talking points that make it look like you did your homework. Walk into every chat confident, prepared, and ready to build a real connection.</>
-              )}
+              Coffee Chat Prep analyzes your contact's background, recent news, shared interests, and industry insights to generate a personalized conversation roadmap. It also highlights the projects they've recently worked on and company or industry developments directly tied to their role, giving you extremely specific talking points that make it look like you did your homework. Walk into every chat confident, prepared, and ready to build a real connection.
             </p>
              <Button
                onClick={() => {

@@ -8,17 +8,15 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
 import { BACKEND_URL } from '@/services/api';
+import { clearActiveThread } from '@/services/scoutConversations';
 import {
-  loadActiveThread,
-  saveActiveThread,
-  clearActiveThread,
-  type PersistedChatMessage,
-} from '@/services/scoutConversations';
+  getScoutChat,
+  type ScoutPersistedMessage,
+} from '@/services/scoutChats';
 
-// Local-storage cache key (durable across tabs, reloads, and pre-auth boot).
-// Firestore is the source of truth — this cache exists so the panel hydrates
-// instantly on open before the Firestore round-trip resolves.
-const LOCAL_CACHE_KEY = 'scout_chat_messages_v2';
+// Key an earlier build used to persist the chat thread to localStorage. Scout
+// no longer saves chat history; this is referenced only to clear stale data.
+const LEGACY_LOCAL_CACHE_KEY = 'scout_chat_messages_v2';
 
 // Build a compact `user_memory` block to ship with every chat call so Scout
 // has session-scoped context (recent searches, prompts the user has tried
@@ -58,7 +56,7 @@ function readUserMemoryFromLocalStorage(): Record<string, unknown> {
       .map(([k]) => k);
     if (pairList.length) memory.known_thin_school_company_pairs = pairList;
   } catch {}
-  // Briefing snapshot — set by MorningBriefing when the briefing data lands.
+  // Briefing snapshot - set by MorningBriefing when the briefing data lands.
   // Lets Scout answer "what should I do today" with concrete reference to
   // outstanding items even when the user is talking from a different page.
   try {
@@ -66,7 +64,7 @@ function readUserMemoryFromLocalStorage(): Record<string, unknown> {
     if (briefingRaw) {
       const snap = JSON.parse(briefingRaw);
       const ageMs = Date.now() - (snap?.ts || 0);
-      // Snapshot is fresh for 6 hours — beyond that we don't trust it.
+      // Snapshot is fresh for 6 hours - beyond that we don't trust it.
       if (ageMs < 6 * 60 * 60 * 1000 && snap?.data) {
         memory.briefing_snapshot = snap.data;
       }
@@ -76,42 +74,106 @@ function readUserMemoryFromLocalStorage(): Record<string, unknown> {
 }
 
 // Types
-export interface ContactResult {
-  name: string;
-  job_title: string;
-  company: string;
-  email: string;
-  linkedin_url: string;
-  status: string;
+
+/** The navigate tool's payload - everything the approve flow needs, computed
+ *  by the backend so the frontend does not need the page registry. */
+export interface ScoutNavigate {
+  route: string;
+  prefill: Record<string, string>;
+  reasoning: string;
+  confidence: number;
+  user_was_imperative: boolean;
+  /** When true, the destination page populates the form AND fires its
+   *  primary action automatically once the prefill lands. Scout sets this
+   *  for complete queries on pages that opt in via the page registry
+   *  (auto_submit_supported flag). The backend silently zeroes this for
+   *  pages that have not opted in, so it is always safe to forward. */
+  auto_submit: boolean;
+  credit_spending: boolean;
+  credit_cost: number | null;
+  missing_required: string[];
+  already_on_page: boolean;
 }
 
-export interface EmailPreview {
-  subject: string;
-  body: string;
-  recipient_name: string;
-  recipient_company: string;
+/** The Haiku intent classifier output (Change 7). Stamped on every turn so
+ *  the UI can render the mode pill and the panel can route skip-approve vs
+ *  approve-card based on intent rather than the model's self-rated confidence.
+ *  Mode falls back to 'chat' on classifier failure. */
+export type ScoutMode = 'chat' | 'plan' | 'do' | 'clarify';
+
+export interface ScoutIntent {
+  intent: ScoutMode;
+  confidence: number;
+  missing_fields: string[];
+  reason: string;
+}
+
+/** End-of-message CTA chip (Change 6). The single bridge from a chat answer
+ *  to a runnable Offerloop workflow. Never paired with prose like "want
+ *  me to..." - the chip is the entire bridge. */
+export interface ScoutCta {
+  label: string;
+  route: string;
+  prefill: Record<string, string>;
+  credit_spending: boolean;
+  credit_cost: number | null;
+}
+
+/** A multi-step plan rendered inline as a checklist (Change 5). Produced when
+ *  Scout's save_strategy helper fires; the strategy is persisted separately
+ *  but this view is what shows up in the conversation. */
+export interface ScoutPlanStep {
+  index: number;
+  title: string;
+  detail?: string | null;
+  route?: string | null;
+  done: boolean;
+}
+
+export interface ScoutPlan {
+  strategy_id?: string | null;
+  goal: string;
+  steps: ScoutPlanStep[];
+}
+
+/** Live tool-call pill (Change 1). One entry per helper-tool invocation in
+ *  the turn. While running it renders as a pulsing pill with `label`; on
+ *  completion it collapses to a chip showing `summary`, expandable to the
+ *  raw result. */
+export interface ScoutToolEvent {
+  id: string;
+  name: string;
+  label: string;
+  summary?: string;
+  result?: unknown;
+  done: boolean;
 }
 
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  navigate_to?: string | null;
-  action_buttons?: Array<{ label: string; route: string }>;
-  auto_populate?: {
-    search_type: 'contact' | 'firm';
-    job_title?: string;
-    company?: string;
-    location?: string;
-    industry?: string;
-    size?: string;
-  } | null;
-  contacts_results?: ContactResult[] | null;
-  email_preview?: EmailPreview | null;
-  tool_used?: string | null;
+  // Which tool Scout chose this turn. 'answer' and 'clarify' render as plain
+  // chat text; 'navigate' drives the approve flow via the `navigate` payload.
+  tool?: 'navigate' | 'answer' | 'clarify' | null;
+  navigate?: ScoutNavigate | null;
+  // Set once the user approves or skips a navigate, so the approve card renders
+  // collapsed and the auto-navigate effect does not re-fire.
+  approveResolved?: boolean;
   timestamp: Date;
   isStreaming?: boolean;
   intent?: string | null;
+  // Live-session-only message from a failed send (the user's message and/or an
+  // "unreachable" notice). Rendered in the thread but never persisted and never
+  // sent to the model as history, so a failed turn leaves no orphaned,
+  // reply-less message at the top of the thread on reload.
+  transient?: boolean;
+  // New fields surfaced by the unified Scout interaction model (May 2026).
+  mode?: ScoutMode | null;
+  intentDetail?: ScoutIntent | null;
+  cta?: ScoutCta | null;
+  plan?: ScoutPlan | null;
+  toolEvents?: ScoutToolEvent[];
 }
 
 export interface UseScoutChatReturn {
@@ -123,6 +185,22 @@ export interface UseScoutChatReturn {
   clearChat: () => void;
   messagesEndRef: React.RefObject<HTMLDivElement>;
   inputRef: React.RefObject<HTMLInputElement>;
+  // Phase 5 Stage 3: persisted chat thread surface.
+  chatId: string | null;
+  startNewChat: () => void;
+  loadChat: (chatId: string) => Promise<void>;
+  isLoadingChat: boolean;
+  /** Push a synthetic assistant message into the chat without a backend
+   *  round trip. Used for "the workflow just completed" follow-ups (e.g.
+   *  the contact search returned 5 results, post a celebration with a
+   *  chip back to the network). Local-only: not persisted to Firestore,
+   *  so it disappears on reload of the chat. That is intentional - the
+   *  message is contextual to the just-completed action and stale
+   *  afterwards. */
+  appendSyntheticAssistant: (
+    content: string,
+    extras?: { mode?: ScoutMode; cta?: ScoutCta | null },
+  ) => void;
 }
 
 /**
@@ -136,108 +214,101 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
   // Determine current page - use override if provided, otherwise use location
   const currentPage = currentPageOverride || location.pathname;
 
-  // Chat state — hydrated synchronously from localStorage so the panel never
-  // flashes empty on open; Firestore reconciles below once auth resolves.
-  const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    try {
-      const saved = localStorage.getItem(LOCAL_CACHE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return parsed.map((msg: any) => ({
-          ...msg,
-          timestamp: new Date(msg.timestamp),
-        }));
-      }
-    } catch (e) {
-      console.error('[Scout] Failed to hydrate from local cache:', e);
-    }
-    return [];
-  });
+  // Chat state. Phase 5 Stage 3: the thread is persisted in Firestore (every
+  // turn round-trips through the backend, which appends to
+  // users/{uid}/scoutChats/{chatId}/messages). Local state is the in-memory
+  // view of the active thread; `chatId` keys us to the persisted doc so each
+  // outbound request reaches the same chat and so the sidebar can swap
+  // threads in place. A full reload starts a new chat unless the sidebar
+  // loads one.
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [chatId, setChatId] = useState<string | null>(null);
+  const [isLoadingChat, setIsLoadingChat] = useState(false);
+  // Track the chat we're currently loading so a slow response from an earlier
+  // click does not overwrite a later one if the user opens two chats quickly.
+  const loadingChatTargetRef = useRef<string | null>(null);
 
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // One-shot Firestore reconcile on user resolution. We only adopt the remote
-  // thread if the local cache is empty (fresh device / private window) OR if
-  // the remote is strictly newer (different tab edited it). Otherwise we keep
-  // the local view to avoid clobbering an in-progress conversation.
-  const didReconcileRef = useRef(false);
-  useEffect(() => {
-    if (!user?.uid || didReconcileRef.current) return;
-    didReconcileRef.current = true;
-    (async () => {
-      try {
-        const remote: PersistedChatMessage[] = await loadActiveThread(user.uid);
-        if (!remote.length) return;
-        // Adopt remote when local is empty or remote is strictly larger.
-        // (Heuristic — full conflict resolution would need vector clocks; the
-        //  expected case is single-user, single-thread, so a length compare is
-        //  sufficient and avoids dropping messages users care about.)
-        const remoteAsChatMessages: ChatMessage[] = remote.map((m) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          timestamp: new Date(m.timestampMs),
-        }));
-        setMessages((prev) =>
-          prev.length === 0 || remote.length > prev.length
-            ? remoteAsChatMessages
-            : prev,
-        );
-      } catch (e) {
-        console.error('[Scout] Reconcile from Firestore failed:', e);
-      }
-    })();
-  }, [user?.uid]);
-
-  // Persist on every change. Two layers:
-  //  1. localStorage (synchronous, durable, survives reloads & tab close)
-  //  2. Firestore (async, debounced 600ms — not every keystroke during stream)
+  // One-time cleanup of chat history saved by an earlier build. Scout no longer
+  // persists conversations, so wipe the legacy local cache and the Firestore
+  // active-thread doc rather than ever reading them back.
+  const didCleanupRef = useRef(false);
   useEffect(() => {
     try {
-      const toSave = messages.map(({ isStreaming, intent, ...rest }) => rest);
-      localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(toSave));
-    } catch (e) {
-      console.error('[Scout] Local cache write failed:', e);
-    }
-    if (!user?.uid) return;
-    // Skip while a streaming token is still landing — the next change will
-    // catch the final committed message. Saves bandwidth + Firestore writes.
-    if (messages.some((m) => m.isStreaming)) return;
-    const handle = setTimeout(() => {
-      const persisted: PersistedChatMessage[] = messages
-        .filter((m) => !m.isStreaming)
-        .map((m) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          timestampMs: m.timestamp.getTime(),
-        }));
-      void saveActiveThread(user.uid, persisted);
-    }, 600);
-    return () => clearTimeout(handle);
-  }, [messages, user?.uid]);
+      localStorage.removeItem(LEGACY_LOCAL_CACHE_KEY);
+    } catch {}
+    if (!user?.uid || didCleanupRef.current) return;
+    didCleanupRef.current = true;
+    void clearActiveThread(user.uid);
+  }, [user?.uid]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Clear chat — wipes local state, local cache, and the durable Firestore
-  // thread so the user really starts over.
+  // Clear chat -- starts a fresh thread. The next send creates a new
+  // persisted chat in Firestore; the previous one stays in the sidebar.
   const clearChat = useCallback(() => {
     setMessages([]);
-    try {
-      localStorage.removeItem(LOCAL_CACHE_KEY);
-    } catch {}
-    if (user?.uid) {
-      void clearActiveThread(user.uid);
-    }
+    setChatId(null);
     inputRef.current?.focus();
-  }, [user?.uid]);
+  }, []);
+
+  const startNewChat = clearChat;
+
+  /** Load a persisted chat into the panel. Fetches the parent doc + messages
+   *  from the backend, hydrates them into ChatMessage shape, and swaps. Safe
+   *  to call mid-typing; the typed input is preserved. */
+  const loadChat = useCallback(async (targetChatId: string) => {
+    const id = (targetChatId || '').trim();
+    if (!id) return;
+    setIsLoadingChat(true);
+    loadingChatTargetRef.current = id;
+    try {
+      const detail = await getScoutChat(id);
+      // If a newer loadChat call started while this one was in flight, drop
+      // the stale result so the latest click wins.
+      if (loadingChatTargetRef.current !== id) return;
+      const hydrated: ChatMessage[] = (detail.messages || []).map((m: ScoutPersistedMessage) => {
+        // The terminal-tool args were stamped on the assistant turn so we
+        // can rebuild the navigate card on resume. The shape mirrors what
+        // _persist_assistant_turn writes on the backend.
+        const terminal = Array.isArray(m.tool_calls)
+          ? [...m.tool_calls].reverse().find((t) => {
+              const name = (t as any)?.name;
+              return name === 'navigate' || name === 'answer' || name === 'clarify';
+            })
+          : null;
+        const navigate = terminal && (terminal as any).navigate ? ((terminal as any).navigate as ScoutNavigate) : null;
+        const tool = terminal ? ((terminal as any).name as ChatMessage['tool']) : (m.role === 'assistant' ? 'answer' : null);
+        return {
+          id: m.message_id,
+          role: m.role,
+          content: m.content,
+          tool,
+          navigate,
+          // A resumed navigate is already history: never auto-execute it.
+          approveResolved: tool === 'navigate' ? true : undefined,
+          timestamp: m.created_at ? new Date(m.created_at) : new Date(),
+        };
+      });
+      setMessages(hydrated);
+      setChatId(id);
+    } finally {
+      if (loadingChatTargetRef.current === id) {
+        loadingChatTargetRef.current = null;
+      }
+      setIsLoadingChat(false);
+      // Focus the input so the user can continue typing immediately.
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }, []);
 
   // Get Firebase token helper
   const getToken = async (): Promise<string | null> => {
@@ -248,20 +319,26 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
 
   // Build request payload. Slices conversation history to the last 6 turns
   // (the previous behavior) AND includes a `user_memory` block so Scout has
-  // context that lives outside the active chat — recent searches, prompts the
+  // context that lives outside the active chat - recent searches, prompts the
   // user already tried and bombed on, school×company combinations PDL has
   // already failed at. This is the substrate that lets Scout "remember" the
   // user across sessions without retraining.
   const buildPayload = (text: string, currentMessages: ChatMessage[]) => {
-    const conversationHistory = currentMessages.slice(-6).map(msg => ({
-      role: msg.role,
-      content: msg.content
-    }));
+    // Exclude transient messages (a failed turn): they are not real
+    // conversation turns and must not be replayed to the model as history.
+    const conversationHistory = currentMessages
+      .filter(msg => !msg.transient)
+      .slice(-6)
+      .map(msg => ({
+        role: msg.role,
+        content: msg.content,
+      }));
 
     return {
       message: text,
       conversation_history: conversationHistory,
       current_page: currentPage,
+      chat_id: chatId,
       user_info: {
         name: user?.name || 'there',
         tier: user?.tier || 'free',
@@ -308,6 +385,9 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
       const decoder = new TextDecoder();
       let buffer = '';
       let accumulatedText = '';
+      // Set once the backend sends a terminal SSE event (done or error). A
+      // stream that connects but ends without one delivered nothing usable.
+      let receivedTerminal = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -333,28 +413,87 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
                 setMessages(prev => prev.map(m =>
                   m.id === assistantId ? { ...m, intent: data.intent } : m
                 ));
+              } else if (eventType === 'mode') {
+                // Mode receipt pill (Change 7): the Haiku classifier output,
+                // emitted before the final response so the pill appears
+                // ahead of the prose and gives the user an immediate read
+                // on how Scout is going to handle the turn.
+                const m = (data?.mode as ScoutMode) || 'chat';
+                setMessages(prev => prev.map(msg =>
+                  msg.id === assistantId ? {
+                    ...msg,
+                    mode: m,
+                    intentDetail: {
+                      intent: m,
+                      confidence: typeof data?.confidence === 'number' ? data.confidence : 0,
+                      missing_fields: [],
+                      reason: typeof data?.reason === 'string' ? data.reason : '',
+                    },
+                  } : msg
+                ));
+              } else if (eventType === 'tool_start') {
+                // Live tool-call narration (Change 1): start a pill the moment
+                // we know the tool name.
+                const evt: ScoutToolEvent = {
+                  id: typeof data?.id === 'string' ? data.id : `tool-${Date.now()}`,
+                  name: typeof data?.name === 'string' ? data.name : 'tool',
+                  label: typeof data?.label === 'string' ? data.label : 'Working',
+                  done: false,
+                };
+                setMessages(prev => prev.map(msg =>
+                  msg.id === assistantId ? {
+                    ...msg,
+                    toolEvents: [...(msg.toolEvents || []), evt],
+                  } : msg
+                ));
+              } else if (eventType === 'tool_end') {
+                // Collapse the matching pill to its result chip.
+                const id = typeof data?.id === 'string' ? data.id : '';
+                const name = typeof data?.name === 'string' ? data.name : '';
+                const summary = typeof data?.summary === 'string' ? data.summary : '';
+                setMessages(prev => prev.map(msg => {
+                  if (msg.id !== assistantId) return msg;
+                  const events = (msg.toolEvents || []).map(e => {
+                    const matches = id ? e.id === id : (!e.done && e.name === name);
+                    return matches ? { ...e, summary, done: true } : e;
+                  });
+                  return { ...msg, toolEvents: events };
+                }));
               } else if (eventType === 'token') {
                 accumulatedText += data.text;
                 setMessages(prev => prev.map(m =>
                   m.id === assistantId ? { ...m, content: accumulatedText, isStreaming: true } : m
                 ));
               } else if (eventType === 'done') {
-                // Final update with all metadata
+                // Final update with the structured tool response. The backend
+                // also returns chat_id; we capture it so subsequent sends
+                // ride the same persisted chat (and so the sidebar can
+                // refresh with the new title once it generates).
+                receivedTerminal = true;
+                if (typeof data.chat_id === 'string' && data.chat_id) {
+                  setChatId(data.chat_id);
+                }
                 setMessages(prev => prev.map(m =>
                   m.id === assistantId ? {
                     ...m,
                     content: data.message || accumulatedText,
-                    navigate_to: data.navigate_to || null,
-                    action_buttons: data.action_buttons || [],
-                    auto_populate: data.auto_populate || null,
-                    contacts_results: data.contacts_results || null,
-                    email_preview: data.email_preview || null,
-                    tool_used: data.tool_used || null,
+                    tool: data.tool || 'answer',
+                    navigate: data.navigate || null,
                     isStreaming: false,
                     intent: null,
+                    // Mode may have been delivered ahead by the 'mode' event;
+                    // fall back to whatever the done payload carries.
+                    mode: (data.mode as ScoutMode) || m.mode || 'chat',
+                    intentDetail: data.intent || m.intentDetail || null,
+                    cta: data.cta || null,
+                    plan: data.plan || null,
                   } : m
                 ));
               } else if (eventType === 'error') {
+                // The backend reached us and reported an error: that is a
+                // delivered response (we show its text), not a transport
+                // failure, so it does not trigger the fallback.
+                receivedTerminal = true;
                 setMessages(prev => prev.map(m =>
                   m.id === assistantId ? {
                     ...m,
@@ -377,7 +516,14 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
         m.id === assistantId && m.isStreaming ? { ...m, isStreaming: false, intent: null } : m
       ));
 
-      return true;
+      // A stream that connected but produced no terminal event and no text is
+      // not a real delivery (e.g. the connection dropped mid-flight). Drop the
+      // empty placeholder so the caller can fall back or surface an error.
+      const delivered = receivedTerminal || accumulatedText.trim().length > 0;
+      if (!delivered) {
+        setMessages(prev => prev.filter(m => m.id !== assistantId));
+      }
+      return delivered;
     } catch (error) {
       console.error('[Scout] Streaming error:', error);
       // Remove placeholder and signal fallback
@@ -386,43 +532,58 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
     }
   };
 
-  // Non-streaming fallback
-  const sendMessageFallback = async (text: string, currentMessages: ChatMessage[]) => {
-    const token = await getToken();
-    const payload = buildPayload(text, currentMessages);
+  // Non-streaming fallback. Returns true only when a real response was
+  // rendered; on any transport or HTTP failure it returns false so the caller
+  // can surface an explicit error instead of failing silently.
+  const sendMessageFallback = async (text: string, currentMessages: ChatMessage[]): Promise<boolean> => {
+    try {
+      const token = await getToken();
+      const payload = buildPayload(text, currentMessages);
 
-    const response = await fetch(`${BACKEND_URL}/api/scout-assistant/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify(payload),
-    });
+      const response = await fetch(`${BACKEND_URL}/api/scout-assistant/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
 
-    if (!response.ok) {
-      throw new Error(`API returned ${response.status}`);
+      if (!response.ok) {
+        console.error(`[Scout] Fallback API returned ${response.status}`);
+        return false;
+      }
+
+      const data = await response.json();
+      if (typeof data?.chat_id === 'string' && data.chat_id) {
+        setChatId(data.chat_id);
+      }
+
+      const assistantMessage: ChatMessage = {
+        id: `assistant-${Date.now()}`,
+        role: 'assistant',
+        content: data.message || "I'm not sure how to help with that. Could you rephrase?",
+        tool: data.tool || 'answer',
+        navigate: data.navigate || null,
+        timestamp: new Date(),
+        mode: (data.mode as ScoutMode) || 'chat',
+        intentDetail: data.intent || null,
+        cta: data.cta || null,
+        plan: data.plan || null,
+      };
+
+      setMessages(prev => [...prev, assistantMessage]);
+      return true;
+    } catch (error) {
+      console.error('[Scout] Fallback error:', error);
+      return false;
     }
-
-    const data = await response.json();
-
-    const assistantMessage: ChatMessage = {
-      id: `assistant-${Date.now()}`,
-      role: 'assistant',
-      content: data.message || "I'm not sure how to help with that. Could you rephrase?",
-      navigate_to: data.navigate_to,
-      action_buttons: data.action_buttons || [],
-      auto_populate: data.auto_populate || null,
-      contacts_results: data.contacts_results || null,
-      email_preview: data.email_preview || null,
-      tool_used: data.tool_used || null,
-      timestamp: new Date(),
-    };
-
-    setMessages(prev => [...prev, assistantMessage]);
   };
 
-  // Send message — tries streaming first, falls back to non-streaming
+  // Send message - tries streaming first, falls back to non-streaming. When
+  // BOTH transport paths fail (e.g. the backend is unreachable), the user must
+  // see an explicit error: never leave them looking at stale thread content as
+  // if it were a fresh reply.
   const sendMessage = useCallback(async (messageText?: string) => {
     const text = (messageText || input).trim();
     if (!text || isLoading) return;
@@ -441,33 +602,69 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
 
+    let delivered = false;
     try {
       const currentMessages = [...messages, userMessage];
 
-      // Try streaming first
-      const streamSuccess = await sendMessageStreaming(text, userMessage, currentMessages);
-
-      if (!streamSuccess) {
-        // Fall back to non-streaming
+      // Try streaming first, then the non-streaming endpoint.
+      delivered = await sendMessageStreaming(text, userMessage, currentMessages);
+      if (!delivered) {
         console.log('[Scout] Streaming failed, falling back to non-streaming');
-        await sendMessageFallback(text, currentMessages);
+        delivered = await sendMessageFallback(text, currentMessages);
       }
     } catch (error) {
       console.error('[Scout] Error:', error);
-
-      const errorMessage: ChatMessage = {
-        id: `error-${Date.now()}`,
-        role: 'assistant',
-        content: "I ran into an issue, but I'm here to help! What would you like to know about Offerloop?",
-        timestamp: new Date(),
-      };
-
-      setMessages(prev => [...prev, errorMessage]);
+      delivered = false;
     } finally {
+      if (!delivered) {
+        // Both paths failed (e.g. backend unreachable). The whole turn is
+        // transient: keep the user's message and an explicit error visible for
+        // this session, but persist neither, so a failed turn never leaves an
+        // orphaned, reply-less message at the top of the thread on reload. Also
+        // drop any optimistic assistant placeholder the stream left behind.
+        setMessages(prev => [
+          ...prev
+            .filter(
+              m => !(m.role === 'assistant' && (m.isStreaming || m.content.trim() === '')),
+            )
+            .map(m => (m.id === userMessage.id ? { ...m, transient: true } : m)),
+          {
+            id: `error-${Date.now()}`,
+            role: 'assistant',
+            content: 'Scout is unreachable right now. Try again in a moment.',
+            timestamp: new Date(),
+            transient: true,
+          },
+        ]);
+      }
       setIsLoading(false);
       inputRef.current?.focus();
     }
-  }, [input, isLoading, messages, currentPage, user]);
+  }, [input, isLoading, messages, currentPage, user, chatId]);
+
+  /** Push a synthetic assistant message into the chat (local-only).
+   *  Useful for "the workflow you started just finished" follow-ups: a
+   *  Scout-driven contact search completes, the page dispatches
+   *  SCOUT_SEARCH_COMPLETED_EVENT, ScoutSidePanel calls this to drop a
+   *  celebration message with a chip back to the network. */
+  const appendSyntheticAssistant = useCallback((
+    content: string,
+    extras?: { mode?: ScoutMode; cta?: ScoutCta | null },
+  ) => {
+    const trimmed = (content || '').trim();
+    if (!trimmed) return;
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `synthetic-${Date.now()}`,
+        role: 'assistant',
+        content: trimmed,
+        timestamp: new Date(),
+        mode: extras?.mode ?? 'chat',
+        cta: extras?.cta ?? null,
+      },
+    ]);
+  }, []);
 
   return {
     messages,
@@ -478,6 +675,11 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
     clearChat,
     messagesEndRef,
     inputRef,
+    chatId,
+    startNewChat,
+    loadChat,
+    isLoadingChat,
+    appendSyntheticAssistant,
   };
 }
 

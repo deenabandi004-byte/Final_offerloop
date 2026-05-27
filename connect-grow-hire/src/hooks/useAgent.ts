@@ -163,17 +163,32 @@ export function useCountdown(nextCycleAt: string | null | undefined) {
 
 // ── Cycle runner (Run Now + polling) ────────────────────────────────────────
 
+// Phase D — Run-now cooldown. Prevents back-to-back manual cycles when a
+// previous one finishes fast: spamming the button would charge time + tokens
+// for the same brief in the same minute.
+const RUN_NOW_COOLDOWN_MS = 5_000;
+
 export function useCycleRunner() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [runningCycleId, setRunningCycleId] = useState<string | null>(null);
   const [lastEndStatus, setLastEndStatus] = useState<string | null>(null);
+  const [cooldownUntil, setCooldownUntil] = useState<number>(0);
+  const [now, setNow] = useState<number>(() => Date.now());
   const [cycleProgress, setCycleProgress] = useState<{
     contactsFound: number;
     emailsDrafted: number;
     jobsFound: number;
     hmsFound: number;
   } | null>(null);
+
+  // Tick once a second while a cooldown is active so the button re-enables
+  // without waiting for an external re-render.
+  useEffect(() => {
+    if (cooldownUntil <= now) return;
+    const id = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(id);
+  }, [cooldownUntil, now]);
 
   const cycleStatusQuery = useQuery({
     queryKey: ["agent", "cycle", runningCycleId],
@@ -196,6 +211,7 @@ export function useCycleRunner() {
     if (data.status === "completed" || data.status === "awaiting_approval") {
       setLastEndStatus(data.status);
       setRunningCycleId(null);
+      setCooldownUntil(Date.now() + RUN_NOW_COOLDOWN_MS);
       const r = data.results;
       const parts: string[] = [];
       if (r?.contactsFound > 0) parts.push(`${r.contactsFound} contacts`);
@@ -237,6 +253,9 @@ export function useCycleRunner() {
       toast({ title: "Cycle failed", description: e.message, variant: "destructive" }),
   });
 
+  const cooldownRemainingMs = Math.max(0, cooldownUntil - now);
+  const isOnCooldown = cooldownRemainingMs > 0;
+
   return {
     runNow: () => runNowMutation.mutate(),
     isRunNowPending: runNowMutation.isPending,
@@ -244,6 +263,8 @@ export function useCycleRunner() {
     cycleId: runningCycleId,
     cycleProgress,
     lastEndStatus,
+    isOnCooldown,
+    cooldownRemainingMs,
   };
 }
 

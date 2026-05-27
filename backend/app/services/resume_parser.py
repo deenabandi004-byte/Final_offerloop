@@ -3,6 +3,7 @@ Resume parser service - extract text from PDF, DOCX, and DOC files
 """
 import os
 import tempfile
+from io import BytesIO
 import pdfplumber
 from app.services.docx_service import extract_text_from_docx
 
@@ -38,6 +39,29 @@ def extract_text_from_pdf(pdf_file):
     except Exception as e:
         print(f"PDF text extraction failed: {e}")
         return None
+
+
+def extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
+    """Extract text from PDF bytes using pdfplumber.
+
+    Sibling of extract_text_from_pdf() for callers that already have
+    bytes in hand (e.g., downloaded from Firebase Storage or Gmail
+    attachments) and don't want to wrap in a Flask FileStorage.
+    """
+    try:
+        text = ""
+        with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    cleaned_text = ''.join(char for char in page_text if char.isprintable() or char.isspace())
+                    cleaned_text = cleaned_text.encode('utf-8', errors='ignore').decode('utf-8')
+                    text += cleaned_text + "\n"
+        text = ' '.join(text.split())
+        return text.strip() if text.strip() else ""
+    except Exception as e:
+        print(f"PDF text extraction (bytes) failed: {e}")
+        return ""
 
 
 def extract_text_from_file(file, file_type: str):

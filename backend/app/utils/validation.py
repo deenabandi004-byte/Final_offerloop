@@ -1,7 +1,7 @@
 """
 Input validation schemas using Pydantic
 """
-from pydantic import BaseModel, Field, EmailStr, HttpUrl, field_validator
+from pydantic import BaseModel, ConfigDict, Field, EmailStr, HttpUrl, field_validator
 from typing import Optional, List
 from app.utils.exceptions import ValidationError
 
@@ -77,36 +77,6 @@ class CoffeeChatPrepRequest(BaseModel):
         return v
 
 
-class InterviewPrepRequest(BaseModel):
-    """Validation schema for interview prep requests"""
-    # Use str instead of HttpUrl to avoid serialization issues with Firestore
-    job_posting_url: Optional[str] = Field(None, description="Job posting URL")
-    company_name: Optional[str] = Field(None, min_length=1, max_length=200, description="Company name (if no URL)")
-    job_title: Optional[str] = Field(None, min_length=1, max_length=200, description="Job title (if no URL)")
-    
-    @field_validator('job_posting_url')
-    @classmethod
-    def validate_job_url(cls, v):
-        if v is None:
-            return None
-        v = str(v).strip()  # Force string conversion
-        if not v:
-            return None
-        # Basic URL validation
-        if not v.startswith(('http://', 'https://')):
-            raise ValueError('Job posting URL must start with http:// or https://')
-        return v
-    
-    @field_validator('company_name', 'job_title')
-    @classmethod
-    def validate_manual_input(cls, v, info):
-        # If no URL, both company_name and job_title are required
-        if not info.data.get('job_posting_url'):
-            if not v:
-                raise ValueError('Company name and job title are required when no URL is provided')
-        return v.strip() if v else v
-
-
 class ContactCreateRequest(BaseModel):
     """Validation schema for creating a contact"""
     firstName: str = Field(..., min_length=1, max_length=100)
@@ -130,6 +100,56 @@ class ContactUpdateRequest(BaseModel):
     college: Optional[str] = Field(None, max_length=200)
     location: Optional[str] = Field(None, max_length=200)
     status: Optional[str] = Field(None, max_length=50)
+
+
+class _BlocklistShape(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    companies: Optional[List[str]] = Field(None, max_length=200)
+    titles: Optional[List[str]] = Field(None, max_length=200)
+    emails: Optional[List[str]] = Field(None, max_length=200)
+
+
+class AgentConfigUpdate(BaseModel):
+    """Validation schema for PUT /api/agent/config.
+
+    Mirrors MUTABLE_CONFIG_FIELDS in app/services/agent_service.py. Extra fields
+    are rejected with 400 (was: silently dropped). Numeric fields are typed
+    so a bad payload returns a clear error instead of a 500 from int('abc').
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    briefText: Optional[str] = Field(None, max_length=2000)
+    briefParsed: Optional[dict] = None
+    reviewBeforeSend: Optional[bool] = None
+    targetCompanies: Optional[List[str]] = Field(None, max_length=50)
+    targetIndustries: Optional[List[str]] = Field(None, max_length=20)
+    targetRoles: Optional[List[str]] = Field(None, max_length=20)
+    targetLocations: Optional[List[str]] = Field(None, max_length=20)
+    preferAlumni: Optional[bool] = None
+    weeklyContactTarget: Optional[int] = Field(None, ge=1, le=15)
+    creditBudgetPerWeek: Optional[int] = Field(None, ge=10, le=150)
+    approvalMode: Optional[str] = Field(None, pattern=r"^(review_first|autopilot)$")
+    autoSendUnlocked: Optional[bool] = None
+    emailTemplatePurpose: Optional[str] = Field(None, max_length=500)
+    emailStylePreset: Optional[str] = Field(None, max_length=100)
+    customInstructions: Optional[str] = Field(None, max_length=2000)
+    signoffPhrase: Optional[str] = Field(None, max_length=200)
+    signatureBlock: Optional[str] = Field(None, max_length=1000)
+    followUpEnabled: Optional[bool] = None
+    followUpDays: Optional[int] = Field(None, ge=3, le=14)
+    maxFollowUps: Optional[int] = Field(None, ge=1, le=3)
+    blocklist: Optional[_BlocklistShape] = None
+    enableJobDiscovery: Optional[bool] = None
+    enableHiringManagers: Optional[bool] = None
+    enableCompanyDiscovery: Optional[bool] = None
+    digestEnabled: Optional[bool] = None
+
+
+class AgentBriefRequest(BaseModel):
+    """Validation schema for POST /api/agent/brief."""
+    model_config = ConfigDict(extra="forbid")
+
+    briefText: str = Field(..., max_length=2000)
 
 
 def _convert_pydantic_types_to_primitives(data: dict) -> dict:

@@ -98,6 +98,11 @@ service cloud.firestore {
       match /recruiters/{recruiterId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
+
+      // Manually-added companies on My Network (inline add-row UI)
+      match /manual_firms/{firmId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
       
       // Notifications (outbox is a fixed doc: notifications/outbox)
       match /notifications/{notificationId} {
@@ -169,6 +174,19 @@ service cloud.firestore {
     match /system/feature_flags {
       allow read: if request.auth != null;
       allow write: if false;
+    }
+
+    // PDL Job Title Enrichment cache — server-only. Written by the pipeline
+    // (Admin SDK bypasses rules). No client surface; client writes could
+    // poison the cache and drain the 50k credit pool by forcing misses.
+    match /job_title_enrichments/{slug} {
+      allow read, write: if false;
+    }
+
+    // PDL credit usage counter — server-only. Powers the budget circuit
+    // breaker in pdl_title_cache.py; clients must not be able to reset it.
+    match /pdl_usage/{docId} {
+      allow read, write: if false;
     }
 
     // Default: deny all other access

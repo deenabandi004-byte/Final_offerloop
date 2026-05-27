@@ -630,24 +630,35 @@ const CoffeeChatPrepPage: React.FC = () => {
             <div style={{ maxWidth: 800, margin: '0 auto', padding: '0 40px' }}>
 
               {/* ── Page header ── */}
-              <div style={{ marginBottom: 28, paddingTop: 24 }}>
-                <h1 style={{
-                  fontSize: 22,
-                  fontWeight: 600,
-                  color: '#1A1714',
-                  lineHeight: 1.2,
-                  marginBottom: 6,
-                  fontFamily: "'Lora', Georgia, serif",
-                }}>
-                  Coffee Chat Prep
-                </h1>
-                <p style={{
-                  fontSize: 13,
-                  color: 'var(--warm-ink-tertiary, #9C9590)',
-                  lineHeight: 1.6,
-                }}>
-                  Walk into every conversation prepared. We'll research them so you don't have to.
-                </p>
+              <div style={{ marginBottom: 28, paddingTop: 24, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <h1 style={{
+                    fontSize: 22,
+                    fontWeight: 600,
+                    color: '#1A1714',
+                    lineHeight: 1.2,
+                    marginBottom: 6,
+                    fontFamily: "'Lora', Georgia, serif",
+                  }}>
+                    Coffee Chat Prep
+                  </h1>
+                  <p style={{
+                    fontSize: 13,
+                    color: 'var(--warm-ink-tertiary, #9C9590)',
+                    lineHeight: 1.6,
+                  }}>
+                    Walk into every conversation prepared. We'll research them so you don't have to.
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/coffee-chat-library')}
+                  className="flex-shrink-0"
+                >
+                  <FolderOpen className="h-4 w-4 mr-2" />
+                  View Library
+                </Button>
               </div>
 
               {/* ── Search area (no card wrapper) ── */}

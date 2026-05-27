@@ -118,6 +118,15 @@ export interface FollowUpReminder {
   lastContactDate: string;
 }
 
+export interface ManualFirm {
+  id?: string;
+  name: string;
+  industry?: string;
+  hq?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 // ================================
 // RECRUITER TYPES
 // ================================
@@ -426,7 +435,7 @@ export const firebaseApi = {
   // ================================
   async logActivity(
     uid: string,
-    type: 'firmSearch' | 'contactSearch' | 'coffeePrep' | 'interviewPrep',
+    type: 'firmSearch' | 'contactSearch' | 'coffeePrep',
     summary: string,
     metadata?: any
   ): Promise<void> {
@@ -945,6 +954,41 @@ export const firebaseApi = {
       await deleteDoc(recruiterRef);
     } catch (error) {
       console.error('Error deleting recruiter:', error);
+      throw error;
+    }
+  },
+
+  // ================================
+  // MANUAL FIRMS (user-added companies on My Network)
+  // ================================
+  async getManualFirms(uid: string): Promise<ManualFirm[]> {
+    try {
+      const firmsRef = collection(db, 'users', uid, 'manual_firms');
+      const snapshot = await getDocs(firmsRef);
+      return snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as ManualFirm[];
+    } catch (error) {
+      console.error('Error fetching manual firms:', error);
+      return [];
+    }
+  },
+
+  async createManualFirm(uid: string, firm: Omit<ManualFirm, 'id'>): Promise<string> {
+    const firmsRef = collection(db, 'users', uid, 'manual_firms');
+    const newRef = doc(firmsRef);
+    await setDoc(newRef, {
+      ...firm,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    return newRef.id;
+  },
+
+  async deleteManualFirm(uid: string, firmId: string): Promise<void> {
+    try {
+      const firmRef = doc(db, 'users', uid, 'manual_firms', firmId);
+      await deleteDoc(firmRef);
+    } catch (error) {
+      console.error('Error deleting manual firm:', error);
       throw error;
     }
   },

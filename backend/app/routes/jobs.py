@@ -240,13 +240,23 @@ def get_feed():
     # ----- Phase 2: hard intent gates (feature-flag gated) ---------------
     # Built once per request so all 4 return paths can call _apply_gates().
     from backend.app.services import feature_flags
-    from backend.app.utils.intent_gates import build_user_intent, apply_intent_gates, intent_hash
+    from backend.app.utils.intent_gates import (
+        build_user_intent, apply_intent_gates, intent_hash, expand_intent_with_pdl,
+    )
 
     _gating_on = (
         not ungated
         and feature_flags.is_enabled("hardIntentGating", uid=uid, default=False)
     )
     _user_intent = build_user_intent(profile) if _gating_on else None
+    # Independent flag — flippable without touching the gates themselves.
+    # When on, augments career_interests with PDL synonyms so jobs titled
+    # "Associate Product Manager" pass the gate for users who picked
+    # "Product Manager".
+    if _user_intent and feature_flags.is_enabled(
+        "pdlInterestExpansion", uid=uid, default=False
+    ):
+        _user_intent = expand_intent_with_pdl(_user_intent)
     _intent_hash_str = intent_hash(_user_intent) if _user_intent else None
 
     def _apply_gates(new_matches, top_jobs):

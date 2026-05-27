@@ -17,25 +17,19 @@ from .app.routes.runs import runs_bp
 from .app.routes.enrichment import enrichment_bp
 from .app.routes.resume import resume_bp
 from .app.routes.coffee_chat_prep import coffee_chat_bp
-from .app.routes.interview_prep import interview_prep_bp
 from .app.routes.billing import billing_bp
 from .app.routes.users import users_bp
 from .app.routes.outbox import outbox_bp
-from .app.routes.scout import scout_bp
 from .app.routes.firm_search import firm_search_bp
 from .app.routes.school_affinity import school_affinity_bp
 from .app.routes.dashboard import dashboard_bp
 from .app.routes.timeline import timeline_bp
 from .app.routes.search_history import search_history_bp
-from .app.routes.prompt_search import prompt_search_bp
 from .app.routes.parse_prompt import parse_prompt_bp
 from .app.routes.contact_import import contact_import_bp
 from .app.routes.job_board import job_board_bp
-from .app.routes.scout_assistant import scout_assistant_bp
+from .app.routes.scout_assistant import scout_assistant_bp, scout_admin_bp
 from .app.routes.linkedin_import import linkedin_import_bp
-from .app.routes.resume_workshop import resume_workshop_bp
-from .app.routes.resume_pdf_patch import resume_pdf_patch_bp
-from .app.routes.cover_letter_workshop import cover_letter_workshop_bp
 from .app.routes.auth_extension import auth_extension_bp
 from .app.routes.email_template import email_template_bp
 from .app.routes.admin import admin_bp
@@ -49,10 +43,6 @@ from .app.routes.briefing import briefing_bp
 from .app.routes.agent import agent_bp
 from .app.routes.loops import loops_bp
 from .app.routes.metrics import metrics_bp
-from .app.routes.events import events_bp
-from .app.routes.company_contexts import company_contexts_bp
-from .app.routes.company_recommendations import company_recommendations_bp
-from .app.routes.recommendation_funnel import recommendation_funnel_bp
 from .app.extensions import init_app_extensions
 
 def create_app() -> Flask:
@@ -187,24 +177,19 @@ def create_app() -> Flask:
     app.register_blueprint(enrichment_bp)
     app.register_blueprint(resume_bp)
     app.register_blueprint(coffee_chat_bp)
-    app.register_blueprint(interview_prep_bp)
     app.register_blueprint(billing_bp)
     app.register_blueprint(users_bp)
     app.register_blueprint(outbox_bp)
-    app.register_blueprint(scout_bp)
     app.register_blueprint(firm_search_bp)
     app.register_blueprint(school_affinity_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(timeline_bp)
     app.register_blueprint(search_history_bp)
-    app.register_blueprint(prompt_search_bp)
     app.register_blueprint(parse_prompt_bp)
     app.register_blueprint(contact_import_bp)
     app.register_blueprint(job_board_bp)
     app.register_blueprint(scout_assistant_bp)
-    app.register_blueprint(resume_workshop_bp)
-    app.register_blueprint(resume_pdf_patch_bp)
-    app.register_blueprint(cover_letter_workshop_bp)
+    app.register_blueprint(scout_admin_bp)
     app.register_blueprint(auth_extension_bp)
     app.register_blueprint(email_template_bp)
     app.register_blueprint(admin_bp)
@@ -218,10 +203,6 @@ def create_app() -> Flask:
     app.register_blueprint(agent_bp)
     app.register_blueprint(loops_bp)
     app.register_blueprint(metrics_bp)
-    app.register_blueprint(events_bp)
-    app.register_blueprint(company_contexts_bp)
-    app.register_blueprint(company_recommendations_bp)
-    app.register_blueprint(recommendation_funnel_bp)
 
     # --- Debug route to check frontend build (dev only) ---
     @app.route('/api/debug/frontend')

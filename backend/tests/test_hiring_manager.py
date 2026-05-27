@@ -282,19 +282,20 @@ class TestEdgeCases:
     def test_final_hiring_managers_initialized(self):
         """Verify final_hiring_managers doesn't crash when candidate_pool is empty."""
         # We test this by checking the code path in find_hiring_manager
-        # when no PDL results are returned
+        # when no PDL results are returned (both tight + loose paths)
         from app.services.recruiter_finder import find_hiring_manager
-        with patch('app.services.recruiter_finder.execute_pdl_search', return_value=([], 404)):
-            with patch('app.services.recruiter_finder.clean_company_name', return_value="TestCo"):
-                result = find_hiring_manager(
-                    company_name="TestCo",
-                    job_type="engineering",
-                    job_title="Software Engineer",
-                    max_results=3
-                )
-                # Should return empty list, not crash with NameError
-                assert result["hiringManagers"] == []
-                assert result["credits_charged"] == 0
+        with patch('app.services.recruiter_finder.execute_pdl_search', return_value=([], 404)), \
+             patch('app.services.recruiter_finder._run_tight_pdl_query', return_value=[]), \
+             patch('app.services.recruiter_finder.clean_company_name', return_value="TestCo"):
+            result = find_hiring_manager(
+                company_name="TestCo",
+                job_type="engineering",
+                job_title="Software Engineer",
+                max_results=3
+            )
+            # Should return empty list, not crash with NameError
+            assert result["hiringManagers"] == []
+            assert result["credits_charged"] == 0
 
     def test_find_hiring_manager_with_no_api_key(self):
         from app.services.recruiter_finder import find_hiring_manager
@@ -460,3 +461,653 @@ class TestHistoricalCurrentFilter:
         email = generate_fallback_email("", "SWE", "Google", "User")
         assert "Hello," in email
         assert "Hi ," not in email
+
+
+# ============================================================================
+# Perplexity enrichment (verify_hiring_managers_v2 + batch_enrich_company_news)
+# ============================================================================
+
+class TestPerplexityEnrichment:
+    """find_hiring_manager + Perplexity wiring. All Perplexity + PDL + Hunter
+    calls are mocked — no network spend.
+    """
+
+    @staticmethod
+    def _patch_pdl_and_hunter(rf, pdl_rows):
+        rf.execute_pdl_search = lambda *a, **k: (list(pdl_rows), None)
+        rf.enrich_contacts_with_hunter = lambda contacts, **k: [
+            {**c, "EmailVerified": True, "is_verified_email": True} for c in contacts
+        ]
+        rf.PEOPLE_DATA_LABS_API_KEY = "test-key"
+
+    def _run(self, monkeypatch, *, verifications, news_by_idx=None, generate_emails=False, uid=None):
+        import importlib
+        from app.services import recruiter_finder as rf
+        importlib.reload(rf)
+        from app.services import perplexity_client as pc
+
+        monkeypatch.setattr(pc, "verify_hiring_managers_v2",
+                            lambda hms, company, job_title: list(verifications))
+        if news_by_idx is not None:
+            monkeypatch.setattr(pc, "batch_enrich_company_news",
+                                lambda contacts: dict(news_by_idx))
+
+        self._patch_pdl_and_hunter(rf, [
+            {"FirstName": "Alice", "LastName": "Smith", "Title": "Recruiter",
+             "Company": "Acme", "Email": "alice@acme.com", "IsCurrentlyAtTarget": True},
+            {"FirstName": "Bob", "LastName": "Jones", "Title": "Recruiter",
+             "Company": "Acme", "Email": "bob@acme.com", "IsCurrentlyAtTarget": True},
+            {"FirstName": "Carol", "LastName": "Lee", "Title": "Recruiter",
+             "Company": "Acme", "Email": "carol@acme.com", "IsCurrentlyAtTarget": True},
+        ])
+
+        captured_to_email_gen = {}
+        def fake_emails(recruiters, **k):
+            captured_to_email_gen["recruiters"] = recruiters
+            return [{"to_email": r["Email"], "subject": "x", "body": "y"} for r in recruiters]
+        rf.generate_recruiter_emails = fake_emails
+
+        result = rf.find_hiring_manager(
+            company_name="Acme", job_type="engineering", job_title="Software Engineer",
+            max_results=3, generate_emails=generate_emails,
+            user_resume={"name": "T"} if generate_emails else None,
+            user_contact={"name": "T", "email": "t@t.com"} if generate_emails else None,
+            uid=uid,
+        )
+        return result, captured_to_email_gen
+
+    def test_drops_no_high_confidence(self, monkeypatch):
+        """still_at_company='no' + confidence='high' -> drop the candidate."""
+        verifications = [
+            {"still_at_company": "yes", "current_title": "Recruiter", "actively_hiring": "yes", "recent_hiring_signal": "", "confidence": "high"},
+            {"still_at_company": "no",  "current_title": "",          "actively_hiring": "unknown", "recent_hiring_signal": "", "confidence": "high"},
+            {"still_at_company": "yes", "current_title": "Recruiter", "actively_hiring": "yes", "recent_hiring_signal": "", "confidence": "medium"},
+        ] * 4  # PDL returns 3 rows × 4 tiers = 12 candidates
+        result, _ = self._run(monkeypatch, verifications=verifications)
+        names = [f"{h['FirstName']} {h['LastName']}" for h in result["hiringManagers"]]
+        assert "Bob Jones" not in names, "Bob should be dropped (no/high)"
+        assert result["enrichment_meta"]["candidates_dropped"] >= 1
+
+    def test_keeps_unknown_conservative(self, monkeypatch):
+        """still_at_company='unknown' -> keep the candidate (never drop on uncertainty)."""
+        v = {"still_at_company": "unknown", "current_title": "", "actively_hiring": "unknown", "recent_hiring_signal": "", "confidence": "medium"}
+        result, _ = self._run(monkeypatch, verifications=[v] * 12)
+        assert len(result["hiringManagers"]) == 3
+        assert result["enrichment_meta"]["candidates_dropped"] == 0
+
+    def test_keeps_no_when_low_confidence(self, monkeypatch):
+        """still_at_company='no' but confidence='low' -> keep (Perplexity isn't sure)."""
+        v = {"still_at_company": "no", "current_title": "", "actively_hiring": "unknown", "recent_hiring_signal": "", "confidence": "low"}
+        result, _ = self._run(monkeypatch, verifications=[v] * 12)
+        assert len(result["hiringManagers"]) == 3
+        assert result["enrichment_meta"]["candidates_dropped"] == 0
+
+    def test_title_correction_replaces_pdl_title(self, monkeypatch):
+        """Perplexity's current_title overrides PDL when different; PDL title preserved in _pdl_title."""
+        v = {"still_at_company": "yes", "current_title": "Senior Recruiter", "actively_hiring": "yes", "recent_hiring_signal": "", "confidence": "high"}
+        result, _ = self._run(monkeypatch, verifications=[v] * 12)
+        alice = next(h for h in result["hiringManagers"] if h["FirstName"] == "Alice")
+        assert alice["Title"] == "Senior Recruiter"
+        assert alice["_pdl_title"] == "Recruiter"
+        assert result["enrichment_meta"]["candidates_title_corrected"] >= 1
+
+    def test_perplexity_exception_degrades_gracefully(self, monkeypatch):
+        """If verify_hiring_managers_v2 raises, find_hiring_manager keeps all candidates."""
+        import importlib
+        from app.services import recruiter_finder as rf; importlib.reload(rf)
+        from app.services import perplexity_client as pc
+
+        def boom(*a, **k):
+            raise RuntimeError("perplexity down")
+        monkeypatch.setattr(pc, "verify_hiring_managers_v2", boom)
+
+        self._patch_pdl_and_hunter(rf, [
+            {"FirstName": "X", "LastName": "Y", "Title": "Recruiter", "Company": "Acme", "Email": "x@a.com", "IsCurrentlyAtTarget": True}
+        ])
+        rf.generate_recruiter_emails = lambda recruiters, **k: []
+
+        result = rf.find_hiring_manager(
+            company_name="Acme", job_type="engineering", job_title="SE", max_results=3,
+        )
+        assert len(result["hiringManagers"]) >= 1, "Exception should not drop candidates"
+
+    def test_company_news_enriched_for_email_gen(self, monkeypatch):
+        """When generate_emails=True, company_recent_news flows into the email-gen input."""
+        v = {"still_at_company": "yes", "current_title": "Recruiter", "actively_hiring": "yes", "recent_hiring_signal": "", "confidence": "high"}
+        # Enrich first selected candidate only
+        news = {0: {"company_recent_news": ["Acme raised $50M Series B"], "company_description": ""}}
+        result, captured = self._run(monkeypatch, verifications=[v] * 12,
+                                     news_by_idx=news, generate_emails=True)
+        passed = captured.get("recruiters", [])
+        carriers = [r for r in passed if r.get("company_recent_news")]
+        assert len(carriers) >= 1, "At least one recruiter should reach email gen with news"
+
+
+
+class TestEmailPromptNewsInjection:
+    """Verify the prompt-building path in recruiter_email_generator."""
+
+    def test_prompt_includes_news_when_present(self):
+        from unittest.mock import MagicMock, patch
+        from app.services import recruiter_email_generator as reg
+
+        mc = MagicMock()
+        mc.with_options.return_value = mc
+        fake_resp = MagicMock()
+        fake_resp.choices = [MagicMock()]
+        fake_resp.choices[0].message.content = "Hi Alice,\n\nbody."
+        mc.chat.completions.create.return_value = fake_resp
+
+        with patch.object(reg, "get_openai_client", return_value=mc):
+            reg.generate_single_email(
+                recruiter={"FirstName": "Alice", "LastName": "S", "Title": "R", "Email": "a@a.com",
+                           "company_recent_news": ["Acme raised $50M", "Launched AI product"]},
+                job_title="SE", company="Acme", job_description="Build",
+                user_resume={"name": "T"}, user_contact={"name": "T", "email": "t@t.com"},
+            )
+        prompt = mc.chat.completions.create.call_args.kwargs["messages"][-1]["content"]
+        assert "RECENT COMPANY CONTEXT" in prompt
+        assert "Acme raised $50M" in prompt
+        assert "ignore this section entirely" in prompt  # defensive instruction present
+
+    def test_prompt_omits_news_when_absent(self):
+        from unittest.mock import MagicMock, patch
+        from app.services import recruiter_email_generator as reg
+
+        mc = MagicMock()
+        mc.with_options.return_value = mc
+        fake_resp = MagicMock()
+        fake_resp.choices = [MagicMock()]
+        fake_resp.choices[0].message.content = "Hi Bob,\n\nbody."
+        mc.chat.completions.create.return_value = fake_resp
+
+        with patch.object(reg, "get_openai_client", return_value=mc):
+            reg.generate_single_email(
+                recruiter={"FirstName": "Bob", "LastName": "J", "Title": "R", "Email": "b@a.com"},
+                job_title="SE", company="Acme", job_description="Build",
+                user_resume={"name": "T"}, user_contact={"name": "T", "email": "t@t.com"},
+            )
+        prompt = mc.chat.completions.create.call_args.kwargs["messages"][-1]["content"]
+        assert "RECENT COMPANY CONTEXT" not in prompt
+
+
+class TestFirecrawlJobUrlSeed:
+    """Tier-0 Firecrawl-extracted hiring-manager seed flow."""
+
+    def _setup(self, monkeypatch, *, enrich_response=None, pdl_tier_rows=None):
+        """enrich_response: dict to return from /person/enrich, or None for 404 miss.
+        pdl_tier_rows: list of dicts to return from the tier search.
+        """
+        import importlib
+        from app.services import recruiter_finder as rf; importlib.reload(rf)
+        # Mock Perplexity verification to a no-op (keeps everyone) since it always runs now
+        from app.services import perplexity_client as pc
+        monkeypatch.setattr(pc, "verify_hiring_managers_v2",
+                            lambda hms, company, job_title: [
+                                {"still_at_company": "unknown", "current_title": "",
+                                 "actively_hiring": "unknown", "recent_hiring_signal": "",
+                                 "confidence": "low"} for _ in hms
+                            ])
+        monkeypatch.setattr(pc, "batch_enrich_company_news", lambda contacts: {})
+
+        # Mock /person/enrich (used by the new seed lookup — 1 credit per 200, free on 404).
+        class FakeResp:
+            def __init__(self, status, body=None):
+                self.status_code = status
+                self._body = body or {}
+            def json(self):
+                return self._body
+        def fake_get(url, params=None, timeout=None):
+            assert "/person/enrich" in url, f"Expected /person/enrich, got {url}"
+            if enrich_response is None:
+                return FakeResp(404)
+            return FakeResp(200, {"status": 200, "data": enrich_response})
+        import requests as _req
+        monkeypatch.setattr(_req, "get", fake_get)
+        # Patch the extractor to return the raw dict so test assertions stay simple.
+        from app.services import pdl_client as _pdl
+        monkeypatch.setattr(_pdl, "extract_contact_from_pdl_person_enhanced",
+                            lambda person, target_company=None, pre_verified_email=None: dict(person))
+
+        # Tier search still uses execute_pdl_search.
+        rf.execute_pdl_search = lambda headers, url, query_obj, desired_limit, search_type, **k: (
+            list(pdl_tier_rows or [
+                {"FirstName": "Other", "LastName": "Person", "Title": "Recruiter",
+                 "Company": "Acme", "Email": "other@acme.com", "IsCurrentlyAtTarget": True}
+            ]), None)
+        rf.enrich_contacts_with_hunter = lambda contacts, **k: [
+            {**c, "EmailVerified": bool(c.get("Email")), "is_verified_email": bool(c.get("Email"))}
+            for c in contacts
+        ]
+        rf.PEOPLE_DATA_LABS_API_KEY = "test-key"
+        rf.generate_recruiter_emails = lambda recruiters, **k: []
+        return rf
+
+    def test_pdl_hit_seeds_get_priority(self, monkeypatch):
+        """When /person/enrich returns a hit, it should appear FIRST in results."""
+        rf = self._setup(monkeypatch, enrich_response={
+            "FirstName": "Jane", "LastName": "Doe", "Title": "Engineering Manager",
+            "Company": "Acme", "Email": "jane@acme.com", "IsCurrentlyAtTarget": True,
+        })
+        result = rf.find_hiring_manager(
+            company_name="Acme", job_type="engineering", job_title="SE",
+            max_results=3, seed_hiring_manager_name="Jane Doe",
+        )
+        assert len(result["hiringManagers"]) >= 1
+        first = result["hiringManagers"][0]
+        assert first["FirstName"] == "Jane" and first["LastName"] == "Doe"
+        assert first.get("_source") == "firecrawl_seed"
+        assert result["enrichment_meta"]["firecrawl_seed_used"] is True
+        assert result["enrichment_meta"]["firecrawl_seed_name"] == "Jane Doe"
+
+    def test_pdl_miss_synthetic_seed_still_included(self, monkeypatch):
+        """When /person/enrich returns 404 (free, no credit), a synthetic record
+        is included so Hunter can attempt email discovery."""
+        rf = self._setup(monkeypatch, enrich_response=None)  # None -> 404 from fake_get
+        result = rf.find_hiring_manager(
+            company_name="Acme", job_type="engineering", job_title="SE",
+            max_results=3, seed_hiring_manager_name="Obscure Person",
+        )
+        names = [(h["FirstName"], h["LastName"]) for h in result["hiringManagers"]]
+        assert ("Obscure", "Person") in names
+        synthetic = next(h for h in result["hiringManagers"] if h["FirstName"] == "Obscure")
+        assert synthetic.get("_source") == "firecrawl_seed_synthetic"
+
+    def test_no_seed_no_change(self, monkeypatch):
+        """When seed_hiring_manager_name is None, behavior is identical to baseline."""
+        rf = self._setup(monkeypatch)
+        result = rf.find_hiring_manager(
+            company_name="Acme", job_type="engineering", job_title="SE",
+            max_results=3, seed_hiring_manager_name=None,
+        )
+        assert result["enrichment_meta"]["firecrawl_seed_used"] is False
+        assert result["enrichment_meta"]["firecrawl_seed_name"] is None
+        # No seed -> no candidate has _source firecrawl_seed*
+        sources = [h.get("_source") for h in result["hiringManagers"]]
+        assert not any((s or "").startswith("firecrawl_seed") for s in sources)
+
+    def test_split_name_handles_multipart(self):
+        from app.services.recruiter_finder import _split_name
+        assert _split_name("Jane Doe") == ("Jane", "Doe")
+        assert _split_name("Jane Van Doe") == ("Jane", "Van Doe")
+        assert _split_name("Madonna") == ("Madonna", "")
+        assert _split_name("  Jane   Doe  ") == ("Jane", "Doe")
+        assert _split_name("") == ("", "")
+
+    def test_looks_like_person_name_accepts_real_names(self):
+        from app.services.recruiter_finder import _looks_like_person_name
+        assert _looks_like_person_name("Jane Doe") is True
+        assert _looks_like_person_name("Sundar Pichai") is True
+        assert _looks_like_person_name("Brian Chesky") is True
+        assert _looks_like_person_name("Jean-Luc Picard") is True
+        assert _looks_like_person_name("Jane Van Doe") is True
+        assert _looks_like_person_name("Maria del Carmen Garcia") is True
+        # Comma-stripped: "Jane Doe, CTO" -> "Jane Doe" -> True
+        assert _looks_like_person_name("Jane Doe, CTO") is True
+
+    def test_looks_like_person_name_rejects_titles_and_garbage(self):
+        from app.services.recruiter_finder import _looks_like_person_name
+        # This is the exact Firecrawl-returned value that triggered the fix:
+        assert _looks_like_person_name("Chief Technology Officer") is False
+        assert _looks_like_person_name("Director of Engineering") is False
+        assert _looks_like_person_name("VP Marketing") is False
+        assert _looks_like_person_name("Senior Recruiter") is False
+        assert _looks_like_person_name("Hiring Team") is False
+        assert _looks_like_person_name("Head of Talent") is False
+        assert _looks_like_person_name("Engineering Manager") is False
+        # Edge cases
+        assert _looks_like_person_name("") is False
+        assert _looks_like_person_name("   ") is False
+        assert _looks_like_person_name("Madonna") is False  # single word too risky
+        assert _looks_like_person_name("a b c d e f g h") is False  # too many words
+        assert _looks_like_person_name("jane doe") is False  # no capitalization
+        assert _looks_like_person_name(None) is False
+        assert _looks_like_person_name(123) is False
+
+    def test_seed_skipped_when_name_is_a_title(self, monkeypatch):
+        """Direct end-to-end: a title-shaped seed produces no synthetic record
+        AND must not make any PDL call (verified by stubbing requests.get to
+        raise if invoked)."""
+        import importlib
+        from app.services import recruiter_finder as rf; importlib.reload(rf)
+        # Mock Perplexity so the test doesn't hit it
+        from app.services import perplexity_client as pc
+        monkeypatch.setattr(pc, "verify_hiring_managers_v2",
+                            lambda hms, company, job_title: [{"still_at_company": "unknown",
+                                "current_title": "", "actively_hiring": "unknown",
+                                "recent_hiring_signal": "", "confidence": "low"} for _ in hms])
+        monkeypatch.setattr(pc, "batch_enrich_company_news", lambda contacts: {})
+        # Stub PDL completely so we know any candidate comes from the seed path
+        rf.execute_pdl_search = lambda *a, **k: ([], None)
+        rf.enrich_contacts_with_hunter = lambda contacts, **k: contacts
+        rf.PEOPLE_DATA_LABS_API_KEY = "test-key"
+        rf.generate_recruiter_emails = lambda recruiters, **k: []
+        # Hard guard: if the validator regresses and we hit /person/enrich for a
+        # title-shaped name, this raises — protecting real PDL credits.
+        def must_not_call(url, **k):
+            raise AssertionError(f"PDL must not be called for title-shaped seed; got URL {url}")
+        import requests as _req
+        monkeypatch.setattr(_req, "get", must_not_call)
+
+        result = rf.find_hiring_manager(
+            company_name="Acme", job_type="engineering", job_title="SE",
+            max_results=3,
+            seed_hiring_manager_name="Chief Technology Officer",  # the real bug case
+        )
+        names = [(h.get("FirstName"), h.get("LastName")) for h in result["hiringManagers"]]
+        # No garbage record should appear
+        assert ("Chief", "Technology Officer") not in names
+        # And firecrawl_seed_used should be False because we bailed pre-seed
+        assert result["enrichment_meta"]["firecrawl_seed_used"] is False
+
+    def test_seed_uses_person_enrich_not_person_search(self, monkeypatch):
+        """PDL credit audit: seed lookup must hit /person/enrich (1 credit per 200,
+        free on 404) not /person/search (1 credit per profile returned, up to N)."""
+        import importlib
+        from app.services import recruiter_finder as rf; importlib.reload(rf)
+        # Mock Perplexity so the test doesn't hit it
+        from app.services import perplexity_client as pc
+        monkeypatch.setattr(pc, "verify_hiring_managers_v2",
+                            lambda hms, company, job_title: [{"still_at_company": "unknown",
+                                "current_title": "", "actively_hiring": "unknown",
+                                "recent_hiring_signal": "", "confidence": "low"} for _ in hms])
+        monkeypatch.setattr(pc, "batch_enrich_company_news", lambda contacts: {})
+
+        called_urls = []
+        class FakeResp:
+            status_code = 404
+            def json(self): return {}
+        def fake_get(url, **k):
+            called_urls.append(url)
+            return FakeResp()
+        import requests as _req
+        monkeypatch.setattr(_req, "get", fake_get)
+
+        rf.execute_pdl_search = lambda *a, **k: ([], None)
+        rf.enrich_contacts_with_hunter = lambda contacts, **k: contacts
+        rf.PEOPLE_DATA_LABS_API_KEY = "test-key"
+        rf.generate_recruiter_emails = lambda recruiters, **k: []
+
+        rf.find_hiring_manager(
+            company_name="Acme", job_type="engineering", job_title="SE",
+            max_results=3, seed_hiring_manager_name="Jane Doe",
+        )
+        # Must have hit /person/enrich exactly once, NOT /person/search
+        enrich_calls = [u for u in called_urls if "/person/enrich" in u]
+        search_calls = [u for u in called_urls if "/person/search" in u]
+        assert len(enrich_calls) == 1, f"Expected exactly 1 /person/enrich call, got {len(enrich_calls)}"
+        assert len(search_calls) == 0, f"Seed lookup must NOT use /person/search (charges per profile); got {len(search_calls)} calls"
+
+
+class TestTightPdlQuery:
+    """Strategy B: tight PDL query first, fall through to loose tier loop on miss.
+    All PDL calls mocked — no real API spend."""
+
+    def _setup(self, monkeypatch, *, tight_results=None, tier_rows=None,
+               job_type="engineering"):
+        """tight_results: list of dicts the tight query returns (None -> empty).
+        tier_rows: list of dicts execute_pdl_search returns for tier loop fallback.
+        """
+        import importlib
+        from app.services import recruiter_finder as rf; importlib.reload(rf)
+        from app.services import perplexity_client as pc
+
+        # Stub _run_tight_pdl_query directly so we control its output without
+        # needing to mock the underlying requests.post call shape.
+        monkeypatch.setattr(rf, "_run_tight_pdl_query",
+                            lambda company, role, size=3: list(tight_results or []))
+
+        # Perplexity verification always runs now — mock to a no-op (keeps everyone)
+        monkeypatch.setattr(pc, "verify_hiring_managers_v2",
+                            lambda hms, company, job_title: [
+                                {"still_at_company": "unknown", "current_title": "",
+                                 "actively_hiring": "unknown", "recent_hiring_signal": "",
+                                 "confidence": "low"} for _ in hms
+                            ])
+        monkeypatch.setattr(pc, "batch_enrich_company_news",
+                            lambda contacts: {})
+
+        # Tier loop fallback (loose query)
+        rf.execute_pdl_search = lambda headers, url, query_obj, desired_limit, search_type, **k: (
+            list(tier_rows or [
+                {"FirstName": "Loose", "LastName": "Recruiter", "Title": "Recruiter",
+                 "Company": "Acme", "Email": "loose@acme.com", "IsCurrentlyAtTarget": True}
+            ]), None,
+        )
+        rf.enrich_contacts_with_hunter = lambda contacts, **k: [
+            {**c, "EmailVerified": True, "is_verified_email": True} for c in contacts
+        ]
+        rf.PEOPLE_DATA_LABS_API_KEY = "test-key"
+        rf.generate_recruiter_emails = lambda recruiters, **k: []
+        return rf
+
+    def test_tight_and_loose_mix_in_results(self, monkeypatch):
+        """Option D: tight gives the decision-maker(s), tier loop fills the rest
+        with recruiters. Both cohorts appear in the final result."""
+        rf = self._setup(monkeypatch, tight_results=[
+            {"FirstName": "Jane", "LastName": "Doe", "Title": "Engineering Manager",
+             "Company": "Acme", "Email": "jane@acme.com", "IsCurrentlyAtTarget": True},
+        ], tier_rows=[
+            {"FirstName": "Ricki", "LastName": "Recruit", "Title": "Recruiter",
+             "Company": "Acme", "Email": "r@a.com", "IsCurrentlyAtTarget": True},
+            {"FirstName": "Tara", "LastName": "Talent", "Title": "Recruiter",
+             "Company": "Acme", "Email": "t@a.com", "IsCurrentlyAtTarget": True},
+        ])
+        result = rf.find_hiring_manager(
+            company_name="Acme", job_type="engineering", job_title="SE",
+            max_results=3,
+        )
+        names = {(c["FirstName"], c["LastName"]) for c in result["hiringManagers"]}
+        assert ("Jane", "Doe") in names, "Decision-maker from tight should appear"
+        # And at least one recruiter from the tier loop
+        assert any(n in names for n in [("Ricki", "Recruit"), ("Tara", "Talent")]), \
+            "Recruiter from tier loop should also appear (Option D mix)"
+        assert result["enrichment_meta"]["tight_pdl_used"] is True
+        assert result["enrichment_meta"]["mix_mode"] == "tight+loose"
+
+    def test_per_tier_size_shrunk_when_tight_supplied(self, monkeypatch):
+        """When tight gave us candidates, the loose tier loop must use a small
+        desired_limit — that's the credit-saving lever."""
+        captured = {"sizes": []}
+        def tier_spy(headers, url, query_obj, desired_limit, search_type, **k):
+            captured["sizes"].append(desired_limit)
+            return ([{"FirstName": "Loose", "LastName": "X", "Title": "R",
+                      "Company": "Acme", "Email": "x@a.com", "IsCurrentlyAtTarget": True}], None)
+        rf = self._setup(monkeypatch, tight_results=[
+            {"FirstName": "Jane", "LastName": "Doe", "Title": "Eng Mgr",
+             "Company": "Acme", "Email": "jane@acme.com", "IsCurrentlyAtTarget": True},
+        ])
+        rf.execute_pdl_search = tier_spy
+        rf.find_hiring_manager(
+            company_name="Acme", job_type="engineering", job_title="SE",
+            max_results=3,
+        )
+        # All tier calls used the shrunken size (max 3, never 20)
+        assert captured["sizes"], "Tier loop must have run"
+        assert all(s <= 5 for s in captured["sizes"]), \
+            f"Per-tier size should shrink to ~max_results when tight supplied; got {captured['sizes']}"
+
+    def test_unmapped_job_type_uses_original_size(self, monkeypatch):
+        """When job_type has no PDL role mapping, tight is skipped and the
+        tier loop uses the original size=20 (no quality regression for unmapped roles)."""
+        captured = {"sizes": []}
+        def tier_spy(headers, url, query_obj, desired_limit, search_type, **k):
+            captured["sizes"].append(desired_limit)
+            return ([], None)
+        rf = self._setup(monkeypatch, job_type="general")  # 'general' is unmapped
+        rf.execute_pdl_search = tier_spy
+        rf.find_hiring_manager(
+            company_name="Acme", job_type="general", job_title="x", max_results=3,
+        )
+        assert captured["sizes"], "Tier loop must have run"
+        assert all(s == 20 for s in captured["sizes"]), \
+            f"Unmapped job_type should preserve size=20; got {captured['sizes']}"
+
+    def test_tight_returns_zero_falls_through_to_tier_loop(self, monkeypatch):
+        """When tight returns nothing, the tier loop runs normally — no regression."""
+        tier_called = {"n": 0}
+        def tier_spy(*a, **k):
+            tier_called["n"] += 1
+            return ([{"FirstName": "Loose", "LastName": "Recruiter", "Title": "Recruiter",
+                      "Company": "Acme", "Email": "loose@acme.com", "IsCurrentlyAtTarget": True}], None)
+        rf = self._setup(monkeypatch, tight_results=[])
+        rf.execute_pdl_search = tier_spy
+
+        result = rf.find_hiring_manager(
+            company_name="Acme", job_type="engineering", job_title="SE", max_results=2,
+        )
+        assert tier_called["n"] >= 1, "Tier loop should run when tight returns 0"
+        assert result["enrichment_meta"]["tight_pdl_used"] is False
+        assert result["enrichment_meta"]["mix_mode"] == "loose_only"
+
+    def test_unmapped_job_type_skips_tight_query(self, monkeypatch):
+        """job_type='general' has no PDL role mapping — tight query never runs."""
+        tight_called = {"n": 0}
+        def tight_spy(company, role, size=3):
+            tight_called["n"] += 1
+            return []
+        rf = self._setup(monkeypatch, job_type="general")
+        rf._run_tight_pdl_query = tight_spy
+
+        result = rf.find_hiring_manager(
+            company_name="Acme", job_type="general", job_title="x", max_results=2,
+        )
+        assert tight_called["n"] == 0, "Tight query must NOT fire for unmapped job_type"
+        assert result["enrichment_meta"]["tight_pdl_role"] is None
+        assert result["enrichment_meta"]["tight_pdl_used"] is False
+
+    def test_build_tight_pdl_query_schema(self):
+        """Query body shape must match PDL's documented format — no multi_match,
+        no minimum_should_match, must clause only with term/terms/exists."""
+        from app.services.recruiter_finder import _build_tight_pdl_query
+        body = _build_tight_pdl_query("Stripe", "engineering", size=3)
+        assert body["size"] == 3
+        must = body["query"]["bool"]["must"]
+        # Must contain: company, role, exists linkedin, terms levels
+        kinds = [list(c.keys())[0] for c in must]
+        assert "term" in kinds  # job_company_name AND job_title_role
+        assert "exists" in kinds  # linkedin_url
+        assert "terms" in kinds  # job_title_levels array
+        # No banned clauses
+        body_str = str(body)
+        assert "multi_match" not in body_str
+        assert "minimum_should_match" not in body_str
+        assert "filter" not in body_str  # PDL examples use must, not filter
+
+    def test_tight_target_scales_with_max_results(self):
+        """Option D mix: leave at least 1 recruiter slot at the smallest tiers,
+        cap decision-makers at 3 even for Elite."""
+        from app.services.recruiter_finder import _tight_target_for
+        assert _tight_target_for(1) == 1
+        assert _tight_target_for(2) == 1   # Free: 1 dm + 1 recruiter
+        assert _tight_target_for(3) == 2   # Free: 2 dm + 1 recruiter
+        assert _tight_target_for(5) == 2   # Pro: 2 dm + 3 recruiters
+        assert _tight_target_for(8) == 3   # Pro: 3 dm + 5 recruiters
+        assert _tight_target_for(15) == 3  # Elite: 3 dm + 12 recruiters
+
+    def test_job_type_role_mapping_coverage(self):
+        """Confirm the mapping has the common job_types we expect to convert."""
+        from app.services.recruiter_finder import _JOB_TYPE_TO_PDL_ROLE
+        assert _JOB_TYPE_TO_PDL_ROLE.get("engineering") == "engineering"
+        assert _JOB_TYPE_TO_PDL_ROLE.get("sales") == "sales"
+        assert _JOB_TYPE_TO_PDL_ROLE.get("marketing") == "marketing"
+        assert _JOB_TYPE_TO_PDL_ROLE.get("finance") == "finance"
+        # Deliberately unmapped
+        assert _JOB_TYPE_TO_PDL_ROLE.get("general") is None
+        assert _JOB_TYPE_TO_PDL_ROLE.get("intern") is None
+
+
+class TestPdlEnrichByName:
+    """The metered helper enrich_by_name (pdl_client) — replaces the raw
+    requests.get in _seed_from_firecrawl_name."""
+
+    def test_no_api_key_returns_none(self, monkeypatch):
+        from app.services import pdl_client as pdl
+        monkeypatch.setattr(pdl, "PEOPLE_DATA_LABS_API_KEY", None)
+        result = pdl.enrich_by_name("Jane", "Doe", "Acme")
+        assert result is None
+
+    def test_200_returns_data(self, monkeypatch):
+        from app.services import pdl_client as pdl
+        monkeypatch.setattr(pdl, "PEOPLE_DATA_LABS_API_KEY", "test-key")
+        class R:
+            status_code = 200
+            def json(self):
+                return {"status": 200, "data": {"first_name": "Jane", "last_name": "Doe"}}
+        monkeypatch.setattr(pdl.requests, "get", lambda *a, **k: R())
+        result = pdl.enrich_by_name("Jane", "Doe", "Acme")
+        assert result == {"first_name": "Jane", "last_name": "Doe"}
+
+    def test_404_returns_none(self, monkeypatch):
+        from app.services import pdl_client as pdl
+        monkeypatch.setattr(pdl, "PEOPLE_DATA_LABS_API_KEY", "test-key")
+        class R:
+            status_code = 404
+            def json(self): return {}
+        monkeypatch.setattr(pdl.requests, "get", lambda *a, **k: R())
+        result = pdl.enrich_by_name("Obscure", "Person", "TinyCo")
+        assert result is None
+
+
+class TestCompanyNewsHedgeFilter:
+    """The `_is_hedging_bullet` filter that defends batch_enrich_company_news
+    from Perplexity's hedging phrases (the Stripe failure case we saw in eval)."""
+
+    def test_real_hedging_bullets_are_filtered(self):
+        from app.services.perplexity_client import _is_hedging_bullet
+        # Verbatim bullets Perplexity returned for Stripe in our eval run:
+        bullets = [
+            "**No major Stripe announcement** in the provided results clearly falls within the last 3 months, so I can't verify a specific recent launch.",
+            "The closest notable item is a **February 2026 tender offer** that valued Stripe at **$159 billion**, but it is outside the requested 3-month window.",
+            "A recent Stripe privacy-policy update was posted on **April 28, 2026**, but the result only confirms the policy update.",
+        ]
+        for b in bullets:
+            assert _is_hedging_bullet(b), f"Should have been filtered: {b[:80]}"
+
+    def test_real_facts_pass_through(self):
+        from app.services.perplexity_client import _is_hedging_bullet
+        # Real bullets from the Anthropic eval — actual factual announcements:
+        bullets = [
+            "Anthropic announced a compute partnership with SpaceX on May 6, adding 300+ megawatts of capacity.",
+            "Anthropic closed a $30 billion Series G at a $380 billion post-money valuation in February.",
+            "Google reportedly committed up to $40 billion more in Anthropic funding in late April.",
+            "Anthropic doubled Claude Code's five-hour rate limits for Pro, Max, Team plans.",
+        ]
+        for b in bullets:
+            assert not _is_hedging_bullet(b), f"Should have passed through: {b[:80]}"
+
+    def test_non_string_inputs_treated_as_hedging(self):
+        """Defensive: non-string items in the parsed bullet list shouldn't crash."""
+        from app.services.perplexity_client import _is_hedging_bullet
+        assert _is_hedging_bullet(None) is True
+        assert _is_hedging_bullet(123) is True
+        assert _is_hedging_bullet({"weird": "dict"}) is True
+
+
+class TestVerifyHiringManagersV2Schema:
+    """Module-level checks on verify_hiring_managers_v2 (no network)."""
+
+    def test_no_api_key_returns_unknown_defaults(self, monkeypatch):
+        """When PERPLEXITY_API_KEY is missing, return unknown/low for every input."""
+        from app.services import perplexity_client as pc
+        monkeypatch.setattr(pc, "_get_client", lambda: None)
+        out = pc.verify_hiring_managers_v2(
+            hms=[{"FirstName": "A", "LastName": "B"}, {"FirstName": "C", "LastName": "D"}],
+            company="X", job_title="Y",
+        )
+        assert len(out) == 2
+        for entry in out:
+            assert entry["still_at_company"] == "unknown"
+            assert entry["confidence"] == "low"
+
+    def test_schema_shape(self):
+        from app.services.perplexity_client import _HM_VERIFY_SCHEMA
+        assert _HM_VERIFY_SCHEMA["name"] == "hm_verification"
+        schema = _HM_VERIFY_SCHEMA["schema"]
+        assert schema["additionalProperties"] is False
+        for field in ("still_at_company", "current_title", "actively_hiring",
+                      "recent_hiring_signal", "confidence"):
+            assert field in schema["properties"]
+            assert field in schema["required"]
+        assert schema["properties"]["still_at_company"]["enum"] == ["yes", "no", "unknown"]
+        assert schema["properties"]["confidence"]["enum"] == ["high", "medium", "low"]

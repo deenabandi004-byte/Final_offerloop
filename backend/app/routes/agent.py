@@ -14,6 +14,12 @@ from flask import Blueprint, current_app, jsonify, request
 
 from app.extensions import require_firebase_auth, require_tier
 from app.services.agent_brief_parser import parse_brief
+from app.utils.exceptions import ValidationError
+from app.utils.validation import (
+    AgentBriefRequest,
+    AgentConfigUpdate,
+    validate_request,
+)
 from app.services.agent_service import (
     approve_action,
     deploy_agent,
@@ -53,7 +59,11 @@ def get_config():
 def put_config():
     uid = request.firebase_user["uid"]
     data = request.get_json() or {}
-    config = update_agent_config(uid, data)
+    try:
+        validated = validate_request(AgentConfigUpdate, data)
+    except ValidationError as e:
+        return e.to_response()
+    config = update_agent_config(uid, validated)
     return jsonify(config)
 
 
@@ -72,14 +82,28 @@ def parse_and_save_brief():
     """
     uid = request.firebase_user["uid"]
     data = request.get_json() or {}
-    brief_text = (data.get("briefText") or "").strip()
+    try:
+        validated = validate_request(AgentBriefRequest, data)
+    except ValidationError as e:
+        return e.to_response()
+    brief_text = validated["briefText"].strip()
 
-    parsed = parse_brief(brief_text)
+    parsed, status = parse_brief(brief_text)
     config = update_agent_config(uid, {
         "briefText": brief_text,
         "briefParsed": parsed,
     })
-    return jsonify({"briefParsed": parsed, "config": config})
+    # status: "ok" | "empty" | "failed". Empty input is legitimate (user is
+    # still typing); a real LLM failure becomes 502 so the client can show
+    # "parser temporarily unavailable" instead of a silent empty parse.
+    if status == "failed":
+        return jsonify({
+            "briefParsed": parsed,
+            "config": config,
+            "parseStatus": "failed",
+            "error": "Brief parser is temporarily unavailable.",
+        }), 502
+    return jsonify({"briefParsed": parsed, "config": config, "parseStatus": status})
 
 
 @agent_bp.route("/deploy", methods=["POST"])

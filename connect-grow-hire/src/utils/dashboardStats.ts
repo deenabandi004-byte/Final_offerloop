@@ -6,7 +6,6 @@ export interface WeeklySummary {
   contactsGenerated: number;
   firmsSearched: number;
   coffeeChatsCreated: number;
-  interviewPrepsCreated: number;
   totalActivities: number;
 }
 
@@ -57,7 +56,6 @@ export async function calculateWeeklySummary(userId: string): Promise<WeeklySumm
       contactsGenerated: 0,
       firmsSearched: 0,
       coffeeChatsCreated: 0,
-      interviewPrepsCreated: 0,
       totalActivities: weeklyActivities.length,
     };
     
@@ -72,9 +70,6 @@ export async function calculateWeeklySummary(userId: string): Promise<WeeklySumm
         case 'coffeePrep':
           summary.coffeeChatsCreated++;
           break;
-        case 'interviewPrep':
-          summary.interviewPrepsCreated++;
-          break;
       }
     });
     
@@ -85,7 +80,6 @@ export async function calculateWeeklySummary(userId: string): Promise<WeeklySumm
       contactsGenerated: 0,
       firmsSearched: 0,
       coffeeChatsCreated: 0,
-      interviewPrepsCreated: 0,
       totalActivities: 0,
     };
   }

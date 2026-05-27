@@ -47,11 +47,6 @@ const featuresRaw = [
     youtubeUrl: "https://youtu.be/D1--4aVisho",
   },
   {
-    title: "Interview Prep — Know what they'll ask",
-    description: "Paste a job posting URL and get a 10-page PDF with questions asked in previous interviews, a breakdown of the interview process, and a tailored prep plan.",
-    youtubeUrl: "https://youtu.be/q5ZPtmnZciE",
-  },
-  {
     title: "Resume — Tailor your resume for any role",
     description: "Upload your resume and a job posting URL. Get ATS-optimized suggestions that tailor your experience to the specific position you're applying for.",
     youtubeUrl: "https://youtu.be/UJSlHiBRSyY",
@@ -83,11 +78,6 @@ const chromeExtensionRaw = [
     title: "Find People — Instantly email anyone from their LinkedIn",
     description: "On someone's LinkedIn profile, click Find and Send Email to instantly find their email, draft a personalized message in your Gmail, and save their info to your networking tracker.",
     youtubeUrl: "https://youtu.be/TpXA4x8Cq0I",
-  },
-  {
-    title: "Interview Prep — Get a 10-page briefing from any job posting",
-    description: "On a job posting, click Interview Prep to get a detailed PDF with questions from previous candidates, the interview process breakdown, likely behavioral questions, and a week-by-week prep plan.",
-    youtubeUrl: "https://youtu.be/cZ1IQnqfvNQ",
   },
 ];
 

@@ -32,7 +32,7 @@ const comparisonRows = [
   { feature: "Contact Database", offerloop: "2.2B verified contacts", competitor: "275M+ contacts" },
   { feature: "AI Email Generation", offerloop: true, competitor: true },
   { feature: "Gmail Integration", offerloop: true, competitor: true },
-  { feature: "Coffee Chat / Interview Prep", offerloop: true, competitor: false },
+  { feature: "Coffee Chat Prep", offerloop: true, competitor: false },
   { feature: "Free Tier", offerloop: "300 credits", competitor: "60 mobile credits/mo" },
   { feature: "Pricing", offerloop: "Free / $14.99/mo Pro", competitor: "$49-119/mo (annual billing)" },
 ];

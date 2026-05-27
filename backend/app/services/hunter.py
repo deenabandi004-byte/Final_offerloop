@@ -562,17 +562,25 @@ def get_company_domain(company_name: str) -> str:
     return get_smart_company_domain(company_name)
 
 
-def find_email_with_hunter(first_name: str, last_name: str, domain: str, api_key: str = None):
+def find_email_with_hunter(first_name: str, last_name: str, domain: str, api_key: str = None,
+                            *, timeout: float = 5.0, max_retries: int = 1):
     """
     Use Hunter's Email Finder API to find email address.
     This replaces the manual pattern generation approach (1 API call instead of 10+).
-    
+
     Args:
         first_name: Person's first name
         last_name: Person's last name
         domain: Company domain (e.g., "google.com")
         api_key: Hunter API key (optional, uses env var if not provided)
-    
+        timeout: Per-attempt HTTP timeout in seconds (default 5s — successful
+                 calls return in ~2-3s; default 10s was making slow lookups
+                 block the whole parallel batch)
+        max_retries: Total attempts (default 1 = no retry). Hunter timeouts
+                     are usually a real signal that Hunter has no data; retrying
+                     just wastes wall-clock time. Pattern synthesis is a fine
+                     fallback after a single miss.
+
     Returns:
         Tuple of (email, score) or (None, 0) if not found
         email: Found email address or None
@@ -581,18 +589,18 @@ def find_email_with_hunter(first_name: str, last_name: str, domain: str, api_key
     import time
     finder_start = time.time()
     print(f"[Hunter Email Finder] ⏱️  Searching for {first_name} {last_name} @ {domain}")
-    
+
     if not api_key:
         api_key = HUNTER_API_KEY
-    
+
     if not api_key:
         print("⚠️ Hunter.io API key not configured")
         return None, 0
-    
+
     if not (first_name and last_name and domain):
         print(f"[Hunter Email Finder] ⚠️ Missing required parameters: first={bool(first_name)}, last={bool(last_name)}, domain={bool(domain)}")
         return None, 0
-    
+
     url = "https://api.hunter.io/v2/email-finder"
     params = {
         "domain": domain,
@@ -600,13 +608,12 @@ def find_email_with_hunter(first_name: str, last_name: str, domain: str, api_key
         "last_name": last_name.strip(),
         "api_key": api_key
     }
-    
-    max_retries = 3
+
     for attempt in range(max_retries):
         try:
             print(f"[Hunter Email Finder] Making API request (attempt {attempt + 1}/{max_retries})...")
             api_start = time.time()
-            response = requests.get(url, params=params, timeout=10)
+            response = requests.get(url, params=params, timeout=timeout)
             api_time = time.time() - api_start
             total_time = time.time() - finder_start
             
@@ -1612,59 +1619,127 @@ def batch_verify_emails_for_contacts(contacts: list, target_company: str = None)
                 except Exception as e:
                     print(f"[BatchEmailVerification] ⚠️ Failed to get pattern for {domain}: {e}")
     
-    # Step 2: Generate emails for each contact using cached patterns (NO Hunter API calls)
+    # Step 2: Find emails via WATERFALL per contact, parallelized
+    #   T1: PDL work email that matches current target domain   → free, verified
+    #   T2: Hunter Email Finder (real lookup)                   → ~$0.003 per HIT, $0 on miss
+    #   T3: Pattern synthesis from cached domain pattern        → unverified, last resort
+    # Hunter doesn't charge for no-match results, so calling Email Finder for
+    # every contact bounds spend at ≤ N hits * $0.003, not N * $0.003.
     results = {}
-    
-    for i, contact in enumerate(contacts):
-        # Support multiple contact formats
+
+    MIN_FINDER_SCORE = 80  # High-confidence threshold per Hunter docs
+    RISKY_FINDER_SCORE = 70  # 70-79 = usable but flag as not-verified
+
+    def _resolve_one(i, contact):
         first_name = (contact.get('FirstName', '') or contact.get('firstName', '') or contact.get('first_name', '') or '').strip()
         last_name = (contact.get('LastName', '') or contact.get('lastName', '') or contact.get('last_name', '') or '').strip()
         company = target_company or contact.get('Company', '') or contact.get('company', '')
         pdl_email = (contact.get('Email') or contact.get('WorkEmail') or contact.get('PersonalEmail') or contact.get('pdl_email') or '').strip()
-        
+
         if not first_name or not last_name:
-            results[i] = {'email': None, 'verified': False, 'source': None}
-            continue
-        
-        # Get domain for this contact
+            return i, {'email': None, 'verified': False, 'source': None}
+
         domain = contact_domain_map.get(i)
         if not domain and company:
             domain = get_smart_company_domain(company)
-        
-        # Strategy 1: Use PDL email if it matches the target domain
+
+        # T1: PDL email already at current company → free, trusted
         if pdl_email and pdl_email != "Not available" and '@' in pdl_email:
             pdl_domain = pdl_email.split('@')[1].lower().strip()
             if domain and pdl_domain == domain.lower():
-                # PDL email matches target domain - use it
-                results[i] = {'email': pdl_email, 'verified': True, 'source': 'pdl'}
-                continue
-        
-        # Strategy 2: Generate email from pattern if we have domain and pattern
+                return i, {'email': pdl_email, 'verified': True, 'source': 'pdl', 'score': 100}
+
+        # T2: Hunter Email Finder. Returns (email, score) where email is None
+        # if score < 70 OR no match. Hunter does NOT charge on no-match.
+        if domain and first_name and last_name:
+            try:
+                finder_email, finder_score = find_email_with_hunter(first_name, last_name, domain)
+                if finder_email and finder_score >= MIN_FINDER_SCORE:
+                    return i, {'email': finder_email, 'verified': True, 'source': 'hunter_finder', 'score': finder_score}
+                if finder_email and finder_score >= RISKY_FINDER_SCORE:
+                    # Usable but flag as not-verified so caller can decide
+                    return i, {'email': finder_email, 'verified': False, 'source': 'hunter_finder_risky', 'score': finder_score}
+            except Exception as e:
+                print(f"[BatchEmailVerification] Hunter Email Finder failed for contact {i}: {e}")
+
+        # T3: Pattern synthesis from cached domain pattern (unverified)
         if domain and domain in domain_patterns:
             pattern = domain_patterns[domain]
             generated_email = generate_email_from_pattern(first_name, last_name, domain, pattern)
-            results[i] = {'email': generated_email, 'verified': False, 'source': 'pattern'}
-            continue
-        
-        # Strategy 3: Generate email from domain with common pattern (first.last@domain)
-        if domain and first_name and last_name:
+            return i, {'email': generated_email, 'verified': False, 'source': 'pattern', 'score': 0}
+
+        # T4: Generic first.last@domain fallback (least reliable)
+        if domain:
             fallback_email = f"{first_name.lower()}.{last_name.lower()}@{domain}"
-            results[i] = {'email': fallback_email, 'verified': False, 'source': 'domain_generated'}
-            continue
+            return i, {'email': fallback_email, 'verified': False, 'source': 'domain_generated', 'score': 0}
 
-        # Strategy 4: Fall back to PDL email only if no target domain available
+        # T5: Fall back to PDL email (any domain) only when no target domain
         if pdl_email and pdl_email != "Not available":
-            results[i] = {'email': pdl_email, 'verified': False, 'source': 'pdl_fallback'}
-            continue
+            return i, {'email': pdl_email, 'verified': False, 'source': 'pdl_fallback', 'score': 0}
 
-        # Strategy 5: No email found
-        results[i] = {'email': None, 'verified': False, 'source': None}
-    
+        return i, {'email': None, 'verified': False, 'source': None}
+
+    print(f"[BatchEmailVerification] 🔎 Running Hunter Email Finder for {len(contacts)} contacts in parallel...")
+    with ThreadPoolExecutor(max_workers=min(6, max(1, len(contacts)))) as ex:
+        futures = [ex.submit(_resolve_one, i, c) for i, c in enumerate(contacts)]
+        for fut in as_completed(futures):
+            try:
+                idx, payload = fut.result()
+                results[idx] = payload
+            except Exception as e:
+                print(f"[BatchEmailVerification] worker error: {e}")
+
+    # ---- NeverBounce upgrade pass --------------------------------------
+    # Run SMTP verification on low-confidence emails (pattern synth,
+    # hunter_finder_risky, domain_generated). Upgrades best-guesses to
+    # SMTP-verified. Graceful no-op if NEVERBOUNCE_API_KEY is unset.
+    try:
+        from app.services import neverbounce_client
+        if neverbounce_client.is_configured():
+            NB_UPGRADE_SOURCES = {"pattern", "domain_generated", "hunter_finder_risky"}
+            upgrade_indices = [
+                i for i, r in results.items()
+                if r.get("source") in NB_UPGRADE_SOURCES and r.get("email")
+            ]
+            if upgrade_indices:
+                print(f"[BatchEmailVerification] 🛡️  NeverBounce upgrade pass for {len(upgrade_indices)} low-confidence emails...")
+
+                def _nb_upgrade(idx):
+                    r = results[idx]
+                    nb = neverbounce_client.verify_email(r["email"], timeout=5.0)
+                    nb_result = nb.get("result")
+                    if nb_result == neverbounce_client.RESULT_VALID:
+                        return idx, {**r, "source": "neverbounce_verified", "verified": True, "score": max(int(r.get("score") or 0), 90)}
+                    if nb_result in (neverbounce_client.RESULT_ACCEPT_ALL, neverbounce_client.RESULT_CATCHALL):
+                        return idx, {**r, "source": "neverbounce_acceptall", "verified": False, "score": max(int(r.get("score") or 0), 60)}
+                    if nb_result == neverbounce_client.RESULT_INVALID:
+                        # Drop invalid emails entirely — don't draft to a dead inbox
+                        return idx, {"email": None, "verified": False, "source": None, "score": 0}
+                    # unknown / disposable — leave the original payload untouched
+                    return idx, r
+
+                with ThreadPoolExecutor(max_workers=min(6, max(1, len(upgrade_indices)))) as nb_ex:
+                    nb_futures = [nb_ex.submit(_nb_upgrade, i) for i in upgrade_indices]
+                    for fut in as_completed(nb_futures):
+                        try:
+                            idx, updated = fut.result()
+                            results[idx] = updated
+                        except Exception as e:
+                            print(f"[BatchEmailVerification] NeverBounce worker error: {e}")
+    except Exception as e:
+        # NeverBounce module import or any other failure: continue without the
+        # upgrade pass. Pattern emails stay at source='pattern'.
+        print(f"[BatchEmailVerification] NeverBounce upgrade pass skipped: {e}")
+
     batch_time = time.time() - batch_start
     email_count = sum(1 for r in results.values() if r.get('email'))
     verified_count = sum(1 for r in results.values() if r.get('verified'))
-    print(f"[BatchEmailVerification] ✅ Batch verification complete: {batch_time:.2f}s for {len(contacts)} contacts ({email_count} emails, {verified_count} verified)")
-    
+    by_source = {}
+    for r in results.values():
+        s = r.get('source') or 'none'
+        by_source[s] = by_source.get(s, 0) + 1
+    print(f"[BatchEmailVerification] ✅ Batch complete: {batch_time:.2f}s for {len(contacts)} contacts ({email_count} emails, {verified_count} verified). By source: {by_source}")
+
     return results
 
 

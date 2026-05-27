@@ -255,6 +255,18 @@ CUSTOM INSTRUCTIONS FROM CANDIDATE:
 Follow these instructions while keeping the email natural and professional.
 """
 
+    # Optional recent-company-news context (populated upstream by Perplexity)
+    news_items = recruiter.get("company_recent_news", []) or []
+    news_section = ""
+    if news_items:
+        bullets = "\n".join(f"- {item}" for item in news_items[:3] if isinstance(item, str) and item.strip())
+        if bullets:
+            news_section = f"""
+RECENT COMPANY CONTEXT (last ~30 days):
+{bullets}
+Use ONE of these as a natural opening hook ONLY if it genuinely connects to the candidate's background or interest. If nothing fits naturally, ignore this section entirely — do NOT force a reference.
+"""
+
     # Generate email using GPT
     prompt = f"""Generate a personalized outreach email to a {role_label} for a job application.
 
@@ -280,7 +292,7 @@ JOB INFO:
 CANDIDATE INFO:
 - Name: {user_name}
 - {resume_context}
-{custom_section}
+{custom_section}{news_section}
 REQUIREMENTS:
 1. Address recipient by first name ({recruiter_first_name})
 2. Mention the specific job title ({job_title}) and company ({company})

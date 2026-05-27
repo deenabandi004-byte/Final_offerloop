@@ -41,7 +41,7 @@ MIN_CREDIT_BALANCE = 25
 #   digestEnabled           — kept as fallback when smsEnabled=False
 #
 # Legacy fields (targetCompanies/Industries/Roles/Locations, approvalMode,
-# sendMode, emailTemplate*, customInstructions, signoffPhrase, signatureBlock,
+# emailTemplate*, customInstructions, signoffPhrase, signatureBlock,
 # follow-up controls, the *Discovery toggles) stay readable for backwards compat
 # but the new UX writes only briefText + weeklyContactTarget + reviewBeforeSend.
 DEFAULT_AGENT_CONFIG = {
@@ -59,7 +59,6 @@ DEFAULT_AGENT_CONFIG = {
     "weeklyContactTarget": 5,
     "creditBudgetPerWeek": 100,
     "approvalMode": "review_first",
-    "sendMode": "drafts_only",
     "autoSendUnlocked": False,
     "emailTemplatePurpose": None,
     "emailStylePreset": None,
@@ -94,7 +93,7 @@ MUTABLE_CONFIG_FIELDS = {
     # Legacy
     "targetCompanies", "targetIndustries", "targetRoles", "targetLocations",
     "preferAlumni", "weeklyContactTarget", "creditBudgetPerWeek",
-    "approvalMode", "sendMode", "autoSendUnlocked",
+    "approvalMode", "autoSendUnlocked",
     "emailTemplatePurpose", "emailStylePreset",
     "customInstructions", "signoffPhrase", "signatureBlock",
     "followUpEnabled", "followUpDays", "maxFollowUps", "blocklist",

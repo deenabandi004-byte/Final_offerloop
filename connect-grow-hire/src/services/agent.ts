@@ -54,7 +54,6 @@ export interface AgentConfig {
   weeklyContactTarget: number;
   creditBudgetPerWeek: number;
   approvalMode: "review_first" | "autopilot";
-  sendMode: "drafts_only" | "auto_send";
   autoSendUnlocked: boolean;
   emailTemplatePurpose: string | null;
   emailStylePreset: string | null;
@@ -102,17 +101,54 @@ export async function updateAgentConfig(
 
 // ── Loop brief ──────────────────────────────────────────────────────────────
 
+export type ParseStatus = "ok" | "empty" | "failed";
+
 /**
  * Parse the user's natural-language Loop brief and save it on the config.
  * Idempotent — call this whenever the textarea content settles.
+ *
+ * When the backend LLM call fails the route returns 502 with
+ * parseStatus="failed". We swallow that here and surface it via the
+ * returned status, so callers can distinguish "parser temporarily
+ * unavailable" from a legitimately empty parse.
  */
 export async function parseBrief(
   briefText: string
-): Promise<{ briefParsed: ParsedBrief; config: AgentConfig }> {
-  return agentFetch("/brief", {
+): Promise<{
+  briefParsed: ParsedBrief;
+  config: AgentConfig;
+  parseStatus: ParseStatus;
+}> {
+  const { auth } = await import("../lib/firebase");
+  await auth.authStateReady();
+  const user = auth.currentUser;
+  if (!user) throw new Error("Not authenticated");
+  const token = await user.getIdToken();
+
+  const res = await fetch(`${API_BASE_URL}/agent/brief`, {
     method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
     body: JSON.stringify({ briefText }),
   });
+
+  // 502 = LLM parse failed but the route still returned a body with the
+  // empty parse + parseStatus="failed". Treat as a real response.
+  if (res.status === 502) {
+    const body = await res.json().catch(() => ({}));
+    return {
+      briefParsed: body.briefParsed,
+      config: body.config,
+      parseStatus: "failed",
+    };
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Agent API error: ${res.status}`);
+  }
+  return res.json();
 }
 
 // ── Lifecycle ───────────────────────────────────────────────────────────────

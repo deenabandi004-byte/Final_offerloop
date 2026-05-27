@@ -27,7 +27,218 @@ from .pdl_client import (
 )
 from .recruiter_email_generator import generate_recruiter_emails
 from .hunter import enrich_contacts_with_hunter
-from ..config import PDL_BASE_URL, PEOPLE_DATA_LABS_API_KEY
+from ..config import (
+    PDL_BASE_URL,
+    PEOPLE_DATA_LABS_API_KEY,
+)
+
+
+# Map our internal job_type values to PDL's canonical `job_title_role` enum.
+# Unmapped job_types fall through to the existing loose tier loop (which is
+# title-text-based and doesn't need a canonical role).
+# PDL roles confirmed from docs: engineering, sales, marketing, finance,
+# operations, product, design, hr, legal, it, support, consulting, etc.
+_JOB_TYPE_TO_PDL_ROLE = {
+    "engineering": "engineering",
+    "sales": "sales",
+    "marketing": "marketing",
+    "finance": "finance",
+    "product": "product",
+    "design": "design",
+    "operations": "operations",
+    "hr": "human_resources",
+    # Deliberately unmapped (fall through to loose tier loop):
+    #   "general" — too broad to map cleanly
+    #   "intern"  — interns aren't a job_title_role; level handles this
+}
+
+# Seniority levels we consider hiring-decision-makers. Maps to PDL's
+# `job_title_levels` array enum.
+_DECISION_MAKER_LEVELS = ["manager", "director", "vp", "head", "cxo", "owner"]
+
+
+def _tight_target_for(max_results: int) -> int:
+    """How many decision-maker slots to reserve for the tight query.
+
+    Option D mix: every search returns 1-3 decision-makers (tight) + the rest
+    as recruiters (loose). Free users (max=2-3) get 1-2 decision-makers + 1
+    recruiter; Pro users get 2-3 + several recruiters. Always leaves at least
+    one recruiter slot so users get the reply-friendly cohort.
+    """
+    if max_results <= 2:
+        return 1
+    if max_results <= 5:
+        return 2
+    return 3
+
+
+def _build_tight_pdl_query(company: str, pdl_role: str, size: int = 3) -> dict:
+    """Build PDL /person/search body that returns precise hiring decision-makers.
+
+    Uses bool/must with term filters — the documented PDL query shape. Does
+    NOT use multi_match or field boosting (PDL rejects both). Returns up to
+    `size` profiles, costing `size` credits per HIT (0 on empty).
+    """
+    return {
+        "query": {
+            "bool": {
+                "must": [
+                    {"term": {"job_company_name": company.lower()}},
+                    {"term": {"job_title_role": pdl_role}},
+                    {"exists": {"field": "linkedin_url"}},
+                    {"terms": {"job_title_levels": _DECISION_MAKER_LEVELS}},
+                ]
+            }
+        },
+        "size": size,
+    }
+
+
+def _run_tight_pdl_query(company: str, pdl_role: str, size: int = 3) -> List[Dict]:
+    """Execute the tight PDL query and extract contacts. Empty list on miss/error."""
+    from .pdl_client import extract_contact_from_pdl_person_enhanced
+    body = _build_tight_pdl_query(company, pdl_role, size)
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
+    }
+    try:
+        r = requests.post(
+            f"{PDL_BASE_URL}/person/search",
+            headers=headers, json=body, timeout=30,
+        )
+        if r.status_code == 404:
+            return []
+        if r.status_code != 200:
+            print(f"[TightPDL] {r.status_code}: {r.text[:200]}")
+            return []
+        data = (r.json() or {}).get("data", []) or []
+        contacts = []
+        for person in data:
+            try:
+                c = extract_contact_from_pdl_person_enhanced(person, target_company=company)
+                if c:
+                    c["_source"] = "tight_pdl"
+                    contacts.append(c)
+            except Exception:
+                continue
+        return contacts
+    except Exception as e:
+        print(f"[TightPDL] exception: {e}")
+        return []
+
+
+def _split_name(full_name: str) -> tuple[str, str]:
+    """Split 'Jane Van Doe' -> ('Jane', 'Van Doe'). First word is first name,
+    everything after is last name. Handles common edge cases (extra whitespace,
+    single names).
+    """
+    parts = (full_name or "").strip().split()
+    if not parts:
+        return "", ""
+    if len(parts) == 1:
+        return parts[0], ""
+    return parts[0], " ".join(parts[1:])
+
+
+# Role/title tokens we expect to see in things that look like job descriptions
+# rather than person names. Firecrawl's `hiring_manager` field sometimes returns
+# titles ("Chief Technology Officer") instead of names ("Jane Doe"); we reject
+# those so they don't poison the candidate pool with garbage synthetic records.
+_ROLE_TOKENS = frozenset({
+    "ceo", "cto", "cfo", "coo", "cmo", "cpo", "ciso", "cro", "chro",
+    "vp", "svp", "evp", "avp", "vice",
+    "director", "head", "chief", "officer", "president", "chairman",
+    "chairwoman", "founder", "co-founder", "cofounder", "owner", "executive",
+    "manager", "supervisor", "lead", "principal", "senior",
+    "engineer", "engineering", "scientist", "developer", "designer", "analyst",
+    "consultant", "specialist", "recruiter", "partner", "associate",
+    "department", "team", "hiring",
+})
+
+
+def _looks_like_person_name(s: str) -> bool:
+    """Heuristic: does this string look like a real person's name?
+
+    Rejects role descriptions ('Chief Technology Officer'), team labels
+    ('Hiring Team'), empty strings, and single-word strings (too ambiguous
+    to seed PDL with). Accepts typical First Last and multi-part names.
+    """
+    if not isinstance(s, str):
+        return False
+    cleaned = s.strip()
+    if not cleaned:
+        return False
+    # Strip trailing role context after a comma — "Jane Doe, CTO" -> "Jane Doe"
+    if "," in cleaned:
+        cleaned = cleaned.split(",", 1)[0].strip()
+        if not cleaned:
+            return False
+    parts = cleaned.split()
+    # Must be 2-5 words. Single-word "names" (Madonna) are too risky as PDL
+    # seeds; 6+ words is almost certainly a description.
+    if not (2 <= len(parts) <= 5):
+        return False
+    # Reject if any word matches a role token (case-insensitive).
+    lowered = [p.lower().strip(".,") for p in parts]
+    if any(tok in _ROLE_TOKENS for tok in lowered):
+        return False
+    # Reject if no word starts uppercase — proper names are title-cased.
+    if not any(p[:1].isupper() for p in parts):
+        return False
+    return True
+
+
+def _seed_from_firecrawl_name(name: str, company: str, company_aliases: List[str]) -> List[Dict]:
+    """Look up a Firecrawl-extracted hiring-manager name in PDL.
+
+    Uses /person/enrich (1 credit per HTTP 200, 404 misses are free) instead of
+    /person/search (which charges 1 credit per profile returned). The name came
+    from the actual job posting — high-confidence ground truth — so we want the
+    single best PDL match, not a candidate list.
+
+    Returns a list of seed candidates. Returns [] (no synthetic fallback) when
+    the extracted string doesn't look like a person name — Firecrawl sometimes
+    returns titles like "Chief Technology Officer" in the hiring_manager field,
+    and we don't want those poisoning the candidate pool.
+    """
+    if not _looks_like_person_name(name):
+        print(f"[HiringManagerFinder] Skipping Firecrawl seed — '{name}' doesn't look like a person name (likely a title or role description)")
+        return []
+    first, last = _split_name(name)
+    if not first or not last:
+        # /person/enrich requires both first_name AND last_name for name-based
+        # matching. Single-name strings can't be enriched reliably.
+        return []
+
+    seeds: List[Dict] = []
+    try:
+        from .pdl_client import enrich_by_name, extract_contact_from_pdl_person_enhanced
+        # enrich_by_name is decorated with @meter_call so credits show up in
+        # observability. 1 credit on HIT, 0 on 404.
+        pdl_person = enrich_by_name(first, last, company, min_likelihood=4)
+        if pdl_person:
+            contact = extract_contact_from_pdl_person_enhanced(pdl_person, target_company=company)
+            if contact:
+                contact["_source"] = "firecrawl_seed"
+                seeds.append(contact)
+    except Exception as e:
+        print(f"[HiringManagerFinder] PDL seed enrich failed for '{name}' @ {company}: {e}")
+
+    if not seeds:
+        # PDL miss (404 = no charge) — keep the name anyway so Hunter can try
+        # to derive an email from name + company.
+        seeds.append({
+            "FirstName": first,
+            "LastName": last,
+            "Title": "Hiring Manager",
+            "Company": company,
+            "Email": "",
+            "IsCurrentlyAtTarget": True,
+            "_source": "firecrawl_seed_synthetic",
+        })
+    return seeds
 import requests
 
 # Job type to recruiter title mapping
@@ -1222,7 +1433,9 @@ def find_hiring_manager(
     user_contact: Dict = None,
     resume_text: str = "",
     template_instructions: str = "",
-    role_type: str = "hiring_manager"
+    role_type: str = "hiring_manager",
+    uid: Optional[str] = None,
+    seed_hiring_manager_name: Optional[str] = None,
 ) -> Dict:
     """
     Find hiring managers at a company using tiered search strategy.
@@ -1289,11 +1502,58 @@ def find_hiring_manager(
     final_hiring_managers = []  # Initialize before conditional block
     highest_tier_used = 0
     all_search_titles = []
-    
-    # Tiered search: Start with Tier 1, fallback to lower tiers if needed
-    # ✅ FIX: Collect up to CANDIDATE_POOL_SIZE instead of max_results
+    firecrawl_seed_used = False
+
+    # Tier 0: Firecrawl-extracted hiring-manager name from the job posting itself.
+    # Ground truth when present — gets priority over tier-based PDL discovery.
+    if seed_hiring_manager_name and seed_hiring_manager_name.strip():
+        seeds = _seed_from_firecrawl_name(
+            name=seed_hiring_manager_name,
+            company=cleaned_company,
+            company_aliases=company_names,
+        )
+        if seeds:
+            firecrawl_seed_used = True
+            candidate_pool.extend(seeds)
+            all_contacts_found.extend(seeds)
+            sources = [s.get("_source") for s in seeds]
+            print(f"[HiringManagerFinder] Firecrawl seed '{seed_hiring_manager_name}' -> {len(seeds)} candidates {sources}")
+
+    # Option D — mixed cohort: tight first (1-3 decision-makers), tier loop
+    # second (recruiters who reply). Together they give the user a richer
+    # result set than either alone, while costing FAR less PDL when tight
+    # supplies the precise candidates and the loose loop only tops up.
+    tight_pdl_used = False
+    tight_pdl_count = 0
+    tight_target = _tight_target_for(max_results)
+    tight_pdl_role = _JOB_TYPE_TO_PDL_ROLE.get((job_type or "").lower())
+    if tight_pdl_role:
+        print(f"[HiringManagerFinder] Tight PDL query: company={cleaned_company}, role={tight_pdl_role}, size={tight_target}")
+        tight_results = _run_tight_pdl_query(cleaned_company, tight_pdl_role, size=tight_target)
+        if tight_results:
+            tight_pdl_used = True
+            tight_pdl_count = len(tight_results)
+            candidate_pool.extend(tight_results)
+            all_contacts_found.extend(tight_results)
+            highest_tier_used = 1  # treat as tier 1 for downstream telemetry
+            print(f"[HiringManagerFinder] Tight PDL returned {len(tight_results)} decision-makers")
+        else:
+            print(f"[HiringManagerFinder] Tight PDL returned 0 — full tier-loop fallback")
+
+    # Tier-loop sizing: when tight already gave us precise candidates, we
+    # shrink the loose fetch to just-enough. When tight didn't run (flag
+    # off, unmapped role, or empty result), preserve the original 20-per-tier
+    # behavior so non-tight users see no quality regression.
+    if tight_pdl_used:
+        pool_target = max_results               # tight already supplied best — just top up
+        per_tier_size = max(3, max_results - len(candidate_pool))  # don't over-fetch
+    else:
+        pool_target = CANDIDATE_POOL_SIZE       # unchanged: ranking buffer for loose-only
+        per_tier_size = 20                      # unchanged: ranking buffer for loose-only
+
+    # Tiered search: Start with Tier 1, fallback to lower tiers if needed.
     for tier in range(1, 6):  # Tiers 1-5
-        if len(candidate_pool) >= CANDIDATE_POOL_SIZE:
+        if len(candidate_pool) >= pool_target:
             break
         
         # Skip Tier 5 (executives) unless company is small
@@ -1333,24 +1593,24 @@ def find_hiring_manager(
                 headers=headers,
                 url=PDL_URL,
                 query_obj=query_obj,
-                desired_limit=20,  # Fetch more, then rank and filter
+                desired_limit=per_tier_size,  # Shrunk when tight already supplied precise candidates
                 search_type="hiring_manager_search",
-                page_size=20,
+                page_size=per_tier_size,
                 verbose=False,
                 target_company=cleaned_company
             )
-            
+
             if raw_managers:
                 all_contacts_found.extend(raw_managers)
                 highest_tier_used = tier
-                
+
                 # ✅ FIX: Add all managers to candidate pool (up to pool size limit)
                 # Filter for current employees first
                 current_managers = [m for m in raw_managers if m.get('IsCurrentlyAtTarget', False)]
                 historical_managers = [m for m in raw_managers if not m.get('IsCurrentlyAtTarget', False)]
-                
+
                 # Add current employees first, then historical, up to pool size
-                remaining_slots = CANDIDATE_POOL_SIZE - len(candidate_pool)
+                remaining_slots = pool_target - len(candidate_pool)
                 if remaining_slots > 0:
                     if len(current_managers) >= remaining_slots:
                         managers_to_add = current_managers[:remaining_slots]
@@ -1376,7 +1636,14 @@ def find_hiring_manager(
             location,
             job_title
         )
-        
+
+        # Firecrawl seeds are ground-truth from the actual posting — float to
+        # the top regardless of rank_hiring_managers' title-based score.
+        if firecrawl_seed_used:
+            seeds = [c for c in candidate_pool if c.get("_source", "").startswith("firecrawl_seed")]
+            others = [c for c in candidate_pool if not c.get("_source", "").startswith("firecrawl_seed")]
+            candidate_pool = seeds + others
+
         # Apply penalty to Tier 5 (executives) if company is large
         company_size = detect_company_size(cleaned_company, all_contacts_found)
         if company_size == "large":
@@ -1396,13 +1663,59 @@ def find_hiring_manager(
             candidate_pool = non_executives + executives
         
         print(f"[HiringManagerFinder] Candidate pool: {len(candidate_pool)} contacts (from Tier 1-{highest_tier_used})")
-        
+
+        # Perplexity verification — drop stale PDL candidates before Hunter so we
+        # don't burn email-verify quota on people who already left. Behind a flag;
+        # falls through cleanly on any failure.
+        perplexity_dropped = 0
+        perplexity_title_corrections = 0
+        if candidate_pool:
+            from .perplexity_client import verify_hiring_managers_v2
+            pool_before = len(candidate_pool)
+            perplexity_start = time.time()
+            try:
+                verifications = verify_hiring_managers_v2(
+                    hms=candidate_pool,
+                    company=cleaned_company,
+                    job_title=job_title,
+                )
+                kept = []
+                for manager, v in zip(candidate_pool, verifications):
+                    still_there = v.get("still_at_company", "unknown")
+                    conf = v.get("confidence", "low")
+                    # Conservative drop rule: only drop on explicit "no" with non-low confidence.
+                    if still_there == "no" and conf != "low":
+                        perplexity_dropped += 1
+                        continue
+                    manager["_perplexity_verified"] = still_there == "yes"
+                    manager["_perplexity_confidence"] = conf
+                    manager["_actively_hiring"] = v.get("actively_hiring", "unknown")
+                    signal = v.get("recent_hiring_signal", "")
+                    if signal:
+                        manager["_recent_hiring_signal"] = signal
+                    fresh_title = v.get("current_title", "")
+                    pdl_title = manager.get("Title", "")
+                    if fresh_title and fresh_title.lower() != pdl_title.lower():
+                        manager["_pdl_title"] = pdl_title
+                        manager["Title"] = fresh_title
+                        perplexity_title_corrections += 1
+                    kept.append(manager)
+                candidate_pool = kept
+                perplexity_elapsed = time.time() - perplexity_start
+                print(
+                    f"[HiringManagerFinder] Perplexity verify: {pool_before} -> {len(candidate_pool)} "
+                    f"(dropped {perplexity_dropped}, title-corrected {perplexity_title_corrections}) "
+                    f"in {perplexity_elapsed:.2f}s"
+                )
+            except Exception as e:
+                print(f"[HiringManagerFinder] Perplexity verification failed, continuing without: {e}")
+
         # ✅ FIX: Verify emails for the full candidate pool BEFORE selecting final results
         # This allows us to prioritize verified emails even when not generating emails
         for manager in candidate_pool:
             if not manager.get('Company'):
                 manager['Company'] = cleaned_company
-        
+
         print(f"[HiringManagerFinder] Verifying emails for {len(candidate_pool)} candidates using Hunter.io...")
         verify_start = time.time()
         try:
@@ -1442,17 +1755,40 @@ def find_hiring_manager(
         print(f"[HiringManagerFinder] After verification: {len(verified_contacts)} verified, {len(unverified_contacts)} unverified")
         
         # ✅ FIX: Select final results - verified first, then unverified as fallback
+        # Firecrawl seeds always make the final cut (they came from the actual
+        # job posting — user explicitly opted in by pasting the URL).
         final_hiring_managers = []
-        
-        # Add verified contacts first (up to max_results)
-        for contact in verified_contacts[:max_results]:
+        seen_ids = set()
+
+        def _key(c):
+            return (c.get("FirstName", ""), c.get("LastName", ""), c.get("Company", ""))
+
+        for contact in candidate_pool:
+            if (contact.get("_source") or "").startswith("firecrawl_seed"):
+                k = _key(contact)
+                if k not in seen_ids:
+                    final_hiring_managers.append(contact)
+                    seen_ids.add(k)
+
+        # Add verified contacts next (up to max_results)
+        for contact in verified_contacts:
+            if len(final_hiring_managers) >= max_results:
+                break
+            k = _key(contact)
+            if k in seen_ids:
+                continue
             final_hiring_managers.append(contact)
-        
+            seen_ids.add(k)
+
         # If we still need more, add unverified contacts
-        remaining_slots = max_results - len(final_hiring_managers)
-        if remaining_slots > 0:
-            for contact in unverified_contacts[:remaining_slots]:
-                final_hiring_managers.append(contact)
+        for contact in unverified_contacts:
+            if len(final_hiring_managers) >= max_results:
+                break
+            k = _key(contact)
+            if k in seen_ids:
+                continue
+            final_hiring_managers.append(contact)
+            seen_ids.add(k)
         
         verified_count = len([c for c in final_hiring_managers if (
             c.get('EmailVerified', False) or 
@@ -1464,6 +1800,19 @@ def find_hiring_manager(
     # Generate emails if requested
     emails = []
     if generate_emails and user_resume and user_contact and final_hiring_managers:
+        # Enrich with recent company news so the email prompt has a natural hook.
+        # Batched per unique company, 24h cache (see batch_enrich_company_news).
+        from .perplexity_client import batch_enrich_company_news
+        try:
+            news_by_idx = batch_enrich_company_news(final_hiring_managers)
+            for idx, payload in news_by_idx.items():
+                if 0 <= idx < len(final_hiring_managers) and payload:
+                    final_hiring_managers[idx]["company_recent_news"] = payload.get("company_recent_news", [])
+                    final_hiring_managers[idx]["company_description"] = payload.get("company_description", "")
+            hit_count = sum(1 for h in final_hiring_managers if h.get("company_recent_news"))
+            print(f"[HiringManagerFinder] Company-news enrichment: {hit_count}/{len(final_hiring_managers)} candidates have news context")
+        except Exception as e:
+            print(f"[HiringManagerFinder] Company-news enrichment failed, continuing without: {e}")
         try:
             emails = generate_recruiter_emails(
                 recruiters=final_hiring_managers,
@@ -1489,7 +1838,18 @@ def find_hiring_manager(
         "total_found": len(all_contacts_found),
         "credits_charged": 5 * len(final_hiring_managers),
         "search_tier_used": highest_tier_used,
-        "search_titles": all_search_titles[:10]
+        "search_titles": all_search_titles[:10],
+        "enrichment_meta": {
+            "candidates_dropped": perplexity_dropped if 'perplexity_dropped' in locals() else 0,
+            "candidates_title_corrected": perplexity_title_corrections if 'perplexity_title_corrections' in locals() else 0,
+            "firecrawl_seed_used": firecrawl_seed_used,
+            "firecrawl_seed_name": seed_hiring_manager_name if firecrawl_seed_used else None,
+            "tight_pdl_used": tight_pdl_used,
+            "tight_pdl_count": tight_pdl_count,
+            "tight_pdl_role": tight_pdl_role,
+            "tight_target": tight_target,
+            "mix_mode": "tight+loose" if tight_pdl_used else "loose_only",
+        },
     }
 
     # Add fallback messaging when no results or only low-tier results

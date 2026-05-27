@@ -1,19 +1,17 @@
 """
-SERP API Client - Google Search integration for company discovery
-Replaces PDL Company Search with SERP API + ChatGPT extraction
+Firm Discovery Orchestrator — iterative Perplexity-backed company search.
+
+Drives the Find Companies pipeline: parses filters into a Perplexity
+discover_firms call, dedupes across iterations, falls through to
+firm_details_extraction when discovered records are missing key fields.
 """
-import requests
-import json
 import os
 import time
 import uuid
 import logging
 from typing import Optional, List, Dict, Any
-from app.config import SERPAPI_KEY
 
 logger = logging.getLogger(__name__)
-
-SERPAPI_BASE_URL = "https://serpapi.com/search"
 
 # Configuration for iterative fetching
 OVERFETCH_MULTIPLIER = float(os.getenv('FIRM_SEARCH_OVERFETCH_MULTIPLIER', '2.5'))  # Initial multiplier
@@ -244,21 +242,10 @@ def search_companies_with_serp(
             "queryLevel": int (always 3 for this approach)
         }
     """
-    # Validate API key is configured
-    if not SERPAPI_KEY:
-        return {
-            "success": False,
-            "firms": [],
-            "total": 0,
-            "error": "Search service configuration error. Please contact support.",
-            "queryLevel": None
-        }
-    
     if keywords is None:
         keywords = []
     
     try:
-        from app.services.company_extraction import generate_firm_names_with_chatgpt
         from app.services.firm_details_extraction import get_firm_details_batch
         from app.services.company_search import transform_serp_company_to_firm, firm_location_matches
         
@@ -336,17 +323,20 @@ def search_companies_with_serp(
                 "firms_tried_so_far": len(firm_names_tried)
             })
             
-            # Generate firm names (avoid duplicates)
-            firm_names = generate_firm_names_with_chatgpt(
-                filters={
-                    "industry": industry,
-                    "location": location,
-                    "size": size,
-                    "keywords": keywords
-                },
+            # Discover firms via Perplexity live search (returns pre-enriched dicts).
+            from app.services.perplexity_client import discover_firms as _discover_firms
+            discovered = _discover_firms(
+                industry=industry,
+                location=location,
+                size=size,
+                keywords=keywords,
                 limit=batch_size,
-                original_query=original_query
+                original_query=original_query,
             )
+            firm_names = [d["name"] for d in discovered if d.get("name")]
+            discovered_by_name: Dict[str, Dict[str, Any]] = {
+                d["name"].lower().strip(): d for d in discovered if d.get("name")
+            }
             
             if not firm_names:
                 logger.warning("company_search_no_firm_names", extra={
@@ -429,14 +419,48 @@ def search_companies_with_serp(
                     step=f"Fetching details for {len(new_firm_names)} firms (iteration {iteration + 1})..."
                 )
             
-            firms_data = get_firm_details_batch(
-                new_firm_names,
-                location,
-                max_workers=15,  # OPTIMIZED: Increased for faster processing (batch extraction reduces rate limit issues)
-                progress_callback=progress_callback,
-                max_results=None,  # Don't limit here - we'll filter and limit later
-                search_id=search_id  # Pass search_id for logging correlation
-            )
+            # Use Perplexity-discovered data directly. Only fall through to
+            # per-firm enrichment for entries missing website or employeeCount.
+            needs_enrichment = [
+                n for n in new_firm_names
+                if not (
+                    discovered_by_name.get(n.lower().strip(), {}).get("website")
+                    and discovered_by_name.get(n.lower().strip(), {}).get("employeeCount")
+                )
+            ]
+
+            enriched_lookup: Dict[str, Dict[str, Any]] = {}
+            if needs_enrichment:
+                enriched_data = get_firm_details_batch(
+                    needs_enrichment,
+                    location,
+                    max_workers=15,
+                    progress_callback=progress_callback,
+                    max_results=None,
+                    search_id=search_id,
+                ) or []
+                enriched_lookup = {
+                    e.get("name", "").lower().strip(): e
+                    for e in enriched_data
+                    if isinstance(e, dict) and e.get("name")
+                }
+            elif search_id:
+                update_search_progress(
+                    search_id,
+                    current=3 + iteration * 5 + 5,
+                    step=f"Got {len(new_firm_names)} firms from Perplexity"
+                )
+
+            firms_data = []
+            for n in new_firm_names:
+                key = n.lower().strip()
+                base = discovered_by_name.get(key, {"name": n})
+                enriched = enriched_lookup.get(key, {})
+                merged = dict(enriched)
+                for k, v in base.items():
+                    if v not in (None, "", [], {}):
+                        merged[k] = v
+                firms_data.append(merged)
             
             if not firms_data:
                 logger.warning("company_search_no_firm_details", extra={

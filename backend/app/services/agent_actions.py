@@ -18,10 +18,22 @@ from app.extensions import get_db
 from app.services.pdl_client import search_contacts_from_prompt, get_contact_identity
 from app.services.reply_generation import batch_generate_emails
 from app.services.auth import deduct_credits_atomic
+from app.services.loop_budget import CREDIT_COSTS
 from app.utils.warmth_scoring import score_contacts_for_email
 from email_templates import get_template_instructions
 
 logger = logging.getLogger(__name__)
+
+
+def _perplexity_only(uid: str) -> bool:
+    """Phase 8.5 — read the AGENT_MODE_PERPLEXITY_ONLY flag. When on, Agent
+    Mode swaps Firecrawl + Apify for Perplexity-equivalent calls. Default
+    off so legacy paths remain primary until rollout completes."""
+    try:
+        from app.services.feature_flags import is_enabled
+        return is_enabled("AGENT_MODE_PERPLEXITY_ONLY", uid=uid, default=False)
+    except Exception:
+        return False
 
 # ── Common domain mapping for Clearbit logos ──────────────────────────────
 
@@ -212,16 +224,27 @@ def execute_find_and_draft(
     except Exception:
         logger.warning("Contact enrichment failed, continuing without", exc_info=True)
 
-    # LinkedIn recent posts (Apify)
-    try:
-        from app.services.apify_client import batch_enrich_linkedin_posts_via_apify
-        apify_results = batch_enrich_linkedin_posts_via_apify(filtered) or {}
-        for idx, c in enumerate(filtered):
-            payload = apify_results.get(idx, {})
-            if payload.get("linkedin_recent_posts"):
-                c["linkedin_recent_posts"] = payload["linkedin_recent_posts"]
-    except Exception:
-        logger.warning("Apify LinkedIn enrichment failed, continuing", exc_info=True)
+    # Recent posts / public activity (Apify legacy; Perplexity when flag on)
+    if _perplexity_only(uid):
+        try:
+            from app.services.perplexity_client import enrich_professional_presence
+            presence_results = enrich_professional_presence(filtered) or {}
+            for idx, c in enumerate(filtered):
+                payload = presence_results.get(idx, {})
+                if payload.get("linkedin_recent_posts"):
+                    c["linkedin_recent_posts"] = payload["linkedin_recent_posts"]
+        except Exception:
+            logger.warning("Perplexity professional-presence enrichment failed, continuing", exc_info=True)
+    else:
+        try:
+            from app.services.apify_client import batch_enrich_linkedin_posts_via_apify
+            apify_results = batch_enrich_linkedin_posts_via_apify(filtered) or {}
+            for idx, c in enumerate(filtered):
+                payload = apify_results.get(idx, {})
+                if payload.get("linkedin_recent_posts"):
+                    c["linkedin_recent_posts"] = payload["linkedin_recent_posts"]
+        except Exception:
+            logger.warning("Apify LinkedIn enrichment failed, continuing", exc_info=True)
 
     # Company news (Perplexity, batched per company)
     try:
@@ -411,12 +434,8 @@ def execute_find_and_draft(
             "gmailDraftUrl": contact_doc.get("gmailDraftUrl", ""),
         })
 
-    # Deduct credits — 15 per contact + drafted email (Phase 8 repricing).
-    # Covers: PDL lookup ($0.10) + Apify LinkedIn ($0.003) + Perplexity person
-    # context ($0.01) + Claude draft ($0.012) + Hunter verify ($0.01) ≈ $0.135
-    # true COGS. 15 cr ≈ 75% of true cost in credit terms (25% subsidy).
-    CREDITS_PER_CONTACT = 15
-    credits_spent = len(saved_contacts) * CREDITS_PER_CONTACT
+    # Per-contact credit cost — see CREDIT_COSTS in loop_budget.py.
+    credits_spent = len(saved_contacts) * CREDIT_COSTS["contact"]
     try:
         deduct_credits_atomic(uid, credits_spent, "agent_find")
     except Exception:
@@ -457,10 +476,9 @@ def execute_find_jobs(
     jobs = []
     source = "serpapi"
 
-    # PRIMARY: Perplexity job search + Firecrawl enrichment
+    # PRIMARY: Perplexity job search + structured enrichment (Perplexity or Firecrawl per flag)
     try:
         from app.services.perplexity_client import search_jobs_live
-        from app.services.firecrawl_client import extract_job_posting
 
         raw_jobs = search_jobs_live(
             query=query, location=location, limit=10,
@@ -468,17 +486,32 @@ def execute_find_jobs(
         )
 
         if raw_jobs:
-            # Enrich top 5 with Firecrawl structured extraction
+            use_perplexity_enrich = _perplexity_only(uid)
+            if not use_perplexity_enrich:
+                from app.services.firecrawl_client import extract_job_posting
+            else:
+                from app.services.perplexity_client import enrich_job_posting_live
+
+            # Enrich top 5 with structured extraction
             enriched_jobs = []
             for job in raw_jobs[:5]:
                 enriched = dict(job)
-                if job.get("url"):
-                    try:
+                try:
+                    if use_perplexity_enrich:
+                        structured = enrich_job_posting_live(
+                            url=job.get("url"),
+                            title=job.get("title", ""),
+                            company=job.get("company", company),
+                            location=job.get("location", location),
+                        )
+                    elif job.get("url"):
                         structured = extract_job_posting(job["url"])
-                        if structured:
-                            enriched.update(structured)
-                    except Exception:
-                        pass
+                    else:
+                        structured = {}
+                    if structured:
+                        enriched.update(structured)
+                except Exception:
+                    pass
                 enriched_jobs.append(enriched)
             # Add remaining un-enriched jobs
             enriched_jobs.extend(raw_jobs[5:count])
@@ -541,9 +574,8 @@ def execute_find_jobs(
             "matchReasons": doc["matchReasons"],
         })
 
-    # 2 credits per job (Phase 8): covers Perplexity search + Firecrawl enrich
-    # + small OpenAI resume-score pass. True COGS ≈ $0.02 per job.
-    credits = len(saved) * 2
+    # Per-job credit cost — see CREDIT_COSTS in loop_budget.py.
+    credits = len(saved) * CREDIT_COSTS["job"]
     if credits > 0:
         try:
             deduct_credits_atomic(uid, credits, "agent_find_jobs")
@@ -570,10 +602,9 @@ def execute_discover_companies(
     """
     companies = []
 
-    # PRIMARY: Perplexity-powered discovery
+    # PRIMARY: Perplexity-powered discovery (enrich via Perplexity or Firecrawl per flag)
     try:
         from app.services.perplexity_client import discover_companies_live
-        from app.services.firecrawl_client import extract_company_profile
 
         prof = user_data.get("professionalInfo") or {}
         perplexity_companies = discover_companies_live(
@@ -585,16 +616,27 @@ def execute_discover_companies(
             career_track=prof.get("careerTrack", ""),
         )
 
-        # Enrich top 3 with Firecrawl website extraction
+        use_perplexity_enrich = _perplexity_only(uid)
+        if not use_perplexity_enrich:
+            from app.services.firecrawl_client import extract_company_profile
+        else:
+            from app.services.perplexity_client import enrich_company_profile_live
+
+        # Enrich top 5 with structured extraction
         for co in perplexity_companies[:5]:
-            website = co.get("website")
-            if website:
-                try:
-                    profile = extract_company_profile(website)
-                    if profile:
-                        co.update(profile)
-                except Exception:
-                    pass
+            try:
+                if use_perplexity_enrich:
+                    profile = enrich_company_profile_live(
+                        name=co.get("name", ""),
+                        website=co.get("website"),
+                    )
+                else:
+                    website = co.get("website")
+                    profile = extract_company_profile(website) if website else {}
+                if profile:
+                    co.update(profile)
+            except Exception:
+                pass
 
         if perplexity_companies:
             companies = perplexity_companies
@@ -661,9 +703,8 @@ def execute_discover_companies(
             "logoUrl": doc["logoUrl"],
         })
 
-    # 2 credits per company (Phase 8): Perplexity discover + Firecrawl enrich.
-    # True COGS ≈ $0.015 per company.
-    credits = len(saved) * 2
+    # Per-company credit cost — see CREDIT_COSTS in loop_budget.py.
+    credits = len(saved) * CREDIT_COSTS["company"]
     if credits > 0:
         try:
             deduct_credits_atomic(uid, credits, "agent_discover_companies")
@@ -809,9 +850,8 @@ def execute_find_hiring_managers(
             "gmailDraftUrl": contact_doc.get("gmailDraftUrl", ""),
         })
 
-    # 20 credits per HM (Phase 8 repricing): contact lookup + LinkedIn enrich
-    # + extra Perplexity verification + draft + Hunter ≈ $0.195 true COGS.
-    credits = len(saved) * 20
+    # Per-HM credit cost — see CREDIT_COSTS in loop_budget.py.
+    credits = len(saved) * CREDIT_COSTS["hiring_manager"]
     if credits > 0:
         try:
             deduct_credits_atomic(uid, credits, "agent_find_hm")

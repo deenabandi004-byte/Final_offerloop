@@ -78,7 +78,6 @@ OAUTH_REDIRECT_URI = get_oauth_redirect_uri()
 # ========================================
 RESUME_LINE = "For context, I've attached my resume below."
 COFFEE_CHAT_CREDITS = 15
-INTERVIEW_PREP_CREDITS = 25
 TIMELINE_CREDITS = 10
 CACHE_DURATION = timedelta(days=365)
 CREATE_GMAIL_DRAFTS = False  # Set True to create Gmail drafts; False to only return subject/body and compose links
@@ -180,12 +179,11 @@ TIER_CONFIGS = {
         'uses_pdl': True,
         'uses_email_drafting': True,
         'uses_resume': False,
-        'credits': 300,
+        'credits': 500,
         'time_saved_minutes': 300,
         'description': 'Try it out for free',
         'alumni_searches': 10,
         'coffee_chat_preps': 3,
-        'interview_preps': 2,
         'firm_search': False,
         'smart_filters': False,
         'bulk_drafting': False,
@@ -210,12 +208,11 @@ TIER_CONFIGS = {
         'uses_pdl': True,
         'uses_email_drafting': True,
         'uses_resume': True,
-        'credits': 1500,
+        'credits': 3000,
         'time_saved_minutes': 2500,
         'description': 'Best for Students',
         'alumni_searches': 'unlimited',
         'coffee_chat_preps': 10,
-        'interview_preps': 5,
         'firm_search': True,
         'smart_filters': True,
         'bulk_drafting': True,
@@ -240,12 +237,11 @@ TIER_CONFIGS = {
         'uses_pdl': True,
         'uses_email_drafting': True,
         'uses_resume': True,
-        'credits': 3000,
+        'credits': 12000,
         'time_saved_minutes': 5000,
         'description': 'For serious recruiting season',
         'alumni_searches': 'unlimited',
         'coffee_chat_preps': 'unlimited',
-        'interview_preps': 'unlimited',
         'firm_search': True,
         'smart_filters': True,
         'bulk_drafting': True,

@@ -63,7 +63,6 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
         # Always autopilot — reviewBeforeSend controls send mode, not action
         # execution. See loop_service.trigger_loop_cycle for the same logic.
         "approvalMode": "autopilot",
-        "sendMode": "drafts_only" if loop.get("reviewBeforeSend", True) else "auto_send",
         "reviewBeforeSend": loop.get("reviewBeforeSend", True),
         "status": "active",
     }

@@ -17,6 +17,8 @@ import re
 
 import requests
 
+from app.services.metering import meter_call
+
 logger = logging.getLogger(__name__)
 
 APIFY_API_KEY = os.getenv("APIFY_API_KEY")
@@ -89,6 +91,7 @@ def _extract_post_source_url(item) -> str:
     return ""
 
 
+@meter_call("apify", "linkedin_posts")
 def batch_enrich_linkedin_posts_via_apify(contacts: list[dict]) -> dict[int, dict]:
     """Scrape recent LinkedIn posts for a batch of contacts via Apify.
 

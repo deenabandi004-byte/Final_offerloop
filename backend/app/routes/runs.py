@@ -8,15 +8,16 @@ import threading
 from datetime import datetime
 from typing import Dict, Tuple, Optional
 from app.services.pdl_client import get_contact_identity, search_contacts_from_prompt
-from app.services.prompt_parser import parse_search_prompt_structured, classify_query
-from app.services.hunter_person_search import search_people_via_hunter
+from app.services.prompt_parser import parse_search_prompt_structured
+from app.services import coresignal_client
 from flask import Blueprint, request, jsonify
 
 from app.extensions import require_firebase_auth, get_db
 from app.services.feature_flags import PDL_OUTAGE_ACTIVE
+from app.services.metering import attach_request_context, spend_summary, spend_by_user
 from app.services.reply_generation import batch_generate_emails, PURPOSES_INCLUDE_RESUME, email_body_mentions_resume, regenerate_with_feedback
 from app.services.gmail_client import _load_user_gmail_creds, download_resume_from_url, clear_user_gmail_integration
-from app.services.interview_prep.resume_parser import extract_text_from_pdf_bytes
+from app.services.resume_parser import extract_text_from_pdf_bytes
 from app.routes.gmail_oauth import build_gmail_oauth_url_for_user
 from app.services.auth import check_and_reset_credits, deduct_credits_atomic
 from app.config import TIER_CONFIGS
@@ -215,11 +216,9 @@ def prompt_search():
     Request: { "prompt": "...", "batchSize": 5 }
     Response: same shape as free-run plus parsed_query.
     """
-    # NOTE: PDL credits are exhausted. Person search now routes to Hunter
-    # (Domain Search) for any query that names a company; queries with no
-    # company short-circuit to a friendly 503 so the frontend can banner.
-    # PDL_OUTAGE_ACTIVE remains the global kill switch — if an operator
-    # flips it on, the whole route goes dark (Hunter included).
+    # PDL is the primary provider. PDL_OUTAGE_ACTIVE remains the global
+    # kill switch — set to True in feature_flags.py if the operator needs to
+    # take all contact search dark (e.g. PDL credits exhausted, vendor outage).
     if PDL_OUTAGE_ACTIVE:
         return jsonify({"error": "service_unavailable", "message": "Contact search temporarily unavailable.", "code": "PDL_OUTAGE"}), 503
 
@@ -227,6 +226,10 @@ def prompt_search():
         user_email = request.firebase_user.get("email")
         user_id = request.firebase_user["uid"]
         db = get_db()
+
+        # Set request-scoped context so the @meter_call decorator can attribute
+        # every provider HTTP call in this request to the right user / search.
+        attach_request_context(user_id=user_id)
 
         data = request.get_json(silent=True) or {}
         prompt = (data.get("prompt") or "").strip()
@@ -294,34 +297,37 @@ def prompt_search():
                 "parsed_query": {k: parsed.get(k) for k in ("companies", "title_variations", "locations") if k in parsed},
             }), 400
 
-        # Request extra from the provider to account for dedup filtering (already-contacted users)
-        # Use seen_contact_set (already loaded for exclusion) instead of re-streaming Firestore
-        existing_contact_count = len(seen_contact_set) if seen_contact_set else 0
-        pdl_fetch_count = max_contacts + existing_contact_count + 2
-
-        # Provider routing: PDL is offline (credits exhausted). Hunter Domain
-        # Search handles any query that names a company; queries with no
-        # company at all return a 503 with PDL_OUTAGE so the frontend banners.
-        classification = classify_query(parsed)
-        if not classification["has_company"]:
-            return jsonify({
-                "error": "service_unavailable",
-                "code": "PDL_OUTAGE",
-                "message": "Broad searches are paused while we upgrade our data provider. Try naming a company.",
-                "unsupported_filters": classification["unsupported_filters"],
-                "parsed_query": {
-                    "companies": parsed.get("companies", []),
-                    "title_variations": parsed.get("title_variations", []),
-                    "locations": parsed.get("locations", []),
-                    "schools": parsed.get("schools", []),
-                },
-            }), 503
-
-        # Fetch contacts via Hunter (PDL stopgap).
-        contacts, retry_level_used, already_saved_contacts, adjacency_metadata = search_people_via_hunter(
-            parsed, pdl_fetch_count, exclude_keys=seen_contact_set, user_profile=user_data
-        )
-        search_broadened = retry_level_used >= 1  # Hunter never broadens; kept for response shape parity
+        # Provider routing: PDL is primary. The pdl_client cache check happens
+        # FIRST inside search_contacts_from_prompt (Firestore, 30-day TTL) so
+        # a repeat query returns 0-credit cached contacts. PDL supports the
+        # full set of filters (school/alumni, company, title, location), so
+        # we no longer need the no-company 503 gate that existed during the
+        # Hunter bridge. Coresignal/Hunter remain wired up in code as a
+        # reliability fallback only if PDL itself is down.
+        #
+        # Credit-efficiency: pdl_client.search_contacts_from_prompt now caps
+        # the PDL fetch at max_contacts + min(exclude_count, 3), so the
+        # worst-case credit burn per search is ~max_contacts + 3.
+        try:
+            contacts, retry_level_used, already_saved_contacts, adjacency_metadata = search_contacts_from_prompt(
+                parsed, max_contacts, exclude_keys=seen_contact_set, user_profile=user_data
+            )
+            adjacency_metadata = adjacency_metadata or {}
+            adjacency_metadata.setdefault("provider", "pdl")
+        except Exception as pdl_err:
+            # Reliability fallback only (NOT a credit-efficient secondary):
+            # if PDL itself is unreachable (5xx/timeout/etc.), fall through
+            # to Coresignal so users aren't shown an empty results page.
+            print(f"[ContactSearch] PDL primary failed ({pdl_err!r}); falling back to Coresignal")
+            existing_contact_count = len(seen_contact_set) if seen_contact_set else 0
+            fb_fetch_count = max_contacts + min(existing_contact_count, 3) + 2
+            contacts, retry_level_used, already_saved_contacts, adjacency_metadata = coresignal_client.search_contacts_from_prompt(
+                parsed, fb_fetch_count, exclude_keys=seen_contact_set, user_profile=user_data
+            )
+            adjacency_metadata = adjacency_metadata or {}
+            adjacency_metadata["fallback_used"] = "coresignal"
+            adjacency_metadata["primary_provider"] = "pdl"
+        search_broadened = retry_level_used >= 1
 
         # Surface which dimensions were dropped at the rung that succeeded so the
         # frontend can render an honest "we expanded by..." banner.
@@ -789,6 +795,13 @@ def prompt_search():
                         # pdlId persists the PDL stable identifier for queue dedup.
                         "pdlId": contact.get("pdlId") or "",
                     }
+                    # Email confidence metadata (set from the waterfall in
+                    # pdl_client.extract_contact_from_pdl_person_enhanced).
+                    # Persisted so My Network can render a "Verified" /
+                    # "Best guess" badge and we have data for tuning.
+                    contact_doc["emailSource"] = contact.get("EmailSource") or None
+                    contact_doc["emailVerified"] = bool(contact.get("EmailVerified"))
+                    contact_doc["emailConfidenceScore"] = int(contact.get("EmailConfidenceScore") or 0)
                     if contact.get("emailSubject"):
                         contact_doc["emailSubject"] = contact["emailSubject"]
                     if contact.get("emailBody"):
@@ -882,10 +895,7 @@ def prompt_search():
             "search_broadened": search_broadened,
             "retry_level_used": retry_level_used,
             "broadened_dimensions": broadened_dimensions,
-            # Surfacing filters Hunter cannot honor (school, location) so the
-            # frontend renders a "filter temporarily unavailable" disclaimer.
-            "unsupported_filters": classification["unsupported_filters"],
-            "provider": "hunter",
+            "provider": (adjacency_metadata or {}).get("provider", "pdl"),
         }
         if search_broadened:
             response_data["broadening_level"] = retry_level_used
@@ -945,3 +955,59 @@ def prompt_search():
         print(f"Prompt-search error: {e}")
         traceback.print_exc()
         raise OfferloopException(f"Prompt search failed: {str(e)}", error_code="PROMPT_SEARCH_ERROR")
+
+
+# =============================================================================
+# ADMIN METERING ENDPOINTS
+# Read-only dashboards for provider spend. Gated to UIDs listed in the
+# ADMIN_UIDS env var (comma-separated) so only the founder can see them.
+# Lives in runs.py to avoid wsgi.py blueprint-registration churn.
+# =============================================================================
+
+
+def _is_admin(uid: str) -> bool:
+    """True if uid is in the comma-separated ADMIN_UIDS env var."""
+    import os as _os
+    admins = (_os.environ.get("ADMIN_UIDS") or "").split(",")
+    return bool(uid) and uid in {a.strip() for a in admins if a.strip()}
+
+
+@runs_bp.route("/admin/metering/spend-by-provider", methods=["GET"])
+@require_firebase_auth
+def admin_spend_by_provider():
+    """GET /api/admin/metering/spend-by-provider?days=7
+    Returns total calls / credits / $cost grouped by provider × endpoint."""
+    uid = request.firebase_user.get("uid")
+    if not _is_admin(uid):
+        return jsonify({"error": "forbidden"}), 403
+    try:
+        days = max(1, min(90, int(request.args.get("days", 7))))
+    except (TypeError, ValueError):
+        days = 7
+    return jsonify(spend_summary(days=days)), 200
+
+
+@runs_bp.route("/admin/metering/spend-by-user", methods=["GET"])
+@require_firebase_auth
+def admin_spend_by_user():
+    """GET /api/admin/metering/spend-by-user?days=7&limit=25
+    Returns top users by est_cost_usd over the window."""
+    uid = request.firebase_user.get("uid")
+    if not _is_admin(uid):
+        return jsonify({"error": "forbidden"}), 403
+    try:
+        days = max(1, min(90, int(request.args.get("days", 7))))
+        limit = max(1, min(100, int(request.args.get("limit", 25))))
+    except (TypeError, ValueError):
+        days, limit = 7, 25
+    return jsonify(spend_by_user(days=days, limit=limit)), 200
+
+
+@runs_bp.route("/admin/metering/ping", methods=["GET"])
+@require_firebase_auth
+def admin_metering_ping():
+    """Health check: confirms admin auth works and metering module is loaded."""
+    uid = request.firebase_user.get("uid")
+    if not _is_admin(uid):
+        return jsonify({"error": "forbidden"}), 403
+    return jsonify({"ok": True, "uid": uid, "admin": True}), 200

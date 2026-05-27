@@ -76,6 +76,8 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
   const [recommendations, setRecommendations] = useState<RecommendedCompany[]>([]);
   const [chipsCollapsed, setChipsCollapsed] = useState(false);
   const [hmSuggestions, setHmSuggestions] = useState<any[]>([]);
+  // Set true when a chip click prefills the form so the next render auto-runs the search
+  const pendingAutoSearch = useRef(false);
 
 
   // Ref for original button to track visibility
@@ -476,6 +478,16 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
     }
   };
 
+  // Auto-trigger the search after a chip prefills the form. The chip click
+  // sets `pendingAutoSearch` and updates form state; on the next render this
+  // effect runs once `canSearch` flips true.
+  useEffect(() => {
+    if (pendingAutoSearch.current && canSearch && user) {
+      pendingAutoSearch.current = false;
+      handleFindHiringManagers();
+    }
+  }, [jobPostingUrl, jobDescription, savedResumeUrl, user, canSearch]);
+
   const handleViewResults = () => {
     setSearchComplete(false);
     setActiveTab('hiring-manager-tracker');
@@ -649,6 +661,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                                         setJobTitle(job.title);
                                         setLocation(locationToText(job.location));
                                         setChipsCollapsed(true);
+                                        pendingAutoSearch.current = true;
                                       }}
                                       className="suggestion-row-enter"
                                       style={{

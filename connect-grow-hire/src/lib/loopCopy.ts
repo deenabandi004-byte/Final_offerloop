@@ -112,7 +112,7 @@ export const LOOP_COPY = {
   budget: {
     label: (spent: number, cap: number) => `${spent} / ${cap} credits this week`,
     tooltip:
-      "15 credits per contact, 20 per hiring manager, 2 per job, 2 per company.",
+      "9 credits per contact, 13 per hiring manager, 1 per job, 1 per company.",
   },
 
   // ── Phase 8 — pause reasons (chip on the card, banner on detail) ────

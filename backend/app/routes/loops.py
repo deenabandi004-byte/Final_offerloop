@@ -88,8 +88,18 @@ def create_user_loop():
     data = request.get_json() or {}
 
     brief_text = (data.get("briefText") or "").strip()
-    if brief_text and "briefParsed" not in data:
-        data["briefParsed"] = parse_brief(brief_text)
+    # Only re-parse server-side when the client didn't supply a usable parse.
+    # The Loop composer parses on the frontend, lets the user edit chips, and
+    # sends the curated result here as `briefParsed`. Treat null/empty as
+    # "please parse for me" so old clients and short briefs still work.
+    client_parsed = data.get("briefParsed")
+    client_parsed_useful = isinstance(client_parsed, dict) and any(
+        client_parsed.get(k)
+        for k in ("companies", "industries", "roles", "locations", "constraints", "emailPurpose")
+    )
+    if brief_text and not client_parsed_useful:
+        parsed, _status = parse_brief(brief_text)
+        data["briefParsed"] = parsed
 
     try:
         loop = create_loop(uid, _user_tier(), data)
@@ -128,7 +138,8 @@ def patch_user_loop(loop_id):
 
     # If only briefText was sent, re-parse it before saving.
     if "briefText" in data and "briefParsed" not in data:
-        data["briefParsed"] = parse_brief(data["briefText"])
+        parsed, _status = parse_brief(data["briefText"])
+        data["briefParsed"] = parsed
 
     loop = update_loop(uid, loop_id, data)
     if not loop:

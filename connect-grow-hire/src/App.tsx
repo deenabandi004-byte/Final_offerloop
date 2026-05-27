@@ -26,21 +26,15 @@ import UscBeta from "@/pages/UscBeta";
 // Lazy load heavy pages for code splitting
 const AboutUs = React.lazy(() => import("./pages/AboutUs"));
 const NetworkTracker = React.lazy(() => import("./pages/NetworkTracker"));
-const CompanyTrackerPage = React.lazy(() => import("./pages/CompanyTrackerPage"));
-const CalendarPage = React.lazy(() => import("./pages/CalendarPage"));
-const Contact = React.lazy(() => import("./pages/Contact"));
 const CoffeeChatLibrary = React.lazy(() => import("./pages/CoffeeChatLibrary"));
-const ContactDirectory = React.lazy(() => import("./pages/ContactDirectory"));
 const ContactUs = React.lazy(() => import("./pages/ContactUs"));
 const PrivacyPolicy = React.lazy(() => import("./pages/PrivacyPolicy"));
 const ExtensionPrivacyPolicy = React.lazy(() => import("./pages/ExtensionPrivacyPolicy"));
 const TermsOfService = React.lazy(() => import("./pages/TermsOfService"));
-const TermsOfServiceSettings = React.lazy(() => import("./pages/TermsOfServiceSettings"));
 const AccountSettings = React.lazy(() => import("./pages/AccountSettings"));
 const Pricing = React.lazy(() => import("./pages/Pricing"));
 const DocumentationPage = React.lazy(() => import("./pages/DocumentationPage"));
 const JobBoardPage = React.lazy(() => import("./pages/JobBoardPage"));
-const HiringManagerTrackerPage = React.lazy(() => import("./pages/HiringManagerTrackerPage"));
 const MyNetworkPage = React.lazy(() => import("./pages/MyNetworkPage"));
 const NotFound = React.lazy(() => import("./pages/NotFound"));
 const PaymentSuccess = React.lazy(() => import("./pages/PaymentSuccess"));
@@ -48,17 +42,12 @@ const PaymentSuccess = React.lazy(() => import("./pages/PaymentSuccess"));
 const CoffeeChatPrepPage = React.lazy(() => import("./pages/CoffeeChatPrepPage"));
 const FindPage = React.lazy(() => import("./pages/FindPage"));
 const EmailTemplatesPage = React.lazy(() => import("./pages/EmailTemplatesPage"));
-const InterviewPrepPage = React.lazy(() => import("./pages/InterviewPrepPage"));
-const ApplicationLabPage = React.lazy(() => import("./pages/ApplicationLabPage"));
 const RecruitingTimelinePage = React.lazy(() => import("./pages/RecruitingTimelinePage"));
 const DashboardPage = React.lazy(() => import("./pages/DashboardPage"));
 const AgentPage = React.lazy(() => import("./pages/AgentPage"));
 const AgentSetup = React.lazy(() => import("./pages/AgentSetup"));
 const LoopsPage = React.lazy(() => import("./pages/LoopsPage"));
 const LoopDetailPage = React.lazy(() => import("./pages/LoopDetailPage"));
-const ResumeWorkshopPage = React.lazy(() => import("./pages/ResumeWorkshopPage"));
-const ResumePage = React.lazy(() => import("./pages/ResumePage"));
-const CoverLetterPage = React.lazy(() => import("./pages/CoverLetterPage"));
 // New Lovable Onboarding Flow
 const OnboardingFlow = React.lazy(() => import("./pages/OnboardingFlow").then(m => ({ default: m.OnboardingFlow })));
 // Dev-only preview routes (no auth) for design iteration on the new Profile page
@@ -275,16 +264,14 @@ const AppRoutes: React.FC = () => {
       {/* Protected App Pages - Wrapped in Suspense for lazy loading */}
       <Route path="/dashboard" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><DashboardPage /></Suspense></ProtectedRoute>} />
       <Route path="/find" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><FindPage /></Suspense></ProtectedRoute>} />
-      <Route path="/profile" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ProfilePreview /></Suspense></ProtectedRoute>} />
       <Route path="/my-network" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><MyNetworkPage /></Suspense></ProtectedRoute>} />
       <Route path="/my-network/:tab" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><MyNetworkPage /></Suspense></ProtectedRoute>} />
       <Route path="/contact-search" element={<Navigate to="/find" replace />} />
       <Route path="/tracker" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><NetworkTracker /></Suspense></ProtectedRoute>} />
       <Route path="/outbox" element={<Navigate to="/tracker" replace />} />
-      <Route path="/calendar" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CalendarPage /></Suspense></ProtectedRoute>} />
       {/* Legacy /home redirect to contact search */}
       <Route path="/home" element={<Navigate to="/dashboard" replace />} />
-      <Route path="/contact-directory" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ContactDirectory /></Suspense></ProtectedRoute>} />
+      <Route path="/contact-directory" element={<Navigate to="/my-network/people" replace />} />
       <Route path="/coffee-chat-library" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoffeeChatLibrary /></Suspense></ProtectedRoute>} />
       <Route path="/account-settings" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AccountSettings /></Suspense></ProtectedRoute>} />
       <Route path="/pricing" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><Pricing /></Suspense></ProtectedRoute>} />
@@ -295,29 +282,17 @@ const AppRoutes: React.FC = () => {
       <Route path="/coffee-chat-prep" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoffeeChatPrepPage /></Suspense></ProtectedRoute>} />
       <Route path="/contact-search/templates" element={<Navigate to="/find/templates" replace />} />
       <Route path="/find/templates" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><EmailTemplatesPage /></Suspense></ProtectedRoute>} />
-      <Route path="/interview-prep" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><InterviewPrepPage /></Suspense></ProtectedRoute>} />
       <Route path="/firm-search" element={<Navigate to="/find?tab=companies" replace />} />
       <Route path="/job-board" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><JobBoardPage /></Suspense></ProtectedRoute>} />
       <Route path="/recruiter-spreadsheet" element={<Navigate to="/find?tab=hiring-managers" replace />} />
-      <Route path="/hiring-manager-tracker" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><HiringManagerTrackerPage /></Suspense></ProtectedRoute>} />
-      <Route path="/company-tracker" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CompanyTrackerPage /></Suspense></ProtectedRoute>} />
+      <Route path="/hiring-manager-tracker" element={<Navigate to="/find?tab=hiring-managers" replace />} />
+      <Route path="/company-tracker" element={<Navigate to="/find?tab=companies" replace />} />
       <Route path="/scout" element={<ProtectedRoute><ScoutRedirect /></ProtectedRoute>} />
-      <Route path="/application-lab" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ApplicationLabPage /></Suspense></ProtectedRoute>} />
       <Route path="/recruiting-timeline" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><RecruitingTimelinePage /></Suspense></ProtectedRoute>} />
-      {/* /agent is now the multi-Loop fleet view (LoopsPage). The legacy
-          single-agent dashboard lives at /agent/legacy until the old data
-          is fully migrated and AgentSnapshot is reworked to take a loopId. */}
+      {/* /agent is the multi-Loop fleet view (LoopsPage). */}
       <Route path="/agent" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><LoopsPage /></Suspense></ProtectedRoute>} />
-      <Route path="/agent/legacy" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AgentPage /></Suspense></ProtectedRoute>} />
       <Route path="/agent/setup" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AgentSetup /></Suspense></ProtectedRoute>} />
       <Route path="/agent/:loopId" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><LoopDetailPage /></Suspense></ProtectedRoute>} />
-
-      {/* Write Pages - Resume & Cover Letter */}
-      <Route path="/write/resume" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ResumeWorkshopPage /></Suspense></ProtectedRoute>} />
-      <Route path="/write/resume-library" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ResumeWorkshopPage /></Suspense></ProtectedRoute>} />
-      <Route path="/my-resume" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ResumePage /></Suspense></ProtectedRoute>} />
-      <Route path="/write/cover-letter" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoverLetterPage /></Suspense></ProtectedRoute>} />
-      <Route path="/write/cover-letter-library" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoverLetterPage /></Suspense></ProtectedRoute>} />
 
       {/* Data & Stats */}
       <Route path="/data" element={<Suspense fallback={<PageLoader />}><DataStats /></Suspense>} />
@@ -346,7 +321,7 @@ const AppRoutes: React.FC = () => {
 
       {/* Public informational pages */}
       <Route path="/about" element={<Suspense fallback={<PageLoader />}><AboutUs /></Suspense>} />
-      <Route path="/contact" element={<Suspense fallback={<PageLoader />}><Contact /></Suspense>} />
+      <Route path="/contact" element={<Navigate to="/contact-us" replace />} />
       <Route path="/contact-us" element={<Suspense fallback={<PageLoader />}><ContactUs /></Suspense>} />
 
       {/* Legal pages + canonical redirects */}
@@ -355,9 +330,6 @@ const AppRoutes: React.FC = () => {
       <Route path="/privacy-policy" element={<Navigate to="/privacy" replace />} />
       <Route path="/terms-of-service" element={<Suspense fallback={<PageLoader />}><TermsOfService /></Suspense>} />
       <Route path="/terms" element={<Navigate to="/terms-of-service" replace />} />
-
-      {/* Settings-specific Terms (kept public like in your file) */}
-      <Route path="/terms-of-service-settings" element={<PublicRoute><Suspense fallback={<PageLoader />}><TermsOfServiceSettings /></Suspense></PublicRoute>} />
 
       {/* 404 */}
       <Route path="*" element={<Suspense fallback={<PageLoader />}><NotFound /></Suspense>} />
