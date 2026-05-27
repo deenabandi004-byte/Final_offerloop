@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Optional
 
 from app.config import PERPLEXITY_API_KEY
@@ -19,6 +20,54 @@ logger = logging.getLogger(__name__)
 
 # Lazy-init client singleton
 _client = None
+
+# Structured-output schema for verify_hiring_managers_v2.
+# Module-level so Perplexity warms it once per process (first request with a
+# new schema incurs a 10-30s prep delay per their structured-outputs docs).
+_HM_VERIFY_SCHEMA = {
+    "name": "hm_verification",
+    "schema": {
+        "type": "object",
+        "properties": {
+            "still_at_company": {"type": "string", "enum": ["yes", "no", "unknown"]},
+            "current_title": {"type": "string"},
+            "actively_hiring": {"type": "string", "enum": ["yes", "no", "unknown"]},
+            "recent_hiring_signal": {"type": "string"},
+            "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+        },
+        "required": [
+            "still_at_company",
+            "current_title",
+            "actively_hiring",
+            "recent_hiring_signal",
+            "confidence",
+        ],
+        "additionalProperties": False,
+    },
+}
+
+
+def _chat_with_retry(client, **kwargs):
+    """Wrap a chat.completions.create call with exponential backoff on 429s.
+
+    Sonar-pro is typically capped at 50 req/min — bursts during cron cycle
+    dispatch can briefly exceed that. 3 attempts with 2/4/8 second waits.
+    """
+    last_exc = None
+    for attempt in range(3):
+        try:
+            return client.chat.completions.create(**kwargs)
+        except Exception as e:
+            last_exc = e
+            status = getattr(getattr(e, "response", None), "status_code", None) or getattr(e, "status_code", None)
+            name = e.__class__.__name__.lower()
+            if status == 429 or "rate" in name or "ratelimit" in name:
+                if attempt < 2:
+                    time.sleep(2 ** (attempt + 1))
+                    continue
+            raise
+    if last_exc:
+        raise last_exc
 
 
 def _get_client():
@@ -53,6 +102,25 @@ def _parse_json_response(content: str) -> dict | list:
         return json.loads(text)
     except (json.JSONDecodeError, ValueError):
         return {"raw_text": content}
+
+
+# Hedging phrases Perplexity returns when it can't find recent news but doesn't
+# obey the "reply NONE" instruction. Any bullet containing one of these is
+# filler, not signal — drop before injecting into outreach prompts.
+_HEDGE_PATTERNS = (
+    "no major", "closest notable", "outside the requested",
+    "i can't verify", "i cannot verify", "not a major",
+    "the result only confirms", "no specific", "could not find",
+    "couldn't find", "no announcement", "no notable", "no recent",
+    "no search results", "no direct evidence", "unable to verify",
+)
+
+
+def _is_hedging_bullet(item: str) -> bool:
+    """True if a news bullet is hedging language rather than a concrete fact."""
+    if not isinstance(item, str):
+        return True
+    return any(p in item.lower() for p in _HEDGE_PATTERNS)
 
 
 # ── Core search functions ────────────────────────────────────────────────
@@ -296,6 +364,391 @@ def discover_companies_live(
         return []
 
 
+def discover_firms(
+    industry: str,
+    location: dict | None,
+    size: str = "none",
+    keywords: list[str] | None = None,
+    limit: int = 20,
+    original_query: str = "",
+) -> list[dict]:
+    """Discover firms matching a structured filter set via live web search.
+
+    Primary discovery for the Find Companies pipeline. One Sonar Pro call
+    returns enriched company records, so most firms skip the per-firm
+    Perplexity+Firecrawl enrichment round-trip downstream.
+
+    Args:
+        industry: Industry string (e.g., "talent agencies", "fintech").
+        location: {"locality": str|None, "region": str|None, "country": str|None}.
+        size: "small" | "mid" | "large" | "none".
+        keywords: Optional extra keywords from the parsed prompt.
+        limit: Target number of firms to return.
+        original_query: The raw user query, used as the strongest matching signal.
+
+    Returns:
+        list of dicts shaped for transform_serp_company_to_firm:
+        {name, website, linkedinUrl, location:{city,state,country},
+         industry, employeeCount, sizeBucket, founded}
+    """
+    client = _get_client()
+    if not client:
+        return []
+
+    keywords = keywords or []
+    location = location or {}
+    loc_parts = [v for v in (
+        location.get("locality"),
+        location.get("region"),
+        location.get("country"),
+    ) if v]
+    location_str = ", ".join(loc_parts) if loc_parts else ""
+
+    size_clause = ""
+    if size == "small":
+        size_clause = "Prefer small companies (1-50 employees)."
+    elif size == "mid":
+        size_clause = "Prefer mid-sized companies (51-500 employees)."
+    elif size == "large":
+        size_clause = "Prefer large companies (500+ employees)."
+
+    keyword_clause = f"Keywords to match: {', '.join(keywords)}." if keywords else ""
+    query_clause = f'The user\'s original query: "{original_query}". Match this exactly.' if original_query else ""
+
+    from app.services.enrichment_cache import get_cached, set_cached
+    cache_key = [
+        "discover_firms",
+        industry or "",
+        location_str,
+        size,
+        ",".join(sorted(keywords)),
+        original_query[:120],
+        str(limit),
+    ]
+    cached = get_cached("firm_discovery", cache_key)
+    if cached and isinstance(cached, list):
+        return cached
+
+    prompt = (
+        f"Find {limit} real, currently-operating companies matching these filters.\n"
+        f"Industry: {industry or 'any'}\n"
+        f"Location: {location_str or 'any'}\n"
+        f"{size_clause}\n"
+        f"{keyword_clause}\n"
+        f"{query_clause}\n\n"
+        "CRITICAL: Return only real companies that match the EXACT type the user asked for. "
+        "If the query says 'talent agencies', return talent agencies (CAA, WME, UTA), "
+        "not movie studios or production companies.\n\n"
+        "For each company, look up and return verified data — do not guess. "
+        "Return ONLY a JSON object with a 'companies' array. Each entry must have:\n"
+        '  - name (string): official company name\n'
+        '  - website (string|null): official website URL with https:// prefix\n'
+        '  - linkedinUrl (string|null): https://linkedin.com/company/<slug>\n'
+        '  - location: {"city": string|null, "state": string|null, "country": string|null}\n'
+        '  - industry (string|null): primary industry\n'
+        '  - employeeCount (integer|null): current headcount\n'
+        '  - sizeBucket (string|null): "small" | "mid" | "large"\n'
+        '  - founded (integer|null): 4-digit founding year\n'
+        'No markdown, no commentary — JSON only.'
+    )
+
+    try:
+        response = _chat_with_retry(
+            client,
+            model="sonar-pro",
+            messages=[{"role": "user", "content": prompt}],
+        )
+        content = response.choices[0].message.content
+        parsed = _parse_json_response(content)
+
+        if isinstance(parsed, dict) and "companies" in parsed:
+            companies = parsed["companies"]
+        elif isinstance(parsed, list):
+            companies = parsed
+        else:
+            companies = []
+
+        cleaned = [c for c in companies if isinstance(c, dict) and c.get("name")]
+
+        if cleaned:
+            set_cached("firm_discovery", cache_key, cleaned)
+        return cleaned
+    except Exception:
+        logger.warning("Perplexity discover_firms failed", exc_info=True)
+        return []
+
+
+# ── Agent Mode replacements for Firecrawl + Apify ────────────────────────
+
+
+def enrich_job_posting_live(
+    url: str | None,
+    title: str,
+    company: str,
+    location: str = "",
+) -> dict:
+    """Replaces firecrawl_client.extract_job_posting() in Agent Mode.
+
+    Two-stage extraction: full schema via sonar-pro, then a narrow sonar
+    follow-up if salary_range is blank (compensation often lives on
+    Levels.fyi / Built In / Glassdoor, not the canonical posting). The
+    `hiring_manager` field is deliberately omitted to avoid hallucinating
+    named individuals — verified HM data comes only from the dedicated
+    find_hiring_managers action's verify_hiring_managers path.
+
+    Returns the same superset of keys consumers expect at
+    agent_actions.execute_find_jobs.
+    """
+    client = _get_client()
+    if not client:
+        return {}
+
+    from app.services.enrichment_cache import get_cached, set_cached
+    cache_key = ["job_posting_pplx", url or "", title.lower(), company.lower()]
+    cached = get_cached("job_posting_pplx", cache_key)
+    if cached:
+        return cached
+
+    prompt = (
+        f"You are extracting structured data about a job posting. Search "
+        f"the web for this posting and return a single JSON object — no "
+        f"commentary, no markdown fences.\n\n"
+        f"Job: {title}\n"
+        f"Company: {company}\n"
+        f"Location: {location}\n"
+        f"Posting URL (if known): {url or ''}\n\n"
+        f"Cross-reference:\n"
+        f"- The official posting (if reachable)\n"
+        f"- Levels.fyi, Built In, Glassdoor for salary\n"
+        f"- The company's careers page for team naming\n\n"
+        f"Return EXACTLY this schema. Use \"\" or [] for fields you can't "
+        f"find with high confidence — never invent.\n\n"
+        f"{{\n"
+        f'  "requirements": ["..."],\n'
+        f'  "nice_to_have": ["..."],\n'
+        f'  "responsibilities": ["..."],\n'
+        f'  "salary_range": "$X-$Y or \'Not disclosed\'",\n'
+        f'  "team_or_department": "...",\n'
+        f'  "experience_level": "intern | new grad | mid | senior | ...",\n'
+        f'  "employment_type": "full_time | intern | contract"\n'
+        f"}}"
+    )
+
+    try:
+        response = _chat_with_retry(
+            client,
+            model="sonar-pro",
+            messages=[{"role": "user", "content": prompt}],
+        )
+        content = response.choices[0].message.content or ""
+        parsed = _parse_json_response(content)
+        if not isinstance(parsed, dict) or "raw_text" in parsed:
+            return {}
+
+        # Stage 2: narrow salary lookup if stage 1 missed it.
+        salary = (parsed.get("salary_range") or "").strip()
+        if not salary or salary.lower() in ("not disclosed", "n/a", "tbd", "unknown"):
+            backfill = _stage2_salary_only(title, company, location)
+            if backfill:
+                parsed["salary_range"] = backfill
+
+        # Strip empty optional fields to keep Firestore docs lean.
+        clean = {k: v for k, v in parsed.items() if v not in ("", [], None)}
+        if clean:
+            set_cached("job_posting_pplx", cache_key, clean)
+        return clean
+    except Exception:
+        logger.warning("Perplexity enrich_job_posting_live failed for %s @ %s", title, company, exc_info=True)
+        return {}
+
+
+def _stage2_salary_only(title: str, company: str, location: str) -> str:
+    """Narrow sonar call for salary range when stage 1 returned blank.
+
+    Cached at (title, company, location) granularity since compensation
+    bands are role-level, not posting-level. Returns a short string or "".
+    """
+    client = _get_client()
+    if not client:
+        return ""
+
+    from app.services.enrichment_cache import get_cached, set_cached
+    cache_key = ["salary_lookup", title.lower(), company.lower(), (location or "").lower()]
+    cached = get_cached("salary_lookup", cache_key)
+    if cached is not None:
+        return cached if isinstance(cached, str) else ""
+
+    prompt = (
+        f"What is the typical compensation range for {title} at {company}"
+        f"{' in ' + location if location else ''}? "
+        f"Cite Levels.fyi, Built In, Glassdoor, or Pave with the year of the data. "
+        f"Return a single short string like '$X-$Y total comp (Levels.fyi 2025)' "
+        f"or exactly 'Not disclosed' if no public data exists. No commentary."
+    )
+
+    try:
+        response = _chat_with_retry(
+            client,
+            model="sonar",
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = (response.choices[0].message.content or "").strip()
+        # Strip surrounding quotes/markdown the model sometimes adds.
+        text = text.strip("`").strip('"').strip("'").strip()
+        result = "" if text.lower().startswith("not disclosed") else text[:200]
+        set_cached("salary_lookup", cache_key, result)
+        return result
+    except Exception:
+        logger.warning("Perplexity _stage2_salary_only failed for %s @ %s", title, company, exc_info=True)
+        return ""
+
+
+def enrich_company_profile_live(name: str, website: str | None = None) -> dict:
+    """Replaces firecrawl_client.extract_company_profile() in Agent Mode.
+
+    Returns the same keys consumed at agent_actions.execute_discover_companies:
+    description, hiring_signal, recent_news, culture_keywords, headquarters,
+    industries.
+    """
+    client = _get_client()
+    if not client:
+        return {}
+
+    from app.services.enrichment_cache import get_cached, set_cached
+    cache_key = ["company_profile_pplx", name.lower(), (website or "")]
+    cached = get_cached("company_profile_pplx", cache_key)
+    if cached:
+        return cached
+
+    prompt = (
+        f"Research {name}"
+        f"{' (website: ' + website + ')' if website else ''} "
+        f"and return structured JSON. No commentary, no markdown fences.\n\n"
+        f"{{\n"
+        f'  "description": "2-3 sentence neutral company description",\n'
+        f'  "hiring_signal": "One sentence on hiring momentum (recent layoffs vs '
+        f'expansion, new funding, named expansion teams)",\n'
+        f'  "recent_news": ["..."],\n'
+        f'  "culture_keywords": ["..."],\n'
+        f'  "headquarters": "City, State/Country",\n'
+        f'  "industries": ["..."]\n'
+        f"}}\n\n"
+        f"Anchor on official sources first (careers page, press releases) before "
+        f"secondary coverage. If a field is unknown, return \"\" or [] — do not guess."
+    )
+
+    try:
+        response = _chat_with_retry(
+            client,
+            model="sonar-pro",
+            messages=[{"role": "user", "content": prompt}],
+        )
+        content = response.choices[0].message.content or ""
+        parsed = _parse_json_response(content)
+        if not isinstance(parsed, dict) or "raw_text" in parsed:
+            return {}
+
+        # Cap list sizes to keep payloads small.
+        if isinstance(parsed.get("recent_news"), list):
+            parsed["recent_news"] = [s for s in parsed["recent_news"] if isinstance(s, str) and s.strip()][:5]
+        if isinstance(parsed.get("culture_keywords"), list):
+            parsed["culture_keywords"] = [s for s in parsed["culture_keywords"] if isinstance(s, str) and s.strip()][:5]
+        if isinstance(parsed.get("industries"), list):
+            parsed["industries"] = [s for s in parsed["industries"] if isinstance(s, str) and s.strip()][:3]
+
+        clean = {k: v for k, v in parsed.items() if v not in ("", [], None)}
+        if clean:
+            set_cached("company_profile_pplx", cache_key, clean)
+        return clean
+    except Exception:
+        logger.warning("Perplexity enrich_company_profile_live failed for %s", name, exc_info=True)
+        return {}
+
+
+def enrich_professional_presence(contacts: list[dict]) -> dict[int, dict]:
+    """Replaces apify_client.batch_enrich_linkedin_posts_via_apify in Agent Mode.
+
+    Perplexity cannot read LinkedIn directly. Instead surfaces public
+    signal that's functionally equivalent for email personalization:
+    conference talks, podcast appearances, GitHub activity, public posts
+    on personal blogs / X / Substack, press quotes.
+
+    Returns dict[idx] -> {"linkedin_recent_posts": [{text, url, posted_at, kind}]}.
+    Field name is kept as `linkedin_recent_posts` even though sources broaden,
+    so the consumer at agent_actions.py:221 and the contactDoc.linkedinRecentPosts
+    Firestore field need no changes.
+    """
+    client = _get_client()
+    if not client:
+        return {}
+
+    from app.services.enrichment_cache import get_cached, set_cached
+    results: dict[int, dict] = {}
+
+    for idx, contact in enumerate(contacts):
+        name = f"{contact.get('FirstName', '')} {contact.get('LastName', '')}".strip()
+        company = (contact.get("Company") or contact.get("company") or "").strip()
+        title = (contact.get("Title") or contact.get("jobTitle") or "").strip()
+
+        if not name or not company:
+            continue
+
+        cache_key = ["pro_presence", name.lower(), company.lower()]
+        cached = get_cached("pro_presence", cache_key)
+        if cached:
+            results[idx] = cached
+            continue
+
+        prompt = (
+            f"Find {name}'s most recent PUBLIC professional activity in the last "
+            f"6 months. Context: {title} at {company}. Sources to check: personal "
+            f"blogs, Twitter/X, Substack, Medium, GitHub, conference websites, "
+            f"podcast feeds, press coverage.\n\n"
+            f"DO NOT include LinkedIn URLs or LinkedIn-only signal (the LinkedIn "
+            f"API blocks us). DO include public mirrors of LinkedIn posts when "
+            f"reposted elsewhere.\n\n"
+            f"Return JSON: {{\"items\": [\n"
+            f'  {{"text": "...", "url": "...", "posted_at": "YYYY-MM-DD", '
+            f'"kind": "talk|article|post|repo|press"}}\n'
+            f"]}}\n\n"
+            f"Cap at 5 items. If none found, return {{\"items\": []}}. Never invent."
+        )
+
+        try:
+            response = _chat_with_retry(
+                client,
+                model="sonar-pro",
+                messages=[{"role": "user", "content": prompt}],
+            )
+            content = response.choices[0].message.content or ""
+            parsed = _parse_json_response(content)
+
+            items = []
+            if isinstance(parsed, dict) and isinstance(parsed.get("items"), list):
+                for it in parsed["items"][:5]:
+                    if not isinstance(it, dict):
+                        continue
+                    text = (it.get("text") or "").strip()
+                    if not text:
+                        continue
+                    items.append({
+                        "text": text[:300],
+                        "url": (it.get("url") or "").strip(),
+                        "posted_at": (it.get("posted_at") or "").strip(),
+                        "kind": (it.get("kind") or "post").strip(),
+                    })
+
+            payload = {"linkedin_recent_posts": items}
+            results[idx] = payload
+            if items:
+                set_cached("pro_presence", cache_key, payload)
+        except Exception:
+            logger.warning("Perplexity enrich_professional_presence failed for %s", name, exc_info=True)
+            continue
+
+    return results
+
+
 def batch_enrich_contacts(contacts: list[dict]) -> dict[int, dict]:
     """Enrich contacts with NON-LinkedIn web presence.
 
@@ -423,7 +876,10 @@ def batch_enrich_company_news(contacts: list[dict]) -> dict[int, dict]:
     for key, indices in name_to_indices.items():
         display_name = (contacts[indices[0]].get("Company") or contacts[indices[0]].get("company") or key).strip()
 
-        cache_key = ["company_news", key]
+        # v2 cache key — old "company_news" entries had hedging bullets that
+        # leaked through ("no major announcement", "outside the window", etc).
+        # See _HEDGE_PATTERNS below + the tightened prompt for the fix.
+        cache_key = ["company_news_v2", key]
         cached = get_cached("company_enrichment", cache_key)
         if cached:
             payload = cached
@@ -435,10 +891,15 @@ def batch_enrich_company_news(contacts: list[dict]) -> dict[int, dict]:
                         "role": "user",
                         "content": (
                             f"What notable developments has {display_name} announced "
-                            f"in the last 3 months? Cover product launches, funding "
+                            f"in the last 60 days? Cover product launches, funding "
                             f"rounds, leadership changes, major hires, or notable news. "
                             f"Reply as 3-5 short bullet points, each one specific and "
-                            f"factual. If nothing notable, reply with 'NONE'."
+                            f"factual. If nothing notable, reply with EXACTLY 'NONE'. "
+                            f"DO NOT include hedging or meta-commentary like 'no major "
+                            f"announcement', 'closest notable item is', 'outside the "
+                            f"requested window', 'I can't verify', 'the result only "
+                            f"confirms', or anything that admits the lack of a fact. "
+                            f"Only return concrete, dated, verifiable announcements."
                         ),
                     }],
                     extra_body={"search_recency_filter": "month"},
@@ -448,6 +909,9 @@ def batch_enrich_company_news(contacts: list[dict]) -> dict[int, dict]:
                     news = []
                 else:
                     news = _parse_bullet_points(content)
+                    # Defensive: drop any bullet that's actually hedging rather
+                    # than a fact. Belt-and-suspenders with the tightened prompt.
+                    news = [item for item in news if not _is_hedging_bullet(item)]
                 payload = {
                     "company_recent_news": news,
                     "company_description": content[:500] if news else "",
@@ -522,6 +986,105 @@ def verify_hiring_managers(
             results.append({"verified": True})
 
     return results
+
+
+def verify_hiring_managers_v2(
+    hms: list[dict],
+    company: str,
+    job_title: str,
+    max_workers: int = 5,
+) -> list[dict]:
+    """Verify hiring managers via Perplexity with structured output + parallelism.
+
+    Returns a list aligned with `hms`. Each entry:
+        {still_at_company: "yes"|"no"|"unknown",
+         current_title: str,
+         actively_hiring: "yes"|"no"|"unknown",
+         recent_hiring_signal: str,
+         confidence: "high"|"medium"|"low"}
+
+    Conservative on failure: unknown candidates are kept by callers. If
+    PERPLEXITY_API_KEY is unset, every entry returns still_at_company=unknown
+    so the pipeline degrades to PDL-only behavior.
+    """
+    client = _get_client()
+    if not client:
+        return [
+            {
+                "still_at_company": "unknown",
+                "current_title": "",
+                "actively_hiring": "unknown",
+                "recent_hiring_signal": "",
+                "confidence": "low",
+            }
+            for _ in hms
+        ]
+
+    from concurrent.futures import ThreadPoolExecutor
+    from app.services.enrichment_cache import get_cached, set_cached
+
+    def _default_result() -> dict:
+        return {
+            "still_at_company": "unknown",
+            "current_title": "",
+            "actively_hiring": "unknown",
+            "recent_hiring_signal": "",
+            "confidence": "low",
+        }
+
+    def _verify_one(hm: dict) -> dict:
+        name = f"{hm.get('FirstName', '')} {hm.get('LastName', '')}".strip()
+        if not name or not company:
+            return _default_result()
+
+        cache_key = ["hm_verify_v2", name.lower(), company.lower()]
+        cached = get_cached("hiring_verification", cache_key)
+        if cached:
+            return cached
+
+        prompt = (
+            f"Is {name} currently employed at {company}? "
+            f"What is their current title? "
+            f"Is {company} actively hiring for {job_title} or similar roles right now? "
+            f"Any recent LinkedIn/news signal of hiring activity from this person "
+            f"or their team in the last 30 days?"
+        )
+
+        try:
+            response = _chat_with_retry(
+                client,
+                model="sonar",
+                messages=[{"role": "user", "content": prompt}],
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": _HM_VERIFY_SCHEMA,
+                },
+                extra_body={"search_recency_filter": "month"},
+            )
+            content = response.choices[0].message.content or ""
+            parsed = _parse_json_response(content)
+
+            if not isinstance(parsed, dict) or "still_at_company" not in parsed:
+                return _default_result()
+
+            result = {
+                "still_at_company": parsed.get("still_at_company", "unknown"),
+                "current_title": (parsed.get("current_title") or "").strip(),
+                "actively_hiring": parsed.get("actively_hiring", "unknown"),
+                "recent_hiring_signal": (parsed.get("recent_hiring_signal") or "").strip(),
+                "confidence": parsed.get("confidence", "low"),
+            }
+            set_cached("hiring_verification", cache_key, result)
+            return result
+        except Exception:
+            logger.warning("HM verify v2 failed for %s", name, exc_info=True)
+            return _default_result()
+
+    if not hms:
+        return []
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        return list(pool.map(_verify_one, hms))
 
 
 def get_company_news_brief(

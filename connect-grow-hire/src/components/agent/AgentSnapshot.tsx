@@ -503,10 +503,21 @@ export function AgentSnapshot({
         {(isActive || isPaused) && (
           <button
             onClick={() => cycleRunner.runNow()}
-            disabled={cycleRunner.isRunNowPending || cycleRunner.isRunning}
+            disabled={
+              cycleRunner.isRunNowPending ||
+              cycleRunner.isRunning ||
+              cycleRunner.isOnCooldown
+            }
+            title={
+              cycleRunner.isOnCooldown
+                ? `Cooling down… ${Math.ceil(cycleRunner.cooldownRemainingMs / 1000)}s`
+                : "Trigger a manual cycle"
+            }
             className="bg-white text-[var(--ink,#0F172A)] border border-[#e9eaef] rounded-md px-4 py-2 text-[13px] font-medium tracking-[-0.01em] cursor-pointer hover:bg-[#fafafa] transition-colors disabled:opacity-50"
           >
-            Run now
+            {cycleRunner.isOnCooldown
+              ? `Run now (${Math.ceil(cycleRunner.cooldownRemainingMs / 1000)}s)`
+              : "Run now"}
           </button>
         )}
         <button
@@ -1130,9 +1141,10 @@ function ApprovalRow({
         <button
           onClick={onReject}
           disabled={loading}
+          title="Skip this action only — the company stays in your targets"
           className="bg-white text-[#8089a0] border border-[#e9eaef] rounded-md px-3 py-1.5 text-[12px] font-medium cursor-pointer hover:bg-[#fafafa] transition-colors disabled:opacity-50 flex items-center gap-1"
         >
-          <XCircle className="h-3 w-3" /> Skip
+          <XCircle className="h-3 w-3" /> Skip this one
         </button>
         <button
           onClick={handleApprove}

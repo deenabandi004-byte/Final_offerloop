@@ -734,11 +734,9 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
 
     const handleViewInTracker = () => {
       onImportComplete?.();
-      if (onSwitchTab) {
-        onSwitchTab('contact-library');
-      } else {
-        navigate('/find?tab=contact-library');
-      }
+      // Imported contacts live on My Network → People (the inner
+      // contact-library tab was removed in the IA cleanup).
+      navigate('/my-network?tab=people');
     };
 
     return (

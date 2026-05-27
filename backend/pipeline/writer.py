@@ -63,6 +63,9 @@ def write_jobs(normalized_jobs: list[dict]) -> dict:
             # Flag for Phase 1 enricher; pipeline/enricher.py picks these up
             # and fills in `structured` from Firecrawl.
             doc.setdefault("enrichment_status", "pending")
+            # Flag for the PDL title pre-enricher; pipeline/title_enricher.py
+            # picks these up and writes structured.title_meta.
+            doc.setdefault("title_enrichment_status", "pending")
             ref = db.collection(COLLECTION).document(jid)
             batch.set(ref, doc)
         batch.commit()

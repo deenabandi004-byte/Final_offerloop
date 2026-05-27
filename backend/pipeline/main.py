@@ -12,6 +12,8 @@ Usage:
     python pipeline/main.py --enrich-only --limit=300 # Custom batch size (caps at 500)
     python pipeline/main.py --backfill-enrich                            # Backfill legacy jobs (default: last 14 days only)
     python pipeline/main.py --backfill-enrich --since-days=30 --limit=2000  # Custom backfill window + cap
+    python pipeline/main.py --title-enrich-only       # PDL title enrichment for pending jobs
+    python pipeline/main.py --backfill-title-enrich   # Backfill title enrichment for legacy jobs
 """
 from dotenv import load_dotenv
 load_dotenv()
@@ -212,6 +214,28 @@ def run_enrich(limit: int = 200, backfill: bool = False, since_days: int | None 
     return result
 
 
+def run_title_enrich(limit: int = 200, backfill: bool = False, since_days: int | None = None):
+    """PDL Job Title Enrichment: fill in structured.title_meta on pending jobs.
+
+    Mirrors run_enrich's shape. Budget guards live in pdl_title_cache (per-run
+    cap, 45k circuit breaker, persistent Firestore cache).
+    """
+    from backend.pipeline.title_enricher import enrich_titles
+
+    logger.info("Running title-enricher (limit=%d, backfill=%s, since_days=%s)...",
+                limit, backfill, since_days)
+    result = enrich_titles(limit=limit, backfill=backfill, since_days=since_days)
+
+    print()
+    print("Title enrichment complete.")
+    print(f"  Processed:           {result.get('processed', 0)}")
+    print(f"  Enriched (signal):   {result.get('enriched', 0)}")
+    print(f"  Noop (no synonyms):  {result.get('noop', 0)}")
+    print(f"  Skipped (no title):  {result.get('skipped', 0)}")
+    print(f"  PDL calls used:      {result.get('pdl_calls', 0)} (rest were cache hits)")
+    return result
+
+
 def _parse_limit(default: int = 200) -> int:
     for arg in sys.argv:
         if arg.startswith("--limit="):
@@ -248,6 +272,17 @@ if __name__ == "__main__":
             since_days = _parse_since_days(default=14)  # default: last 14 days only
             mode, runner = "backfill-enrich", (
                 lambda: run_enrich(limit=limit, backfill=True, since_days=since_days)
+            )
+        elif "--title-enrich-only" in sys.argv:
+            limit = _parse_limit(200)
+            mode, runner = "title-enrich-only", (
+                lambda: run_title_enrich(limit=limit, backfill=False)
+            )
+        elif "--backfill-title-enrich" in sys.argv:
+            limit = _parse_limit(500)
+            since_days = _parse_since_days(default=14)
+            mode, runner = "backfill-title-enrich", (
+                lambda: run_title_enrich(limit=limit, backfill=True, since_days=since_days)
             )
         elif "--fantastic-only" in sys.argv:
             mode, runner = "fantastic-only", run_fantastic_only

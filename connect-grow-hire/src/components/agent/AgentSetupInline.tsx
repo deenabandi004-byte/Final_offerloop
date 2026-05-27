@@ -15,7 +15,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { updateAgentConfig, deployAgent } from "@/services/agent";
+import { updateAgentConfig, deployAgent, parseBrief } from "@/services/agent";
+import { firebaseApi } from "@/services/firebaseApi";
+import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -40,6 +42,10 @@ const INDUSTRY_OPTIONS = [
 const COMPANY_SUGGESTIONS = ["Stripe", "Linear", "Vercel", "Notion", "Ramp", "Arc", "Anthropic"];
 const ROLE_SUGGESTIONS = ["Product Designer", "Design Engineer", "Analyst", "Associate", "Software Engineer"];
 
+// Mirror of backend CREDIT_COSTS.contact in app/services/loop_budget.py
+// (find + draft per contact). Keep in sync with LoopActivityFeed.tsx.
+const CREDIT_COST_PER_CONTACT = 9;
+
 const KIND_META: Record<string, { color: string; label: string }> = {
   scan:     { color: "#7d8ba6", label: "scan" },
   research: { color: "#7d8ba6", label: "research" },
@@ -48,6 +54,28 @@ const KIND_META: Record<string, { color: string; label: string }> = {
   verify:   { color: "#16a34a", label: "verify" },
   queue:    { color: "#7d8ba6", label: "queue" },
 };
+
+// Compose a one-paragraph brief from the chip wizard so the same backend
+// pipeline (POST /api/agent/brief → briefText + briefParsed) is the single
+// source of truth as the freeform Loop composer.
+function buildSyntheticBrief(form: {
+  companies: string[];
+  industries: string[];
+  roles: string[];
+  weeklyTarget: number;
+  preferAlumni: boolean;
+}): string {
+  const parts: string[] = [];
+  const whoBits: string[] = [];
+  if (form.roles.length) whoBits.push(form.roles.join(", "));
+  if (form.companies.length) whoBits.push(`at ${form.companies.join(", ")}`);
+  else if (form.industries.length) whoBits.push(`in ${form.industries.join(", ")}`);
+  parts.push(
+    `Find ${form.weeklyTarget} ${whoBits.join(" ") || "professionals"} per week.`
+  );
+  if (form.preferAlumni) parts.push("Prefer alumni from my university.");
+  return parts.join(" ");
+}
 
 function buildPreviewTraces(form: {
   companies: string[];
@@ -171,13 +199,19 @@ function TagInput({
   const [val, setVal] = useState("");
   const [focused, setFocused] = useState(false);
 
+  // Case-insensitive dedup keeps the first insertion's casing while preventing
+  // "Stripe" / "stripe" / "STRIPE" from accreting as three separate targets.
   const add = (v?: string) => {
     const t = (v || val).trim();
-    if (t && !list.includes(t)) setList([...list, t]);
+    if (t && !list.some((x) => x.toLowerCase() === t.toLowerCase())) {
+      setList([...list, t]);
+    }
     setVal("");
   };
   const rem = (t: string) => setList(list.filter((x) => x !== t));
-  const remaining = suggestions.filter((s) => !list.includes(s));
+  const remaining = suggestions.filter(
+    (s) => !list.some((x) => x.toLowerCase() === s.toLowerCase())
+  );
 
   return (
     <div>
@@ -506,9 +540,11 @@ interface FormState {
 function StepGoals({
   form,
   set,
+  hasUniversity,
 }: {
   form: FormState;
   set: (patch: Partial<FormState>) => void;
+  hasUniversity: boolean;
 }) {
   return (
     <div>
@@ -543,10 +579,16 @@ function StepGoals({
             Prefer alumni
           </div>
           <div className="text-xs mt-0.5" style={{ color: "var(--ink-3)" }}>
-            Boost contacts from your university.
+            {hasUniversity
+              ? "Boost contacts from your university."
+              : "Set your university in Account Settings to use this."}
           </div>
         </div>
-        <Switch checked={form.preferAlumni} onCheckedChange={(v) => set({ preferAlumni: v })} />
+        <Switch
+          checked={hasUniversity && form.preferAlumni}
+          disabled={!hasUniversity}
+          onCheckedChange={(v) => set({ preferAlumni: v })}
+        />
       </div>
     </div>
   );
@@ -563,9 +605,20 @@ function StepCadence({
     <div>
       <Field label="Weekly contact target" hint="How many new contacts per week">
         <div className="flex items-baseline gap-2 mb-2.5">
-          <span className="text-[28px] font-medium leading-none" style={{ color: "var(--ink)" }}>
-            {form.weeklyTarget}
-          </span>
+          <input
+            type="number"
+            min={1}
+            max={15}
+            step={1}
+            value={form.weeklyTarget}
+            onChange={(e) => {
+              const n = Math.max(1, Math.min(15, Math.round(Number(e.target.value) || 1)));
+              set({ weeklyTarget: n });
+            }}
+            className="text-[28px] font-medium leading-none bg-transparent border-0 p-0 w-[3ch] focus:outline-none focus:ring-0"
+            style={{ color: "var(--ink)" }}
+            aria-label="Weekly contact target"
+          />
           <span className="text-xs" style={{ color: "var(--ink-3)" }}>
             contacts / week
           </span>
@@ -585,9 +638,20 @@ function StepCadence({
 
       <Field label="Credit budget" hint="Max credits the agent can spend per week">
         <div className="flex items-baseline gap-2 mb-2.5">
-          <span className="text-[28px] font-medium leading-none" style={{ color: "var(--ink)" }}>
-            {form.creditBudget}
-          </span>
+          <input
+            type="number"
+            min={10}
+            max={150}
+            step={1}
+            value={form.creditBudget}
+            onChange={(e) => {
+              const n = Math.max(10, Math.min(150, Math.round(Number(e.target.value) || 10)));
+              set({ creditBudget: n });
+            }}
+            className="text-[28px] font-medium leading-none bg-transparent border-0 p-0 w-[4ch] focus:outline-none focus:ring-0"
+            style={{ color: "var(--ink)" }}
+            aria-label="Credit budget per week"
+          />
           <span className="text-xs" style={{ color: "var(--ink-3)" }}>
             credits / week
           </span>
@@ -603,6 +667,20 @@ function StepCadence({
           <span>10</span>
           <span>150</span>
         </div>
+        {(() => {
+          const estimated = form.weeklyTarget * CREDIT_COST_PER_CONTACT;
+          const underfunded = form.creditBudget < estimated;
+          return (
+            <div
+              className="text-xs mt-2"
+              style={{ color: underfunded ? "#b91c1c" : "var(--ink-3)" }}
+            >
+              {underfunded
+                ? `Budget too low: ${form.weeklyTarget} contacts/week needs ~${estimated} credits. Raise the budget or lower the target.`
+                : `${form.weeklyTarget} contacts/week ≈ ${estimated} credits (each find + draft costs ${CREDIT_COST_PER_CONTACT}).`}
+            </div>
+          );
+        })()}
       </Field>
 
       <Field label="Approval mode">
@@ -689,8 +767,20 @@ function StepReview({ form }: { form: FormState }) {
 
 export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
   const { toast } = useToast();
+  const { user } = useFirebaseAuth();
   const [stepIdx, setStepIdx] = useState(0);
   const [deploying, setDeploying] = useState(false);
+  // null = still loading, "" = onboarded but no school, "USC" = set.
+  const [university, setUniversity] = useState<string | null>(null);
+  const hasUniversity = !!(university && university.trim());
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    firebaseApi
+      .getUserOnboardingData(user.uid)
+      .then((d) => setUniversity(d.university || ""))
+      .catch(() => setUniversity(""));
+  }, [user?.uid]);
 
   const [form, setForm] = useState<FormState>({
     companies: [],
@@ -705,10 +795,14 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
 
   const step = STEPS[stepIdx];
   const isLast = stepIdx === STEPS.length - 1;
-  const canDeploy = form.companies.length > 0 || form.industries.length > 0;
+  const estimatedWeeklyCredits = form.weeklyTarget * CREDIT_COST_PER_CONTACT;
+  const budgetUnderfunded = form.creditBudget < estimatedWeeklyCredits;
+  const canDeploy =
+    (form.companies.length > 0 || form.industries.length > 0) &&
+    !budgetUnderfunded;
 
   const handleDeploy = async () => {
-    if (!canDeploy) {
+    if (form.companies.length === 0 && form.industries.length === 0) {
       toast({
         title: "Add targets",
         description: "Add at least one target company or industry.",
@@ -716,18 +810,32 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
       });
       return;
     }
+    if (budgetUnderfunded) {
+      toast({
+        title: "Budget too low",
+        description: `${form.weeklyTarget} contacts/week needs ~${estimatedWeeklyCredits} credits. Raise the budget or lower the target.`,
+        variant: "destructive",
+      });
+      return;
+    }
     setDeploying(true);
     try {
+      // Brief is canonical: synthesize one from the chips and let the parser
+      // populate briefText + briefParsed (which the planner prefers over the
+      // legacy target fields — see agent_planner.py:44-57). The chip values
+      // are still written for backwards compat with any UI that reads them.
+      const briefText = buildSyntheticBrief(form);
+      await parseBrief(briefText);
       await updateAgentConfig({
         targetCompanies: form.companies,
         targetIndustries: form.industries,
         targetRoles: form.roles,
-        targetLocations: [],
-        preferAlumni: form.preferAlumni,
+        // Don't send preferAlumni=true if the user has no university on file —
+        // it would silently boost nothing. Gate to actual school presence.
+        preferAlumni: hasUniversity && form.preferAlumni,
         weeklyContactTarget: form.weeklyTarget,
         creditBudgetPerWeek: form.creditBudget,
         approvalMode: form.approvalMode,
-        sendMode: "drafts_only",
       });
       await deployAgent();
       toast({ title: "Agent deployed!", description: "Your networking agent is now active." });
@@ -782,7 +890,9 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
 
           {/* Step body */}
           <div className="pt-7">
-            {stepIdx === 0 && <StepGoals form={form} set={set} />}
+            {stepIdx === 0 && (
+              <StepGoals form={form} set={set} hasUniversity={hasUniversity} />
+            )}
             {stepIdx === 1 && <StepCadence form={form} set={set} />}
             {stepIdx === 2 && <StepReview form={form} />}
           </div>

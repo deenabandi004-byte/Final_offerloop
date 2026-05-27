@@ -25,7 +25,7 @@ export interface TourStepConfig {
   title: string;
   content: string;
   route: string;
-  tab?: 'contact-search' | 'contact-library';
+  tab?: 'contact-search';
 }
 
 // -----------------------------------------------------------------------------
@@ -33,7 +33,7 @@ export interface TourStepConfig {
 // -----------------------------------------------------------------------------
 export const TOUR_STEPS: TourStepConfig[] = [
   { target: '[data-tour="tour-search-form"]', title: 'Search or Import', content: 'Search by name, role, or company — or paste a LinkedIn URL to import a contact. We\'ll find their emails and draft outreach for you.', route: '/find', tab: 'contact-search' },
-  { target: '[data-tour="tour-tracker-table"]', title: 'Track Your Contacts', content: 'Everyone you find lands here. Update their status, open email drafts, and export to CSV.', route: '/find', tab: 'contact-library' },
+  { target: '[data-tour="tour-tracker-table"]', title: 'Track Your Contacts', content: 'Everyone you find and save lands here. Update their status, open email drafts, and export to CSV.', route: '/my-network?tab=people' },
   { target: '[data-tour="tour-find-companies"]', title: 'Find Companies', content: 'Describe the type of companies you\'re looking for in plain English and we\'ll find them for you.', route: '/find?tab=companies' },
   { target: '[data-tour="tour-find-hiring-managers"]', title: 'Find Hiring Managers', content: 'Paste a job posting URL and we\'ll find the recruiters and hiring managers for that role.', route: '/find?tab=hiring-managers' },
   { target: '[data-tour="tour-coffee-chat-prep"]', title: 'Coffee Chat Prep', content: 'Paste a LinkedIn URL and get a personalized prep sheet with talking points, recent news, and smart questions.', route: '/coffee-chat-prep' },

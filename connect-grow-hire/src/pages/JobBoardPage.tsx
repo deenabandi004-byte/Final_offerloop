@@ -13,6 +13,8 @@ import {
 import { JobBoardSkeleton } from "@/components/JobBoardSkeleton";
 import { FindHumansModal, type FindHumansJob } from "@/components/jobs/FindHumansModal";
 import { toast } from "@/hooks/use-toast";
+import { auth, db } from "@/lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
 import "./JobBoardEditorial.css";
 
 // Recruiter Search tab uses the existing rich spreadsheet — lazy load to keep
@@ -160,14 +162,18 @@ function Ledger({ summary }: { summary: JobFeedSummary | null }) {
 
 function StandoutCard({
   j,
+  isDream,
   onOpenApply,
   onFindContact,
   onSeeTeam,
+  onToggleDream,
 }: {
   j: FeedJob;
+  isDream: boolean;
   onOpenApply: (j: FeedJob) => void;
   onFindContact: (j: FeedJob) => void;
   onSeeTeam: (j: FeedJob) => void;
+  onToggleDream: (company: string) => Promise<void> | void;
 }) {
   const warm = (j.match_score ?? 0) >= 90;
   return (
@@ -190,6 +196,25 @@ function StandoutCard({
         }}>
           {postedShort(j.posted_at)}
         </span>
+        {j.company && !isDream && (
+          <a
+            onClick={(e) => { e.stopPropagation(); onToggleDream(j.company); }}
+            title="Boost this company in your ranking — remove later in Settings"
+            style={{
+              marginLeft: 8,
+              fontSize: 11,
+              letterSpacing: "0.02em",
+              color: "#94A3B8",
+              cursor: "pointer",
+              textDecoration: "none",
+              transition: "color 0.12s",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "#2563EB"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "#94A3B8"; }}
+          >
+            + Dream company
+          </a>
+        )}
       </div>
       <div className="why">{whyOneLine(j)}</div>
       <div className="actions">
@@ -205,22 +230,26 @@ function JobRow({
   j,
   isOpen,
   isSaved,
+  isDream,
   onToggle,
   onDismiss,
   onApply,
   onFindContact,
   onSeeTeam,
   onSave,
+  onToggleDream,
 }: {
   j: FeedJob;
   isOpen: boolean;
   isSaved: boolean;
+  isDream: boolean;
   onToggle: (id: string) => void;
   onDismiss: (id: string) => Promise<void> | void;
   onApply: (j: FeedJob) => void;
   onFindContact: (j: FeedJob) => void;
   onSeeTeam: (j: FeedJob) => void;
   onSave: (j: FeedJob) => Promise<void> | void;
+  onToggleDream: (company: string) => Promise<void> | void;
 }) {
   const [dismissing, setDismissing] = useState(false);
   const daysOld = postedDaysFrom(j.posted_at) ?? 0;
@@ -262,6 +291,25 @@ function JobRow({
             {normalizeLocation(j.location)}
             <span className="dot">·</span>
             {jobTypeLabel(j.type)}
+            {j.company && !isDream && (
+              <a
+                onClick={(e) => { stop(e); onToggleDream(j.company); }}
+                title="Boost this company in your ranking — remove later in Settings"
+                style={{
+                  marginLeft: 8,
+                  fontSize: 11,
+                  letterSpacing: "0.02em",
+                  color: "#94A3B8",
+                  cursor: "pointer",
+                  textDecoration: "none",
+                  transition: "color 0.12s",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = "#2563EB"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = "#94A3B8"; }}
+              >
+                + Dream company
+              </a>
+            )}
           </div>
           <div className="why">{whyOneLine(j)}</div>
           <div className="actions">
@@ -374,8 +422,11 @@ export const JobBoardPage: React.FC = () => {
 
   const [feed, setFeed] = useState<JobFeedResponse | null>(null);
   const [feedLoading, setFeedLoading] = useState(true);
-  const [summary, setSummary] = useState<JobFeedSummary | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  // Lowercased set for O(1) case-insensitive membership checks.
+  const [dreamCompanyKeys, setDreamCompanyKeys] = useState<Set<string>>(new Set());
+  // Mirror of the array we send back to the server; preserves original casing.
+  const [dreamCompanies, setDreamCompanies] = useState<string[]>([]);
   const [tab, setTab] = useState<SubTab>("jobs");
   const [openId, setOpenId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -405,15 +456,6 @@ export const JobBoardPage: React.FC = () => {
     loadFeed(true, { ungated: next });
   }, [showAll, loadFeed]);
 
-  const loadSummary = useCallback(async () => {
-    try {
-      const s = await apiService.getJobFeedSummary();
-      setSummary(s);
-    } catch (err) {
-      console.warn("summary fetch failed", err);
-    }
-  }, []);
-
   const loadSaved = useCallback(async () => {
     try {
       const r = await apiService.listSavedJobs();
@@ -423,12 +465,34 @@ export const JobBoardPage: React.FC = () => {
     }
   }, []);
 
+  // Load the user's dream companies once so we can render the ★/☆ state
+  // on each job card and toggle it without a round-trip on click.
+  const loadDreamCompanies = useCallback(async () => {
+    try {
+      const uid = auth.currentUser?.uid;
+      if (!uid) return;
+      const snap = await getDoc(doc(db, "users", uid));
+      if (!snap.exists()) return;
+      const d = snap.data() as Record<string, any>;
+      // Mirrors backend read paths: prefer top-level, fall back to goals.dreamCompanies
+      const list: string[] = Array.isArray(d.dreamCompanies)
+        ? d.dreamCompanies
+        : Array.isArray(d?.goals?.dreamCompanies)
+          ? d.goals.dreamCompanies
+          : [];
+      setDreamCompanies(list);
+      setDreamCompanyKeys(new Set(list.map((s) => s.toLowerCase().trim())));
+    } catch (err) {
+      console.warn("dream companies fetch failed", err);
+    }
+  }, []);
+
   useEffect(() => {
     if (!user) return;
     loadFeed();
-    loadSummary();
     loadSaved();
-  }, [user, loadFeed, loadSummary, loadSaved]);
+    loadDreamCompanies();
+  }, [user, loadFeed, loadSaved, loadDreamCompanies]);
 
   // Merge and de-duplicate new_matches + top_jobs into a single feed.
   const allJobs: FeedJob[] = useMemo(() => {
@@ -472,6 +536,27 @@ export const JobBoardPage: React.FC = () => {
   const standouts = useMemo(() => filteredJobs.slice(0, 2), [filteredJobs]);
   const restJobs  = useMemo(() => filteredJobs.slice(2), [filteredJobs]);
 
+  // Derive Ledger summary from data we already have. The previous
+  // /api/job-board/summary endpoint was never implemented on the backend,
+  // so this UI used to silently fall back to "Off · based on no resume"
+  // for everyone (regardless of whether they had a resume).
+  const summary: JobFeedSummary | null = useMemo(() => {
+    if (!feed) return null;
+    return {
+      matched: filteredJobs.length,
+      new_today: feed.new_matches?.length ?? 0,
+      saved: savedIds.size,
+      // `ranked` is true once the GPT ranker has scored jobs for this user.
+      ranking_active: Boolean(feed.ranked),
+      ranking_basis: feed.no_resume
+        ? "no resume"
+        : feed.ranked
+          ? "your resume + profile"
+          : "your profile (resume ranking in progress)",
+      last_ranked_at: null,
+    };
+  }, [feed, filteredJobs.length, savedIds.size]);
+
   // ── actions ────────────────────────────────────────────────────────────────
   const handleToggle = (id: string) => setOpenId(prev => (prev === id ? null : id));
 
@@ -498,7 +583,6 @@ export const JobBoardPage: React.FC = () => {
         await apiService.unsaveJob(j.job_id);
         const next = new Set(savedIds); next.delete(j.job_id);
         setSavedIds(next);
-        setSummary(s => s ? { ...s, saved: Math.max(0, s.saved - 1) } : s);
       } else {
         await apiService.saveJob({
           job_id: j.job_id,
@@ -510,11 +594,48 @@ export const JobBoardPage: React.FC = () => {
         });
         const next = new Set(savedIds); next.add(j.job_id);
         setSavedIds(next);
-        setSummary(s => s ? { ...s, saved: s.saved + 1 } : s);
       }
     } catch (err) {
       console.error("save toggle failed", err);
       toast({ title: "Couldn't update saved jobs", variant: "destructive" });
+    }
+  };
+
+  const handleToggleDream = async (company: string) => {
+    const name = company?.trim();
+    if (!name) return;
+    const key = name.toLowerCase();
+    const currentlyDream = dreamCompanyKeys.has(key);
+
+    // Optimistic: flip local state, then persist. Roll back on failure.
+    const nextList = currentlyDream
+      ? dreamCompanies.filter((c) => c.toLowerCase().trim() !== key)
+      : [...dreamCompanies, name];
+    const nextKeys = new Set(nextList.map((s) => s.toLowerCase().trim()));
+    const prevList = dreamCompanies;
+    const prevKeys = dreamCompanyKeys;
+    setDreamCompanies(nextList);
+    setDreamCompanyKeys(nextKeys);
+
+    try {
+      const result = await apiService.updateUserPreferences({ dreamCompanies: nextList });
+      toast({
+        title: currentlyDream
+          ? `Removed ${name} from dream companies`
+          : `Added ${name} to dream companies`,
+        description: result.intentChanged
+          ? "Refresh your feed to see updated rankings."
+          : undefined,
+      });
+    } catch (err) {
+      console.error("dream company toggle failed", err);
+      setDreamCompanies(prevList);
+      setDreamCompanyKeys(prevKeys);
+      toast({
+        title: "Couldn't update dream companies",
+        description: "Try again in a moment.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -652,9 +773,128 @@ export const JobBoardPage: React.FC = () => {
                 {tab === "jobs" && (
                   <>
                     {feedLoading && <div className="empty">Loading roles…</div>}
-                    {!feedLoading && filteredJobs.length === 0 && (
-                      <div className="empty">No roles match those filters yet.</div>
-                    )}
+                    {!feedLoading && filteredJobs.length === 0 && (() => {
+                      // Distinguish three empty-state shapes so the user knows
+                      // WHY the grid is empty and what to do about it.
+                      const gatesAteEverything =
+                        feed?.gated?.applied && (feed.gated.dropped ?? 0) > 0;
+                      const localFiltersApplied =
+                        search.trim() !== "" || jobType !== "All" || field !== "All";
+                      const reasons: string[] = [];
+                      if (gatesAteEverything) {
+                        if ((feed?.gated?.by_location ?? 0) > 0)
+                          reasons.push(`${feed!.gated!.by_location} wrong location`);
+                        if ((feed?.gated?.by_interest ?? 0) > 0)
+                          reasons.push(`${feed!.gated!.by_interest} off-topic`);
+                        if ((feed?.gated?.by_level ?? 0) > 0)
+                          reasons.push(`${feed!.gated!.by_level} too senior`);
+                      }
+
+                      return (
+                        <div
+                          className="empty"
+                          style={{
+                            padding: "32px 24px",
+                            textAlign: "center",
+                            background: "#FFFFFF",
+                            border: "1px solid #E2E8F0",
+                            borderRadius: 10,
+                            margin: "16px 0",
+                          }}
+                        >
+                          {gatesAteEverything ? (
+                            <>
+                              <div style={{ fontSize: 15, fontWeight: 600, color: "#0F172A", marginBottom: 6 }}>
+                                No jobs survived your filters.
+                              </div>
+                              <div style={{ fontSize: 13, color: "#475569", marginBottom: 14, lineHeight: 1.5 }}>
+                                We filtered <strong>{feed!.gated!.dropped}</strong>{" "}
+                                job{feed!.gated!.dropped === 1 ? "" : "s"} this run
+                                {reasons.length > 0 && <> ({reasons.join(" · ")})</>}.
+                                Your preferences may be tighter than the current pipeline can match.
+                              </div>
+                              <div style={{ display: "inline-flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+                                <button
+                                  type="button"
+                                  onClick={toggleShowAll}
+                                  style={{
+                                    padding: "8px 16px",
+                                    borderRadius: 6,
+                                    border: "1px solid #3B82F6",
+                                    background: "#EFF6FF",
+                                    color: "#1D4ED8",
+                                    cursor: "pointer",
+                                    fontSize: 13,
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  Show all (bypass filters)
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => navigate("/account-settings")}
+                                  style={{
+                                    padding: "8px 16px",
+                                    borderRadius: 6,
+                                    border: "1px solid #E2E8F0",
+                                    background: "#FFFFFF",
+                                    color: "#475569",
+                                    cursor: "pointer",
+                                    fontSize: 13,
+                                    fontWeight: 500,
+                                  }}
+                                >
+                                  Update preferences
+                                </button>
+                              </div>
+                              {feed?.no_resume && (
+                                <div style={{ marginTop: 14, fontSize: 12, color: "#94A3B8" }}>
+                                  Tip: uploading a resume also turns ranking back on.
+                                </div>
+                              )}
+                            </>
+                          ) : localFiltersApplied ? (
+                            <>
+                              <div style={{ fontSize: 15, fontWeight: 600, color: "#0F172A", marginBottom: 6 }}>
+                                No roles match those filters.
+                              </div>
+                              <div style={{ fontSize: 13, color: "#475569" }}>
+                                Try clearing the search box or switching Type / Field back to All.
+                              </div>
+                            </>
+                          ) : feed?.no_resume ? (
+                            <>
+                              <div style={{ fontSize: 15, fontWeight: 600, color: "#0F172A", marginBottom: 6 }}>
+                                We need a resume to rank jobs for you.
+                              </div>
+                              <div style={{ fontSize: 13, color: "#475569", marginBottom: 14 }}>
+                                Upload a resume in Account Settings — we'll start matching the next pipeline run.
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => navigate("/account-settings")}
+                                style={{
+                                  padding: "8px 16px",
+                                  borderRadius: 6,
+                                  border: "1px solid #3B82F6",
+                                  background: "#EFF6FF",
+                                  color: "#1D4ED8",
+                                  cursor: "pointer",
+                                  fontSize: 13,
+                                  fontWeight: 600,
+                                }}
+                              >
+                                Upload resume
+                              </button>
+                            </>
+                          ) : (
+                            <div style={{ fontSize: 14, color: "#475569" }}>
+                              No roles match those filters yet. The next pipeline run is on its way.
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                     {!feedLoading && feed?.gated?.applied && (feed.gated.dropped ?? 0) > 0 && (
                       <div
                         role="status"
@@ -741,9 +981,11 @@ export const JobBoardPage: React.FC = () => {
                             <StandoutCard
                               key={j.job_id}
                               j={j}
+                              isDream={dreamCompanyKeys.has((j.company || "").toLowerCase().trim())}
                               onOpenApply={handleApply}
                               onFindContact={handleFindContact}
                               onSeeTeam={handleSeeTeam}
+                              onToggleDream={handleToggleDream}
                             />
                           ))}
                         </div>
@@ -762,12 +1004,14 @@ export const JobBoardPage: React.FC = () => {
                               j={j}
                               isOpen={openId === j.job_id}
                               isSaved={savedIds.has(j.job_id)}
+                              isDream={dreamCompanyKeys.has((j.company || "").toLowerCase().trim())}
                               onToggle={handleToggle}
                               onDismiss={handleDismiss}
                               onApply={handleApply}
                               onFindContact={handleFindContact}
                               onSeeTeam={handleSeeTeam}
                               onSave={handleSave}
+                              onToggleDream={handleToggleDream}
                             />
                           ))}
                         </div>

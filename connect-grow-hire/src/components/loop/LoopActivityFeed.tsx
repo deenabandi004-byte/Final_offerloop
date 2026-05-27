@@ -20,14 +20,14 @@ import {
 import type { LoopActivityItem, LoopActivityType } from "@/services/loops";
 import { useLoopActivity } from "@/hooks/useLoops";
 
-// Phase 8 — credit costs mirrored from backend/app/services/loop_budget.py
-// for the per-row credit chip. If you change these, change them server-side too.
+// Phase 8.5 — credit costs mirrored from backend/app/services/loop_budget.py
+// (CREDIT_COSTS dict). If you change these, change them server-side too.
 const CREDIT_COST_BY_TYPE: Record<LoopActivityType, number> = {
-  contact: 15,
+  contact: 9,
   draft: 0, // draft is part of the contact-find action; don't double-count
-  hm: 20,
-  job: 2,
-  company: 2,
+  hm: 13,
+  job: 1,
+  company: 1,
 };
 
 const TYPE_META: Record<

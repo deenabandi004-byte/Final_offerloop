@@ -334,11 +334,58 @@ def pipeline_health():
         except Exception:
             pass
 
+    # PDL Title Enrichment credit usage — fixed 50k pool, not per-month.
+    # We watch this graph carefully: if `used` jumps unexpectedly, the cache
+    # is leaking or the slug function regressed. See pdl_title_cache.py.
+    pdl_block = {
+        "credits_used": 0,
+        "credits_remaining": 0,
+        "budget": 0,
+        "breaker_at": 0,
+        "last_call_at": None,
+        "alert_level": "ok",  # ok | warn (>5k) | high (>25k) | red (>40k)
+    }
+    try:
+        from app.services.pdl_title_cache import (
+            PDL_TOTAL_BUDGET, TOTAL_BUDGET_CIRCUIT_BREAKER, USAGE_DOC_PATH,
+        )
+        usage_doc = db.collection(USAGE_DOC_PATH[0]).document(USAGE_DOC_PATH[1]).get()
+        used = 0
+        last_call = None
+        if usage_doc.exists:
+            udata = usage_doc.to_dict() or {}
+            used = int(udata.get("credits_used", 0))
+            try:
+                last_call = udata.get("last_call_at")
+                last_call = last_call.isoformat() if last_call else None
+            except AttributeError:
+                last_call = str(udata.get("last_call_at"))
+
+        alert = "ok"
+        if used > 40_000:
+            alert = "red"
+        elif used > 25_000:
+            alert = "high"
+        elif used > 5_000:
+            alert = "warn"
+
+        pdl_block = {
+            "credits_used": used,
+            "credits_remaining": max(0, PDL_TOTAL_BUDGET - used),
+            "budget": PDL_TOTAL_BUDGET,
+            "breaker_at": TOTAL_BUDGET_CIRCUIT_BREAKER,
+            "last_call_at": last_call,
+            "alert_level": alert,
+        }
+    except Exception as e:
+        pdl_block["error"] = f"{type(e).__name__}: {e}"
+
     return jsonify({
         "last_run_at": last_run_iso,
         "minutes_since_last_run": minutes_since,
         "stale": stale,
         "recent_runs": recent_runs,
+        "pdl_title_enrich": pdl_block,
     }), 200
 
 

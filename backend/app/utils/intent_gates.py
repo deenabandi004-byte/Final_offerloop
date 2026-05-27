@@ -236,12 +236,163 @@ def build_user_intent(profile: dict) -> dict:
     return {
         "preferred_locations": preferred_locations,
         "career_interests": career_interests,
+        # Optional PDL-derived synonyms. Populated by expand_intent_with_pdl()
+        # when the pdlInterestExpansion flag is on; empty otherwise. Kept
+        # separate from career_interests so the user's literal input stays
+        # intact for display and intent_hash stability.
+        "extra_interest_phrases": [],
         "career_track": career_track,
         "dream_companies": dream_companies,
         "major": major,
         "graduation_year": grad_year,
         "graduation_month": grad_month,
     }
+
+
+# Onboarding's "Industries of Interest" list (OnboardingLocationPreferences.tsx)
+# stores domain phrases like "Data Science & Analytics" that nobody literally
+# holds as a job title — so PDL Job Title Enrichment returns no synonyms for
+# them. This map bridges the gap: each domain expands into canonical titles
+# that PDL CAN enrich. Coverage focused on Offerloop's target verticals
+# (consulting / IB / tech / finance / quant / design). Unmapped domains fall
+# through to passing the literal string to PDL (current behavior), so this
+# is purely additive — never a regression.
+#
+# Keys lowercased + space-normalized; matched via the same _norm() helper.
+INTEREST_TO_TITLES: dict[str, list[str]] = {
+    # Consulting
+    "management consulting":       ["Management Consultant", "Strategy Consultant", "Business Analyst", "Associate Consultant"],
+    "strategy consulting":         ["Strategy Consultant", "Management Consultant", "Business Analyst"],
+    "environmental consulting":    ["Environmental Consultant", "Sustainability Consultant"],
+
+    # Finance — IB / PE / VC / HF
+    "investment banking":          ["Investment Banking Analyst", "Investment Banking Associate", "IBD Analyst", "Financial Analyst"],
+    "banking":                     ["Investment Banking Analyst", "Banking Analyst", "Financial Analyst"],
+    "private equity":              ["Private Equity Analyst", "Private Equity Associate", "Investment Analyst"],
+    "venture capital":             ["Venture Capital Analyst", "Venture Capital Associate", "Investment Analyst"],
+    "hedge funds":                 ["Quantitative Analyst", "Investment Analyst", "Hedge Fund Analyst", "Trader"],
+    "wealth management":           ["Wealth Manager", "Financial Advisor", "Investment Advisor"],
+    "finance (wealth management, private equity, hedge funds)":
+                                   ["Investment Analyst", "Financial Analyst", "Wealth Manager", "Private Equity Analyst"],
+    "real estate finance":         ["Real Estate Analyst", "Investment Analyst", "Real Estate Associate"],
+    "fintech":                     ["Software Engineer", "Product Manager", "Quantitative Analyst", "Financial Analyst"],
+    "accounting":                  ["Accountant", "Auditor", "Tax Accountant", "Financial Analyst"],
+    "tax services":                ["Tax Accountant", "Tax Analyst", "Tax Associate"],
+    "auditing":                    ["Auditor", "Audit Associate", "Internal Auditor"],
+    "insurance":                   ["Insurance Analyst", "Underwriter", "Actuary"],
+
+    # Tech — engineering
+    "software development":        ["Software Engineer", "Software Developer", "Backend Engineer", "Frontend Engineer", "Full Stack Engineer"],
+    "artificial intelligence / machine learning":
+                                   ["Machine Learning Engineer", "AI Engineer", "Research Scientist", "ML Engineer", "Data Scientist"],
+    "data science & analytics":    ["Data Scientist", "Data Analyst", "Analytics Engineer", "Machine Learning Engineer", "Business Intelligence Analyst"],
+    "cybersecurity":               ["Security Engineer", "Security Analyst", "SOC Analyst", "Information Security Engineer"],
+    "cloud computing":             ["Cloud Engineer", "Site Reliability Engineer", "DevOps Engineer", "Cloud Architect"],
+    "blockchain & web3":           ["Blockchain Engineer", "Smart Contract Engineer", "Cryptocurrency Analyst"],
+    "robotics":                    ["Robotics Engineer", "Mechatronics Engineer", "Software Engineer"],
+    "gaming & esports":            ["Game Developer", "Software Engineer", "Game Designer"],
+
+    # Design
+    "ux/ui design":                ["UX Designer", "UI Designer", "Product Designer"],
+    "graphic design":              ["Graphic Designer", "Visual Designer"],
+
+    # Marketing / Sales
+    "marketing & advertising":     ["Marketing Manager", "Marketing Analyst", "Brand Manager", "Marketing Coordinator"],
+    "advertising technology (adtech)":
+                                   ["Software Engineer", "Marketing Analyst", "Ad Operations Analyst"],
+
+    # Healthcare / Bio
+    "biotech research":            ["Research Scientist", "Biotech Researcher", "Lab Technician"],
+    "biotechnology":               ["Research Scientist", "Bioengineer", "Scientist"],
+    "pharmaceuticals":             ["Pharmaceutical Scientist", "Research Scientist", "Clinical Research Associate"],
+    "healthtech":                  ["Software Engineer", "Product Manager", "Clinical Data Scientist"],
+    "medical devices":             ["Biomedical Engineer", "Quality Engineer", "Product Manager"],
+
+    # Law / Policy / Gov
+    "law (corporate, criminal, civil)":
+                                   ["Legal Analyst", "Paralegal", "Associate Attorney"],
+    "legal tech":                  ["Software Engineer", "Legal Analyst", "Product Manager"],
+    "public policy":               ["Policy Analyst", "Research Analyst", "Government Affairs Associate"],
+    "political campaigns":         ["Campaign Manager", "Political Analyst", "Field Organizer"],
+
+    # Other major categories
+    "supply chain & logistics":    ["Supply Chain Analyst", "Operations Analyst", "Logistics Coordinator"],
+    "real estate development":     ["Real Estate Analyst", "Development Associate", "Acquisitions Analyst"],
+    "commercial real estate":      ["Real Estate Analyst", "Commercial Real Estate Broker", "Investment Analyst"],
+}
+
+
+def _norm_interest(s: str) -> str:
+    """Lowercase + collapse whitespace for case-insensitive map lookup."""
+    return re.sub(r"\s+", " ", s.strip().lower()) if isinstance(s, str) else ""
+
+
+def _titles_for_interest(interest: str) -> list[str]:
+    """Return the canonical job titles for a given interest, or [interest]
+    as a fallback if not mapped. Always returns ≥1 string so callers can
+    iterate uniformly."""
+    key = _norm_interest(interest)
+    mapped = INTEREST_TO_TITLES.get(key)
+    if mapped:
+        return mapped
+    return [interest] if interest and interest.strip() else []
+
+
+def expand_intent_with_pdl(intent: dict) -> dict:
+    """Augment intent with PDL Job Title Enrichment synonyms.
+
+    For each career_interest, first expands to canonical job titles via
+    INTEREST_TO_TITLES (since onboarding stores domain phrases, not titles),
+    then calls PDL for each title and unions the cleaned_name + similar_titles
+    into `extra_interest_phrases`. The downstream interest gate reads both
+    career_interests AND extra_interest_phrases, so an interest of
+    "Data Science & Analytics" matches jobs titled "Data Analyst",
+    "ML Engineer", etc.
+
+    Returns a NEW intent dict (does not mutate). Safe to call when PDL is
+    unreachable — failures just yield no extras, so the gate behaves
+    exactly as it did pre-expansion.
+    """
+    if not isinstance(intent, dict):
+        return intent
+
+    interests = intent.get("career_interests") or []
+    if not interests:
+        return dict(intent)
+
+    from app.services.pdl_title_cache import get_or_enrich_title
+
+    extras: list[str] = []
+    # Dedup set seeded with the user's literal interests AND their normalized
+    # forms so we don't re-add what they already typed.
+    seen: set[str] = set(s.lower().strip() for s in interests if isinstance(s, str))
+
+    for interest in interests:
+        if not isinstance(interest, str) or not interest.strip():
+            continue
+        # Domain → canonical titles (or [interest] if not mapped).
+        canonical_titles = _titles_for_interest(interest)
+        for title in canonical_titles:
+            payload = get_or_enrich_title(title)
+            candidates: list[str] = []
+            # The canonical title itself is high-signal — add it even if PDL
+            # returns nothing else.
+            candidates.append(title)
+            cleaned = payload.get("cleaned_name")
+            if isinstance(cleaned, str) and cleaned.strip():
+                candidates.append(cleaned)
+            for sim in payload.get("similar_titles") or []:
+                if isinstance(sim, str) and sim.strip():
+                    candidates.append(sim)
+            for c in candidates:
+                key = c.lower().strip()
+                if key and key not in seen:
+                    seen.add(key)
+                    extras.append(c)
+
+    out = dict(intent)
+    out["extra_interest_phrases"] = extras
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -389,8 +540,13 @@ def _gate_by_interest(job: dict, intent: dict) -> bool:
     Two-stage keyword build: multi-word phrases ("data science") AND their
     individual words ("data", "science"). Drops only when zero overlap with
     the job's title/category/requirements/team.
+
+    Also reads `extra_interest_phrases` (populated by expand_intent_with_pdl)
+    so PDL-derived synonyms widen the match set without weakening precision.
     """
-    interests = intent.get("career_interests") or []
+    interests = (intent.get("career_interests") or []) + (
+        intent.get("extra_interest_phrases") or []
+    )
     if not interests:
         return False
 
@@ -477,6 +633,8 @@ def intent_hash(intent: dict) -> str:
     norm = {
         "preferred_locations": sorted(intent.get("preferred_locations") or []),
         "career_interests": sorted(intent.get("career_interests") or []),
+        # Include PDL extras so flipping pdlInterestExpansion invalidates the cache.
+        "extra_interest_phrases": sorted(intent.get("extra_interest_phrases") or []),
         "career_track": intent.get("career_track") or "",
         "graduation_year": intent.get("graduation_year"),
     }

@@ -8130,6 +8130,11 @@ def find_hiring_manager_endpoint():
                     logger.warning(f"[FindHiringManager] URL parsing returned no data for: {job_url}")
             except Exception as e:
                 logger.error(f"[FindHiringManager] Error parsing job URL: {e}")
+        # NOTE: Firecrawl extract_job_posting() can scrape `hiring_manager` from
+        # ATS postings but takes ~42s end-to-end (Firecrawl stealth + LLM
+        # extraction). Not wired into this route until we make the call async
+        # / background. Helpers live in firecrawl_client + recruiter_finder
+        # (_seed_from_firecrawl_name) as future work.
 
         # Use OpenAI to extract missing information from job description (primary extraction method)
         if job_description:
@@ -8234,7 +8239,8 @@ def find_hiring_manager_endpoint():
             user_resume=user_resume,
             user_contact=user_contact,
             resume_text=resume_text,
-            role_type="hiring_manager"
+            role_type="hiring_manager",
+            uid=user_id,
         )
         
         # Check if we got results

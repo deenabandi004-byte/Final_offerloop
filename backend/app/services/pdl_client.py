@@ -20,9 +20,63 @@ from app.services.openai_client import get_openai_client
 from app.services.metering import meter_call
 from app.utils.retry import retry_with_backoff
 
-# Create a session with connection pooling for better performance
+# Create a session with connection pooling for better performance.
+# Accept-Encoding: gzip is a free ~5× response-size reduction per PDL docs.
 _session = requests.Session()
+_session.headers.update({"Accept-Encoding": "gzip"})
 _session_lock = Lock()
+
+# Minimal fields needed for a contact card. data_include shrinks the response
+# payload (bandwidth + parsing latency) but does NOT reduce per-record credit
+# cost — credits are still charged per record returned.
+# Email-source confidence ranking. Used by search_contacts_from_prompt to put
+# verified emails ahead of best-guesses when max_contacts < len(candidates).
+# Higher number = higher confidence.
+EMAIL_SOURCE_RANK = {
+    "pdl":                  100,  # PDL email already at current target domain
+    "hunter_finder":         90,  # Hunter Email Finder score >= 80
+    "neverbounce_verified":  85,  # Pattern + NeverBounce SMTP-confirmed valid
+    "hunter_finder_risky":   70,  # Hunter Email Finder score 70-79
+    "neverbounce_acceptall": 60,  # Pattern + NeverBounce says catch-all
+    "pattern":               40,  # Hunter pattern synthesis, no SMTP verification
+    "domain_generated":      30,  # Generic first.last@domain fallback
+    "pdl_fallback":          20,  # PDL email at non-target domain
+}
+HIGH_CONFIDENCE_EMAIL_SOURCES = {"pdl", "hunter_finder", "neverbounce_verified"}
+
+
+def _email_quality_score(contact: dict) -> int:
+    """Composite email-confidence score used for sorting candidates.
+
+    Combines:
+      - source rank (dominant — see EMAIL_SOURCE_RANK)
+      - verified bonus (+5 if EmailVerified is True)
+      - underlying confidence score (Hunter Finder 0-100, capped at +4)
+    """
+    src = contact.get("EmailSource")
+    base = EMAIL_SOURCE_RANK.get(src, 0)
+    verified_bonus = 5 if contact.get("EmailVerified") else 0
+    raw_score = int(contact.get("EmailConfidenceScore") or 0)
+    score_bonus = min(raw_score // 20, 4)
+    return base + verified_bonus + score_bonus
+
+
+PDL_DATA_INCLUDE = ",".join([
+    "id", "full_name", "first_name", "last_name",
+    "job_title", "job_title_role", "job_title_levels", "job_title_sub_role",
+    "job_company_name", "job_company_website",
+    "job_company_location_locality", "job_company_location_region",
+    "job_company_location_country", "job_company_location_metro",
+    "location_locality", "location_region", "location_country", "location_metro",
+    # `experience` is REQUIRED — extract_contact_from_pdl_person_enhanced reads
+    # Title/Company from experience[0] (current job). Omitting it caused the
+    # frontend Company/Role columns to render as "-".
+    "experience",
+    "education", "profiles", "emails",
+    "linkedin_url", "linkedin_username",
+    "work_email", "personal_emails", "recommended_personal_email",
+    "industry",
+])
 
 
 """
@@ -1304,11 +1358,12 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None, pre_ve
             best_email = pre_verified_email.get('email')
             email_source = pre_verified_email.get('source', 'hunter_batch')
             email_verified = pre_verified_email.get('verified', False)
-            print(f"[ContactExtraction] ✅ Using pre-verified email from batch: {best_email} (verified: {email_verified})")
+            email_confidence_score = int(pre_verified_email.get('score') or 0)
+            print(f"[ContactExtraction] ✅ Using pre-verified email from batch: {best_email} (verified: {email_verified}, source: {email_source}, score: {email_confidence_score})")
         else:
             # Fall back to individual verification (existing code)
             company_for_email_lookup = target_company if target_company else company_name
-            
+
             # ✅ VERIFY PDL EMAIL WITH HUNTER BEFORE USING IT
             # This ensures we don't use outdated/invalid PDL emails
             # Uses target company domain for correct email lookup
@@ -1322,10 +1377,17 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None, pre_ve
             )
             email_verify_time = time.time() - email_verify_start
             print(f"DEBUG: ⏱️  Email verification: {email_verify_time:.2f}s for {first_name} {last_name}")
-            
+
             best_email = verified_email_result.get('email')
             email_source = verified_email_result.get('email_source', 'pdl')
             email_verified = verified_email_result.get('email_verified', False)
+            # get_verified_email returns 'score' or 'confidence' depending on the
+            # path; default to 0 so the field is always an int downstream.
+            email_confidence_score = int(
+                verified_email_result.get('score')
+                or verified_email_result.get('confidence')
+                or 0
+            )
         
         # ✅ INCLUDE contacts even without emails (Hunter.io will enrich them)
         if not best_email or best_email == "Not available":
@@ -1508,8 +1570,9 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None, pre_ve
             'Group': f"{company_name} {job_title.split()[0] if job_title else 'Professional'} Team",
             'LinkedInConnections': person.get('linkedin_connections', 0),
             'DataVersion': person.get('dataset_version', 'Unknown'),
-            'EmailSource': email_source,  # Track email source (pdl or hunter.io)
+            'EmailSource': email_source,  # Track email source (pdl, hunter_finder, pattern, neverbounce_verified, ...)
             'EmailVerified': email_verified,  # Track if email was verified
+            'EmailConfidenceScore': email_confidence_score,  # 0-100 confidence score from the providing source
             'IsCurrentlyAtTarget': is_currently_at_target,  # Track if currently at target company
             'experience': experience_for_anchors  # Store minimal experience for anchor detection
         }
@@ -1620,7 +1683,9 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
     fetch_size = page_size
     # ✅ CRITICAL: Cap at 100 (PDL's max size limit) and ensure integer
     fetch_size = int(min(100, fetch_size))
-    body = {"query": query_obj, "size": fetch_size}
+    # data_include trims response payload to the fields we actually use.
+    # Does NOT reduce per-record credit cost, just bandwidth + parse latency.
+    body = {"query": query_obj, "size": fetch_size, "data_include": PDL_DATA_INCLUDE}
     
     # ✅ ADD DEBUG LOGGING
     print(f"\n=== PDL {search_type} DEBUG ===")
@@ -1880,7 +1945,7 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
 
     # ---- Page 2+
     while scroll and len(data) < desired_limit:
-        body2 = {"scroll_token": scroll, "size": int(page_size)}
+        body2 = {"scroll_token": scroll, "size": int(page_size), "data_include": PDL_DATA_INCLUDE}
         if verbose:
             print(f"\n=== PDL {search_type} NEXT PAGE BODY ===")
             print(json.dumps(body2, ensure_ascii=False))
@@ -1895,7 +1960,7 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
         if r2.status_code == 400 and "Either `query` or `sql` must be provided" in (r2.text or ""):
             if verbose:
                 print(f"{search_type} retrying with query+scroll_token due to 400…")
-            body2_fallback = {"query": query_obj, "scroll_token": scroll, "size": int(page_size)}
+            body2_fallback = {"query": query_obj, "scroll_token": scroll, "size": int(page_size), "data_include": PDL_DATA_INCLUDE}
             pdl_api_start = time.time()
             with _session_lock:
                 r2 = _session.post(url, headers=headers, json=body2_fallback, timeout=30)
@@ -2952,12 +3017,19 @@ def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:
                 must.append({"bool": {"should": company_clauses}})
             # Note: job_company_name already refers to the current/primary position in PDL
 
-    # Schools: match_phrase only with _school_aliases (OR alternatives); no minimum_should_match (PDL doesn't support it).
+    # Schools: flat match_phrase on education.school.name. PDL's ES dialect
+    # does NOT support `nested` clauses (returns 400 "Query clause [path] not
+    # allowed"), so we use the flat-dotted-field syntax that PDL accepts.
+    # Alumni filtering still runs server-side; PDL handles the array semantics
+    # internally. post_validation in search_contacts_from_prompt provides the
+    # final strict alumni check via _school_aliases.
     schools = parsed_prompt.get("schools") or []
     if schools:
         education_clauses = []
         for school in schools:
-            aliases = _school_aliases(school)
+            aliases = _school_aliases(school) if isinstance(school, str) else _school_aliases(
+                school.get("name") if isinstance(school, dict) else ""
+            )
             for a in aliases:
                 education_clauses.append({"match_phrase": {"education.school.name": a}})
         if education_clauses:
@@ -3183,6 +3255,27 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
     """
     print(f"[PostFilter] search_contacts_from_prompt called (max_contacts={max_contacts}, parsed keys={list(parsed_prompt.keys())})")
     exclude_keys = exclude_keys or set()
+
+    # ---- Cache check (Firestore, 30-day TTL) -------------------------------
+    # Same query within 30 days = 0 PDL credits. Per-user exclude_keys is
+    # applied AFTER read so one cache entry serves many users.
+    try:
+        from app.services import pdl_cache
+        cached = pdl_cache.get(parsed_prompt, max_contacts)
+        if cached and cached.get("results"):
+            cached_results = pdl_cache.filter_excluded(cached["results"], exclude_keys)
+            if cached_results:
+                print(f"[PDL Cache] HIT — returning {len(cached_results)} cached contacts (0 credits)")
+                return (
+                    cached_results[:max_contacts],
+                    int(cached.get("retry_level_used") or 0),
+                    [],
+                    cached.get("adjacency_metadata"),
+                )
+            else:
+                print(f"[PDL Cache] HIT but all {len(cached['results'])} cached contacts excluded — falling through to PDL")
+    except Exception as e:
+        print(f"[PDL Cache] lookup failed (continuing to PDL): {e}")
     target_company = None
     companies = parsed_prompt.get("companies") or []
     if companies and isinstance(companies[0], dict):
@@ -3194,9 +3287,21 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
         "Content-Type": "application/json",
         "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
     }
-    # Request enough raw results so that after excluding already-seen contacts we still have max_contacts
+    # CREDIT-EFFICIENCY FIX (2026-05): PDL Person Search charges 1 credit
+    # PER RECORD returned. Buffer scales gently with max_contacts so small
+    # batches don't waste credits. Two reasons we over-fetch (need both):
+    #   (1) Dedup against the user's exclude_keys (saved contacts).
+    #   (2) Hard-filter for verified emails — some PDL candidates fall to
+    #       pattern-synth / hunter_finder_risky and get dropped by the
+    #       email confidence filter below.
+    # At batchSize=1, the previous flat `min(exclude_count, 3)` was a 300%
+    # over-fetch (4 PDL credits for 1 returned contact). Scaled buffer keeps
+    # overhead bounded: mc=1 -> +1 (50% savings), mc=8 -> +2, mc=15 -> +3.
     exclude_count = len(exclude_keys or set())
-    fetch_limit = int(min((max_contacts + exclude_count) * 4, 100))
+    base_buffer = max(1, max_contacts // 4)
+    dedup_buffer = min(exclude_count, base_buffer)
+    buffer = max(base_buffer, dedup_buffer)
+    fetch_limit = int(max_contacts + buffer)
     page_size = min(100, max(1, fetch_limit))
 
     raw_contacts = []
@@ -3219,7 +3324,14 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
     RETRY_WALL_TIME_BUDGET_SEC = 9.0
     retry_start_time = time.time()
 
-    for attempt in range(6):
+    # Retry chain capped at level 3 (relax title + location, KEEP company).
+    # Levels 4–5 drop the company filter, which combined with the email
+    # extractor's target-company override would silently fabricate
+    # `@target_company.com` emails for people who don't work there
+    # (the Verkada-employee-emailed-as-@apple.com bug). Re-enable 4–5 only
+    # after the extractor knows not to synthesize emails when company is
+    # dropped from the query.
+    for attempt in range(4):
         if attempt >= 1:
             elapsed = time.time() - retry_start_time
             if elapsed > RETRY_WALL_TIME_BUDGET_SEC:
@@ -3231,10 +3343,6 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
                 print(f"[PDL Retry] Attempt 2: drop title + industry filters (keep company + school + location)")
             elif attempt == 3:
                 print(f"[PDL Retry] Attempt 3: drop title + industry + location (keep company + school only)")
-            elif attempt == 4:
-                print(f"[PDL Retry] Attempt 4: drop company; keep school + broadened role family (international-school × US-firm gap rescue)")
-            else:
-                print(f"[PDL Retry] Attempt 5: floor — school only (any reachable alum)")
         query_obj = build_query_from_prompt(parsed_prompt, retry_level=attempt)
         raw_contacts, status_code = execute_pdl_search(
             headers=headers,
@@ -3314,22 +3422,86 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
 
     if not filtered and not already_saved:
         return [], 0, [], adjacency_metadata
-    # Sort by profile relevance (descending), then LinkedIn presence.
-    # Profile ranking is a soft preference — it reorders but never drops contacts.
+
+    # ---- Cache write (best-effort) -----------------------------------------
+    # Cache the FULL filtered set (pre-trim, pre-user-exclude) so the cache
+    # is reusable across users. Excluded/already_saved contacts are not cached
+    # (they're per-user state).
+    try:
+        from app.services import pdl_cache
+        if filtered:
+            pdl_cache.put(
+                parsed_prompt,
+                max_contacts,
+                results=filtered,
+                retry_level_used=retry_level_used,
+                adjacency_metadata=adjacency_metadata,
+            )
+    except Exception as e:
+        print(f"[PDL Cache] set failed (non-fatal): {e}")
+
+    # Compute profile-affinity scores ONCE for every candidate so they
+    # actually participate in the sort below. Previously this was computed
+    # AFTER the trim, which meant the sort key was effectively (0, linkedin).
     if user_profile:
         for c in filtered:
             c["_profile_rank"] = _compute_profile_rank_score(c, user_profile)
-        filtered.sort(key=lambda c: (-c.get("_profile_rank", 0), 0 if (c.get("LinkedIn") or "").strip() else 1))
-        top = filtered[:max_contacts]
-        if any(c.get("_profile_rank", 0) > 0 for c in top):
-            print(f"[ProfileRank] Reordered contacts by profile affinity (scores: {[c.get('_profile_rank', 0) for c in top]})")
-        # Clean up internal field
-        for c in filtered:
-            c.pop("_profile_rank", None)
     else:
-        linkedin_val = lambda c: (c.get("LinkedIn") or c.get("linkedin_url") or "").strip()
-        filtered.sort(key=lambda c: (0 if linkedin_val(c) else 1))
-    return filtered[:max_contacts], retry_level_used, already_saved, adjacency_metadata
+        for c in filtered:
+            c["_profile_rank"] = 0
+
+    # Composite sort: email confidence FIRST (the user's complaint — they want
+    # verified emails to win when max_contacts < len(candidates)), then profile
+    # affinity, then LinkedIn presence as a tiebreaker.
+    def _sort_key(c):
+        return (
+            -_email_quality_score(c),
+            -int(c.get("_profile_rank") or 0),
+            0 if (c.get("LinkedIn") or "").strip() else 1,
+        )
+
+    filtered.sort(key=_sort_key)
+
+    # Hard filter: when we have ANY verified-email contacts, return ONLY those.
+    # Better to return fewer real emails than fill the list with best-guesses.
+    # If we have zero verified, fall back to the full ranked list so the user
+    # isn't shown an empty page — but flag email_quality='low' so the frontend
+    # can warn them to verify before sending.
+    adjacency_metadata = adjacency_metadata or {}
+    verified_contacts = [c for c in filtered if c.get("EmailSource") in HIGH_CONFIDENCE_EMAIL_SOURCES]
+    if verified_contacts:
+        return_set = verified_contacts[:max_contacts]
+        adjacency_metadata["email_quality"] = "high"
+        print(
+            f"[EmailQuality] {len(verified_contacts)}/{len(filtered)} candidates have verified emails — "
+            f"returning {len(return_set)} verified."
+        )
+    else:
+        return_set = filtered[:max_contacts]
+        adjacency_metadata["email_quality"] = "low"
+        adjacency_metadata.setdefault(
+            "message",
+            f"Found {len(filtered)} matching alumni but none have verified emails. "
+            f"Showing best-guess emails — please verify before sending."
+        )
+        print(
+            f"[EmailQuality] 0/{len(filtered)} candidates have verified emails — "
+            f"returning {len(return_set)} best-guess contacts with low-quality flag."
+        )
+
+    # Debug visibility into the final ordering by email source
+    if return_set:
+        top_sources = [
+            (c.get("EmailSource"), bool(c.get("EmailVerified")), int(c.get("EmailConfidenceScore") or 0))
+            for c in return_set[:5]
+        ]
+        print(f"[EmailQuality] Top-{len(top_sources)} (source, verified, score): {top_sources}")
+
+    # Clean up internal field before returning to the caller
+    for c in filtered:
+        c.pop("_profile_rank", None)
+
+    return return_set, retry_level_used, already_saved, (adjacency_metadata or None)
 
 
 def build_coffee_chat_data(pdl_person: dict, best_email: str) -> dict:
@@ -3474,6 +3646,41 @@ def build_coffee_chat_data(pdl_person: dict, best_email: str) -> dict:
             if education_array else ""
         ),
     }
+
+
+@meter_call("pdl", "person_enrich")
+def enrich_by_name(first_name: str, last_name: str, company: str, min_likelihood: int = 4):
+    """Look up a single person via /v5/person/enrich by name + company.
+
+    Used by recruiter_finder when we know exactly who we want (e.g. a name
+    extracted from a job posting). Cheaper than /person/search — 1 credit
+    per HTTP 200, free on 404 misses.
+
+    Returns the raw PDL person dict on HTTP 200, or None on 404 / no match.
+    """
+    if not PEOPLE_DATA_LABS_API_KEY:
+        return None
+    try:
+        resp = requests.get(
+            f"{PDL_BASE_URL}/person/enrich",
+            params={
+                "api_key": PEOPLE_DATA_LABS_API_KEY,
+                "first_name": first_name,
+                "last_name": last_name,
+                "company": company,
+                "min_likelihood": min_likelihood,
+                "pretty": False,
+            },
+            timeout=20,
+        )
+        if resp.status_code == 200:
+            body = resp.json() or {}
+            if body.get("status") == 200 and body.get("data"):
+                return body["data"]
+        return None
+    except Exception as e:
+        print(f"[enrich_by_name] PDL enrich failed for {first_name} {last_name} @ {company}: {e}")
+        return None
 
 
 @meter_call("pdl", "person_enrich")

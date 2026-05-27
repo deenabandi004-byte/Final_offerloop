@@ -56,10 +56,11 @@ logger = logging.getLogger("metering")
 # ---------------------------------------------------------------------------
 
 PROVIDER_RATES: Dict[str, Dict[str, float]] = {
-    "pdl":        {"person_search": 0.20, "person_enrich": 0.20},
-    "coresignal": {"member_search": 0.04, "member_collect": 0.08},
-    "hunter":     {"domain_search": 0.004, "email_finder": 0.003, "email_verify": 0.002},
-    "apify":      {"linkedin_posts": 0.005, "sales_nav": 0.005},
+    "pdl":         {"person_search": 0.20, "person_enrich": 0.20},
+    "coresignal":  {"member_search": 0.04, "member_collect": 0.08},
+    "hunter":      {"domain_search": 0.004, "email_finder": 0.003, "email_verify": 0.002},
+    "apify":       {"linkedin_posts": 0.005, "sales_nav": 0.005},
+    "neverbounce": {"single_check": 0.005},
 }
 
 

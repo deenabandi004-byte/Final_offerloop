@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AppSidebar } from "@/components/AppSidebar";
+import { DreamCompanyAutocomplete } from "@/components/DreamCompanyAutocomplete";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { AppHeader } from "@/components/AppHeader";
@@ -253,7 +254,6 @@ export default function AccountSettings() {
     dreamCompanies: [] as string[],
     personalNote: "",
   });
-  const [dreamCompanyInput, setDreamCompanyInput] = useState("");
 
   // State for saving
   const [isSaving, setIsSaving] = useState(false);
@@ -2110,7 +2110,7 @@ export default function AccountSettings() {
                         </Select>
                       </div>
 
-                      {/* Dream Companies */}
+                      {/* Dream Companies — shared autocomplete (parity with onboarding) */}
                       <div>
                         <label
                           style={{
@@ -2124,103 +2124,13 @@ export default function AccountSettings() {
                         >
                           Dream Companies
                         </label>
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={dreamCompanyInput}
-                            onChange={(e) => setDreamCompanyInput(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && dreamCompanyInput.trim()) {
-                                e.preventDefault();
-                                if (!goalsInfo.dreamCompanies.includes(dreamCompanyInput.trim())) {
-                                  setGoalsInfo({
-                                    ...goalsInfo,
-                                    dreamCompanies: [...goalsInfo.dreamCompanies, dreamCompanyInput.trim()],
-                                  });
-                                }
-                                setDreamCompanyInput("");
-                              }
-                            }}
-                            placeholder="Type a company name and press Enter"
-                            className="flex-1 transition-all"
-                            style={{
-                              padding: '12px 16px',
-                              borderRadius: '3px',
-                              border: '1px solid rgba(59, 130, 246, 0.12)',
-                              background: '#FAFBFF',
-                              fontFamily: "'DM Sans', system-ui, sans-serif",
-                              fontSize: '15px',
-                              color: '#0F172A',
-                              outline: 'none',
-                            }}
-                            onFocus={(e) => {
-                              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)';
-                              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.08)';
-                            }}
-                            onBlur={(e) => {
-                              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.12)';
-                              e.currentTarget.style.boxShadow = 'none';
-                            }}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (dreamCompanyInput.trim() && !goalsInfo.dreamCompanies.includes(dreamCompanyInput.trim())) {
-                                setGoalsInfo({
-                                  ...goalsInfo,
-                                  dreamCompanies: [...goalsInfo.dreamCompanies, dreamCompanyInput.trim()],
-                                });
-                                setDreamCompanyInput("");
-                              }
-                            }}
-                            style={{
-                              padding: '12px 16px',
-                              borderRadius: '3px',
-                              border: '1px solid rgba(59, 130, 246, 0.12)',
-                              background: '#FAFBFF',
-                              fontFamily: "'DM Sans', system-ui, sans-serif",
-                              fontSize: '14px',
-                              fontWeight: 500,
-                              color: '#3B82F6',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            Add
-                          </button>
-                        </div>
-                        {goalsInfo.dreamCompanies.length > 0 && (
-                          <div className="flex flex-wrap gap-2 mt-3">
-                            {goalsInfo.dreamCompanies.map((company) => (
-                              <span
-                                key={company}
-                                className="inline-flex items-center gap-1"
-                                style={{
-                                  padding: '4px 10px',
-                                  borderRadius: '6px',
-                                  background: 'rgba(124, 58, 237, 0.08)',
-                                  color: '#7C3AED',
-                                  fontFamily: "'DM Sans', system-ui, sans-serif",
-                                  fontSize: '13px',
-                                  fontWeight: 500,
-                                }}
-                              >
-                                {company}
-                                <button
-                                  onClick={() => setGoalsInfo({
-                                    ...goalsInfo,
-                                    dreamCompanies: goalsInfo.dreamCompanies.filter(c => c !== company),
-                                  })}
-                                  className="rounded-full p-0.5"
-                                  style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
-                                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(124, 58, 237, 0.15)'; }}
-                                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              </span>
-                            ))}
-                          </div>
-                        )}
+                        <DreamCompanyAutocomplete
+                          value={goalsInfo.dreamCompanies}
+                          onChange={(next) =>
+                            setGoalsInfo({ ...goalsInfo, dreamCompanies: next })
+                          }
+                          careerTrack={goalsInfo.careerTrack}
+                        />
                       </div>
 
                       {/* Personal Note */}

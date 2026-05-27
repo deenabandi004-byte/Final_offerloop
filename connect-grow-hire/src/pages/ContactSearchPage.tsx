@@ -2184,8 +2184,8 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                 type="people"
                 uid={user?.uid}
                 onSelect={(prompt) => {
+                  pendingAutoSearch.current = true;
                   setSearchPrompt(prompt);
-                  setTimeout(() => { pendingAutoSearch.current = true; }, 0);
                 }}
                 collapsed={suggestionsCollapsed}
                 onCollapse={setSuggestionsCollapsed}

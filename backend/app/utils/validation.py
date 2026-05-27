@@ -1,7 +1,7 @@
 """
 Input validation schemas using Pydantic
 """
-from pydantic import BaseModel, Field, EmailStr, HttpUrl, field_validator
+from pydantic import BaseModel, ConfigDict, Field, EmailStr, HttpUrl, field_validator
 from typing import Optional, List
 from app.utils.exceptions import ValidationError
 
@@ -100,6 +100,56 @@ class ContactUpdateRequest(BaseModel):
     college: Optional[str] = Field(None, max_length=200)
     location: Optional[str] = Field(None, max_length=200)
     status: Optional[str] = Field(None, max_length=50)
+
+
+class _BlocklistShape(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    companies: Optional[List[str]] = Field(None, max_length=200)
+    titles: Optional[List[str]] = Field(None, max_length=200)
+    emails: Optional[List[str]] = Field(None, max_length=200)
+
+
+class AgentConfigUpdate(BaseModel):
+    """Validation schema for PUT /api/agent/config.
+
+    Mirrors MUTABLE_CONFIG_FIELDS in app/services/agent_service.py. Extra fields
+    are rejected with 400 (was: silently dropped). Numeric fields are typed
+    so a bad payload returns a clear error instead of a 500 from int('abc').
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    briefText: Optional[str] = Field(None, max_length=2000)
+    briefParsed: Optional[dict] = None
+    reviewBeforeSend: Optional[bool] = None
+    targetCompanies: Optional[List[str]] = Field(None, max_length=50)
+    targetIndustries: Optional[List[str]] = Field(None, max_length=20)
+    targetRoles: Optional[List[str]] = Field(None, max_length=20)
+    targetLocations: Optional[List[str]] = Field(None, max_length=20)
+    preferAlumni: Optional[bool] = None
+    weeklyContactTarget: Optional[int] = Field(None, ge=1, le=15)
+    creditBudgetPerWeek: Optional[int] = Field(None, ge=10, le=150)
+    approvalMode: Optional[str] = Field(None, pattern=r"^(review_first|autopilot)$")
+    autoSendUnlocked: Optional[bool] = None
+    emailTemplatePurpose: Optional[str] = Field(None, max_length=500)
+    emailStylePreset: Optional[str] = Field(None, max_length=100)
+    customInstructions: Optional[str] = Field(None, max_length=2000)
+    signoffPhrase: Optional[str] = Field(None, max_length=200)
+    signatureBlock: Optional[str] = Field(None, max_length=1000)
+    followUpEnabled: Optional[bool] = None
+    followUpDays: Optional[int] = Field(None, ge=3, le=14)
+    maxFollowUps: Optional[int] = Field(None, ge=1, le=3)
+    blocklist: Optional[_BlocklistShape] = None
+    enableJobDiscovery: Optional[bool] = None
+    enableHiringManagers: Optional[bool] = None
+    enableCompanyDiscovery: Optional[bool] = None
+    digestEnabled: Optional[bool] = None
+
+
+class AgentBriefRequest(BaseModel):
+    """Validation schema for POST /api/agent/brief."""
+    model_config = ConfigDict(extra="forbid")
+
+    briefText: str = Field(..., max_length=2000)
 
 
 def _convert_pydantic_types_to_primitives(data: dict) -> dict:

@@ -74,25 +74,32 @@ Rules:
 - Return STRICT JSON matching the schema. No prose."""
 
 
-def parse_brief(brief_text: str) -> ParsedBrief:
+ParseStatus = str  # "ok" | "empty" | "failed"
+
+
+def parse_brief(brief_text: str) -> tuple[ParsedBrief, ParseStatus]:
     """Parse a free-text brief into structured search parameters.
 
-    Returns EMPTY_BRIEF for empty input or any failure mode (LLM down, bad JSON,
-    rate limit). Callers should treat an empty parsed brief as "fall back to
-    legacy targetCompanies/Roles/etc.".
+    Returns (parsed, status):
+      - ("ok",     parsed): LLM returned valid JSON we normalized
+      - ("empty",  EMPTY_BRIEF): user submitted empty input — not an error
+      - ("failed", EMPTY_BRIEF): LLM call failed (client missing, bad JSON,
+        rate limit, etc.). Callers should surface this so the user knows the
+        parse didn't happen, instead of silently treating it as empty input.
     """
     text = (brief_text or "").strip()
     if not text:
-        return dict(EMPTY_BRIEF)  # type: ignore[return-value]
+        return dict(EMPTY_BRIEF), "empty"  # type: ignore[return-value]
 
     if len(text) > MAX_BRIEF_CHARS:
         text = text[:MAX_BRIEF_CHARS]
 
     client = get_openai_client()
     if not client:
-        logger.warning("Brief parser: OpenAI client unavailable, returning empty")
-        return dict(EMPTY_BRIEF)  # type: ignore[return-value]
+        logger.warning("Brief parser: OpenAI client unavailable")
+        return dict(EMPTY_BRIEF), "failed"  # type: ignore[return-value]
 
+    raw = "{}"
     try:
         response = client.chat.completions.create(
             model=PARSER_MODEL,
@@ -108,12 +115,12 @@ def parse_brief(brief_text: str) -> ParsedBrief:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
         logger.exception("Brief parser: invalid JSON from LLM, raw=%s", raw[:200])
-        return dict(EMPTY_BRIEF)  # type: ignore[return-value]
+        return dict(EMPTY_BRIEF), "failed"  # type: ignore[return-value]
     except Exception:
         logger.exception("Brief parser: LLM call failed")
-        return dict(EMPTY_BRIEF)  # type: ignore[return-value]
+        return dict(EMPTY_BRIEF), "failed"  # type: ignore[return-value]
 
-    return _normalize(parsed)
+    return _normalize(parsed), "ok"
 
 
 def _normalize(raw: dict) -> ParsedBrief:

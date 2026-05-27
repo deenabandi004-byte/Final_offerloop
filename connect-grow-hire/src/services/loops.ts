@@ -150,6 +150,7 @@ export async function getLoop(loopId: string): Promise<Loop> {
 
 export async function createLoop(input: {
   briefText: string;
+  briefParsed?: ParsedBrief | null;
   name?: string;
   reviewBeforeSend?: boolean;
   weeklyTarget?: number;
