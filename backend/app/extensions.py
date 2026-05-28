@@ -424,11 +424,18 @@ def init_app_extensions(app: Flask):
             "expose_headers": ["Content-Type", "Authorization"]
         }
     else:
-        # Production: only production domains (set CORS_ORIGINS env var to
-        # "https://offerloop.ai" on Render)
+        # Production: production domains + localhost (localhost is harmless in
+        # prod since it can't be reached from real users, and including it
+        # means `python3 wsgi.py` works without needing FLASK_ENV=development).
         prod_origins = [
             "https://offerloop.ai",
             "https://www.offerloop.ai",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
+            "http://localhost:8081",
+            "http://127.0.0.1:8081",
         ]
         all_origins = list(set(prod_origins + allowed_origins))
         cors_config = {

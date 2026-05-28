@@ -169,8 +169,13 @@ def quick_search(query: str, recency: str | None = None) -> dict:
         return {"content": "", "citations": []}
 
 
-def pro_search(query: str, recency: str | None = None) -> dict:
+def pro_search(query: str, recency: str | None = None, timeout: float = 45.0) -> dict:
     """Sonar Pro — richer. Replaces SerpAPI + OpenAI extraction combo.
+
+    `timeout` caps the HTTP call so a slow Sonar response can't stall a
+    caller indefinitely (the OpenAI SDK defaults to 600s). On timeout the
+    call raises, is caught below, and returns empty content so callers
+    degrade gracefully rather than hang.
 
     Returns:
         {"content": str, "citations": list[str]}
@@ -196,7 +201,7 @@ def pro_search(query: str, recency: str | None = None) -> dict:
         if extra:
             kwargs["extra_body"] = extra
 
-        response = client.chat.completions.create(**kwargs)
+        response = client.with_options(timeout=timeout, max_retries=1).chat.completions.create(**kwargs)
         result = {
             "content": response.choices[0].message.content,
             "citations": _extract_citations(response),
@@ -1109,7 +1114,7 @@ def get_company_news_brief(
     recency = recency_map.get(timeframe, "week")
 
     try:
-        response = client.chat.completions.create(
+        response = client.with_options(timeout=30.0, max_retries=1).chat.completions.create(
             model="sonar",
             messages=[{
                 "role": "user",

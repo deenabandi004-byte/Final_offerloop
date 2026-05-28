@@ -43,6 +43,14 @@ from .app.routes.briefing import briefing_bp
 from .app.routes.agent import agent_bp
 from .app.routes.loops import loops_bp
 from .app.routes.metrics import metrics_bp
+from .app.routes.interview_prep_public import interview_prep_public_bp
+from .app.routes.cover_letter_public import cover_letter_public_bp
+from .app.routes.resume_workshop_public import resume_workshop_public_bp
+from .app.routes.meeting_prep_public import meeting_prep_public_bp
+from .app.routes.find_hiring_manager_public import find_hiring_manager_public_bp
+from .app.routes.find_companies_public import find_companies_public_bp
+from .app.routes.find_jobs_public import find_jobs_public_bp
+from .app.routes.find_people_public import find_people_public_bp
 from .app.extensions import init_app_extensions
 
 def create_app() -> Flask:
@@ -203,6 +211,14 @@ def create_app() -> Flask:
     app.register_blueprint(agent_bp)
     app.register_blueprint(loops_bp)
     app.register_blueprint(metrics_bp)
+    app.register_blueprint(interview_prep_public_bp)
+    app.register_blueprint(cover_letter_public_bp)
+    app.register_blueprint(resume_workshop_public_bp)
+    app.register_blueprint(meeting_prep_public_bp)
+    app.register_blueprint(find_hiring_manager_public_bp)
+    app.register_blueprint(find_companies_public_bp)
+    app.register_blueprint(find_jobs_public_bp)
+    app.register_blueprint(find_people_public_bp)
 
     # --- Debug route to check frontend build (dev only) ---
     @app.route('/api/debug/frontend')

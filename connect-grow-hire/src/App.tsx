@@ -74,6 +74,45 @@ const CoffeeChatGuidePage = React.lazy(() => import("./pages/CoffeeChatGuidePage
 const RoleNetworkingGuidePage = React.lazy(() => import("./pages/RoleNetworkingGuidePage"));
 const CompanyComparisonPage = React.lazy(() => import("./pages/CompanyComparisonPage"));
 
+// Public free tools + widget sandboxes
+const InterviewPrepFree = React.lazy(() => import("./pages/InterviewPrepFree"));
+const CoverLetterFree = React.lazy(() => import("./pages/CoverLetterFree"));
+const ResumeReviewFree = React.lazy(() => import("./pages/ResumeReviewFree"));
+const WidgetSandbox = React.lazy(() => import("./pages/WidgetSandbox"));
+const CoverLetterWidgetSandbox = React.lazy(() => import("./pages/CoverLetterWidgetSandbox"));
+const InterviewPrepSandbox = React.lazy(() => import("./pages/InterviewPrepSandbox"));
+const FindHiringManagerFree = React.lazy(() => import("./pages/FindHiringManagerFree"));
+const FindHiringManagerWidgetSandbox = React.lazy(() => import("./pages/FindHiringManagerWidgetSandbox"));
+const FindHiringManagerPreview = React.lazy(() => import("./pages/seo-preview/FindHiringManagerPreview"));
+const FindCompaniesFree = React.lazy(() => import("./pages/FindCompaniesFree"));
+const FindCompaniesWidgetSandbox = React.lazy(() => import("./pages/FindCompaniesWidgetSandbox"));
+const FindCompaniesPreview = React.lazy(() => import("./pages/seo-preview/FindCompaniesPreview"));
+const FindJobsFree = React.lazy(() => import("./pages/FindJobsFree"));
+const FindJobsWidgetSandbox = React.lazy(() => import("./pages/FindJobsWidgetSandbox"));
+const FindJobsPreview = React.lazy(() => import("./pages/seo-preview/FindJobsPreview"));
+const FindPeopleFree = React.lazy(() => import("./pages/FindPeopleFree"));
+const FindPeopleWidgetSandbox = React.lazy(() => import("./pages/FindPeopleWidgetSandbox"));
+const FindPeopleUscGooglePreview = React.lazy(() => import("./pages/seo-preview/FindPeopleUscGooglePreview"));
+const MeetingPrepFree = React.lazy(() => import("./pages/MeetingPrepFree"));
+const MeetingPrepWidgetSandbox = React.lazy(() => import("./pages/MeetingPrepWidgetSandbox"));
+const MeetingPrepFreePreview = React.lazy(() => import("./pages/seo-preview/MeetingPrepFreePreview"));
+
+// SEO preview pages (marketing landing variants embedding the widgets)
+const MeetingPrepPreview = React.lazy(() => import("./pages/seo-preview/MeetingPrepPreview"));
+const ColdEmailPreview = React.lazy(() => import("./pages/seo-preview/ColdEmailPreview"));
+const FindAlumniPreview = React.lazy(() => import("./pages/seo-preview/FindAlumniPreview"));
+const ResumeCheckerPreview = React.lazy(() => import("./pages/seo-preview/ResumeCheckerPreview"));
+const RecruitingTimelinePreview = React.lazy(() => import("./pages/seo-preview/RecruitingTimelinePreview"));
+const NetworkingEmailGeneratorPreview = React.lazy(() => import("./pages/seo-preview/NetworkingEmailGeneratorPreview"));
+const ResumeReviewGoldmanIBPreview = React.lazy(() => import("./pages/seo-preview/ResumeReviewGoldmanIBPreview"));
+const WhatIsAnATSPreview = React.lazy(() => import("./pages/seo-preview/WhatIsAnATSPreview"));
+const CoverLetterMckinseyBAPreview = React.lazy(() => import("./pages/seo-preview/CoverLetterMckinseyBAPreview"));
+const InterviewPrepMckinseyCasePreview = React.lazy(() => import("./pages/seo-preview/InterviewPrepMckinseyCasePreview"));
+const ResumeReviewTemplate = React.lazy(() => import("./pages/seo-preview/templates/ResumeReviewTemplate"));
+const CoverLetterTemplate = React.lazy(() => import("./pages/seo-preview/templates/CoverLetterTemplate"));
+const InterviewPrepTemplate = React.lazy(() => import("./pages/seo-preview/templates/InterviewPrepTemplate"));
+const ATSGuideTemplate = React.lazy(() => import("./pages/seo-preview/templates/ATSGuideTemplate"));
+
 // Optimized QueryClient with caching
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -332,6 +371,47 @@ const AppRoutes: React.FC = () => {
       <Route path="/terms" element={<Navigate to="/terms-of-service" replace />} />
 
       {/* 404 */}
+      {/* Public free tools */}
+      <Route path="/tools/interview-prep" element={<Suspense fallback={<PageLoader />}><InterviewPrepFree /></Suspense>} />
+      <Route path="/tools/cover-letter" element={<Suspense fallback={<PageLoader />}><CoverLetterFree /></Suspense>} />
+      <Route path="/tools/resume-review" element={<Suspense fallback={<PageLoader />}><ResumeReviewFree /></Suspense>} />
+      <Route path="/tools/find-hiring-manager" element={<Suspense fallback={<PageLoader />}><FindHiringManagerFree /></Suspense>} />
+      <Route path="/tools/find-companies" element={<Suspense fallback={<PageLoader />}><FindCompaniesFree /></Suspense>} />
+      <Route path="/tools/find-jobs" element={<Suspense fallback={<PageLoader />}><FindJobsFree /></Suspense>} />
+      <Route path="/tools/find-people" element={<Suspense fallback={<PageLoader />}><FindPeopleFree /></Suspense>} />
+      <Route path="/tools/meeting-prep-free" element={<Suspense fallback={<PageLoader />}><MeetingPrepFree /></Suspense>} />
+
+      {/* Widget sandboxes (internal preview, not linked from nav) */}
+      <Route path="/sandbox/resume-widget" element={<Suspense fallback={<PageLoader />}><WidgetSandbox /></Suspense>} />
+      <Route path="/sandbox/cover-letter-widget" element={<Suspense fallback={<PageLoader />}><CoverLetterWidgetSandbox /></Suspense>} />
+      <Route path="/sandbox/interview-prep-widget" element={<Suspense fallback={<PageLoader />}><InterviewPrepSandbox /></Suspense>} />
+      <Route path="/sandbox/find-hiring-manager-widget" element={<Suspense fallback={<PageLoader />}><FindHiringManagerWidgetSandbox /></Suspense>} />
+      <Route path="/sandbox/find-companies-widget" element={<Suspense fallback={<PageLoader />}><FindCompaniesWidgetSandbox /></Suspense>} />
+      <Route path="/sandbox/find-jobs-widget" element={<Suspense fallback={<PageLoader />}><FindJobsWidgetSandbox /></Suspense>} />
+      <Route path="/sandbox/find-people-widget" element={<Suspense fallback={<PageLoader />}><FindPeopleWidgetSandbox /></Suspense>} />
+      <Route path="/sandbox/meeting-prep-widget" element={<Suspense fallback={<PageLoader />}><MeetingPrepWidgetSandbox /></Suspense>} />
+
+      {/* SEO preview pages */}
+      <Route path="/seo-preview/meeting-mckinsey" element={<Suspense fallback={<PageLoader />}><MeetingPrepPreview /></Suspense>} />
+      <Route path="/seo-preview/meeting-prep-free" element={<Suspense fallback={<PageLoader />}><MeetingPrepFreePreview /></Suspense>} />
+      <Route path="/seo-preview/cold-email-goldman" element={<Suspense fallback={<PageLoader />}><ColdEmailPreview /></Suspense>} />
+      <Route path="/seo-preview/find-usc-goldman" element={<Suspense fallback={<PageLoader />}><FindAlumniPreview /></Suspense>} />
+      <Route path="/seo-preview/resume-checker" element={<Suspense fallback={<PageLoader />}><ResumeCheckerPreview /></Suspense>} />
+      <Route path="/seo-preview/ib-recruiting-timeline" element={<Suspense fallback={<PageLoader />}><RecruitingTimelinePreview /></Suspense>} />
+      <Route path="/seo-preview/networking-email-generator" element={<Suspense fallback={<PageLoader />}><NetworkingEmailGeneratorPreview /></Suspense>} />
+      <Route path="/seo-preview/resume-review-goldman-ib" element={<Suspense fallback={<PageLoader />}><ResumeReviewGoldmanIBPreview /></Suspense>} />
+      <Route path="/seo-preview/what-is-an-ats" element={<Suspense fallback={<PageLoader />}><WhatIsAnATSPreview /></Suspense>} />
+      <Route path="/seo-preview/cover-letter-mckinsey-ba" element={<Suspense fallback={<PageLoader />}><CoverLetterMckinseyBAPreview /></Suspense>} />
+      <Route path="/seo-preview/interview-prep-mckinsey-case" element={<Suspense fallback={<PageLoader />}><InterviewPrepMckinseyCasePreview /></Suspense>} />
+      <Route path="/seo-preview/resume-review/:slug" element={<Suspense fallback={<PageLoader />}><ResumeReviewTemplate /></Suspense>} />
+      <Route path="/seo-preview/cover-letter/:slug" element={<Suspense fallback={<PageLoader />}><CoverLetterTemplate /></Suspense>} />
+      <Route path="/seo-preview/interview-prep/:slug" element={<Suspense fallback={<PageLoader />}><InterviewPrepTemplate /></Suspense>} />
+      <Route path="/seo-preview/ats/:slug" element={<Suspense fallback={<PageLoader />}><ATSGuideTemplate /></Suspense>} />
+      <Route path="/seo-preview/find-hiring-manager" element={<Suspense fallback={<PageLoader />}><FindHiringManagerPreview /></Suspense>} />
+      <Route path="/seo-preview/find-companies" element={<Suspense fallback={<PageLoader />}><FindCompaniesPreview /></Suspense>} />
+      <Route path="/seo-preview/find-jobs" element={<Suspense fallback={<PageLoader />}><FindJobsPreview /></Suspense>} />
+      <Route path="/seo-preview/find-people-usc-google" element={<Suspense fallback={<PageLoader />}><FindPeopleUscGooglePreview /></Suspense>} />
+
       <Route path="*" element={<Suspense fallback={<PageLoader />}><NotFound /></Suspense>} />
     </Routes>
   );
