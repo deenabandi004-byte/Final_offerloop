@@ -46,6 +46,7 @@ PauseReason = Literal[
     "inactivity",       # user hasn't reviewed drafts in N days
     "quiet_hours",      # outside 8am-10pm in user timezone
     "paused",           # explicitly paused by user
+    "rate_limited",     # 3+ consecutive cycles hit upstream rate limits
 ]
 
 # Phase 8 — quiet-hours window (user-local).
@@ -58,6 +59,11 @@ INACTIVITY_DAYS = 5
 # Hard floor — keep enough credits for at least one coffee chat prep (15) +
 # a small buffer. Mirrors MIN_CREDIT_BALANCE in agent_service.py.
 MIN_RESERVE = 25
+
+# After this many consecutive rate-limited cycles, pause the Loop so we stop
+# burning planner calls + Firestore writes against an upstream that's saying
+# "back off." User can resume manually once the upstream recovers.
+RATE_LIMIT_STRIKE_THRESHOLD = 3
 
 
 # ── Estimation ─────────────────────────────────────────────────────────────
@@ -205,6 +211,15 @@ def can_run_now(
     spent = int(loop.get("weekCreditsSpent", 0) or 0)
     if spent >= budget:
         return False, "budget_capped"
+
+    # 4b. Upstream rate-limit strike. After threshold the Loop should stop
+    # trying — loop_jobs flips status to "paused" when it bumps past the
+    # threshold, but we also gate here so a Loop manually flipped back to
+    # "running" while the upstream is still saying "back off" doesn't
+    # immediately re-fire and re-strike.
+    strikes = int(loop.get("consecutiveRateLimitCycles", 0) or 0)
+    if strikes >= RATE_LIMIT_STRIKE_THRESHOLD:
+        return False, "rate_limited"
 
     # 5. Inactivity — only pause if there's pending work the user is ignoring
     last_reviewed = loop.get("lastReviewedAt")

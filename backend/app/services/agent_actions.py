@@ -19,6 +19,7 @@ from app.services.pdl_client import search_contacts_from_prompt, get_contact_ide
 from app.services.reply_generation import batch_generate_emails
 from app.services.auth import deduct_credits_atomic
 from app.services.loop_budget import CREDIT_COSTS
+from app.utils.exceptions import RateLimitError
 from app.utils.warmth_scoring import score_contacts_for_email
 from email_templates import get_template_instructions, roles_mode_template_instructions
 
@@ -625,6 +626,7 @@ def execute_find_jobs(
 
     jobs = []
     source = "serpapi"
+    rate_limited = False
 
     # PRIMARY: Perplexity job search + structured enrichment (Perplexity or Firecrawl per flag)
     try:
@@ -667,6 +669,11 @@ def execute_find_jobs(
             enriched_jobs.extend(raw_jobs[5:count])
             jobs = enriched_jobs
             source = "perplexity"
+    except RateLimitError:
+        # Surface rate-limit signal so loop_jobs can bump the 3-strike streak.
+        # Don't crash the cycle — partial results from other actions still ship.
+        rate_limited = True
+        logger.warning("Perplexity job search rate-limited for uid=%s", uid)
     except Exception:
         logger.warning("Perplexity job search failed; SerpAPI fallback gated by ENABLE_SERPAPI_FALLBACK", exc_info=True)
 
@@ -682,7 +689,10 @@ def execute_find_jobs(
             return {"jobsFound": 0, "jobs": [], "creditsSpent": 0, "error": str(e)}
 
     if not jobs:
-        return {"jobsFound": 0, "jobs": [], "creditsSpent": 0}
+        result = {"jobsFound": 0, "jobs": [], "creditsSpent": 0}
+        if rate_limited:
+            result["rateLimited"] = True
+        return result
 
     # Generate match reasons via LLM
     scored_jobs = _generate_job_reasons(jobs[:count], user_data)
@@ -733,7 +743,10 @@ def execute_find_jobs(
             logger.warning("Credit deduction failed for agent_find_jobs uid=%s", uid)
 
     logger.info("Agent find_jobs: uid=%s found %d jobs for %s", uid, len(saved), query)
-    return {"jobsFound": len(saved), "jobs": saved, "creditsSpent": credits}
+    result = {"jobsFound": len(saved), "jobs": saved, "creditsSpent": credits}
+    if rate_limited:
+        result["rateLimited"] = True
+    return result
 
 
 # ── DISCOVER_COMPANIES executor ───────────────────────────────────────────
@@ -764,6 +777,7 @@ def execute_discover_companies(
         return {"companiesDiscovered": 0, "companies": [], "creditsSpent": 0, "cacheHit": True}
 
     companies = []
+    rate_limited = False
 
     # PRIMARY: Perplexity-powered discovery (enrich via Perplexity or Firecrawl per flag)
     try:
@@ -803,6 +817,9 @@ def execute_discover_companies(
 
         if perplexity_companies:
             companies = perplexity_companies
+    except RateLimitError:
+        rate_limited = True
+        logger.warning("Perplexity company discovery rate-limited for uid=%s", uid)
     except Exception:
         logger.warning("Perplexity company discovery failed, falling back to recommendations", exc_info=True)
 
@@ -875,7 +892,10 @@ def execute_discover_companies(
             logger.warning("Credit deduction failed for agent_discover_companies uid=%s", uid)
 
     logger.info("Agent discover_companies: uid=%s found %d companies", uid, len(saved))
-    return {"companiesDiscovered": len(saved), "companies": saved, "creditsSpent": credits}
+    result = {"companiesDiscovered": len(saved), "companies": saved, "creditsSpent": credits}
+    if rate_limited:
+        result["rateLimited"] = True
+    return result
 
 
 # ── FIND_HIRING_MANAGERS executor ─────────────────────────────────────────

@@ -107,7 +107,7 @@ def run_due_loops() -> None:
                     continue
                 # Update pauseReason + flip status when it's a real pause.
                 update = {"pauseReason": reason}
-                if reason in ("budget_capped", "inactivity", "credits_capped"):
+                if reason in ("budget_capped", "inactivity", "credits_capped", "rate_limited"):
                     update["status"] = "paused"
                 doc.reference.update(update)
                 paused += 1
