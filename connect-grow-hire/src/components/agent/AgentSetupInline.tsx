@@ -1,17 +1,23 @@
 // Inline agent setup wizard — 3-step flow with editorial headlines,
 // step rail, tag inputs, and a live preview rail sidebar.
+//
+// PR1 update: Step 01 is textarea-first. The student types their goal in
+// natural language; the parser turns it into mode + chips below. Chips
+// stay editable so the parser is a starting point, not a black box.
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { ChevronLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { updateAgentConfig, deployAgent, parseBrief } from "@/services/agent";
+import { Textarea } from "@/components/ui/textarea";
+import { updateAgentConfig, deployAgent, parseBrief, type ParsedBrief } from "@/services/agent";
 import { firebaseApi } from "@/services/firebaseApi";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useCreateLoop } from "@/hooks/useLoops";
+import useDebounce from "@/hooks/use-debounce";
 import { loopCopy, type LoopModeForCopy } from "@/lib/loopCopy";
 
 // ── Constants ──────────────────────────────────────────────────────────
@@ -24,6 +30,17 @@ const STEPS = [
 
 const COMPANY_SUGGESTIONS = ["Stripe", "Linear", "Vercel", "Notion", "Ramp", "Arc", "Anthropic"];
 const ROLE_SUGGESTIONS = ["Product Designer", "Design Engineer", "Analyst", "Associate", "Software Engineer"];
+const LOCATION_SUGGESTIONS = ["NYC", "SF Bay Area", "Remote", "Boston", "LA", "Chicago"];
+const INDUSTRY_SUGGESTIONS = ["Fintech", "AI / ML", "Consulting", "Investment Banking", "Healthcare", "Climate"];
+
+// Soft cap on the textarea. Backend MAX_BRIEF_CHARS is 2000; we soft-warn
+// at the same number so users see the cap before the parser truncates.
+const MAX_BRIEF_CHARS = 2000;
+// 600ms debounce on the textarea parse (PR1 plan D10 spec).
+const BRIEF_PARSE_DEBOUNCE_MS = 600;
+// Below this length the textarea is too thin to be worth parsing — saves
+// OpenAI calls on the user's first few keystrokes.
+const MIN_BRIEF_CHARS_TO_PARSE = 8;
 
 // Mirror of backend CREDIT_COSTS.contact in app/services/loop_budget.py
 // (find + draft per contact). Keep in sync with LoopActivityFeed.tsx.
@@ -298,6 +315,43 @@ function Field({
   );
 }
 
+// ── Editorial field (D11) ──────────────────────────────────────────────
+// Per-field italic serif label + hairline left-rail. Used by the stacked
+// chip rows in the prompt-first wizard. Foundation Field stays mono-cap
+// so non-D11 surfaces (cadence, review) keep their existing voice.
+
+function EditorialField({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className="mb-6 pl-4"
+      style={{ borderLeft: "1px solid var(--line-2)" }}
+    >
+      <div className="flex items-baseline gap-2 mb-1.5 -ml-[1px]">
+        <span
+          className="font-serif italic text-[14px]"
+          style={{ color: "var(--ink-2)", fontWeight: 400 }}
+        >
+          {label}
+        </span>
+        {hint && (
+          <span className="text-[11.5px]" style={{ color: "var(--ink-3)" }}>
+            &middot; {hint}
+          </span>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 // ── Mode card (radio) ──────────────────────────────────────────────────
 
 function ModeCard({
@@ -481,6 +535,7 @@ interface FormState {
   companies: string[];
   industries: string[];
   roles: string[];
+  locations: string[];
   preferAlumni: boolean;
   weeklyTarget: number;
   creditBudget: number;
@@ -488,59 +543,203 @@ interface FormState {
   loopMode: LoopModeForCopy;
 }
 
+type ParsePhase = "idle" | "parsing" | "ok" | "empty" | "failed";
+
+// ── Parse status line (below the textarea) ─────────────────────────────
+
+function ParseStatusLine({
+  phase,
+  detectedMode,
+}: {
+  phase: ParsePhase;
+  detectedMode: LoopModeForCopy | null;
+}) {
+  if (phase === "parsing") {
+    return (
+      <div className="flex items-center gap-2 mt-2 text-[11.5px]" style={{ color: "var(--ink-3)" }}>
+        <PulseDot color="var(--ink-3)" />
+        <span className="font-mono uppercase tracking-wide">reading your goal…</span>
+      </div>
+    );
+  }
+  if (phase === "failed") {
+    return (
+      <div className="mt-2 text-[11.5px]" style={{ color: "#b91c1c" }}>
+        Couldn't read that — chips left blank. You can add them by hand or rephrase.
+      </div>
+    );
+  }
+  if (phase === "ok" && detectedMode) {
+    const summary = loopCopy(detectedMode).modeSummary;
+    return (
+      <div className="mt-2 text-[11.5px]" style={{ color: "var(--ink-3)" }}>
+        Read as <span className="font-mono uppercase tracking-wide" style={{ color: "var(--ink-2)" }}>{summary}</span> &middot; chips below are the parsed targets.
+      </div>
+    );
+  }
+  if (phase === "ok") {
+    return (
+      <div className="mt-2 text-[11.5px]" style={{ color: "var(--ink-3)" }}>
+        Mode looks ambiguous — pick one below, or add more detail above.
+      </div>
+    );
+  }
+  if (phase === "empty" || phase === "idle") {
+    return (
+      <div className="mt-2 text-[11.5px]" style={{ color: "var(--ink-3)" }}>
+        Type a sentence or two above — parser fills in the chips. Or skip and edit chips directly.
+      </div>
+    );
+  }
+  return null;
+}
+
+// ── Mode indicator with manual override ────────────────────────────────
+// Foundation showed mode as a two-card radio. PR1 makes mode a parser
+// outcome with a small inline override link so the chip rows stay the
+// star of Step 01.
+
+function ModeIndicator({
+  mode,
+  onChange,
+}: {
+  mode: LoopModeForCopy;
+  onChange: (m: LoopModeForCopy) => void;
+}) {
+  const opts: { key: LoopModeForCopy; label: string }[] = [
+    { key: "people", label: "people" },
+    { key: "roles", label: "roles" },
+    { key: "both", label: "both" },
+  ];
+  return (
+    <div className="mb-6">
+      <div className="flex items-baseline gap-2 mb-2">
+        <span
+          className="font-serif italic text-[14px]"
+          style={{ color: "var(--ink-2)", fontWeight: 400 }}
+        >
+          Mode
+        </span>
+        <span className="text-[11.5px]" style={{ color: "var(--ink-3)" }}>
+          &middot; what's this Loop chasing?
+        </span>
+      </div>
+      <div role="radiogroup" aria-label="Loop mode" className="inline-flex border border-line rounded-full overflow-hidden">
+        {opts.map((o, i) => {
+          const active = mode === o.key;
+          return (
+            <button
+              key={o.key}
+              role="radio"
+              aria-checked={active}
+              onClick={() => onChange(o.key)}
+              className="px-3 py-1 font-mono text-[11px] uppercase tracking-wide transition-colors"
+              style={{
+                background: active ? "var(--ink)" : "var(--paper)",
+                color: active ? "var(--paper)" : "var(--ink-3)",
+                borderLeft: i > 0 ? "1px solid var(--line)" : "none",
+              }}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function StepGoals({
   form,
   set,
+  briefText,
+  setBriefText,
+  parsePhase,
   hasUniversity,
   university,
 }: {
   form: FormState;
   set: (patch: Partial<FormState>) => void;
+  briefText: string;
+  setBriefText: (v: string) => void;
+  parsePhase: ParsePhase;
   hasUniversity: boolean;
   university: string;
 }) {
   const copy = loopCopy(form.loopMode, { school: university });
+  const overLimit = briefText.length > MAX_BRIEF_CHARS;
 
   return (
     <div>
-      <Field label={copy.modeSectionLabel} hint={copy.modeSectionHint}>
-        <div
-          role="radiogroup"
-          aria-label="Loop mode"
-          className="grid grid-cols-1 sm:grid-cols-2 gap-2.5"
-        >
-          <ModeCard
-            active={form.loopMode === "people"}
-            title={copy.modePeopleBtn}
-            desc={copy.modePeopleDesc}
-            onClick={() => set({ loopMode: "people" })}
+      {/* D10 — Textarea on top, the primary input */}
+      <div className="mb-5">
+        <Textarea
+          value={briefText}
+          onChange={(e) => setBriefText(e.target.value)}
+          placeholder="e.g. I want summer SWE internships at fintech startups in NYC plus people to coffee chat with."
+          rows={5}
+          aria-label="Your goal in your own words"
+          className="font-serif italic text-[16px] leading-[1.45] resize-none"
+          style={{
+            color: "var(--ink)",
+            background: "var(--paper)",
+            borderColor: overLimit ? "#b91c1c" : "var(--line)",
+            padding: "14px 16px",
+          }}
+        />
+        <div className="flex items-center justify-between mt-1">
+          <ParseStatusLine
+            phase={parsePhase}
+            detectedMode={parsePhase === "ok" ? form.loopMode : null}
           />
-          <ModeCard
-            active={form.loopMode === "roles"}
-            title={copy.modeRolesBtn}
-            desc={copy.modeRolesDesc}
-            onClick={() => set({ loopMode: "roles" })}
-          />
+          <span
+            className="font-mono text-[10px] tracking-wide ml-3 shrink-0"
+            style={{ color: overLimit ? "#b91c1c" : "var(--ink-3)" }}
+          >
+            {briefText.length} / {MAX_BRIEF_CHARS}
+          </span>
         </div>
-      </Field>
+      </div>
 
-      <Field label="Target companies" hint="Press Enter to add">
+      {/* Mode (parser outcome with manual override) */}
+      <ModeIndicator mode={form.loopMode} onChange={(m) => set({ loopMode: m })} />
+
+      {/* D11 — Per-field italic serif label + hairline left-rail */}
+      <EditorialField label="Companies" hint="Press Enter to add">
         <TagInput
           placeholder="e.g. Stripe, Linear, Vercel"
           list={form.companies}
           setList={(v) => set({ companies: v })}
           suggestions={COMPANY_SUGGESTIONS}
         />
-      </Field>
+      </EditorialField>
 
-      <Field label="Target roles" hint="Press Enter to add">
+      <EditorialField label="Roles" hint="Press Enter to add">
         <TagInput
           placeholder="e.g. Product Designer, Analyst"
           list={form.roles}
           setList={(v) => set({ roles: v })}
           suggestions={ROLE_SUGGESTIONS}
         />
-      </Field>
+      </EditorialField>
+
+      <EditorialField label="Industries" hint="Optional — fills in when no company is named">
+        <TagInput
+          placeholder="e.g. Fintech, AI / ML, Consulting"
+          list={form.industries}
+          setList={(v) => set({ industries: v })}
+          suggestions={INDUSTRY_SUGGESTIONS}
+        />
+      </EditorialField>
+
+      <EditorialField label="Locations" hint="Optional">
+        <TagInput
+          placeholder="e.g. NYC, SF Bay Area, Remote"
+          list={form.locations}
+          setList={(v) => set({ locations: v })}
+          suggestions={LOCATION_SUGGESTIONS}
+        />
+      </EditorialField>
 
       <div className="flex items-center justify-between pt-4 border-t border-line-2">
         <div>
@@ -761,6 +960,7 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
     companies: [],
     industries: [],
     roles: [],
+    locations: [],
     preferAlumni: true,
     weeklyTarget: 5,
     creditBudget: 100,
@@ -772,6 +972,67 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
   });
   const set = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }));
 
+  // ── Prompt-first brief state ─────────────────────────────────────────
+  // The textarea is the primary input on Step 01. Its value debounces into
+  // a parser call (parseBrief) that fills mode + chip groups below. Chip
+  // groups are editable — they reflect the latest parser result, but the
+  // user can override. Subsequent textarea edits trigger re-parses that
+  // overwrite chip groups (the wizard's chip behavior is "parser output
+  // you can fine-tune, until you re-type the prompt").
+  const [briefText, setBriefText] = useState("");
+  const [parsePhase, setParsePhase] = useState<ParsePhase>("idle");
+  // Guard against stale parses overwriting fresh results (user types fast).
+  const lastParseTokenRef = useRef(0);
+  const debouncedBriefText = useDebounce(briefText.trim(), BRIEF_PARSE_DEBOUNCE_MS);
+
+  useEffect(() => {
+    const text = debouncedBriefText;
+    if (!text) {
+      setParsePhase("idle");
+      return;
+    }
+    if (text.length < MIN_BRIEF_CHARS_TO_PARSE) {
+      setParsePhase("idle");
+      return;
+    }
+    const token = ++lastParseTokenRef.current;
+    setParsePhase("parsing");
+    parseBrief(text)
+      .then((res) => {
+        if (token !== lastParseTokenRef.current) return; // a newer parse fired
+        const parsed = res.briefParsed || null;
+        if (res.parseStatus === "failed") {
+          setParsePhase("failed");
+          return;
+        }
+        if (res.parseStatus === "empty") {
+          setParsePhase("empty");
+          return;
+        }
+        // ok — populate chips + mode from parser output. User edits made
+        // after this point stick until the next parse fires.
+        setForm((f) => {
+          const next: Partial<FormState> = {
+            companies: parsed?.companies ?? f.companies,
+            industries: parsed?.industries ?? f.industries,
+            roles: parsed?.roles ?? f.roles,
+            locations: parsed?.locations ?? f.locations,
+          };
+          // Mode only auto-updates when the parser actually committed to one.
+          // null = ambiguous → leave the user's current pick (or default).
+          if (parsed?.mode === "people" || parsed?.mode === "roles" || parsed?.mode === "both") {
+            next.loopMode = parsed.mode;
+          }
+          return { ...f, ...next };
+        });
+        setParsePhase("ok");
+      })
+      .catch(() => {
+        if (token !== lastParseTokenRef.current) return;
+        setParsePhase("failed");
+      });
+  }, [debouncedBriefText]);
+
   const step = STEPS[stepIdx];
   const isLast = stepIdx === STEPS.length - 1;
   const estimatedWeeklyCredits = form.weeklyTarget * CREDIT_COST_PER_CONTACT;
@@ -780,15 +1041,18 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
   // shared. school is the user's actual university when known so the alumni
   // toggle shows concrete language.
   const goalsCopy = loopCopy(form.loopMode, { school: university || "" });
-  const canDeploy =
-    (form.companies.length > 0 || form.industries.length > 0) &&
-    !budgetUnderfunded;
+  // Deploy when EITHER the textarea has real content OR the user filled in
+  // chips manually. The two paths converge — buildSyntheticBrief covers the
+  // chip-only case.
+  const hasBrief = briefText.trim().length >= MIN_BRIEF_CHARS_TO_PARSE;
+  const hasChipTargets = form.companies.length > 0 || form.industries.length > 0;
+  const canDeploy = (hasBrief || hasChipTargets) && !budgetUnderfunded;
 
   const handleDeploy = async () => {
-    if (form.companies.length === 0 && form.industries.length === 0) {
+    if (!hasBrief && !hasChipTargets) {
       toast({
-        title: "Add targets",
-        description: "Add at least one target company.",
+        title: "Add a goal",
+        description: "Type your goal in the textbox or add at least one company / industry.",
         variant: "destructive",
       });
       return;
@@ -803,12 +1067,33 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
     }
     setDeploying(true);
     try {
-      // Brief is canonical: synthesize one from the chips and let the parser
-      // populate briefText + briefParsed (which the planner prefers over the
-      // legacy target fields — see agent_planner.py:44-57). The chip values
-      // are still written for backwards compat with any UI that reads them.
-      const briefText = buildSyntheticBrief(form);
-      const parseRes = await parseBrief(briefText);
+      // Two paths converge here: prompt-first (textarea filled, parser fired)
+      // and chip-only (textarea empty, user added chips by hand). When the
+      // textarea is empty we fall back to buildSyntheticBrief so the planner
+      // still gets a <user_brief> block to anchor against.
+      const finalBriefText = hasBrief
+        ? briefText.trim()
+        : buildSyntheticBrief({
+            companies: form.companies,
+            industries: form.industries,
+            roles: form.roles,
+            weeklyTarget: form.weeklyTarget,
+            preferAlumni: form.preferAlumni,
+          });
+
+      // briefParsed reflects the user's CURRENT chip state (post-edits), not
+      // the parser's raw output — chips are the source of truth at deploy.
+      const finalBriefParsed: ParsedBrief = {
+        companies: form.companies,
+        industries: form.industries,
+        roles: form.roles,
+        locations: form.locations,
+        emailPurpose: null,
+        constraints: [],
+        targetCount: form.weeklyTarget,
+        mode: form.loopMode,
+      };
+
       await updateAgentConfig({
         targetCompanies: form.companies,
         targetIndustries: form.industries,
@@ -828,8 +1113,8 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
       // wizard "deploys" but no card ever shows up in the fleet view —
       // useCreateLoop invalidates the list query so /agent refetches.
       await createLoopMut.mutateAsync({
-        briefText,
-        briefParsed: parseRes.briefParsed ?? null,
+        briefText: finalBriefText,
+        briefParsed: finalBriefParsed,
         name: deriveLoopName(form),
         reviewBeforeSend: form.approvalMode === "review_first",
         weeklyTarget: form.weeklyTarget,
@@ -842,9 +1127,11 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
       toast({
         title: "Loop deployed!",
         description:
-          form.loopMode === "roles"
-            ? "Your job-search loop is now active."
-            : "Your networking loop is now active.",
+          form.loopMode === "both"
+            ? "Your loop is chasing roles AND networking together."
+            : form.loopMode === "roles"
+              ? "Your job-search loop is now active."
+              : "Your networking loop is now active.",
       });
       onDeployed();
     } catch (e: unknown) {
@@ -903,6 +1190,9 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
               <StepGoals
                 form={form}
                 set={set}
+                briefText={briefText}
+                setBriefText={setBriefText}
+                parsePhase={parsePhase}
                 hasUniversity={hasUniversity}
                 university={university || ""}
               />

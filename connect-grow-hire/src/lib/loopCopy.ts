@@ -144,12 +144,16 @@ export const LOOP_COPY = {
 
 // ── Mode-aware copy helper ────────────────────────────────────────────
 //
-// Loops have two modes:
+// Loops have three modes:
 //   "people" — autonomous networking (find professionals, draft cold outreach)
 //   "roles"  — autonomous job-search (find postings, optionally draft outreach
 //              about specific roles)
+//   "both"   — pursue BOTH pipelines in one Loop, balanced against one credit
+//              budget. The wizard surfaces "both" as a parser outcome (when
+//              the student's prompt explicitly asks for both networking and
+//              job-search) rather than as a third mode card.
 //
-// Most strings are the same in both modes. The helper layers mode-specific
+// Most strings are the same across modes. The helper layers mode-specific
 // overrides on top of LOOP_COPY so existing call sites that don't care about
 // mode keep working unchanged. Only the wizard and other mode-aware screens
 // need to import this helper.
@@ -158,7 +162,7 @@ export const LOOP_COPY = {
 // the alumni-preference label reads "Push USC alumni to the top" instead of
 // the generic "Push people from my school to the top".
 
-export type LoopModeForCopy = "people" | "roles";
+export type LoopModeForCopy = "people" | "roles" | "both";
 
 export function loopCopy(
   mode: LoopModeForCopy,
@@ -166,24 +170,43 @@ export function loopCopy(
 ) {
   const school = opts.school?.trim();
   const isRoles = mode === "roles";
+  const isBoth = mode === "both";
 
   return {
     ...LOOP_COPY,
 
     // ── Wizard headlines and mode picker ─────────────────────────────
-    goalsTitle: isRoles
-      ? "Tell your Loop what to chase."
-      : "Tell your Loop who to chase.",
-    goalsTitleAccent: isRoles ? "what" : "who",
-    goalsSubtitle: isRoles
-      ? "The loop scans for open postings matching the companies and roles you list here. Edit anytime."
-      : "The loop only considers companies, industries, and roles you list here. Edit anytime.",
+    // The prompt-first wizard uses ONE headline regardless of mode (the
+    // textarea is the focus). Mode-specific copy lives on the chip
+    // section + the mode-picker fallback below.
+    goalsTitle: isBoth
+      ? "Tell your Loop what to chase — and who."
+      : isRoles
+        ? "Tell your Loop what to chase."
+        : "Tell your Loop who to chase.",
+    goalsTitleAccent: isBoth ? "what" : (isRoles ? "what" : "who"),
+    goalsSubtitle: isBoth
+      ? "The loop scans for open postings AND surfaces people to network with. Edit anytime."
+      : isRoles
+        ? "The loop scans for open postings matching the companies and roles you list here. Edit anytime."
+        : "The loop only considers companies, industries, and roles you list here. Edit anytime.",
     modeSectionLabel: "Mode",
     modeSectionHint: "What's this Loop chasing?",
     modePeopleBtn: "Find people",
     modePeopleDesc: "Reach professionals at target companies for coffee chats and referrals.",
     modeRolesBtn: "Find roles",
     modeRolesDesc: "Surface open postings matching your target roles. Optional outreach to founders at small companies.",
+    modeBothBtn: "Both",
+    modeBothDesc: "Network with people AND surface open postings, balanced against one credit budget.",
+
+    // Summary chip rendered next to the parser-detected mode. Lets the
+    // wizard say "We read this as: BOTH (job-search + networking)"
+    // without re-deriving the phrasing at every call site.
+    modeSummary: isBoth
+      ? "job-search + networking"
+      : isRoles
+        ? "job-search"
+        : "networking",
 
     // ── "Prefer alumni" toggle (label flips, field name stays preferAlumni) ─
     preferAlumniLabel: isRoles

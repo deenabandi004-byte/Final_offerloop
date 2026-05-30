@@ -873,35 +873,49 @@ def _run_cycle(uid: str, config: dict, cycle_id: str | None = None) -> dict:
         plan_result = generate_action_plan(uid, config, user_data, pipeline_state)
         plan = plan_result.get("plan", [])
 
-        # Safety net: ensure plan always includes at least one primary action.
-        # People mode → "find" contacts; roles mode → "find_jobs" postings.
-        # No mode info → fall through to the legacy people-mode behavior so old
-        # configs keep working.
+        # Safety net: ensure plan always includes the mode's primary action(s).
+        # People mode → at least one "find" contacts action.
+        # Roles  mode → at least one "find_jobs" postings action.
+        # Both   mode → BOTH at least one "find" AND at least one "find_jobs"
+        #               (neither pipeline may be starved — planner Rule 1 for
+        #               both mode, enforced here in case the LLM forgets).
+        # No mode info → legacy people behavior so old configs keep working.
         loop_mode = config.get("loopMode") or "people"
         targets = config.get("targetCompanies", [])
         roles_list = config.get("targetRoles", [""])
+
+        def _auto_add_find_jobs() -> None:
+            for company in targets[:2]:
+                plan.append({
+                    "action": "find_jobs",
+                    "company": company,
+                    "role": roles_list[0] if roles_list else "",
+                    "count": 5,
+                    "reason": f"Auto-added: find postings at {company}",
+                })
+
+        def _auto_add_find() -> None:
+            for company in targets[:2]:
+                plan.append({
+                    "action": "find",
+                    "company": company,
+                    "title": roles_list[0] if roles_list else "",
+                    "count": 3,
+                    "reason": f"Auto-added: find contacts at {company}",
+                })
+
         if loop_mode == "roles":
-            has_find_jobs = any(a.get("action") == "find_jobs" for a in plan)
-            if not has_find_jobs and plan and targets:
-                for company in targets[:2]:
-                    plan.append({
-                        "action": "find_jobs",
-                        "company": company,
-                        "role": roles_list[0] if roles_list else "",
-                        "count": 5,
-                        "reason": f"Auto-added: find postings at {company}",
-                    })
+            if plan and targets and not any(a.get("action") == "find_jobs" for a in plan):
+                _auto_add_find_jobs()
+        elif loop_mode == "both":
+            if plan and targets:
+                if not any(a.get("action") == "find" for a in plan):
+                    _auto_add_find()
+                if not any(a.get("action") == "find_jobs" for a in plan):
+                    _auto_add_find_jobs()
         else:
-            has_find = any(a.get("action") == "find" for a in plan)
-            if not has_find and plan and targets:
-                for company in targets[:2]:
-                    plan.append({
-                        "action": "find",
-                        "company": company,
-                        "title": roles_list[0] if roles_list else "",
-                        "count": 3,
-                        "reason": f"Auto-added: find contacts at {company}",
-                    })
+            if plan and targets and not any(a.get("action") == "find" for a in plan):
+                _auto_add_find()
 
         # Mark planning action complete
         actions_col.document(planning_action_id).update({

@@ -85,6 +85,44 @@ def _company_to_domain(company_name: str) -> str | None:
     return f"{cleaned}.com" if cleaned else None
 
 
+# ── HM provenance (mode-aware template selection) ──────────────────────────
+#
+# Each saved HM contact gets a `discoveredVia` tag that records WHY the planner
+# surfaced them. Two values today:
+#   "role_search" — surfaced because the student is hunting open postings,
+#                   typically at a small / founder-led company where direct
+#                   founder outreach beats applying through an ATS. Draft uses
+#                   the roles-mode founder-voice template.
+#   "networking"  — surfaced to support the networking goal (the student
+#                   wants to talk to current HMs / leaders). Draft uses the
+#                   people-mode voice (the user's preset template, unmodified).
+#
+# Resolution rules (per the PR1 plan, D7):
+#   - Pure people mode → all HMs default to "networking" (legacy behavior).
+#   - Pure roles mode  → all HMs default to "role_search" (foundation behavior).
+#   - Both mode        → the planner is instructed to emit a per-HM-action
+#                        `discoveredVia` field. We read it here and fall back
+#                        to "networking" if the LLM forgets (safer default —
+#                        the people-voice draft works for either context, the
+#                        founder-voice draft would feel off without a posting).
+_VALID_HM_PROVENANCE = frozenset({"role_search", "networking"})
+
+
+def _resolve_hm_provenance(loop_mode: str, action: dict) -> str:
+    """Pick the HM contact's discoveredVia value. See block comment above."""
+    if loop_mode == "roles":
+        return "role_search"
+    if loop_mode == "both":
+        raw = (action or {}).get("discoveredVia")
+        # Only strings are valid candidates — guards against the LLM
+        # emitting a list / dict / number for this field.
+        if isinstance(raw, str) and raw in _VALID_HM_PROVENANCE:
+            return raw
+        return "networking"  # safer default in both mode (see comment above)
+    # people mode + anything unknown
+    return "networking"
+
+
 # ── FIND executor ─────────────────────────────────────────────────────────
 
 
@@ -731,14 +769,26 @@ def execute_find_hiring_managers(
     company = action.get("company", "")
     location = action.get("location", "")
     max_count = min(action.get("count", 2), 3)
+    loop_mode = config.get("loopMode") or "people"
+
+    # Provenance — which goal surfaced this HM. Used for two things:
+    #   (1) Template selection: role_search → roles-mode founder voice;
+    #       networking → people voice.
+    #   (2) Tagged on the saved contact doc so downstream surfaces (alerts,
+    #       My Network filters) can show the user WHY this person showed up.
+    discovered_via = _resolve_hm_provenance(loop_mode, action)
 
     template_instructions = _resolve_agent_template(config, user_data, get_db(), uid)
 
-    # Roles mode: prepend the posting-specific founder outreach instructions
-    # so the draft references the actual role. We concatenate rather than
-    # replace — any user-configured style preset still applies (voice rules,
-    # signoff, banned-phrase coverage). Empty user template is fine.
-    if (config.get("loopMode") or "people") == "roles":
+    # If this HM was surfaced by the roles pipeline, prepend the posting-
+    # specific founder outreach instructions so the draft references the
+    # actual role. We concatenate rather than replace — any user-configured
+    # style preset still applies (voice rules, signoff, banned-phrase
+    # coverage). Empty user template is fine. The provenance check below
+    # collapses to today's behavior for pure people / pure roles modes
+    # (where discovered_via is fully determined by loop_mode) and to per-
+    # action template selection for "both" mode.
+    if discovered_via == "role_search":
         roles_block = roles_mode_template_instructions(role_title=job_title, company=company)
         template_instructions = (
             f"{roles_block}\n\n{template_instructions}"
@@ -810,6 +860,13 @@ def execute_find_hiring_managers(
             "jobTitle": (hm.get("Title") or hm.get("title") or hm.get("jobTitle") or "").strip(),
             "source": "agent",
             "agentCycleId": action.get("cycleId"),
+            # Why this HM surfaced. "role_search" = pulled in by find_jobs at
+            # a small/founder-led company (founder-voice draft). "networking"
+            # = pulled in to support the networking goal (people-voice
+            # draft). Foundation: people-mode HMs default to "networking",
+            # roles-mode HMs default to "role_search", both-mode HMs read
+            # the planner-supplied tag with "networking" fallback.
+            "discoveredVia": discovered_via,
             "pipelineStage": "draft_created" if email_body else "not_contacted",
             "emailSubject": email_subject,
             "emailBody": email_body,

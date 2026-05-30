@@ -72,10 +72,14 @@ def estimate_cycle_cost(
     produce for this brief. Used by the Loop creation hero so users see
     expected cost before they hit Start.
 
-    Per the Slice 2 plan, the two modes produce different cycle mixes:
+    The three modes produce different cycle mixes:
       - people: 2-3 contacts (primary), 1 HM, 4-5 jobs, 3 companies
       - roles:  10 jobs (primary), 3 small-company HM drafts, 10 companies,
                 no PDL bulk contact search
+      - both:   networking + job-search running together against one budget.
+                Half-and-half allocation: 2 contacts + 2 HMs (mixed founder /
+                people style) + 5 jobs + 5 companies. Cost lands between
+                pure people and pure roles by design.
     """
     bp = brief_parsed or {}
     target_count = bp.get("targetCount") or 3
@@ -89,6 +93,16 @@ def estimate_cycle_cost(
         companies = 10 if (has_companies or has_roles) else 5
         jobs = 10 if (has_roles or has_companies) else 0
         hms = 3 if (has_companies or has_roles) else 0
+    elif loop_mode == "both":
+        # Half-and-half allocation: networking pipeline contributes contacts
+        # + a people-style HM; roles pipeline contributes jobs + a founder-
+        # style HM; discovery is shared. Each side runs at ~half its pure-
+        # mode rate so the cycle stays affordable and neither pipeline
+        # starves the other (planner Rule 1 for both mode).
+        contacts = min(target_count, 2)  # 2 networking contacts per cycle
+        hms = 2 if (has_companies or has_roles) else 0  # 1 founder-style + 1 people-style
+        jobs = 5 if (has_roles or has_companies) else 0  # half of pure roles
+        companies = 5 if has_companies else 5  # shared discovery feeding both pipelines
     else:
         # People mode preserves today's heuristics.
         # Per cycle the planner usually emits ~1 find action against the top

@@ -55,13 +55,27 @@ export type LoopPauseReason =
   | "paused"
   | null;
 
-// "people" = autonomous networking (today's behavior — find professionals,
-// draft cold outreach). "roles" = autonomous job-search (find open postings,
-// optionally draft founder outreach about specific roles). Set at creation
-// and read-only afterward; backend rejects PATCH attempts to change it.
-// Optional on the read-side because Loops created before the field existed
-// will return without it (treat missing as "people").
-export type LoopMode = "people" | "roles";
+// Loop modes:
+//   "people" — autonomous networking (find professionals, draft cold outreach)
+//   "roles"  — autonomous job-search (find open postings, optionally draft
+//              founder outreach about specific roles)
+//   "both"   — pursue BOTH pipelines in one Loop. Planner balances networking
+//              and job-search against one credit budget. HM outreach is
+//              template-selected per-contact by `discoveredVia` provenance.
+// Set at creation and read-only afterward; backend rejects PATCH attempts
+// to change it. Optional on the read-side because Loops created before the
+// field existed will return without it (treat missing as "people").
+export type LoopMode = "people" | "roles" | "both";
+
+// Brief edit history entry. Snapshot of {briefText, briefParsed} captured at
+// the moment a previous PATCH /loops/{id} replaced the brief. Append-only,
+// capped at 20 entries (oldest drop off the front). Surfaced in the
+// LoopDetailPage edit-brief affordance.
+export interface BriefVersionEntry {
+  briefText: string;
+  briefParsed: ParsedBrief | Record<string, unknown>;
+  editedAt: string;
+}
 
 export interface Loop {
   id: string;
@@ -94,6 +108,7 @@ export interface Loop {
   weekStartedAt: string | null;
   pauseReason: LoopPauseReason;
   loopMode?: LoopMode;
+  briefVersionHistory?: BriefVersionEntry[];
 }
 
 export interface CycleCostEstimate {
