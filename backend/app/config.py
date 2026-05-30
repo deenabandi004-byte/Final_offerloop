@@ -95,6 +95,22 @@ PROMPT_SEARCH_ENABLED = os.getenv('PROMPT_SEARCH_ENABLED', 'false').lower() == '
 ENABLE_INDUSTRY_EXPANSION = os.getenv('ENABLE_INDUSTRY_EXPANSION', 'false').lower() == 'true'
 
 # ========================================
+# Loops Notifications (PR2 scaffold)
+# ========================================
+# Master kill switch for all Loop alert emails. Defaults OFF so this PR
+# ships as dead code at merge — PR3 wires the cycle pipeline caller.
+LOOPS_ALERT_EMAILS_ENABLED = os.getenv("LOOPS_ALERT_EMAILS_ENABLED", "").lower() in ("1", "true", "yes")
+
+# Resend HTTP delivery (no Python SDK — raw HTTPS via `requests`).
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "loops@offerloop.ai")
+# Used to verify the inbound bounce/complaint webhook signature.
+RESEND_WEBHOOK_SECRET = os.getenv("RESEND_WEBHOOK_SECRET", "")
+
+# Unsubscribe tokens are HMAC-signed with FLASK_SECRET and expire after N days.
+LOOPS_UNSUBSCRIBE_TOKEN_TTL_DAYS = int(os.getenv("LOOPS_UNSUBSCRIBE_TOKEN_TTL_DAYS", "30"))
+
+# ========================================
 # Personalization Controlled Vocab
 # ========================================
 # Keep in sync with connect-grow-hire/src/lib/constants.ts
