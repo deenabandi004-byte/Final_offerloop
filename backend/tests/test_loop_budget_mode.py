@@ -73,3 +73,38 @@ def test_estimate_default_mode_is_people():
         loop_mode="people",
     )
     assert legacy == explicit
+
+
+def test_estimate_both_mode_half_and_half():
+    """Both mode runs networking + job-search against one budget, with
+    half-and-half allocation. Expected mix: 2 contacts + 2 HMs (mixed
+    founder/people) + 5 jobs + 5 companies."""
+    est = estimate_cycle_cost(
+        {"companies": ["Stripe"], "roles": ["Designer"]},
+        cadence="every_other_day",
+        loop_mode="both",
+    )
+    breakdown = est["breakdown"]
+    assert breakdown["contacts"] == 2  # half of pure-people contacts
+    assert breakdown["hiring_managers"] == 2  # 1 founder-style + 1 people-style
+    assert breakdown["jobs"] == 5  # half of pure-roles jobs
+    assert breakdown["companies"] == 5  # shared discovery
+    expected = (
+        breakdown["contacts"] * CREDIT_COSTS["contact"]
+        + breakdown["hiring_managers"] * CREDIT_COSTS["hiring_manager"]
+        + breakdown["jobs"] * CREDIT_COSTS["job"]
+        + breakdown["companies"] * CREDIT_COSTS["company"]
+    )
+    assert est["per_cycle_credits"] == expected
+
+
+def test_estimate_both_mode_sits_between_people_and_roles():
+    """Sanity: both-mode credit cost should land between pure people and
+    pure roles. The half/half allocation is what makes both mode the
+    default-acceptable choice for students who want it all."""
+    bp = {"companies": ["Stripe"], "roles": ["Designer"]}
+    people = estimate_cycle_cost(bp, "every_other_day", "people")["per_cycle_credits"]
+    roles = estimate_cycle_cost(bp, "every_other_day", "roles")["per_cycle_credits"]
+    both = estimate_cycle_cost(bp, "every_other_day", "both")["per_cycle_credits"]
+    # both must not undercut the cheaper mode or overshoot the pricier one.
+    assert min(people, roles) <= both <= max(people, roles)

@@ -49,7 +49,26 @@ def test_loop_modes_constant_is_complete():
     """If you add a new mode to LOOP_MODES, this test fails — forcing you
     to also update _loop_defaults, the route validation, the brief parser
     classifier, and the frontend type union."""
-    assert LOOP_MODES == {"people", "roles"}
+    assert LOOP_MODES == {"people", "roles", "both"}
+
+
+def test_create_loop_with_both_mode_persists(monkeypatch):
+    """`both` is the third valid mode — must persist verbatim."""
+    db, writes = _fake_db_capturing_writes()
+    monkeypatch.setattr(loop_service, "get_db", lambda: db)
+    monkeypatch.setattr(loop_service, "_migrate_legacy_config", lambda _uid: None)
+
+    create_loop(
+        uid="u1",
+        tier="elite",
+        payload={
+            "briefText": "SWE internships AND coffee chats at fintech startups",
+            "loopMode": "both",
+        },
+    )
+
+    assert len(writes) == 1
+    assert writes[0]["loopMode"] == "both"
 
 
 # ── Service: create_loop with mocked Firestore ───────────────────────────

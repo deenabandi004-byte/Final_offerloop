@@ -65,7 +65,11 @@ LOOP_CADENCE = {"daily", "every_other_day", "weekly", "manual"}
 #             Today's behavior. Default for old Loops missing the field.
 #   "roles"  — autonomous job-search (find open postings, optionally draft
 #             founder outreach about specific roles).
-LOOP_MODES = {"people", "roles"}
+#   "both"   — pursue BOTH pipelines in one Loop. Planner balances networking
+#             actions and job-search actions against a single credit budget.
+#             HM outreach in this mode is template-selected by provenance
+#             (role_search → founder voice, networking → people voice).
+LOOP_MODES = {"people", "roles", "both"}
 
 
 def cadence_delta_hours(cadence: str) -> int | None:
@@ -85,6 +89,11 @@ def _loop_defaults() -> dict:
         "name": "Untitled Loop",
         "briefText": "",
         "briefParsed": None,
+        # Append-only log of prior briefText/briefParsed snapshots whenever
+        # the user PATCHes the brief. Capped at 20 entries (update_loop).
+        # Surfaced in the LoopDetailPage edit-brief affordance + useful as
+        # tuning data for the parser later.
+        "briefVersionHistory": [],
         "reviewBeforeSend": True,
         "weeklyTarget": 5,
         "smsEnabled": False,
@@ -256,6 +265,8 @@ def update_loop(uid: str, loop_id: str, patch: dict) -> dict | None:
 
     filtered = {k: v for k, v in (patch or {}).items() if k in MUTABLE_LOOP_FIELDS}
     # If the brief changed and the name was auto-generated, refresh the name.
+    # Also snapshot the previous brief into briefVersionHistory so the user
+    # can see how their goal has evolved (and we can tune the parser).
     if "briefParsed" in filtered or "briefText" in filtered:
         current = doc.to_dict() or {}
         if not patch.get("name"):
@@ -264,6 +275,24 @@ def update_loop(uid: str, loop_id: str, patch: dict) -> dict | None:
                 filtered.get("briefText", current.get("briefText", "")),
             )
             filtered["name"] = new_name
+
+        # Append a version-history entry only when briefText actually changed.
+        # A PATCH that touches briefParsed alone (without changing briefText)
+        # is a backfill, not a user edit — don't pollute the history with it.
+        old_text = current.get("briefText") or ""
+        new_text = filtered.get("briefText", old_text) or ""
+        if "briefText" in filtered and new_text != old_text:
+            history_entry = {
+                "briefText": old_text,
+                "briefParsed": current.get("briefParsed") or {},
+                "editedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            }
+            prev_history = list(current.get("briefVersionHistory") or [])
+            prev_history.append(history_entry)
+            # Cap to the last 20 versions. We don't write a TTL — old entries
+            # fall off the end as new edits come in. 20 × ~2KB ≈ 40KB,
+            # comfortably under Firestore's 1MB doc cap.
+            filtered["briefVersionHistory"] = prev_history[-20:]
 
     if filtered:
         ref.update(filtered)

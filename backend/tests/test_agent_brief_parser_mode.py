@@ -38,11 +38,18 @@ def test_normalize_accepts_roles_mode():
     assert out["mode"] == "roles"
 
 
+def test_normalize_accepts_both_mode():
+    """`both` is the third valid mode — students who want networking AND
+    job-search in one Loop."""
+    out = _normalize({"mode": "both"})
+    assert out["mode"] == "both"
+
+
 def test_normalize_invalid_mode_becomes_none():
     """LLM hallucinations like mode='potato' must become None — the wizard's
     explicit picker then takes over. We never want a Loop persisted with a
     bogus mode value."""
-    for bad in ["potato", "", "PEOPLE", "RECRUIT", 42, [], {"a": 1}, None]:
+    for bad in ["potato", "", "PEOPLE", "RECRUIT", "BOTH", "ALL", 42, [], {"a": 1}, None]:
         out = _normalize({"mode": bad})
         assert out["mode"] is None, f"expected None for mode={bad!r}, got {out['mode']!r}"
 
@@ -109,6 +116,29 @@ def test_parse_brief_people_mode_passes_through(monkeypatch):
     )
     assert status == "ok"
     assert parsed["mode"] == "people"
+
+
+def test_parse_brief_both_mode_passes_through(monkeypatch):
+    """When the brief explicitly asks for both job-search AND networking, the
+    LLM returns mode='both' and parse_brief surfaces it. The planner then
+    runs both pipelines off one credit budget."""
+    monkeypatch.setattr(
+        "app.services.agent_brief_parser.get_openai_client",
+        lambda: _stub_openai_client({
+            "companies": ["Stripe", "Linear"],
+            "roles": ["SWE Intern"],
+            "industries": ["Fintech"],
+            "locations": ["NYC"],
+            "mode": "both",
+        }),
+    )
+    parsed, status = parse_brief(
+        "I want summer SWE internships at fintech startups in NYC plus people to coffee chat with"
+    )
+    assert status == "ok"
+    assert parsed["mode"] == "both"
+    assert parsed["roles"] == ["SWE Intern"]
+    assert parsed["companies"] == ["Stripe", "Linear"]
 
 
 def test_parse_brief_ambiguous_mode_passes_through_as_none(monkeypatch):

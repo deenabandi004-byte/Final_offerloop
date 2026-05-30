@@ -26,6 +26,7 @@ from app.services.agent_planner import (
     _build_prompt,
     _build_rules_section,
     _parse_plan,
+    find_action_allowed,
 )
 
 
@@ -34,12 +35,24 @@ from app.services.agent_planner import (
 
 def test_valid_loop_modes_complete():
     """Catches missing updates when a new mode is added."""
-    assert VALID_LOOP_MODES == {"people", "roles"}
+    assert VALID_LOOP_MODES == {"people", "roles", "both"}
 
 
 def test_roles_forbidden_includes_find():
     """`find` is the PDL bulk contact search — irrelevant in roles mode."""
     assert "find" in ROLES_FORBIDDEN_ACTIONS
+
+
+def test_find_action_allowed_helper():
+    """One helper drives both _build_prompt's action-list gate and
+    _parse_plan's defense-in-depth drop — verify the rule it encodes."""
+    assert find_action_allowed("people") is True
+    assert find_action_allowed("both") is True
+    assert find_action_allowed("roles") is False
+    # Unknown / missing mode → planner falls back to "people" upstream, so
+    # the helper itself is liberal (default to allowed).
+    assert find_action_allowed("") is True
+    assert find_action_allowed("potato") is True
 
 
 # ── _build_rules_section ──────────────────────────────────────────────────
@@ -61,6 +74,19 @@ def test_rules_roles_forbids_find_and_promotes_find_jobs():
     assert "NEVER plan a `find` action" in rules
     # Strict: no language that would push the LLM to emit `find`.
     assert "ALWAYS include \"find\"" not in rules
+
+
+def test_rules_both_requires_both_pipelines():
+    """Both mode must force the LLM to run BOTH find and find_jobs every
+    cycle — neither pipeline may be starved while the other runs."""
+    rules = _build_rules_section("both", weekly_target=5)
+    # The rule mandating both pipelines is the load-bearing one.
+    assert "BOTH at least one `find` action" in rules
+    assert "at least one `find_jobs` action" in rules
+    # No language forbidding `find` (which would be a roles-mode leak).
+    assert "NEVER plan a `find` action" not in rules
+    # The half/half budget allocation rule must be present.
+    assert "half" in rules.lower()
 
 
 # ── _build_prompt: people vs roles framing ────────────────────────────────
@@ -123,6 +149,20 @@ def test_prompt_roles_mode_excludes_find_action():
     assert '"find_jobs"' in prompt
 
 
+def test_prompt_both_mode_includes_find_and_find_jobs():
+    """Both mode must keep `find` on the menu (networking is alive) AND
+    have `find_jobs` (job-search is alive)."""
+    prompt = _build_prompt(
+        _base_config("both"), _base_user_data(), _base_pipeline_state(), {}
+    )
+    assert "Loop Mode: BOTH" in prompt
+    assert '"find" — search for contacts at a company' in prompt
+    assert '"find_jobs"' in prompt
+    # The mode_block must mention the BOTH pipelines explicitly so the LLM
+    # doesn't drift into a one-pipeline cycle.
+    assert "balance" in prompt.lower() or "both" in prompt.lower()
+
+
 def test_prompt_default_mode_is_people():
     """Missing loopMode → people behavior. Critical for old Loop docs."""
     prompt = _build_prompt(
@@ -165,6 +205,17 @@ def test_parse_plan_people_keeps_find_action():
     plan = _parse_plan(raw, loop_mode="people")
     assert len(plan) == 1
     assert plan[0]["action"] == "find"
+
+
+def test_parse_plan_both_keeps_find_and_find_jobs():
+    """In both mode, neither `find` nor `find_jobs` is filtered — the
+    student wants both pipelines to run."""
+    raw = _plan_json([
+        {"action": "find", "company": "Stripe", "title": "Designer", "count": 3},
+        {"action": "find_jobs", "company": "Stripe", "role": "Designer", "count": 5},
+    ])
+    plan = _parse_plan(raw, loop_mode="both")
+    assert [a["action"] for a in plan] == ["find", "find_jobs"]
 
 
 def test_parse_plan_default_mode_keeps_find_action():

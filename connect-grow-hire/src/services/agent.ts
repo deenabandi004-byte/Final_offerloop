@@ -30,6 +30,11 @@ async function agentFetch(path: string, options: RequestInit = {}) {
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
+// Mirror of backend ParsedBrief in agent_brief_parser.py. `mode` is the
+// parser's classification of the brief's intent — null when ambiguous (the
+// wizard's manual picker is then the source of truth).
+export type ParsedBriefMode = "people" | "roles" | "both" | null;
+
 export interface ParsedBrief {
   companies: string[];
   industries: string[];
@@ -37,6 +42,8 @@ export interface ParsedBrief {
   locations: string[];
   emailPurpose: string | null;
   constraints: string[];
+  targetCount?: number | null;
+  mode?: ParsedBriefMode;
 }
 
 export interface AgentConfig {
