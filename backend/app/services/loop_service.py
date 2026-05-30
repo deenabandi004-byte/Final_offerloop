@@ -58,6 +58,15 @@ LOOP_STATUS = {"idle", "running", "paused", "done"}
 # _loop_defaults below is every_other_day.
 LOOP_CADENCE = {"daily", "every_other_day", "weekly", "manual"}
 
+# Loop modes. Read-only after creation: changing direction mid-flight would
+# invalidate cached companies/jobs/HMs and confuse users about already-drafted
+# work. To change direction, create a new Loop.
+#   "people" — autonomous networking (find professionals, draft cold outreach).
+#             Today's behavior. Default for old Loops missing the field.
+#   "roles"  — autonomous job-search (find open postings, optionally draft
+#             founder outreach about specific roles).
+LOOP_MODES = {"people", "roles"}
+
 
 def cadence_delta_hours(cadence: str) -> int | None:
     """Hours between scheduled cycles for a given cadence. None means manual
@@ -102,6 +111,9 @@ def _loop_defaults() -> dict:
         "weekCreditsSpent": 0,
         "weekStartedAt": None,
         "pauseReason": None,
+        # "people" preserves today's networking behavior. Read-only after
+        # creation — see LOOP_MODES comment.
+        "loopMode": "people",
     }
 
 
@@ -210,6 +222,13 @@ def create_loop(uid: str, tier: str, payload: dict) -> dict:
     # Validate cadence
     if payload_clean.get("cadence") and payload_clean["cadence"] not in LOOP_CADENCE:
         payload_clean["cadence"] = "every_other_day"
+
+    # loopMode is create-only — handled outside MUTABLE_LOOP_FIELDS so it can
+    # never be changed by a PATCH. Validate enum; fall through to default on
+    # missing or invalid (preserves today's networking behavior).
+    raw_mode = (payload or {}).get("loopMode")
+    if raw_mode in LOOP_MODES:
+        payload_clean["loopMode"] = raw_mode
 
     doc = {
         **_loop_defaults(),

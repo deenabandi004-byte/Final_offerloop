@@ -51,10 +51,16 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
 
     loop = loop_doc.to_dict() or {}
     bp = loop.get("briefParsed") or {}
+    # Old Loop docs predate loopMode — default to "people" to preserve today's
+    # behavior. loop_service writes "people" on create, so this default only
+    # fires for pre-Slice-1 records.
+    loop_mode = loop.get("loopMode") or "people"
     synthetic_config = {
         **DEFAULT_AGENT_CONFIG,
         "briefText": loop.get("briefText", ""),
         "briefParsed": bp,
+        "loopMode": loop_mode,
+        "loopId": loop_id,
         "targetCompanies": bp.get("companies") or [],
         "targetIndustries": bp.get("industries") or [],
         "targetRoles": bp.get("roles") or [],

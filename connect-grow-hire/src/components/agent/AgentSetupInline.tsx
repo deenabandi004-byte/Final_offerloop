@@ -8,16 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { updateAgentConfig, deployAgent, parseBrief } from "@/services/agent";
 import { firebaseApi } from "@/services/firebaseApi";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import { useCreateLoop } from "@/hooks/useLoops";
+import { loopCopy, type LoopModeForCopy } from "@/lib/loopCopy";
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -26,18 +21,6 @@ const STEPS = [
   { id: "volume", num: "02", label: "Cadence", sub: "Pace and budget" },
   { id: "review", num: "03", label: "Review", sub: "Deploy" },
 ] as const;
-
-const INDUSTRY_OPTIONS = [
-  "Investment Banking",
-  "Consulting",
-  "Technology",
-  "Private Equity",
-  "Venture Capital",
-  "Asset Management",
-  "Corporate Finance",
-  "Marketing",
-  "Data Science",
-];
 
 const COMPANY_SUGGESTIONS = ["Stripe", "Linear", "Vercel", "Notion", "Ramp", "Arc", "Anthropic"];
 const ROLE_SUGGESTIONS = ["Product Designer", "Design Engineer", "Analyst", "Associate", "Software Engineer"];
@@ -75,6 +58,24 @@ function buildSyntheticBrief(form: {
   );
   if (form.preferAlumni) parts.push("Prefer alumni from my university.");
   return parts.join(" ");
+}
+
+// Derive a human-readable Loop name from the wizard form. Mirrors how the
+// design's LoopCard subtitle reads ("Stripe · Linear · Vercel · Product
+// Designer") so the new card slots right in next to existing ones.
+function deriveLoopName(form: {
+  companies: string[];
+  industries: string[];
+  roles: string[];
+}): string {
+  const role = form.roles[0]?.trim();
+  const cos = form.companies.filter(Boolean).slice(0, 2).join(" · ");
+  const inds = form.industries.filter(Boolean).slice(0, 2).join(" · ");
+  const target = cos || inds;
+  if (target && role) return `${target} · ${role}`;
+  if (target) return target;
+  if (role) return `${role} loop`;
+  return "Outreach loop";
 }
 
 function buildPreviewTraces(form: {
@@ -269,53 +270,6 @@ function TagInput({
   );
 }
 
-// ── Industry Tag Box ───────────────────────────────────────────────────
-// Same chip-inside-box pattern but with a select dropdown instead of text input.
-
-function IndustryInput({
-  list,
-  setList,
-}: {
-  list: string[];
-  setList: (v: string[]) => void;
-}) {
-  const rem = (t: string) => setList(list.filter((x) => x !== t));
-  const remaining = INDUSTRY_OPTIONS.filter((i) => !list.includes(i));
-
-  return (
-    <div
-      className="rounded-[var(--radius)] border border-line bg-elev"
-      style={{ padding: list.length > 0 ? "10px 10px 4px 12px" : "4px 4px" }}
-    >
-      {list.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-2">
-          {list.map((t, i) => (
-            <TagChip key={t} label={t} index={i} onRemove={() => rem(t)} />
-          ))}
-        </div>
-      )}
-      <Select
-        onValueChange={(v) => {
-          if (!list.includes(v)) setList([...list, v]);
-        }}
-      >
-        <SelectTrigger className="border-0 shadow-none focus:ring-0 h-9 text-sm">
-          <SelectValue
-            placeholder={list.length ? "and another industry\u2026" : "Pick an industry\u2026"}
-          />
-        </SelectTrigger>
-        <SelectContent>
-          {remaining.map((i) => (
-            <SelectItem key={i} value={i}>
-              {i}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-
 // ── Field wrapper ──────────────────────────────────────────────────────
 
 function Field({
@@ -453,16 +407,8 @@ function StepRail({
 
 // ── Preview rail (right sidebar) ───────────────────────────────────────
 
-function PreviewRail({ form }: { form: FormState }) {
+function PreviewRail({ form, litTo }: { form: FormState; litTo: number }) {
   const traces = useMemo(() => buildPreviewTraces(form), [form]);
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 1500);
-    return () => clearInterval(id);
-  }, []);
-
-  const visible = traces.slice(0, (tick % traces.length) + 1);
 
   return (
     <aside
@@ -474,8 +420,12 @@ function PreviewRail({ form }: { form: FormState }) {
           <PulseDot color="#d4a017" />
           <MonoTag color="var(--signal-wait)">preview &middot; not running</MonoTag>
         </div>
-        <p className="text-lg font-medium leading-tight" style={{ color: "var(--ink)" }}>
-          What your agent <em className="font-medium">will do</em> once deployed.
+        <p
+          className="font-medium leading-[1.25]"
+          style={{ color: "var(--ink)", fontSize: 17 }}
+        >
+          What your loop{" "}
+          <em className="italic" style={{ fontWeight: 500 }}>will do</em> once deployed.
         </p>
       </div>
 
@@ -493,14 +443,14 @@ function PreviewRail({ form }: { form: FormState }) {
         </div>
         {traces.map((t, i) => {
           const meta = KIND_META[t.kind];
-          const on = i < visible.length;
+          const on = i < litTo;
           return (
             <div
               key={i}
-              className="px-3.5 py-2.5 transition-opacity duration-200"
+              className="px-3.5 py-2.5 transition-opacity duration-300"
               style={{
                 borderBottom: i < traces.length - 1 ? "1px solid var(--line-2)" : "none",
-                opacity: on ? 1 : 0.35,
+                opacity: on ? 1 : 0.4,
               }}
             >
               <div className="flex items-center gap-2 mb-1">
@@ -518,8 +468,8 @@ function PreviewRail({ form }: { form: FormState }) {
         })}
       </div>
 
-      <div className="border-t border-line pt-3.5 mt-auto text-xs leading-relaxed" style={{ color: "var(--ink-3)" }}>
-        Nothing sends without your approval. You can pause the agent any time from the Agent Mode dashboard.
+      <div className="border-t border-line pt-3.5 mt-auto text-[11.5px] leading-[1.5]" style={{ color: "var(--ink-3)" }}>
+        Nothing sends without your approval. Pause the loop any time.
       </div>
     </aside>
   );
@@ -535,32 +485,51 @@ interface FormState {
   weeklyTarget: number;
   creditBudget: number;
   approvalMode: "review_first" | "autopilot";
+  loopMode: LoopModeForCopy;
 }
 
 function StepGoals({
   form,
   set,
   hasUniversity,
+  university,
 }: {
   form: FormState;
   set: (patch: Partial<FormState>) => void;
   hasUniversity: boolean;
+  university: string;
 }) {
+  const copy = loopCopy(form.loopMode, { school: university });
+
   return (
     <div>
+      <Field label={copy.modeSectionLabel} hint={copy.modeSectionHint}>
+        <div
+          role="radiogroup"
+          aria-label="Loop mode"
+          className="grid grid-cols-1 sm:grid-cols-2 gap-2.5"
+        >
+          <ModeCard
+            active={form.loopMode === "people"}
+            title={copy.modePeopleBtn}
+            desc={copy.modePeopleDesc}
+            onClick={() => set({ loopMode: "people" })}
+          />
+          <ModeCard
+            active={form.loopMode === "roles"}
+            title={copy.modeRolesBtn}
+            desc={copy.modeRolesDesc}
+            onClick={() => set({ loopMode: "roles" })}
+          />
+        </div>
+      </Field>
+
       <Field label="Target companies" hint="Press Enter to add">
         <TagInput
           placeholder="e.g. Stripe, Linear, Vercel"
           list={form.companies}
           setList={(v) => set({ companies: v })}
           suggestions={COMPANY_SUGGESTIONS}
-        />
-      </Field>
-
-      <Field label="Target industries">
-        <IndustryInput
-          list={form.industries}
-          setList={(v) => set({ industries: v })}
         />
       </Field>
 
@@ -573,14 +542,14 @@ function StepGoals({
         />
       </Field>
 
-      <div className="flex items-center justify-between pt-3.5 border-t border-line-2">
+      <div className="flex items-center justify-between pt-4 border-t border-line-2">
         <div>
           <div className="text-[13px] font-semibold" style={{ color: "var(--ink)" }}>
-            Prefer alumni
+            {copy.preferAlumniLabel}
           </div>
           <div className="text-xs mt-0.5" style={{ color: "var(--ink-3)" }}>
             {hasUniversity
-              ? "Boost contacts from your university."
+              ? copy.preferAlumniHint
               : "Set your university in Account Settings to use this."}
           </div>
         </div>
@@ -589,6 +558,55 @@ function StepGoals({
           disabled={!hasUniversity}
           onCheckedChange={(v) => set({ preferAlumni: v })}
         />
+      </div>
+    </div>
+  );
+}
+
+function BigSlider({
+  value,
+  unit,
+  min,
+  max,
+  step,
+  onChange,
+  ariaLabel,
+}: {
+  value: number;
+  unit: string;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (v: number) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <div>
+      <div className="flex items-baseline gap-2 mb-3">
+        <span
+          className="text-[28px] leading-none"
+          style={{ color: "var(--ink)", fontWeight: 500 }}
+        >
+          {value}
+        </span>
+        <span className="text-xs" style={{ color: "var(--ink-3)" }}>
+          {unit}
+        </span>
+      </div>
+      <Slider
+        min={min}
+        max={max}
+        step={step}
+        value={[value]}
+        onValueChange={([v]) => onChange(v)}
+        aria-label={ariaLabel}
+      />
+      <div
+        className="flex justify-between mt-1.5 font-mono text-[10.5px]"
+        style={{ color: "var(--ink-3)" }}
+      >
+        <span>{min}</span>
+        <span>{max}</span>
       </div>
     </div>
   );
@@ -603,70 +621,28 @@ function StepCadence({
 }) {
   return (
     <div>
-      <Field label="Weekly contact target" hint="How many new contacts per week">
-        <div className="flex items-baseline gap-2 mb-2.5">
-          <input
-            type="number"
-            min={1}
-            max={15}
-            step={1}
-            value={form.weeklyTarget}
-            onChange={(e) => {
-              const n = Math.max(1, Math.min(15, Math.round(Number(e.target.value) || 1)));
-              set({ weeklyTarget: n });
-            }}
-            className="text-[28px] font-medium leading-none bg-transparent border-0 p-0 w-[3ch] focus:outline-none focus:ring-0"
-            style={{ color: "var(--ink)" }}
-            aria-label="Weekly contact target"
-          />
-          <span className="text-xs" style={{ color: "var(--ink-3)" }}>
-            contacts / week
-          </span>
-        </div>
-        <Slider
+      <Field label="Weekly contact target" hint="New contacts per week">
+        <BigSlider
+          value={form.weeklyTarget}
+          unit="contacts / week"
           min={1}
           max={15}
           step={1}
-          value={[form.weeklyTarget]}
-          onValueChange={([v]) => set({ weeklyTarget: v })}
+          onChange={(v) => set({ weeklyTarget: v })}
+          ariaLabel="Weekly contact target"
         />
-        <div className="flex justify-between mt-1.5 font-mono text-[10.5px]" style={{ color: "var(--ink-3)" }}>
-          <span>1</span>
-          <span>15</span>
-        </div>
       </Field>
 
-      <Field label="Credit budget" hint="Max credits the agent can spend per week">
-        <div className="flex items-baseline gap-2 mb-2.5">
-          <input
-            type="number"
-            min={10}
-            max={150}
-            step={1}
-            value={form.creditBudget}
-            onChange={(e) => {
-              const n = Math.max(10, Math.min(150, Math.round(Number(e.target.value) || 10)));
-              set({ creditBudget: n });
-            }}
-            className="text-[28px] font-medium leading-none bg-transparent border-0 p-0 w-[4ch] focus:outline-none focus:ring-0"
-            style={{ color: "var(--ink)" }}
-            aria-label="Credit budget per week"
-          />
-          <span className="text-xs" style={{ color: "var(--ink-3)" }}>
-            credits / week
-          </span>
-        </div>
-        <Slider
+      <Field label="Credit budget" hint="Max credits per week">
+        <BigSlider
+          value={form.creditBudget}
+          unit="credits / week"
           min={10}
           max={150}
           step={10}
-          value={[form.creditBudget]}
-          onValueChange={([v]) => set({ creditBudget: v })}
+          onChange={(v) => set({ creditBudget: v })}
+          ariaLabel="Credit budget per week"
         />
-        <div className="flex justify-between mt-1.5 font-mono text-[10.5px]" style={{ color: "var(--ink-3)" }}>
-          <span>10</span>
-          <span>150</span>
-        </div>
         {(() => {
           const estimated = form.weeklyTarget * CREDIT_COST_PER_CONTACT;
           const underfunded = form.creditBudget < estimated;
@@ -704,32 +680,30 @@ function StepCadence({
   );
 }
 
-function StepReview({ form }: { form: FormState }) {
-  const rows = [
+function StepReview({ form, university }: { form: FormState; university: string }) {
+  const rows: Array<{ k: string; v: string }> = [
     { k: "Companies", v: form.companies.length ? form.companies.join(", ") : "\u2014" },
-    { k: "Industries", v: form.industries.length ? form.industries.join(", ") : "\u2014" },
     { k: "Roles", v: form.roles.length ? form.roles.join(", ") : "\u2014" },
     { k: "Weekly target", v: `${form.weeklyTarget} contacts / week` },
     { k: "Credit budget", v: `${form.creditBudget} credits / week` },
     { k: "Approval mode", v: form.approvalMode === "review_first" ? "Review first" : "Autopilot" },
-    { k: "Alumni priority", v: form.preferAlumni ? "On" : "Off" },
+    {
+      k: "Alumni priority",
+      v: form.preferAlumni ? (university ? `On \u2014 ${university}` : "On") : "Off",
+    },
   ];
 
   return (
     <div>
-      <p className="text-lg font-medium leading-tight mb-1" style={{ color: "var(--ink)" }}>
-        Ready to deploy your <em className="font-medium">agent.</em>
-      </p>
-      <p className="text-[13px] mb-5" style={{ color: "var(--ink-2)" }}>
-        Once deployed, it will start a discovery cycle within 60 seconds.
-      </p>
-
       <div className="border border-line rounded-[10px] overflow-hidden bg-paper mb-4">
         {rows.map((r, i) => (
           <div
             key={r.k}
-            className="grid grid-cols-[140px_1fr] px-4 py-2.5 text-[12.5px]"
-            style={{ borderBottom: i < rows.length - 1 ? "1px solid var(--line-2)" : "none" }}
+            className="grid grid-cols-[150px_1fr] text-[12.5px]"
+            style={{
+              padding: "11px 16px",
+              borderBottom: i < rows.length - 1 ? "1px solid var(--line-2)" : "none",
+            }}
           >
             <span style={{ color: "var(--ink-3)" }}>{r.k}</span>
             <span className="font-medium" style={{ color: "var(--ink)" }}>
@@ -740,11 +714,11 @@ function StepReview({ form }: { form: FormState }) {
       </div>
 
       <div
-        className="rounded-[10px] border border-line p-3.5 flex gap-3 items-start"
-        style={{ background: "var(--paper-2)" }}
+        className="rounded-[10px] border border-line flex gap-3 items-start"
+        style={{ background: "var(--paper-2)", padding: 14 }}
       >
         <span
-          className="w-7 h-7 rounded-lg shrink-0 inline-flex items-center justify-center text-white text-[13px] font-semibold"
+          className="w-7 h-7 rounded-[9px] shrink-0 inline-flex items-center justify-center text-white text-[13px] font-semibold"
           style={{ background: "linear-gradient(135deg, #f5b945, #e08a2a)" }}
         >
           S
@@ -754,8 +728,8 @@ function StepReview({ form }: { form: FormState }) {
             Scout will find contacts, watch for replies, and draft outreach.
           </div>
           <div className="text-xs leading-relaxed" style={{ color: "var(--ink-2)" }}>
-            You'll see new drafts in the Agent Mode dashboard. Pause or reconfigure any time &mdash;
-            your settings save automatically.
+            New drafts show up here for review. Pause or reconfigure any time &mdash; settings save
+            automatically.
           </div>
         </div>
       </div>
@@ -768,6 +742,7 @@ function StepReview({ form }: { form: FormState }) {
 export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
   const { toast } = useToast();
   const { user } = useFirebaseAuth();
+  const createLoopMut = useCreateLoop();
   const [stepIdx, setStepIdx] = useState(0);
   const [deploying, setDeploying] = useState(false);
   // null = still loading, "" = onboarded but no school, "USC" = set.
@@ -790,6 +765,10 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
     weeklyTarget: 5,
     creditBudget: 100,
     approvalMode: "review_first",
+    // Default to "people" (today's networking behavior) for new users. When
+    // we later derive the default from the user's most recent Loop, swap this
+    // initializer for an effect that fetches the latest Loop's mode.
+    loopMode: "people",
   });
   const set = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }));
 
@@ -797,6 +776,10 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
   const isLast = stepIdx === STEPS.length - 1;
   const estimatedWeeklyCredits = form.weeklyTarget * CREDIT_COST_PER_CONTACT;
   const budgetUnderfunded = form.creditBudget < estimatedWeeklyCredits;
+  // Mode-aware copy for the Goals headline (and subtitle). Other steps stay
+  // shared. school is the user's actual university when known so the alumni
+  // toggle shows concrete language.
+  const goalsCopy = loopCopy(form.loopMode, { school: university || "" });
   const canDeploy =
     (form.companies.length > 0 || form.industries.length > 0) &&
     !budgetUnderfunded;
@@ -805,7 +788,7 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
     if (form.companies.length === 0 && form.industries.length === 0) {
       toast({
         title: "Add targets",
-        description: "Add at least one target company or industry.",
+        description: "Add at least one target company.",
         variant: "destructive",
       });
       return;
@@ -825,7 +808,7 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
       // legacy target fields — see agent_planner.py:44-57). The chip values
       // are still written for backwards compat with any UI that reads them.
       const briefText = buildSyntheticBrief(form);
-      await parseBrief(briefText);
+      const parseRes = await parseBrief(briefText);
       await updateAgentConfig({
         targetCompanies: form.companies,
         targetIndustries: form.industries,
@@ -838,7 +821,31 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
         approvalMode: form.approvalMode,
       });
       await deployAgent();
-      toast({ title: "Agent deployed!", description: "Your networking agent is now active." });
+
+      // The Loops fleet view at /agent reads from a different collection
+      // (users/{uid}/loops/*) than the legacy single-agent config above
+      // (users/{uid}/settings/agent_config). Without this createLoop the
+      // wizard "deploys" but no card ever shows up in the fleet view —
+      // useCreateLoop invalidates the list query so /agent refetches.
+      await createLoopMut.mutateAsync({
+        briefText,
+        briefParsed: parseRes.briefParsed ?? null,
+        name: deriveLoopName(form),
+        reviewBeforeSend: form.approvalMode === "review_first",
+        weeklyTarget: form.weeklyTarget,
+        cadence: "weekly",
+        creditBudgetPerWeek: form.creditBudget,
+        automationEnabled: form.approvalMode === "autopilot",
+        loopMode: form.loopMode,
+      });
+
+      toast({
+        title: "Loop deployed!",
+        description:
+          form.loopMode === "roles"
+            ? "Your job-search loop is now active."
+            : "Your networking loop is now active.",
+      });
       onDeployed();
     } catch (e: unknown) {
       toast({
@@ -859,28 +866,30 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
           {/* Hero */}
           <div className="mb-7">
             <MonoTag>&middot; step {step.num}</MonoTag>
-            <h1 className="mt-2.5 mb-2 text-[28px] sm:text-[34px] font-medium leading-tight tracking-tight">
+            <h1
+              className="font-serif mt-2.5 mb-2 text-[28px] sm:text-[32px] leading-[1.1] tracking-[-0.02em]"
+              style={{ color: "var(--ink)", fontWeight: 400 }}
+            >
               {stepIdx === 0 && (
                 <>
-                  Tell Scout <em className="font-medium">who</em> to chase.
+                  Tell your Loop <em className="italic" style={{ fontWeight: 400 }}>{goalsCopy.goalsTitleAccent}</em> to chase.
                 </>
               )}
               {stepIdx === 1 && (
                 <>
-                  Set the <em className="font-medium">pace</em> and the rules.
+                  Set the <em className="italic" style={{ fontWeight: 400 }}>pace</em> and the rules.
                 </>
               )}
               {stepIdx === 2 && (
                 <>
-                  Look it over, then <em className="font-medium">deploy.</em>
+                  Look it over, then <em className="italic" style={{ fontWeight: 400 }}>deploy.</em>
                 </>
               )}
             </h1>
-            <p className="text-[13.5px] max-w-[480px]" style={{ color: "var(--ink-2)" }}>
-              {stepIdx === 0 &&
-                "The agent will only consider companies, industries, and roles you list here. You can edit anytime."}
+            <p className="text-[13.5px] max-w-[470px]" style={{ color: "var(--ink-2)" }}>
+              {stepIdx === 0 && goalsCopy.goalsSubtitle}
               {stepIdx === 1 &&
-                "Caps the agent so it doesn't over-reach. We recommend Review First to start."}
+                "Caps the loop so it doesn't over-reach. We recommend Review First to start."}
               {stepIdx === 2 && "Deploying starts the first discovery cycle right away."}
             </p>
           </div>
@@ -891,10 +900,15 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
           {/* Step body */}
           <div className="pt-7">
             {stepIdx === 0 && (
-              <StepGoals form={form} set={set} hasUniversity={hasUniversity} />
+              <StepGoals
+                form={form}
+                set={set}
+                hasUniversity={hasUniversity}
+                university={university || ""}
+              />
             )}
             {stepIdx === 1 && <StepCadence form={form} set={set} />}
-            {stepIdx === 2 && <StepReview form={form} />}
+            {stepIdx === 2 && <StepReview form={form} university={university || ""} />}
           </div>
 
           {/* Navigation */}
@@ -941,7 +955,7 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
       </div>
 
       {/* Preview rail */}
-      <PreviewRail form={form} />
+      <PreviewRail form={form} litTo={stepIdx === 0 ? 1 : stepIdx === 1 ? 3 : 6} />
     </div>
   );
 }

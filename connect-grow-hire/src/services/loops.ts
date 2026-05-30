@@ -55,6 +55,14 @@ export type LoopPauseReason =
   | "paused"
   | null;
 
+// "people" = autonomous networking (today's behavior — find professionals,
+// draft cold outreach). "roles" = autonomous job-search (find open postings,
+// optionally draft founder outreach about specific roles). Set at creation
+// and read-only afterward; backend rejects PATCH attempts to change it.
+// Optional on the read-side because Loops created before the field existed
+// will return without it (treat missing as "people").
+export type LoopMode = "people" | "roles";
+
 export interface Loop {
   id: string;
   name: string;
@@ -85,6 +93,7 @@ export interface Loop {
   weekCreditsSpent: number;
   weekStartedAt: string | null;
   pauseReason: LoopPauseReason;
+  loopMode?: LoopMode;
 }
 
 export interface CycleCostEstimate {
@@ -157,6 +166,7 @@ export async function createLoop(input: {
   cadence?: LoopCadence;
   creditBudgetPerWeek?: number;
   automationEnabled?: boolean;
+  loopMode?: LoopMode;
 }): Promise<Loop> {
   return loopFetch("", {
     method: "POST",

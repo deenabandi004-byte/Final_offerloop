@@ -24,6 +24,7 @@ from app.services.loop_budget import (
     usage_breakdown_this_month,
 )
 from app.services.loop_service import (
+    LOOP_MODES,
     create_loop,
     delete_loop,
     get_loop,
@@ -87,6 +88,14 @@ def create_user_loop():
     uid = request.firebase_user["uid"]
     data = request.get_json() or {}
 
+    # Validate loopMode if provided. Missing falls through to the service
+    # default ("people") to preserve compatibility with old clients.
+    if "loopMode" in data and data["loopMode"] not in LOOP_MODES:
+        return jsonify({
+            "error": "invalid_loopMode",
+            "message": f"loopMode must be one of {sorted(LOOP_MODES)}.",
+        }), 400
+
     brief_text = (data.get("briefText") or "").strip()
     # Only re-parse server-side when the client didn't supply a usable parse.
     # The Loop composer parses on the frontend, lets the user edit chips, and
@@ -135,6 +144,15 @@ def get_user_loop(loop_id):
 def patch_user_loop(loop_id):
     uid = request.firebase_user["uid"]
     data = request.get_json() or {}
+
+    # Mode is set at creation and cannot be changed afterward. Changing the
+    # direction of a running Loop would invalidate its cached companies, jobs,
+    # and HMs, and confuse the user about already-drafted work.
+    if "loopMode" in data:
+        return jsonify({
+            "error": "loopMode_read_only",
+            "message": "Loop mode is fixed at creation. Create a new Loop to change direction.",
+        }), 400
 
     # If only briefText was sent, re-parse it before saving.
     if "briefText" in data and "briefParsed" not in data:
@@ -190,7 +208,9 @@ def estimate_loop_cost():
     data = request.get_json() or {}
     brief_parsed = data.get("briefParsed") or {}
     cadence = data.get("cadence") or "every_other_day"
-    return jsonify(estimate_cycle_cost(brief_parsed, cadence))
+    raw_mode = (data.get("loopMode") or "people")
+    loop_mode = raw_mode if raw_mode in LOOP_MODES else "people"
+    return jsonify(estimate_cycle_cost(brief_parsed, cadence, loop_mode=loop_mode))
 
 
 @loops_bp.route("/usage-breakdown", methods=["GET"])
