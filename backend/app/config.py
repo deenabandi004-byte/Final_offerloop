@@ -87,6 +87,13 @@ CREATE_GMAIL_DRAFTS = False  # Set True to create Gmail drafts; False to only re
 # ========================================
 PROMPT_SEARCH_ENABLED = os.getenv('PROMPT_SEARCH_ENABLED', 'false').lower() == 'true'  # Experimental prompt-first search
 
+# Industry-aware semantic expansion for PDL prompts. When ON, prompts with
+# industries but no specific company get their industry list broadened to
+# PDL-canonical taxonomy siblings (and aligned title_variations added) via an
+# LLM call (cached per parsed-prompt). Default OFF — flip to "true" once
+# dogfooded; cost is ~$0.0001 per unique parse, free on cache hit.
+ENABLE_INDUSTRY_EXPANSION = os.getenv('ENABLE_INDUSTRY_EXPANSION', 'false').lower() == 'true'
+
 # ========================================
 # Personalization Controlled Vocab
 # ========================================
