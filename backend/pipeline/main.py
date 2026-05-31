@@ -5,7 +5,9 @@ Offerloop Job Pipeline — entry point.
 Usage:
     python pipeline/main.py                          # Full pipeline: fetch → normalize → write
     python pipeline/main.py --skip-fantastic          # Full pipeline, skip Fantastic.jobs
-    python pipeline/main.py --fantastic-only          # Fantastic.jobs only
+    python pipeline/main.py --fantastic-only          # Fantastic.jobs only (7d window)
+    python pipeline/main.py --fantastic-modified      # FJ daily delta via /modified-ats-24h (no Jobs credits)
+    python pipeline/main.py --sweep-expired           # FJ Expired Jobs sweep — mark Firestore docs expired=true
     python pipeline/main.py --cleanup                 # Delete expired jobs only
     python pipeline/main.py --fix-salaries            # Recalculate WEEK salaries
     python pipeline/main.py --enrich-only             # Firecrawl JD enrichment for pending jobs
@@ -150,6 +152,57 @@ def run_fantastic_only():
     return result
 
 
+def run_fantastic_modified():
+    """Daily delta from FJ Modified Jobs (/modified-ats-24h).
+
+    Doesn't burn Jobs credits — only 1 Request credit per recipe call.
+    Recommended cron: once per day at a fixed UTC time.
+    """
+    from backend.pipeline.fetcher import fetch_fantasticjobs_modified
+    from backend.pipeline.normalizer import normalize_all
+    from backend.pipeline.writer import write_jobs
+
+    logger.info("Fetching modified jobs from Fantastic.jobs (last 24h)...")
+    raw = fetch_fantasticjobs_modified()
+    breakdown = _source_breakdown(raw)
+
+    logger.info("Normalizing %d raw results...", len(raw))
+    normalized = normalize_all(raw)
+
+    logger.info("Writing %d normalized jobs to Firestore...", len(normalized))
+    result = write_jobs(normalized)
+    result["source_breakdown"] = breakdown
+
+    print()
+    print("Fantastic.jobs modified-delta pipeline complete.")
+    print(f"  New jobs written:     {result['written']}")
+    print(f"  Duplicates skipped:   {result['skipped_duplicates']}")
+    print(f"  Total processed:      {result['total']}")
+    print(f"  Source breakdown:     {breakdown}")
+    return result
+
+
+def run_sweep_expired():
+    """Pull FJ Expired Jobs ID list and mark matching Firestore docs.
+
+    Doesn't burn Jobs credits — only 1 Request credit. Recommended cron:
+    once per day, ideally right after the modified-delta run.
+    """
+    from backend.pipeline.fetcher import fetch_expired_job_ids
+    from backend.pipeline.writer import mark_expired_jobs
+
+    logger.info("Fetching expired job IDs from Fantastic.jobs...")
+    ids = fetch_expired_job_ids()
+    result = mark_expired_jobs(ids)
+
+    print()
+    print("Expired-jobs sweep complete.")
+    print(f"  IDs returned by FJ:   {result['total']}")
+    print(f"  Marked expired:       {result['marked']}")
+    print(f"  Not in our corpus:    {result['not_found']}")
+    return result
+
+
 def run_fix_salaries():
     from backend.app.extensions import get_db
     from backend.pipeline.normalizer import _format_salary_display, _salary_normalized_annual
@@ -286,6 +339,10 @@ if __name__ == "__main__":
             )
         elif "--fantastic-only" in sys.argv:
             mode, runner = "fantastic-only", run_fantastic_only
+        elif "--fantastic-modified" in sys.argv:
+            mode, runner = "fantastic-modified", run_fantastic_modified
+        elif "--sweep-expired" in sys.argv:
+            mode, runner = "sweep-expired", run_sweep_expired
         elif "--skip-fantastic" in sys.argv:
             mode, runner = "skip-fantastic", (lambda: run_pipeline(skip_fantastic=True))
         else:
