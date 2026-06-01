@@ -431,12 +431,31 @@ def get_loop_activity(uid: str, loop_id: str, limit: int = 50) -> list[dict]:
     # agent_actions hold the executed work. result contains the contacts/jobs
     # arrays returned by each action type. Firestore 'in' caps at 30 values,
     # so for users with more cycles we iterate in chunks.
+    #
+    # Two-pass: first collect every contact.sourceJobId across the Loop's
+    # actions so we know which find_jobs items are paired with a founder
+    # draft. Unpaired jobs (large-co Apply-only) get no groupKey; paired
+    # ones get one so the frontend can render them as a hierarchy block.
     actions_col = db.collection("users").document(uid).collection("agent_actions")
+    raw_actions: list[tuple[str, dict]] = []
+    referenced_group_keys: set[str] = set()
     for chunk_start in range(0, len(cycle_ids), 30):
         chunk = cycle_ids[chunk_start:chunk_start + 30]
         for doc in actions_col.where("cycleId", "in", chunk).where("status", "==", "completed").stream():
             data = doc.to_dict() or {}
-            items.extend(_action_to_items(doc.id, data))
+            raw_actions.append((doc.id, data))
+            if data.get("action") == "find_hiring_managers":
+                result = data.get("result") or {}
+                if isinstance(result, dict):
+                    for contact in result.get("contacts") or []:
+                        if not isinstance(contact, dict):
+                            continue
+                        sjid = contact.get("sourceJobId") or ""
+                        if sjid:
+                            referenced_group_keys.add(sjid)
+
+    for action_id, data in raw_actions:
+        items.extend(_action_to_items(action_id, data, referenced_group_keys))
 
     # Sort newest first, cap.
     items.sort(key=lambda x: x.get("createdAt") or "", reverse=True)
@@ -468,13 +487,23 @@ def _looks_like_garbage(name: str) -> bool:
     return any(tok in lowered for tok in _GARBAGE_NAME_TOKENS)
 
 
-def _action_to_items(action_id: str, action: dict) -> list[dict]:
-    """Expand one completed agent_action into 0..N activity feed items."""
+def _action_to_items(
+    action_id: str,
+    action: dict,
+    referenced_group_keys: set[str] | None = None,
+) -> list[dict]:
+    """Expand one completed agent_action into 0..N activity feed items.
+
+    referenced_group_keys: every contact.sourceJobId value present elsewhere
+    in this Loop's actions. Used to decide which find_jobs items should
+    emit a groupKey so the frontend can pair them with a founder draft.
+    """
     result = action.get("result") or {}
     if not isinstance(result, dict):
         return []
     created_at = action.get("completedAt") or action.get("createdAt") or ""
     action_type = action.get("action")
+    refs = referenced_group_keys or set()
     out: list[dict] = []
 
     # find / find_hiring_managers — produce contact rows
@@ -496,20 +525,29 @@ def _action_to_items(action_id: str, action: dict) -> list[dict]:
             # tracker page to scroll to and highlight that one contact.
             base = "/hiring-manager-tracker" if is_hm else "/tracker"
             link = f"{base}?contact={contact_id}" if contact_id else base
-            out.append({
+            # role_search HMs carry a foreign key into the find_jobs item
+            # they were paired with. Surface it on the activity items so the
+            # feed can render the founder draft inline below its source
+            # posting. Networking-mode HMs have no sourceJobId and render as
+            # standalone rows (today's behavior).
+            source_job_id = c.get("sourceJobId") or "" if is_hm else ""
+            contact_item = {
                 "id": f"{action_id}-c{i}",
                 "type": "hm" if is_hm else "contact",
                 "title": name,
                 "subtitle": subtitle or "—",
                 "linkTo": link,
                 "createdAt": created_at,
-            })
+            }
+            if source_job_id:
+                contact_item["groupKey"] = source_job_id
+            out.append(contact_item)
             # If a draft was generated alongside, surface it as its own row.
             # gmailDraftUrl, when present, is the deep link to the actual
             # Gmail draft; the frontend opens it in a new tab.
             if c.get("emailSubject") or c.get("emailBodyPreview"):
                 draft_url = c.get("gmailDraftUrl") or ""
-                out.append({
+                draft_item = {
                     "id": f"{action_id}-d{i}",
                     "type": "draft",
                     "title": c.get("emailSubject") or f"Draft to {name}",
@@ -517,7 +555,10 @@ def _action_to_items(action_id: str, action: dict) -> list[dict]:
                     "linkTo": draft_url or (f"/tracker?contact={contact_id}" if contact_id else "/tracker"),
                     "external": bool(draft_url),
                     "createdAt": created_at,
-                })
+                }
+                if source_job_id:
+                    draft_item["groupKey"] = source_job_id
+                out.append(draft_item)
 
     # find_jobs — produce job rows. If the job has an apply link, route the
     # "View" click straight to it (external). Otherwise drop the user on the
@@ -541,15 +582,23 @@ def _action_to_items(action_id: str, action: dict) -> list[dict]:
                 link, external = f"/job-board?job={job_id}", False
             else:
                 link, external = "/job-board", False
-            out.append({
-                "id": f"{action_id}-j{i}",
+            item_id = f"{action_id}-j{i}"
+            job_item = {
+                "id": item_id,
                 "type": "job",
                 "title": title,
                 "subtitle": subtitle or "—",
                 "linkTo": link,
                 "external": external,
                 "createdAt": created_at,
-            })
+            }
+            # Emit groupKey only when some founder-draft contact in this Loop
+            # references this exact job item — pairs the job row with its
+            # inline founder-draft sub-card. Unpaired large-co postings stay
+            # ungrouped and render Apply-only.
+            if item_id in refs:
+                job_item["groupKey"] = item_id
+            out.append(job_item)
 
     # discover_companies — produce company rows
     elif action_type == "discover_companies":

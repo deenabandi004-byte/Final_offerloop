@@ -1047,6 +1047,12 @@ def execute_find_hiring_managers(
             # roles-mode HMs default to "role_search", both-mode HMs read
             # the planner-supplied tag with "networking" fallback.
             "discoveredVia": discovered_via,
+            # Foreign key into the find_jobs activity item this HM was paired
+            # with — only set for role_search HMs. The activity feed groups
+            # by this key so the founder-draft sub-card renders inline below
+            # its source posting. Networking-mode HMs leave it empty so they
+            # render as standalone rows (today's people-mode behavior).
+            "sourceJobId": action.get("sourceJobId", "") if discovered_via == "role_search" else "",
             "loopId": loop_id,
             "pipelineStage": "draft_created" if email_body else "not_contacted",
             "emailSubject": email_subject,
