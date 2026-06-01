@@ -873,17 +873,32 @@ def _run_cycle(uid: str, config: dict, cycle_id: str | None = None) -> dict:
         plan_result = generate_action_plan(uid, config, user_data, pipeline_state)
         plan = plan_result.get("plan", [])
 
-        # Safety net: ensure plan always includes at least one "find" action
-        has_find = any(a.get("action") == "find" for a in plan)
-        if not has_find and plan:
-            targets = config.get("targetCompanies", [])
-            roles = config.get("targetRoles", [""])
-            if targets:
+        # Safety net: ensure plan always includes at least one primary action.
+        # People mode → "find" contacts; roles mode → "find_jobs" postings.
+        # No mode info → fall through to the legacy people-mode behavior so old
+        # configs keep working.
+        loop_mode = config.get("loopMode") or "people"
+        targets = config.get("targetCompanies", [])
+        roles_list = config.get("targetRoles", [""])
+        if loop_mode == "roles":
+            has_find_jobs = any(a.get("action") == "find_jobs" for a in plan)
+            if not has_find_jobs and plan and targets:
+                for company in targets[:2]:
+                    plan.append({
+                        "action": "find_jobs",
+                        "company": company,
+                        "role": roles_list[0] if roles_list else "",
+                        "count": 5,
+                        "reason": f"Auto-added: find postings at {company}",
+                    })
+        else:
+            has_find = any(a.get("action") == "find" for a in plan)
+            if not has_find and plan and targets:
                 for company in targets[:2]:
                     plan.append({
                         "action": "find",
                         "company": company,
-                        "title": roles[0] if roles else "",
+                        "title": roles_list[0] if roles_list else "",
                         "count": 3,
                         "reason": f"Auto-added: find contacts at {company}",
                     })

@@ -141,3 +141,60 @@ export const LOOP_COPY = {
     },
   },
 } as const;
+
+// ── Mode-aware copy helper ────────────────────────────────────────────
+//
+// Loops have two modes:
+//   "people" — autonomous networking (find professionals, draft cold outreach)
+//   "roles"  — autonomous job-search (find postings, optionally draft outreach
+//              about specific roles)
+//
+// Most strings are the same in both modes. The helper layers mode-specific
+// overrides on top of LOOP_COPY so existing call sites that don't care about
+// mode keep working unchanged. Only the wizard and other mode-aware screens
+// need to import this helper.
+//
+// School-name substitution: pass the user's school in opts.school. When known,
+// the alumni-preference label reads "Push USC alumni to the top" instead of
+// the generic "Push people from my school to the top".
+
+export type LoopModeForCopy = "people" | "roles";
+
+export function loopCopy(
+  mode: LoopModeForCopy,
+  opts: { school?: string } = {}
+) {
+  const school = opts.school?.trim();
+  const isRoles = mode === "roles";
+
+  return {
+    ...LOOP_COPY,
+
+    // ── Wizard headlines and mode picker ─────────────────────────────
+    goalsTitle: isRoles
+      ? "Tell your Loop what to chase."
+      : "Tell your Loop who to chase.",
+    goalsTitleAccent: isRoles ? "what" : "who",
+    goalsSubtitle: isRoles
+      ? "The loop scans for open postings matching the companies and roles you list here. Edit anytime."
+      : "The loop only considers companies, industries, and roles you list here. Edit anytime.",
+    modeSectionLabel: "Mode",
+    modeSectionHint: "What's this Loop chasing?",
+    modePeopleBtn: "Find people",
+    modePeopleDesc: "Reach professionals at target companies for coffee chats and referrals.",
+    modeRolesBtn: "Find roles",
+    modeRolesDesc: "Surface open postings matching your target roles. Optional outreach to founders at small companies.",
+
+    // ── "Prefer alumni" toggle (label flips, field name stays preferAlumni) ─
+    preferAlumniLabel: isRoles
+      ? "Prefer warm angles"
+      : "Prefer alumni",
+    preferAlumniHint: isRoles
+      ? (school
+          ? `Push companies hiring ${school} alumni to the top.`
+          : "Push companies my school feeds to the top.")
+      : (school
+          ? `Push ${school} alumni to the top.`
+          : "Push people from my school to the top."),
+  };
+}

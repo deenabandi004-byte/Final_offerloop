@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 from app.services.openai_client import get_openai_client
 
@@ -33,6 +33,12 @@ logger = logging.getLogger(__name__)
 
 PARSER_MODEL = "gpt-4o-mini"
 MAX_BRIEF_CHARS = 2000
+
+# Loop modes: "people" = autonomous networking (today's behavior), "roles" =
+# autonomous job-search. The parser classifies briefs as one or the other when
+# the language is clear; ambiguous briefs return None and the wizard's manual
+# picker decides.
+LoopMode = Literal["people", "roles"]
 
 
 class ParsedBrief(TypedDict):
@@ -43,6 +49,7 @@ class ParsedBrief(TypedDict):
     emailPurpose: str | None
     constraints: list[str]
     targetCount: int | None
+    mode: LoopMode | None
 
 
 EMPTY_BRIEF: ParsedBrief = {
@@ -53,24 +60,29 @@ EMPTY_BRIEF: ParsedBrief = {
     "emailPurpose": None,
     "constraints": [],
     "targetCount": None,
+    "mode": None,
 }
 
 
-SYSTEM_PROMPT = """You extract structured search parameters from a job seeker's natural-language brief.
+SYSTEM_PROMPT = """You extract structured search parameters from a college student's natural-language brief about networking or job-hunting.
 
-The brief describes who they want to reach out to and why. Your job is to pull out:
+The student is using an autonomous agent that can either (a) find professionals to email for coffee chats / referrals / advice, or (b) find open job postings to apply to. Your job is to pull out:
 - companies: specific company names mentioned (expand abbreviations: "JPM" -> "JPMorgan", "GS" -> "Goldman Sachs")
 - industries: broader industry categories if no specific company is given (e.g. "Investment Banking", "Consulting", "Technology")
-- roles: job titles or role types they want to reach (e.g. "Analyst", "Product Manager", "AI Researcher")
+- roles: job titles or role types they want (e.g. "Analyst", "Product Manager", "SWE Intern")
 - locations: cities, regions, or "remote" if mentioned
 - emailPurpose: a short phrase describing what the outreach is about (e.g. "summer internship", "full-time recruiting", "advice on breaking into PE")
 - constraints: any explicit filters (e.g. "alumni only", "must be hiring now", "no recruiters")
 - targetCount: if the user said a specific number of people they want, return it; otherwise null
+- mode: classify the intent of the brief. Return:
+    * "roles" if the student wants to find open POSTINGS to apply to. Signals: "find me internships", "looking for [role] roles", "apply to", "summer 2027 SWE internships", "open positions", "job postings", "hiring now".
+    * "people" if the student wants to find PROFESSIONALS to email for networking. Signals: "reach out about", "coffee chat with", "ask for advice", "10 analysts at [bank]", "connect with", "referral from".
+    * null if the brief is ambiguous or could plausibly be either.
 
 Rules:
 - Only include companies/roles/industries actually mentioned. Do not invent.
 - Use proper, canonical names ("Morgan Stanley" not "MS", "McKinsey" not "MCK").
-- If the brief is empty or gibberish, return empty arrays and null fields.
+- If the brief is empty or gibberish, return empty arrays and null fields including mode=null.
 - Return STRICT JSON matching the schema. No prose."""
 
 
@@ -152,6 +164,9 @@ def _normalize(raw: dict) -> ParsedBrief:
     else:
         email_purpose = email_purpose.strip()[:200]
 
+    raw_mode = raw.get("mode")
+    mode: LoopMode | None = raw_mode if raw_mode in ("people", "roles") else None
+
     return {
         "companies": as_str_list(raw.get("companies"))[:20],
         "industries": as_str_list(raw.get("industries"))[:10],
@@ -160,4 +175,5 @@ def _normalize(raw: dict) -> ParsedBrief:
         "emailPurpose": email_purpose,
         "constraints": as_str_list(raw.get("constraints"))[:10],
         "targetCount": target_count,
+        "mode": mode,
     }

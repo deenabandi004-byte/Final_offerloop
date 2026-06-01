@@ -63,31 +63,46 @@ MIN_RESERVE = 25
 # ── Estimation ─────────────────────────────────────────────────────────────
 
 
-def estimate_cycle_cost(brief_parsed: dict | None, cadence: str = "every_other_day") -> dict:
+def estimate_cycle_cost(
+    brief_parsed: dict | None,
+    cadence: str = "every_other_day",
+    loop_mode: str = "people",
+) -> dict:
     """Estimate credits per cycle based on what the planner will likely
     produce for this brief. Used by the Loop creation hero so users see
     expected cost before they hit Start.
 
-    The numbers below are heuristics from the legacy agent's behavior:
-    typical cycle yields 2-3 contacts, 1 HM, 4-5 jobs, 3 companies.
+    Per the Slice 2 plan, the two modes produce different cycle mixes:
+      - people: 2-3 contacts (primary), 1 HM, 4-5 jobs, 3 companies
+      - roles:  10 jobs (primary), 3 small-company HM drafts, 10 companies,
+                no PDL bulk contact search
     """
     bp = brief_parsed or {}
     target_count = bp.get("targetCount") or 3
     has_companies = bool(bp.get("companies"))
     has_roles = bool(bp.get("roles"))
 
-    # Per cycle the planner usually emits ~1 find action against the top
-    # company. If multiple companies are listed, it may rotate through them
-    # across cycles but typically picks 1 per cycle.
-    contacts = min(target_count, 3)  # planner caps at 3 per find action
+    if loop_mode == "roles":
+        # The roles cycle is dominated by job discovery. The plan's worked
+        # example: 10 companies + 10 jobs + 3 founder drafts ≈ 59 cred.
+        contacts = 0  # PDL bulk contact search is not emitted in roles mode
+        companies = 10 if (has_companies or has_roles) else 5
+        jobs = 10 if (has_roles or has_companies) else 0
+        hms = 3 if (has_companies or has_roles) else 0
+    else:
+        # People mode preserves today's heuristics.
+        # Per cycle the planner usually emits ~1 find action against the top
+        # company. If multiple companies are listed, it may rotate through them
+        # across cycles but typically picks 1 per cycle.
+        contacts = min(target_count, 3)  # planner caps at 3 per find action
 
-    # HM action fires for ~70% of cycles when target_count >= 3
-    hms = 1 if contacts >= 3 else 0
+        # HM action fires for ~70% of cycles when target_count >= 3
+        hms = 1 if contacts >= 3 else 0
 
-    # Job and company discovery fire whenever flags are on (default true).
-    # Yield ~5 jobs and ~3 companies per cycle.
-    jobs = 5 if (has_roles or has_companies) else 0
-    companies = 3 if has_companies else 4  # discover more if no targets named
+        # Job and company discovery fire whenever flags are on (default true).
+        # Yield ~5 jobs and ~3 companies per cycle.
+        jobs = 5 if (has_roles or has_companies) else 0
+        companies = 3 if has_companies else 4  # discover more if no targets named
 
     per_cycle = (
         contacts * CREDIT_COSTS["contact"]

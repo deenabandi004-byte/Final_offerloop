@@ -20,7 +20,7 @@ from app.services.reply_generation import batch_generate_emails
 from app.services.auth import deduct_credits_atomic
 from app.services.loop_budget import CREDIT_COSTS
 from app.utils.warmth_scoring import score_contacts_for_email
-from email_templates import get_template_instructions
+from email_templates import get_template_instructions, roles_mode_template_instructions
 
 logger = logging.getLogger(__name__)
 
@@ -733,6 +733,18 @@ def execute_find_hiring_managers(
     max_count = min(action.get("count", 2), 3)
 
     template_instructions = _resolve_agent_template(config, user_data, get_db(), uid)
+
+    # Roles mode: prepend the posting-specific founder outreach instructions
+    # so the draft references the actual role. We concatenate rather than
+    # replace — any user-configured style preset still applies (voice rules,
+    # signoff, banned-phrase coverage). Empty user template is fine.
+    if (config.get("loopMode") or "people") == "roles":
+        roles_block = roles_mode_template_instructions(role_title=job_title, company=company)
+        template_instructions = (
+            f"{roles_block}\n\n{template_instructions}"
+            if (template_instructions or "").strip()
+            else roles_block
+        )
 
     try:
         result = find_hiring_manager(
