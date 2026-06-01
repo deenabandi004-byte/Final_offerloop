@@ -24,7 +24,10 @@ import {
   useResumeLoop,
   useRunLoopNow,
   useStartLoop,
+  useUpdateLoop,
 } from "@/hooks/useLoops";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
 import { LOOP_COPY } from "@/lib/loopCopy";
 import type { Loop, LoopActivityItem, LoopActivityType } from "@/services/loops";
 
@@ -309,6 +312,159 @@ export default function LoopDetailPage() {
   );
 }
 
+// ── Editable brief affordance ─────────────────────────────────────────────
+//
+// Renders the loop's brief as a serif blockquote with a small inline "edit"
+// link. Click → switch to a textarea + Save/Cancel. Save calls PATCH on the
+// loop (existing path; backend re-parses + appends prior state to
+// briefVersionHistory automatically) and shows "applies to next cycle".
+//
+// Empty brief is supported — the affordance acts as "add a brief" instead.
+
+const MAX_BRIEF_EDIT_CHARS = 2000;  // matches backend MAX_BRIEF_CHARS
+
+function EditableBrief({ loop }: { loop: Loop }) {
+  const { toast } = useToast();
+  const update = useUpdateLoop();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(loop.briefText || "");
+  // "applies to next cycle" hint sticks until the next cycle starts (which
+  // we approximate as: user dismisses, or 60s elapses, or the loop's
+  // nextRunAt passes). For PR1 simplicity: show after save, auto-clear on
+  // any subsequent unmount or further edit. The user can dismiss it.
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  const hasUnsavedChanges = editing && draft !== (loop.briefText || "");
+  const overLimit = draft.length > MAX_BRIEF_EDIT_CHARS;
+
+  const startEdit = () => {
+    setDraft(loop.briefText || "");
+    setEditing(true);
+    setSavedAt(null);
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+    setDraft(loop.briefText || "");
+  };
+
+  const saveEdit = async () => {
+    if (overLimit) return;
+    const trimmed = draft.trim();
+    if (trimmed === (loop.briefText || "").trim()) {
+      // No real change — just exit edit mode without a backend hit.
+      setEditing(false);
+      return;
+    }
+    try {
+      await update.mutateAsync({
+        loopId: loop.id,
+        // Only send briefText — the backend re-parses and refreshes
+        // briefParsed automatically.
+        patch: { briefText: trimmed },
+      });
+      setEditing(false);
+      setSavedAt(Date.now());
+      toast({
+        title: "Brief updated",
+        description: "Applies to the next cycle. In-flight cycles finish with the old brief.",
+      });
+    } catch (err) {
+      toast({
+        title: "Couldn't save brief",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    }
+  };
+
+  if (editing) {
+    return (
+      <div className="mt-4 pl-4 border-l-2" style={{ borderColor: "var(--brand, var(--line))" }}>
+        <Textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={4}
+          aria-label="Edit loop brief"
+          className="font-serif italic text-[14px] leading-relaxed resize-none"
+          style={{
+            color: "var(--ink)",
+            background: "var(--paper)",
+            borderColor: overLimit ? "#b91c1c" : "var(--line)",
+          }}
+        />
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <div className="text-[11px]" style={{ color: "var(--ink-3)" }}>
+            Saving applies to the <em className="italic">next</em> cycle. In-flight cycles finish with the current brief.
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span
+              className="font-mono text-[10px] tracking-wide"
+              style={{ color: overLimit ? "#b91c1c" : "var(--ink-3)" }}
+            >
+              {draft.length} / {MAX_BRIEF_EDIT_CHARS}
+            </span>
+            <Button variant="outline" size="sm" onClick={cancelEdit} disabled={update.isPending}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={saveEdit}
+              disabled={update.isPending || overLimit || !hasUnsavedChanges}
+            >
+              {update.isPending ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!loop.briefText) {
+    return (
+      <div className="mt-4 pl-4 border-l-2" style={{ borderColor: "var(--line)" }}>
+        <div className="text-[13px] italic" style={{ color: "var(--ink-3)" }}>
+          No brief yet.
+          {" "}
+          <button
+            onClick={startEdit}
+            className="underline underline-offset-2 not-italic"
+            style={{ color: "var(--ink-2)" }}
+          >
+            Add one
+          </button>
+          .
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 pl-4 border-l-2" style={{ borderColor: "var(--line)" }}>
+      <blockquote
+        className="text-[13.5px] italic leading-relaxed"
+        style={{ color: "var(--ink-2)" }}
+      >
+        {loop.briefText}
+      </blockquote>
+      <div className="mt-1.5 flex items-center gap-3">
+        <button
+          onClick={startEdit}
+          className="font-mono text-[10.5px] uppercase tracking-wide underline-offset-4 hover:underline"
+          style={{ color: "var(--ink-3)" }}
+        >
+          edit brief
+        </button>
+        {savedAt && (
+          <span className="text-[11px]" style={{ color: "var(--ink-3)" }}>
+            &middot; applies on next cycle
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Hero (masthead, Variant C) ───────────────────────────────────────────────
 
 function Hero({
@@ -399,15 +555,9 @@ function Hero({
             )}
           </h1>
 
-          {/* Brief blockquote */}
-          {loop.briefText && (
-            <blockquote
-              className="mt-4 pl-4 border-l-2 text-[13.5px] italic leading-relaxed"
-              style={{ borderColor: "var(--line)", color: "var(--ink-2)" }}
-            >
-              {loop.briefText}
-            </blockquote>
-          )}
+          {/* Brief — editable in place. PATCH re-parses + appends prior
+              state to briefVersionHistory automatically. */}
+          <EditableBrief loop={loop} />
 
           {/* Live ticker line */}
           <div
