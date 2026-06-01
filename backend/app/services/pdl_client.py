@@ -14,7 +14,8 @@ from threading import Lock
 
 from app.config import (
     PEOPLE_DATA_LABS_API_KEY, PDL_BASE_URL, PDL_METRO_AREAS,
-    pdl_cache, CACHE_DURATION
+    pdl_cache, CACHE_DURATION,
+    ENABLE_INDUSTRY_EXPANSION,
 )
 from app.services.openai_client import get_openai_client
 from app.services.metering import meter_call
