@@ -163,14 +163,29 @@ export const LOOP_COPY = {
 // the generic "Push people from my school to the top".
 
 export type LoopModeForCopy = "people" | "roles" | "both";
+export type LoopCadenceForCopy = "daily" | "every_other_day" | "weekly" | "manual";
 
 export function loopCopy(
   mode: LoopModeForCopy,
-  opts: { school?: string } = {}
+  opts: { school?: string; cadence?: LoopCadenceForCopy } = {}
 ) {
   const school = opts.school?.trim();
   const isRoles = mode === "roles";
   const isBoth = mode === "both";
+  const cadence = opts.cadence;
+
+  // Cadence phrasing used in the activity-feed empty-state body so the
+  // student knows when the next batch will land.
+  const cadenceLine =
+    cadence === "daily"
+      ? "Cadence: daily."
+      : cadence === "weekly"
+        ? "Cadence: weekly."
+        : cadence === "manual"
+          ? "Run it when you're ready."
+          : cadence === "every_other_day"
+            ? "Cadence: every other day."
+            : "";
 
   return {
     ...LOOP_COPY,
@@ -219,5 +234,38 @@ export function loopCopy(
       : (school
           ? `Push ${school} alumni to the top.`
           : "Push people from my school to the top."),
+
+    // ── H carve-out: LoopActivityFeed interaction-state copy ──────────
+    //
+    // Mode shapes what the student is here to see — postings (roles),
+    // people (people), or both. Empty + loading copy follows.
+    // Per eng D11: PARTIAL eyebrow ("still finding more…") dropped from
+    // H scope — activity endpoint has no cycle-status field and the
+    // state is rarely watched.
+    feed: {
+      empty: isBoth
+        ? `Hunting roles and people. First batch in 5–15 min.${cadenceLine ? ` ${cadenceLine}` : ""}`
+        : isRoles
+          ? `Hunting open postings. First batch in 5–15 min.${cadenceLine ? ` ${cadenceLine}` : ""}`
+          : `Looking for people. First drafts in 5–15 min.${cadenceLine ? ` ${cadenceLine}` : ""}`,
+      loading: {
+        eyebrow: isBoth ? "WORKING…" : isRoles ? "HUNTING POSTINGS" : "SCOUTING PEOPLE",
+      },
+      error: "Couldn't reach the feed. Retry in a minute or refresh.",
+      // Return-visit eyebrow. Singular vs plural matters at n=1 so we
+      // don't say "1 NEW THINGS SINCE…" — small detail but the eyebrow
+      // is the felt moment on each visit.
+      newSinceLastVisit: (n: number): string =>
+        n === 1
+          ? "1 NEW SINCE YOU LAST CHECKED"
+          : `${n} NEW SINCE YOU LAST CHECKED`,
+    },
+
+    // ── H carve-out: StartLoopHero composer states ────────────────────
+    composer: {
+      // Shown next to the ModeIndicator while the parser is still
+      // working out the brief. Mono, lowercase per the wizard pattern.
+      modeThinking: "thinking…",
+    },
   };
 }

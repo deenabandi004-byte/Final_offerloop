@@ -157,6 +157,13 @@ export interface LoopActivityItem {
    *  The feed opens these in a new tab with target=_blank. */
   external?: boolean;
   createdAt: string;
+  /** Pairs a job posting with its founder-draft sub-card in the activity
+   *  feed. Items that share a groupKey render as a hierarchy (job primary,
+   *  draft secondary) in roles mode. Absent on:
+   *   - unpaired large-co postings (Apply-only)
+   *   - people-mode networking contacts (today's flat row layout)
+   *   - legacy items written before H shipped. */
+  groupKey?: string;
 }
 
 // ── CRUD ────────────────────────────────────────────────────────────────
