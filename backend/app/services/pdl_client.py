@@ -3256,6 +3256,21 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
     print(f"[PostFilter] search_contacts_from_prompt called (max_contacts={max_contacts}, parsed keys={list(parsed_prompt.keys())})")
     exclude_keys = exclude_keys or set()
 
+    # Industry-aware semantic expansion: broaden `industries` to related PDL
+    # taxonomy entries and add aligned title_variations. Runs BEFORE cache
+    # lookup so expanded queries get their own cache entries. Skipped when:
+    #   - parsed_prompt has no industries, OR
+    #   - a specific company was named (e.g. "USC Data Scientist IBM"): the
+    #     company filter already constrains the search to that firm, so
+    #     broadening industry would only add noise. Expansion exists for
+    #     school+industry prompts WITHOUT a company target.
+    if (
+        ENABLE_INDUSTRY_EXPANSION
+        and parsed_prompt.get("industries")
+        and not parsed_prompt.get("companies")
+    ):
+        parsed_prompt = expand_industries_and_titles(parsed_prompt)
+
     # ---- Cache check (Firestore, 30-day TTL) -------------------------------
     # Same query within 30 days = 0 PDL credits. Per-user exclude_keys is
     # applied AFTER read so one cache entry serves many users.
