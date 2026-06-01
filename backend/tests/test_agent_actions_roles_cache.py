@@ -304,3 +304,78 @@ def test_find_hiring_managers_cache_hit_skips_recruiter_finder(monkeypatch):
     assert result == {
         "hmsFound": 0, "contacts": [], "creditsSpent": 0, "cacheHit": True,
     }
+
+
+# ── Cache invalidation on brief edit ──────────────────────────────────────
+#
+# When the Loop's brief changes, agent_companies + agent_jobs caches for that
+# Loop must be purged so the next cycle re-discovers against the new brief.
+# HM cache (contacts/) stays — founder identity is brief-independent.
+
+
+def _fake_db_with_deletable_rows(rows_per_subcollection: dict[str, list[dict]]) -> tuple[MagicMock, list]:
+    """Fake db that returns deletable docs from .stream() and records every
+    delete() call. Returns (db, deleted_list) where deleted_list collects the
+    (subcollection, doc_data) of each delete."""
+    deleted: list = []
+
+    def make_subcollection(subcollection_name: str, rows: list[dict]):
+        def make_stream(_records):
+            for r in _records:
+                doc = MagicMock()
+                doc.to_dict.return_value = r
+                ref = MagicMock()
+                ref.delete.side_effect = lambda r=r, sc=subcollection_name: deleted.append((sc, r))
+                doc.reference = ref
+                yield doc
+
+        where_obj = MagicMock()
+        where_obj.stream.return_value = make_stream(rows)
+        coll = MagicMock()
+        coll.where.return_value = where_obj
+        return coll
+
+    user_doc = MagicMock()
+    user_doc.collection.side_effect = lambda name: make_subcollection(name, rows_per_subcollection.get(name, []))
+
+    users = MagicMock()
+    users.document.return_value = user_doc
+
+    db = MagicMock()
+    db.collection.return_value = users
+    return db, deleted
+
+
+def test_purge_brief_dependent_caches_deletes_companies_and_jobs_only():
+    """Companies + jobs caches must purge; HM cache (contacts/) must stay."""
+    db, deleted = _fake_db_with_deletable_rows({
+        "agent_companies": [{"loopId": "L1", "name": "Stripe"}],
+        "agent_jobs": [
+            {"loopId": "L1", "company": "Stripe", "role": "SWE"},
+            {"loopId": "L1", "company": "Linear", "role": "Designer"},
+        ],
+        "contacts": [{"loopId": "L1", "email": "founder@stripe.com"}],
+    })
+
+    n = agent_actions.purge_brief_dependent_caches(db, "u1", "L1")
+
+    assert n == 3
+    subcollections_deleted = {sc for sc, _ in deleted}
+    assert subcollections_deleted == {"agent_companies", "agent_jobs"}
+    assert "contacts" not in subcollections_deleted
+
+
+def test_purge_brief_dependent_caches_skips_when_loop_id_empty():
+    """No loopId means no scope — must not blow away unrelated caches."""
+    db = MagicMock()
+    n = agent_actions.purge_brief_dependent_caches(db, "u1", "")
+    assert n == 0
+    db.collection.assert_not_called()
+
+
+def test_purge_brief_dependent_caches_swallows_firestore_errors():
+    """A purge failure must not crash the brief update flow."""
+    db = MagicMock()
+    db.collection.side_effect = RuntimeError("transient")
+    n = agent_actions.purge_brief_dependent_caches(db, "u1", "L1")
+    assert n == 0

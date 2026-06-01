@@ -139,6 +139,37 @@ def _has_fresh_cached_rows(
         return False
 
 
+# Brief-dependent caches. agent_companies and agent_jobs are derived from
+# briefParsed.companies / briefParsed.roles, so a brief edit invalidates them.
+# HM cache (contacts/) stays — once a founder is identified at a small company,
+# their identity doesn't change with a brief edit.
+_BRIEF_DEPENDENT_CACHE_SUBCOLLECTIONS = ("agent_companies", "agent_jobs")
+
+
+def purge_brief_dependent_caches(db, uid: str, loop_id: str) -> int:
+    """Delete cached company + job rows scoped to this Loop. Called when the
+    Loop's brief changes so the next cycle re-discovers against the new brief
+    instead of serving stale cache. Returns the number of docs deleted."""
+    if not loop_id:
+        return 0
+    deleted = 0
+    for subcollection in _BRIEF_DEPENDENT_CACHE_SUBCOLLECTIONS:
+        try:
+            ref = (
+                db.collection("users").document(uid).collection(subcollection)
+                  .where("loopId", "==", loop_id)
+            )
+            for doc in ref.stream():
+                doc.reference.delete()
+                deleted += 1
+        except Exception:
+            logger.warning(
+                "cache purge failed: subcollection=%s loop=%s",
+                subcollection, loop_id, exc_info=True,
+            )
+    return deleted
+
+
 def _company_to_domain(company_name: str) -> str | None:
     """Map company name to domain for Clearbit logo."""
     if not company_name:
