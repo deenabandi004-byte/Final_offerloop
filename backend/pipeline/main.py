@@ -101,6 +101,23 @@ def _write_run_log(mode: str, started_at: datetime, result: dict | None, error: 
         logger.warning("Failed to write pipeline_runs log: %s", e)
 
 
+def _gate(normalized: list[dict]) -> tuple[list[dict], dict]:
+    """Filter normalized docs through the quality gate before write.
+
+    Drops staffing-agency reposts, senior-only roles inappropriate for the
+    undergrad audience, and postings >60 days old. Returns (kept, drops_dict).
+    If the gate itself raises, log and pass everything through — better noisy
+    results than zero results."""
+    try:
+        from backend.pipeline.quality_gate import apply as gate_apply
+        kept, drops = gate_apply(normalized)
+        logger.info("Quality gate kept %d / %d jobs", len(kept), len(normalized))
+        return kept, drops
+    except Exception:
+        logger.warning("quality_gate failed — bypassing", exc_info=True)
+        return normalized, {}
+
+
 def run_pipeline(skip_fantastic: bool = False):
     from backend.pipeline.fetcher import fetch_jobs
     from backend.pipeline.normalizer import normalize_all
@@ -114,9 +131,12 @@ def run_pipeline(skip_fantastic: bool = False):
     logger.info("Normalizing %d raw results...", len(raw))
     normalized = normalize_all(raw)
 
-    logger.info("Writing %d normalized jobs to Firestore...", len(normalized))
-    result = write_jobs(normalized)
+    gated, drops = _gate(normalized)
+
+    logger.info("Writing %d normalized jobs to Firestore...", len(gated))
+    result = write_jobs(gated)
     result["source_breakdown"] = breakdown
+    result["quality_gate_drops"] = drops
 
     print()
     print("Pipeline complete.")
@@ -139,9 +159,12 @@ def run_fantastic_only():
     logger.info("Normalizing %d raw results...", len(raw))
     normalized = normalize_all(raw)
 
-    logger.info("Writing %d normalized jobs to Firestore...", len(normalized))
-    result = write_jobs(normalized)
+    gated, drops = _gate(normalized)
+
+    logger.info("Writing %d normalized jobs to Firestore...", len(gated))
+    result = write_jobs(gated)
     result["source_breakdown"] = breakdown
+    result["quality_gate_drops"] = drops
 
     print()
     print("Fantastic.jobs pipeline complete.")
@@ -169,9 +192,12 @@ def run_fantastic_modified():
     logger.info("Normalizing %d raw results...", len(raw))
     normalized = normalize_all(raw)
 
-    logger.info("Writing %d normalized jobs to Firestore...", len(normalized))
-    result = write_jobs(normalized)
+    gated, drops = _gate(normalized)
+
+    logger.info("Writing %d normalized jobs to Firestore...", len(gated))
+    result = write_jobs(gated)
     result["source_breakdown"] = breakdown
+    result["quality_gate_drops"] = drops
 
     print()
     print("Fantastic.jobs modified-delta pipeline complete.")
