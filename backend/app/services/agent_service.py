@@ -785,6 +785,135 @@ def _execute_single_action(uid: str, action: dict, config: dict, user_data: dict
         return {"creditsSpent": 0}
 
 
+def _build_find_jobs_action(company: str, role: str) -> dict:
+    """Auto-add stub for a find_jobs action. Empty company is allowed — the
+    executor falls back to a role-only broad Perplexity query so roles/both-
+    mode Loops without explicit company targets still surface postings."""
+    label = f"find postings at {company}" if company else "find postings broadly"
+    return {
+        "action": "find_jobs",
+        "company": company,
+        "role": role,
+        "count": 5,
+        "reason": f"Auto-added: {label}",
+    }
+
+
+def _build_find_action(company: str, title: str) -> dict:
+    """Auto-add stub for a find (PDL contact search) action. Always
+    company-scoped — PDL search without a company filter would query the
+    entire 2.2B-row index."""
+    return {
+        "action": "find",
+        "company": company,
+        "title": title,
+        "count": 3,
+        "reason": f"Auto-added: find contacts at {company}",
+    }
+
+
+def _apply_plan_safety_net(
+    plan: list[dict],
+    loop_mode: str,
+    targets: list[str],
+    roles_list: list[str],
+) -> None:
+    """Mutate `plan` in place to enforce mode-required actions.
+
+    Roles mode: must include find_jobs. With targets → emit per-company;
+    without targets → emit one broad role-only find_jobs so the H carve-
+    out's posting↔draft pairing still has postings to work with on briefs
+    like "Summer 2027 SWE internships at YC tech startups" (no company
+    names parsed).
+
+    Both mode: must include both find AND find_jobs. find still requires
+    targets (PDL queries are meaningless without a company filter), but
+    find_jobs falls back to the broad search when targets are absent.
+
+    People mode: must include find. Same target dependency as before.
+
+    No-op if `plan` is empty (the planner returned nothing — likely a
+    skip-emitting plan or a credit floor was hit upstream).
+    """
+    if not plan:
+        return
+    role = roles_list[0] if roles_list else ""
+
+    has_find = any(a.get("action") == "find" for a in plan)
+    has_find_jobs = any(a.get("action") == "find_jobs" for a in plan)
+
+    if loop_mode == "roles":
+        if not has_find_jobs:
+            if targets:
+                for company in targets[:2]:
+                    plan.append(_build_find_jobs_action(company, role))
+            else:
+                plan.append(_build_find_jobs_action("", role))
+    elif loop_mode == "both":
+        if targets and not has_find:
+            for company in targets[:2]:
+                plan.append(_build_find_action(company, role))
+        if not has_find_jobs:
+            if targets:
+                for company in targets[:2]:
+                    plan.append(_build_find_jobs_action(company, role))
+            else:
+                plan.append(_build_find_jobs_action("", role))
+    else:  # people mode (default)
+        if targets and not has_find:
+            for company in targets[:2]:
+                plan.append(_build_find_action(company, role))
+
+
+def _propagate_source_job_id_to_plan(
+    plan: list[dict],
+    current_index: int,
+    find_jobs_action_id: str,
+    find_jobs_result: dict,
+) -> None:
+    """After a find_jobs action completes, stamp sourceJobId on subsequent
+    find_hiring_managers actions whose company matches a fetched job's
+    company.
+
+    The id format `f"{find_jobs_action_id}-j{idx}"` matches what
+    loop_service._action_to_items emits as each job item's groupKey, so the
+    activity feed's render-time pairing finds the same string on both the
+    job item (groupKey) and the contact item (groupKey from contact's
+    sourceJobId).
+
+    execute_find_hiring_managers drops sourceJobId for networking-
+    provenance HMs at write time, so stamping eagerly here is safe — only
+    role_search HMs end up with a non-empty sourceJobId on the contact doc.
+    """
+    jobs = (find_jobs_result or {}).get("jobs") or []
+    if not jobs:
+        return
+
+    company_to_index: dict[str, int] = {}
+    for i, job in enumerate(jobs):
+        if not isinstance(job, dict):
+            continue
+        company = (job.get("company") or "").strip().lower()
+        if company and company not in company_to_index:
+            company_to_index[company] = i
+
+    if not company_to_index:
+        return
+
+    for downstream in plan[current_index + 1:]:
+        if not isinstance(downstream, dict):
+            continue
+        if downstream.get("action") != "find_hiring_managers":
+            continue
+        if downstream.get("sourceJobId"):
+            continue  # an earlier find_jobs claim wins
+        hm_company = (downstream.get("company") or "").strip().lower()
+        if hm_company in company_to_index:
+            downstream["sourceJobId"] = (
+                f"{find_jobs_action_id}-j{company_to_index[hm_company]}"
+            )
+
+
 def _run_cycle(uid: str, config: dict, cycle_id: str | None = None) -> dict:
     """Execute one agent cycle: plan → execute actions → save results."""
     db = get_db()
@@ -874,48 +1003,16 @@ def _run_cycle(uid: str, config: dict, cycle_id: str | None = None) -> dict:
         plan = plan_result.get("plan", [])
 
         # Safety net: ensure plan always includes the mode's primary action(s).
-        # People mode → at least one "find" contacts action.
-        # Roles  mode → at least one "find_jobs" postings action.
-        # Both   mode → BOTH at least one "find" AND at least one "find_jobs"
-        #               (neither pipeline may be starved — planner Rule 1 for
-        #               both mode, enforced here in case the LLM forgets).
-        # No mode info → legacy people behavior so old configs keep working.
+        # See _apply_plan_safety_net docstring for the exact mode rules.
+        # No-targets briefs (e.g. "Summer 2027 SWE internships at YC tech
+        # startups") still get a find_jobs auto-added in roles/both mode so
+        # the H carve-out's posting↔draft pairing has postings to work
+        # with — without targets, the executor falls back to a broad
+        # role-only Perplexity search.
         loop_mode = config.get("loopMode") or "people"
         targets = config.get("targetCompanies", [])
         roles_list = config.get("targetRoles", [""])
-
-        def _auto_add_find_jobs() -> None:
-            for company in targets[:2]:
-                plan.append({
-                    "action": "find_jobs",
-                    "company": company,
-                    "role": roles_list[0] if roles_list else "",
-                    "count": 5,
-                    "reason": f"Auto-added: find postings at {company}",
-                })
-
-        def _auto_add_find() -> None:
-            for company in targets[:2]:
-                plan.append({
-                    "action": "find",
-                    "company": company,
-                    "title": roles_list[0] if roles_list else "",
-                    "count": 3,
-                    "reason": f"Auto-added: find contacts at {company}",
-                })
-
-        if loop_mode == "roles":
-            if plan and targets and not any(a.get("action") == "find_jobs" for a in plan):
-                _auto_add_find_jobs()
-        elif loop_mode == "both":
-            if plan and targets:
-                if not any(a.get("action") == "find" for a in plan):
-                    _auto_add_find()
-                if not any(a.get("action") == "find_jobs" for a in plan):
-                    _auto_add_find_jobs()
-        else:
-            if plan and targets and not any(a.get("action") == "find" for a in plan):
-                _auto_add_find()
+        _apply_plan_safety_net(plan, loop_mode, targets, roles_list)
 
         # Mark planning action complete
         actions_col.document(planning_action_id).update({
@@ -936,8 +1033,10 @@ def _run_cycle(uid: str, config: dict, cycle_id: str | None = None) -> dict:
             "plannedActions": [a.get("action", "unknown") for a in plan],
         })
 
-        # Execute each action
-        for action in plan:
+        # Execute each action. enumerate so we can look downstream from the
+        # current index when stamping H pairing keys on find_hiring_managers
+        # actions after a find_jobs completes.
+        for action_index, action in enumerate(plan):
             action_type = action.get("action", "unknown")
             action_id = str(uuid.uuid4())
             action_started = datetime.now(timezone.utc).isoformat()
@@ -988,6 +1087,18 @@ def _run_cycle(uid: str, config: dict, cycle_id: str | None = None) -> dict:
                 total_hms += result.get("hmsFound", 0)
                 total_companies += result.get("companiesDiscovered", 0)
                 total_followups += result.get("followUpsSent", 0)
+
+                # H carve-out wire-up: when find_jobs successfully fetches
+                # postings, stamp the matching sourceJobId on any subsequent
+                # find_hiring_managers actions targeting the same company.
+                # That key flows into contact.sourceJobId at write time and
+                # matches the find_jobs item's groupKey at read time so the
+                # activity feed renders the founder draft as an indented
+                # sub-card under its source posting.
+                if action_type == "find_jobs":
+                    _propagate_source_job_id_to_plan(
+                        plan, action_index, action_id, result,
+                    )
 
                 action_doc = _make_action_doc(
                     cycle_id, action_type, "completed", action_started, action, result,
