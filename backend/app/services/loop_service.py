@@ -293,6 +293,11 @@ def update_loop(uid: str, loop_id: str, patch: dict) -> dict | None:
             # fall off the end as new edits come in. 20 × ~2KB ≈ 40KB,
             # comfortably under Firestore's 1MB doc cap.
             filtered["briefVersionHistory"] = prev_history[-20:]
+            # Purge brief-dependent caches (agent_companies, agent_jobs) so
+            # the next cycle re-discovers against the new brief. HM cache
+            # stays — founder identity doesn't change with brief edits.
+            from app.services.agent_actions import purge_brief_dependent_caches
+            purge_brief_dependent_caches(db, uid, loop_id)
 
     if filtered:
         ref.update(filtered)

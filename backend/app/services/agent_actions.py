@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.extensions import get_db
 from app.services.pdl_client import search_contacts_from_prompt, get_contact_identity
@@ -71,6 +71,103 @@ _COMPANY_DOMAINS = {
     "two sigma": "twosigma.com",
     "jane street": "janestreet.com",
 }
+
+
+# ── Cost-aware caching for roles mode ─────────────────────────────────────
+#
+# Each cache check is a Firestore subcollection scan, scoped by loopId, with a
+# TTL chosen per the data's volatility (per the Slice 2 plan):
+#   - companies: 7 days (slow-moving discovery list)
+#   - jobs:      3 days (postings rotate fast)
+#   - HMs:      30 days (a founder identified once stays valid for a month)
+#
+# Misses are silent — when loopId is absent (e.g. legacy callers without the
+# new synthetic_config plumbing) the check returns False and the action runs
+# its full external-API path, preserving today's behavior.
+
+_CACHE_TTL_COMPANIES = timedelta(days=7)
+_CACHE_TTL_JOBS = timedelta(days=3)
+_CACHE_TTL_HMS = timedelta(days=30)
+# A cache "hit" needs at least one fresh row. We don't try to refill partial
+# caches — the planner re-emits the action next cycle if results are thin.
+_CACHE_MIN_ROWS = 1
+
+
+def _is_cache_fresh(created_at, ttl: timedelta) -> bool:
+    """Treat any non-empty ISO/datetime field within TTL as fresh."""
+    if not created_at:
+        return False
+    try:
+        if isinstance(created_at, str):
+            dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        else:
+            dt = created_at
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - dt) < ttl
+    except Exception:
+        return False
+
+
+def _has_fresh_cached_rows(
+    db, uid: str, subcollection: str, loop_id: str, ttl: timedelta,
+    company: str | None = None,
+) -> bool:
+    """Returns True if `users/{uid}/{subcollection}/` has at least one row
+    matching loop_id (+ optional company) created within TTL. False on any
+    Firestore error so the action falls back to the live API path."""
+    if not loop_id:
+        return False
+    try:
+        ref = db.collection("users").document(uid).collection(subcollection) \
+                .where("loopId", "==", loop_id)
+        if company:
+            ref = ref.where("company", "==", company)
+        fresh = 0
+        for doc in ref.stream():
+            data = doc.to_dict() or {}
+            if _is_cache_fresh(data.get("createdAt"), ttl):
+                fresh += 1
+                if fresh >= _CACHE_MIN_ROWS:
+                    return True
+        return False
+    except Exception:
+        logger.warning(
+            "cache lookup failed: subcollection=%s loop=%s company=%s",
+            subcollection, loop_id, company, exc_info=True,
+        )
+        return False
+
+
+# Brief-dependent caches. agent_companies and agent_jobs are derived from
+# briefParsed.companies / briefParsed.roles, so a brief edit invalidates them.
+# HM cache (contacts/) stays — once a founder is identified at a small company,
+# their identity doesn't change with a brief edit.
+_BRIEF_DEPENDENT_CACHE_SUBCOLLECTIONS = ("agent_companies", "agent_jobs")
+
+
+def purge_brief_dependent_caches(db, uid: str, loop_id: str) -> int:
+    """Delete cached company + job rows scoped to this Loop. Called when the
+    Loop's brief changes so the next cycle re-discovers against the new brief
+    instead of serving stale cache. Returns the number of docs deleted."""
+    if not loop_id:
+        return 0
+    deleted = 0
+    for subcollection in _BRIEF_DEPENDENT_CACHE_SUBCOLLECTIONS:
+        try:
+            ref = (
+                db.collection("users").document(uid).collection(subcollection)
+                  .where("loopId", "==", loop_id)
+            )
+            for doc in ref.stream():
+                doc.reference.delete()
+                deleted += 1
+        except Exception:
+            logger.warning(
+                "cache purge failed: subcollection=%s loop=%s",
+                subcollection, loop_id, exc_info=True,
+            )
+    return deleted
 
 
 def _company_to_domain(company_name: str) -> str | None:
@@ -507,6 +604,21 @@ def execute_find_jobs(
     location = config.get("targetLocations", ["United States"])
     location = location[0] if location else "United States"
 
+    db = get_db()
+    loop_id = config.get("loopId") or ""
+
+    # Cost-aware cache: postings change faster than companies (3-day TTL).
+    # Scoped per loop + company so a different company in the same Loop still
+    # hits the API.
+    if company and _has_fresh_cached_rows(
+        db, uid, "agent_jobs", loop_id, _CACHE_TTL_JOBS, company=company,
+    ):
+        logger.info(
+            "Agent find_jobs: uid=%s loop=%s company=%s cache hit, skipping Perplexity",
+            uid, loop_id, company,
+        )
+        return {"jobsFound": 0, "jobs": [], "creditsSpent": 0, "cacheHit": True}
+
     query = f"{role} at {company}" if company else role
     if not query:
         query = "internship"
@@ -575,8 +687,7 @@ def execute_find_jobs(
     # Generate match reasons via LLM
     scored_jobs = _generate_job_reasons(jobs[:count], user_data)
 
-    # Save to Firestore
-    db = get_db()
+    # Save to Firestore (db already loaded for the cache check above)
     jobs_ref = db.collection("users").document(uid).collection("agent_jobs")
     now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     saved = []
@@ -584,6 +695,7 @@ def execute_find_jobs(
     for job in scored_jobs:
         doc = {
             "cycleId": action.get("cycleId"),
+            "loopId": loop_id,
             "title": job.get("title", ""),
             "company": job.get("company_name", job.get("company", company)),
             "location": job.get("location", ""),
@@ -638,6 +750,19 @@ def execute_discover_companies(
     Primary: Perplexity discovers + Firecrawl enriches.
     Fallback: static recommendation engine.
     """
+    db = get_db()
+    loop_id = config.get("loopId") or ""
+
+    # Cost-aware cache: roles cycles run discover_companies frequently — skip
+    # the Perplexity + Firecrawl spend if we already have fresh rows for this
+    # Loop. People-mode Loops also benefit; the cache key is loopId only.
+    if _has_fresh_cached_rows(db, uid, "agent_companies", loop_id, _CACHE_TTL_COMPANIES):
+        logger.info(
+            "Agent discover_companies: uid=%s loop=%s cache hit, skipping Perplexity",
+            uid, loop_id,
+        )
+        return {"companiesDiscovered": 0, "companies": [], "creditsSpent": 0, "cacheHit": True}
+
     companies = []
 
     # PRIMARY: Perplexity-powered discovery (enrich via Perplexity or Firecrawl per flag)
@@ -695,7 +820,6 @@ def execute_discover_companies(
     target_set = {c.lower() for c in config.get("targetCompanies", [])}
     new_companies = [c for c in companies if c.get("name", "").lower() not in target_set]
 
-    db = get_db()
     cos_ref = db.collection("users").document(uid).collection("agent_companies")
     now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     saved = []
@@ -716,6 +840,7 @@ def execute_discover_companies(
 
         doc = {
             "cycleId": action.get("cycleId"),
+            "loopId": loop_id,
             "name": co.get("name", ""),
             "industry": industry,
             "reason": reason,
@@ -778,7 +903,21 @@ def execute_find_hiring_managers(
     #       My Network filters) can show the user WHY this person showed up.
     discovered_via = _resolve_hm_provenance(loop_mode, action)
 
-    template_instructions = _resolve_agent_template(config, user_data, get_db(), uid)
+    db = get_db()
+    loop_id = config.get("loopId") or ""
+
+    # Cost-aware cache: once a Loop has identified a founder/HM at a small
+    # company, we don't re-identify for a month. 30-day TTL per the plan.
+    if company and _has_fresh_cached_rows(
+        db, uid, "contacts", loop_id, _CACHE_TTL_HMS, company=company,
+    ):
+        logger.info(
+            "Agent find_hiring_managers: uid=%s loop=%s company=%s cache hit, skipping recruiter_finder",
+            uid, loop_id, company,
+        )
+        return {"hmsFound": 0, "contacts": [], "creditsSpent": 0, "cacheHit": True}
+
+    template_instructions = _resolve_agent_template(config, user_data, db, uid)
 
     # If this HM was surfaced by the roles pipeline, prepend the posting-
     # specific founder outreach instructions so the draft references the
@@ -836,7 +975,6 @@ def execute_find_hiring_managers(
     except Exception:
         logger.warning("HM verification failed, using all candidates", exc_info=True)
 
-    db = get_db()
     contacts_ref = db.collection("users").document(uid).collection("contacts")
     now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     today = datetime.now().strftime("%m/%d/%Y")
@@ -867,6 +1005,7 @@ def execute_find_hiring_managers(
             # roles-mode HMs default to "role_search", both-mode HMs read
             # the planner-supplied tag with "networking" fallback.
             "discoveredVia": discovered_via,
+            "loopId": loop_id,
             "pipelineStage": "draft_created" if email_body else "not_contacted",
             "emailSubject": email_subject,
             "emailBody": email_body,
