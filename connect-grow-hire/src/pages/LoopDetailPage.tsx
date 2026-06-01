@@ -6,7 +6,7 @@
 // Replies · Jobs · Pipeline · Activity). Real data comes from useLoop +
 // useLoopActivity; tab filters subset the activity feed.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Loader2, Pause, Play, RotateCw, Trash2 } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
@@ -30,6 +30,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { LOOP_COPY } from "@/lib/loopCopy";
 import type { Loop, LoopActivityItem, LoopActivityType } from "@/services/loops";
+import { LoopActivityFeed } from "@/components/loop/LoopActivityFeed";
 
 // ── Animations (one-time inject) ─────────────────────────────────────────────
 
@@ -102,12 +103,26 @@ export default function LoopDetailPage() {
 
   const [tab, setTab] = useState<TabKey>("overview");
 
-  useEffect(() => {
-    if (loopId) markReviewedMut.mutate(loopId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loopId]);
-
   const loop = query.data;
+
+  // Snapshot lastReviewedAt BEFORE markLoopReviewed fires, so the activity
+  // feed can light up "N NEW SINCE YOU LAST CHECKED" against the moment
+  // BEFORE this visit. Without the snapshot the eyebrow goes dark
+  // immediately on landing — every visit zeroes the server-side state.
+  // Taken once per Loop-detail mount; cleared by a future visit because
+  // markLoopReviewed has by then advanced the server value.
+  const [reviewedAtSnapshot, setReviewedAtSnapshot] =
+    useState<string | null>(null);
+  const reviewedSnapshotTaken = useRef(false);
+
+  useEffect(() => {
+    if (!loop || !loopId) return;
+    if (reviewedSnapshotTaken.current) return;
+    setReviewedAtSnapshot(loop.lastReviewedAt);
+    reviewedSnapshotTaken.current = true;
+    markReviewedMut.mutate(loopId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loop, loopId]);
   const items = activity.data?.items ?? [];
   const firstName = user?.name?.split(" ")[0] || user?.email?.split("@")[0] || "there";
 
@@ -300,7 +315,32 @@ export default function LoopDetailPage() {
                     <PipelineTab partitioned={partitioned} />
                   )}
                   {tab === "activity" && (
-                    <ActivityTab items={items} loading={activity.isLoading} />
+                    <div className="pt-8">
+                      <SectionHead
+                        kicker="The log"
+                        title="Activity"
+                        italic="reverse-chronological."
+                        right={
+                          items.length > 0 ? (
+                            <span
+                              style={{
+                                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                                fontSize: 11,
+                                color: "var(--ink-3)",
+                              }}
+                            >
+                              {items.length} events
+                            </span>
+                          ) : undefined
+                        }
+                      />
+                      <LoopActivityFeed
+                        loopId={loop.id}
+                        loopMode={loop.loopMode}
+                        cadence={loop.cadence}
+                        lastReviewedAt={reviewedAtSnapshot}
+                      />
+                    </div>
                   )}
                 </>
               )}
@@ -1136,154 +1176,6 @@ function PipelineTab({
   );
 }
 
-function ActivityTab({ items, loading }: { items: LoopActivityItem[]; loading: boolean }) {
-  // Group by day
-  const groups: Array<[string, LoopActivityItem[]]> = [];
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const labelFor = (iso: string): string => {
-    if (!iso) return "—";
-    const d = new Date(iso);
-    if (isNaN(+d)) return "—";
-    const day = new Date(d);
-    day.setHours(0, 0, 0, 0);
-    if (+day === +today) return "Today";
-    if (+day === +yesterday) return "Yesterday";
-    return day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-  };
-  for (const a of items) {
-    const label = labelFor(a.createdAt);
-    const last = groups[groups.length - 1];
-    if (last && last[0] === label) last[1].push(a);
-    else groups.push([label, [a]]);
-  }
-
-  if (loading) {
-    return (
-      <div className="pt-8 flex items-center justify-center py-10">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  if (items.length === 0) {
-    return (
-      <div className="pt-8">
-        <SectionHead kicker="The log" title="Activity" italic="reverse-chronological." />
-        <EmptyText>No activity yet. Run the Loop to start logging events.</EmptyText>
-      </div>
-    );
-  }
-
-  return (
-    <div className="pt-8">
-      <SectionHead
-        kicker="The log"
-        title="Activity"
-        italic="reverse-chronological."
-        right={
-          <span
-            style={{
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-              fontSize: 11,
-              color: "var(--ink-3)",
-            }}
-          >
-            {items.length} events
-          </span>
-        }
-      />
-      <div className="space-y-7">
-        {groups.map(([day, entries]) => (
-          <div key={day}>
-            <div
-              className="flex items-center gap-3 mb-3.5"
-              style={{
-                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-                fontSize: 10,
-                color: "var(--ink-3)",
-                letterSpacing: "0.14em",
-                textTransform: "uppercase",
-              }}
-            >
-              <span style={{ flex: 1, height: 1, background: "var(--line-2, #f1f1f4)" }} />
-              {day}
-              <span style={{ flex: 1, height: 1, background: "var(--line-2, #f1f1f4)" }} />
-            </div>
-            <div className="pl-5 ml-1.5" style={{ borderLeft: "1px solid var(--line-2, #f1f1f4)" }}>
-              {entries.map((a) => {
-                const ts = a.createdAt
-                  ? new Date(a.createdAt).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      hour12: false,
-                    })
-                  : "";
-                return (
-                  <div key={a.id} className="relative pb-3.5" style={{ paddingLeft: 4 }}>
-                    <span
-                      style={{
-                        position: "absolute",
-                        left: -27,
-                        top: 6,
-                        width: 9,
-                        height: 9,
-                        borderRadius: "50%",
-                        background: TYPE_COLOR[a.type],
-                        border: "2px solid #fff",
-                      }}
-                    />
-                    <div className="flex items-baseline gap-3">
-                      <span
-                        style={{
-                          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-                          fontSize: 11,
-                          color: "var(--ink-3)",
-                          width: 56,
-                          flexShrink: 0,
-                        }}
-                      >
-                        {ts}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[13px] tracking-[-0.01em]" style={{ color: "var(--ink)" }}>
-                          <span className="font-semibold">{TYPE_LABEL[a.type]}</span>
-                          <span style={{ color: "var(--ink-2)" }}> · {a.title}</span>
-                        </div>
-                        {a.subtitle && (
-                          <div className="text-[11.5px] mt-0.5" style={{ color: "var(--ink-3)" }}>
-                            {a.subtitle}
-                          </div>
-                        )}
-                      </div>
-                      {a.external ? (
-                        <a
-                          href={a.linkTo}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-[11.5px] shrink-0"
-                          style={{ color: "var(--ink-2)" }}
-                        >
-                          open →
-                        </a>
-                      ) : (
-                        <Link to={a.linkTo} className="text-[11.5px] shrink-0" style={{ color: "var(--ink-2)" }}>
-                          view →
-                        </Link>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 // ── Small shared components ─────────────────────────────────────────────────
 
