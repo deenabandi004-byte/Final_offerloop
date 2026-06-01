@@ -607,6 +607,62 @@ def create_app() -> Flask:
     else:
         _digest_logger.info("Agent digest daemon disabled via AGENT_DIGEST_ENABLED=false")
 
+    # ---- Fantastic.jobs delta ingest daemon (every 24 hours) ────────────────
+    #
+    # Calls the Ultra+ Modified Jobs API (1 Request credit/call, NOT Jobs
+    # credits) to pick up postings modified in the last 24h. Matches the same
+    # filter recipes as the weekly 7d sweep. Cheap to run daily because the
+    # endpoint doesn't burn Jobs credits.
+    _fj_modified_logger = logging.getLogger("fantastic_modified_daemon")
+
+    def _fantastic_modified_loop():
+        TWENTY_FOUR_HOURS = 86400
+        _fj_modified_logger.info("Fantastic.jobs modified daemon started (interval=24h)")
+        time.sleep(1800)  # boot stabilization — 30 min
+        while True:
+            try:
+                with app.app_context():
+                    from .pipeline.main import run_fantastic_modified
+                    run_fantastic_modified()
+            except Exception:
+                _fj_modified_logger.exception("Fantastic.jobs modified daemon failed; will retry next cycle")
+            time.sleep(TWENTY_FOUR_HOURS)
+
+    if os.getenv("FJ_MODIFIED_DAEMON_ENABLED", "true").lower() == "true":
+        fj_modified_thread = threading.Thread(target=_fantastic_modified_loop, daemon=True)
+        fj_modified_thread.start()
+        _fj_modified_logger.info("Fantastic.jobs modified daemon registered (first run in ~30 minutes)")
+    else:
+        _fj_modified_logger.info("Fantastic.jobs modified daemon disabled via FJ_MODIFIED_DAEMON_ENABLED=false")
+
+    # ---- Fantastic.jobs expired sweep daemon (every 24 hours) ───────────────
+    #
+    # Calls the Ultra+ Expired Jobs API (also doesn't burn Jobs credits) to
+    # get yesterday's expired job IDs and marks the corresponding Firestore
+    # docs `status="expired"`. Keeps the active job index honest without a
+    # full re-fetch.
+    _fj_expired_logger = logging.getLogger("fantastic_expired_daemon")
+
+    def _fantastic_expired_loop():
+        TWENTY_FOUR_HOURS = 86400
+        _fj_expired_logger.info("Fantastic.jobs expired sweep daemon started (interval=24h)")
+        time.sleep(1800)  # boot stabilization — 30 min (offset from modified)
+        while True:
+            try:
+                with app.app_context():
+                    from .pipeline.main import run_sweep_expired
+                    run_sweep_expired()
+            except Exception:
+                _fj_expired_logger.exception("Fantastic.jobs expired sweep daemon failed; will retry next cycle")
+            time.sleep(TWENTY_FOUR_HOURS)
+
+    if os.getenv("FJ_EXPIRED_DAEMON_ENABLED", "true").lower() == "true":
+        fj_expired_thread = threading.Thread(target=_fantastic_expired_loop, daemon=True)
+        fj_expired_thread.start()
+        _fj_expired_logger.info("Fantastic.jobs expired sweep daemon registered (first run in ~30 minutes)")
+    else:
+        _fj_expired_logger.info("Fantastic.jobs expired sweep daemon disabled via FJ_EXPIRED_DAEMON_ENABLED=false")
+
     return app
 
 # Gunicorn entrypoint

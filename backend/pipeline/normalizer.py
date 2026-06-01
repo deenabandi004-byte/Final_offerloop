@@ -90,6 +90,7 @@ def extract_salary_from_description(description: str) -> dict:
 
 _ANNUAL_MULTIPLIER = {
     "HOUR": 2080,
+    "DAY": 260,
     "WEEK": 52,
     "MONTH": 12,
     "YEAR": 1,
@@ -159,6 +160,46 @@ def _normalize_location(job: dict) -> tuple[str, bool]:
 # Main normalize
 # ---------------------------------------------------------------------------
 
+# Advanced fields populated by the Fantastic.jobs fetcher when include_ai and
+# include_li are on. Greenhouse/Lever/Ashby/Simplify don't supply these, so
+# they pass through as None / empty and the student ranker treats them as
+# "unknown" rather than penalizing.
+_FJ_PASSTHROUGH_FIELDS = (
+    "salary_currency",
+    "ai_experience_level",
+    "ai_employment_type",
+    "ai_employment_types",
+    "ai_work_arrangement",
+    "ai_work_arrangement_office_days",
+    "ai_visa_sponsorship",
+    "ai_has_salary",
+    "ai_keywords",
+    "ai_key_skills",
+    "ai_education_requirements",
+    "ai_hiring_manager_name",
+    "ai_hiring_manager_email",
+    "ai_core_responsibilities",
+    "ai_requirements_summary",
+    "ai_taxonomies_a",
+    "ai_taxonomy_primary",
+    "ai_job_language",
+    "linkedin_id",
+    "linkedin_org_slug",
+    "linkedin_org_industry",
+    "linkedin_org_employees",
+    "linkedin_org_size",
+    "linkedin_org_specialties",
+    "linkedin_org_followers",
+    "linkedin_org_headquarters",
+    "linkedin_org_recruitment_agency",
+    "ats_platform",
+    "ats_source_type",
+    "ats_source_domain",
+    "date_created",
+    "date_validthrough",
+)
+
+
 def _normalize_board_job(raw: dict) -> dict | None:
     """Normalize a pre-structured job from Greenhouse/Lever/Ashby/Fantastic.jobs."""
     job_id = raw.get("job_id")
@@ -179,7 +220,9 @@ def _normalize_board_job(raw: dict) -> dict | None:
     except (ValueError, AttributeError):
         posted_at = now
 
-    # Salary — use structured fields if provided, else try AI extraction
+    # Salary — use structured fields if provided, else try AI extraction. For
+    # Fantastic.jobs the fetcher already populates these from the ai_salary_*
+    # fields when include_ai=true, so the description scan is a no-op.
     sal_min = raw.get("salary_min")
     sal_max = raw.get("salary_max")
     sal_period = raw.get("salary_period")
@@ -195,7 +238,7 @@ def _normalize_board_job(raw: dict) -> dict | None:
 
     has_salary = sal_min is not None or sal_max is not None
 
-    return {
+    doc = {
         "job_id": job_id,
         "source": raw.get("source", "unknown"),
         "title": title,
@@ -218,6 +261,10 @@ def _normalize_board_job(raw: dict) -> dict | None:
         "fetched_at": now,
         "expires_at": now + timedelta(days=14),
     }
+    for field in _FJ_PASSTHROUGH_FIELDS:
+        if field in raw:
+            doc[field] = raw[field]
+    return doc
 
 
 def _normalize_jsearch_job(raw: dict) -> dict | None:
@@ -314,7 +361,16 @@ def _is_non_us_non_remote(job: dict) -> bool:
 
 
 def normalize_all(raw_jobs: list[dict]) -> list[dict]:
-    """Normalize a batch of raw jobs. Skips invalid entries and non-US non-remote jobs."""
+    """Normalize a batch of raw jobs.
+
+    Stages, in order:
+      1. Source-specific normalization (Greenhouse / Lever / Ashby / FJ / etc.)
+      2. Drop non-US non-remote
+      3. Quality gate (staffing agencies, senior titles, YOE-inconsistent
+         interns, scams, stale postings — see pipeline/quality_gate.py)
+    """
+    from backend.pipeline.quality_gate import apply as apply_quality_gate
+
     normalized = []
     skipped = 0
     filtered_location = 0
@@ -331,4 +387,5 @@ def normalize_all(raw_jobs: list[dict]) -> list[dict]:
         "Normalized %d jobs, skipped %d invalid, filtered %d non-US non-remote",
         len(normalized), skipped, filtered_location,
     )
-    return normalized
+    kept, _ = apply_quality_gate(normalized)
+    return kept
