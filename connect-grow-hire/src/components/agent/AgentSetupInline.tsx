@@ -17,6 +17,7 @@ import { updateAgentConfig, deployAgent, parseBrief, type ParsedBrief } from "@/
 import { firebaseApi } from "@/services/firebaseApi";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useCreateLoop } from "@/hooks/useLoops";
+import { listLoops } from "@/services/loops";
 import useDebounce from "@/hooks/use-debounce";
 import { loopCopy, type LoopModeForCopy } from "@/lib/loopCopy";
 
@@ -80,18 +81,29 @@ function buildSyntheticBrief(form: {
 // Derive a human-readable Loop name from the wizard form. Mirrors how the
 // design's LoopCard subtitle reads ("Stripe · Linear · Vercel · Product
 // Designer") so the new card slots right in next to existing ones.
+//
+// Mode branch (plan §"Loop Fleet View"): roles Loops append "openings" so
+// the auto-name reads as a job search at a glance ("Stripe · Linear · SWE
+// openings"); both-mode and people-mode keep the existing pattern. Fallback
+// names diverge so an empty roles-mode Loop reads "Job search loop" rather
+// than "Outreach loop".
 function deriveLoopName(form: {
   companies: string[];
   industries: string[];
   roles: string[];
+  loopMode?: LoopModeForCopy;
 }): string {
   const role = form.roles[0]?.trim();
   const cos = form.companies.filter(Boolean).slice(0, 2).join(" · ");
   const inds = form.industries.filter(Boolean).slice(0, 2).join(" · ");
   const target = cos || inds;
-  if (target && role) return `${target} · ${role}`;
+  const isRoles = form.loopMode === "roles";
+  const isBoth = form.loopMode === "both";
+  if (target && role) return isRoles ? `${target} · ${role} openings` : `${target} · ${role}`;
   if (target) return target;
-  if (role) return `${role} loop`;
+  if (role) return isRoles ? `${role} openings` : `${role} loop`;
+  if (isRoles) return "Job search loop";
+  if (isBoth) return "Networking + jobs loop";
   return "Outreach loop";
 }
 
@@ -965,12 +977,34 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
     weeklyTarget: 5,
     creditBudget: 100,
     approvalMode: "review_first",
-    // Default to "people" (today's networking behavior) for new users. When
-    // we later derive the default from the user's most recent Loop, swap this
-    // initializer for an effect that fetches the latest Loop's mode.
+    // Default to "people" (today's networking behavior). For returning users,
+    // the effect below queries their most recent Loop and re-defaults to that
+    // Loop's mode — so a student whose last Loop was "roles" doesn't have to
+    // re-pick every time. The parser still wins once the brief is typed.
     loopMode: "people",
   });
   const set = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }));
+
+  // Default loopMode to the user's most recent Loop's mode. Fires once on
+  // mount. If the user has no past Loops, the listLoops promise resolves
+  // empty and the "people" default stands. Network or auth failures are
+  // silently swallowed — better to keep the default than block the wizard.
+  useEffect(() => {
+    let cancelled = false;
+    listLoops()
+      .then(({ loops }) => {
+        if (cancelled || !loops?.length) return;
+        const mostRecent = [...loops].sort(
+          (a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""),
+        )[0];
+        const m = mostRecent?.loopMode;
+        if (m === "people" || m === "roles" || m === "both") {
+          setForm((f) => ({ ...f, loopMode: m }));
+        }
+      })
+      .catch(() => { /* keep "people" default */ });
+    return () => { cancelled = true; };
+  }, []);
 
   // ── Prompt-first brief state ─────────────────────────────────────────
   // The textarea is the primary input on Step 01. Its value debounces into
