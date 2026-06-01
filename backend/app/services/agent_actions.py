@@ -697,6 +697,28 @@ def execute_find_jobs(
     # Generate match reasons via LLM
     scored_jobs = _generate_job_reasons(jobs[:count], user_data)
 
+    # Visa-aware + profile-aware ranking. The ranker hard-filters obvious
+    # mismatches (e.g. F-1 students vs companies that don't sponsor, undergrads
+    # vs senior-only roles) and diversifies across companies so the saved set
+    # isn't 8 postings at one employer. Falls back to LLM-scored order if the
+    # ranker hard-filters every job — better to surface noisy results than
+    # zero results.
+    try:
+        from app.services.student_job_ranker import rank_for_student
+        from app.utils.student_profile import build_student_dict
+        student = build_student_dict(user_data or {})
+        ranked = rank_for_student(student, scored_jobs, top_k=count)
+        if ranked:
+            scored_jobs = [
+                {**job, "_rankerScore": score, "_rankerReasons": reasons}
+                for (job, score, reasons) in ranked
+            ]
+    except Exception:
+        logger.warning(
+            "student_job_ranker failed for uid=%s loop=%s — falling back to LLM order",
+            uid, loop_id, exc_info=True,
+        )
+
     # Save to Firestore (db already loaded for the cache check above)
     jobs_ref = db.collection("users").document(uid).collection("agent_jobs")
     now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
