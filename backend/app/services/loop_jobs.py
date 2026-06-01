@@ -119,6 +119,27 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
         "lastRunAt": now_iso,
         "status": "running" if loop.get("reviewBeforeSend", True) else "done",
     }
+
+    # Rate-limit 3-strike: if THIS cycle hit a rate limit anywhere, bump the
+    # streak; otherwise reset to 0. After the threshold we pause the Loop with
+    # pauseReason="rate_limited". loop_budget.can_run_now also gates on the
+    # field independently, so a stuck Loop can't keep rescheduling.
+    from app.services.loop_budget import RATE_LIMIT_STRIKE_THRESHOLD
+    if result.get("rateLimited"):
+        prior = int(loop.get("consecutiveRateLimitCycles", 0) or 0)
+        new_streak = prior + 1
+        updates["consecutiveRateLimitCycles"] = new_streak
+        if new_streak >= RATE_LIMIT_STRIKE_THRESHOLD:
+            updates["status"] = "paused"
+            updates["pauseReason"] = "rate_limited"
+            logger.warning(
+                "loop=%s paused after %d consecutive rate-limited cycles",
+                loop_id, new_streak,
+            )
+    elif loop.get("consecutiveRateLimitCycles"):
+        # Clean cycle resets the streak.
+        updates["consecutiveRateLimitCycles"] = 0
+
     try:
         loop_ref.update(updates)
     except Exception as e:
