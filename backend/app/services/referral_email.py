@@ -713,14 +713,56 @@ def _split_full_name(contact: dict) -> tuple[str, str]:
     return parts[0], " ".join(parts[1:])
 
 
+def _load_user_resume_attachment(user_data: dict) -> tuple[Optional[bytes], Optional[str]]:
+    """Fetch the user's resume PDF bytes + filename for Gmail attachment.
+
+    Mirrors how /api/job-board/find-recruiter loads the resume — same
+    `resumeURL`/`resumeUrl` field check, same `download_resume_from_url`
+    helper, same filename override via `resumeFileName`. Returns
+    (None, None) when no URL is set or the download fails (in which case
+    the draft is created without an attachment — the email still ships,
+    just no resume).
+    """
+    if not isinstance(user_data, dict):
+        return None, None
+    resume_url = user_data.get("resumeURL") or user_data.get("resumeUrl")
+    if not resume_url:
+        return None, None
+    try:
+        from app.services.gmail_client import download_resume_from_url
+        content, filename = download_resume_from_url(resume_url)
+        if content:
+            stored_filename = user_data.get("resumeFileName")
+            if stored_filename:
+                filename = stored_filename
+            logger.info(
+                "[ReferralEmail] resume downloaded for attachment (%d bytes, filename=%s)",
+                len(content), filename,
+            )
+            return content, filename
+    except Exception:
+        logger.warning("[ReferralEmail] resume download failed", exc_info=True)
+    return None, None
+
+
 def _create_gmail_draft(
-    uid: str, user_email: str, contact: dict, subject: str, body: str
+    uid: str,
+    user_email: str,
+    contact: dict,
+    subject: str,
+    body: str,
+    user_data: Optional[dict] = None,
 ) -> tuple[Optional[str], Optional[str]]:
     """Create a Gmail draft in the user's Gmail. Returns (draft_id, gmail_url).
 
+    Attaches the user's resume PDF when `user_data` carries a resumeURL.
+    Mirrors the Find Recruiter resume-attachment pattern so the referral
+    draft lands with the same file the recipient would get from any other
+    Offerloop-drafted email. user_data is optional so legacy callers don't
+    break; without it the draft is created without an attachment.
+
     Falls back to (None, None) when the user has no Gmail integration. The
-    frontend handles that case by surfacing subject/body in a copy-paste
-    fallback.
+    SPA handles that case by surfacing subject/body for copy-paste.
 
     create_gmail_draft_for_user returns a dict {draft_id, message_id,
     draft_url, recipient_email} on success or a "mock_*" string on failure
@@ -756,6 +798,24 @@ def _create_gmail_draft(
         if not get_gmail_service_for_user(user_email, user_id=uid):
             return None, None
 
+        # Pull the user's resume PDF if a URL is on file. Find Recruiter does
+        # this same thing — the student expects the referral draft to ship
+        # with the resume already attached, since that's what the recipient
+        # needs to act on a referral request.
+        resume_content, resume_filename = _load_user_resume_attachment(user_data or {})
+
+        # user_info drives the HTML signature block in the email body.
+        # Sourced from user_data so the signature matches what shows in
+        # other email flows (name, university, etc.).
+        user_info = None
+        if user_data:
+            user_info = {
+                "name": user_data.get("name") or user_data.get("displayName") or "",
+                "email": user_data.get("email") or user_email or "",
+                "phone": user_data.get("phone") or "",
+                "linkedin": user_data.get("linkedin") or user_data.get("linkedinUrl") or "",
+            }
+
         result = create_gmail_draft_for_user(
             contact_for_draft,
             subject,
@@ -763,6 +823,9 @@ def _create_gmail_draft(
             tier="referral",
             user_email=user_email,
             user_id=uid,
+            resume_content=resume_content,
+            resume_filename=resume_filename,
+            user_info=user_info,
         )
         # Success path: dict with draft_id / draft_url / message_id / recipient_email.
         # Failure path: string starting with "mock_".
@@ -902,7 +965,10 @@ def build_referral_draft(
     # Legacy: commit immediately (no preview/edit). Kept so the route can
     # still opt into the auto-open behavior if we ever want it.
     if commit:
-        draft_id, gmail_url = _create_gmail_draft(uid, user_email, contact, subject, body)
+        # Reuse the profile we already loaded — avoids a second Firestore read.
+        draft_id, gmail_url = _create_gmail_draft(
+            uid, user_email, contact, subject, body, user_data=profile,
+        )
         payload["draftId"] = draft_id
         payload["gmailUrl"] = gmail_url
         if job_id and gmail_url:
@@ -934,7 +1000,13 @@ def commit_referral_draft(
     if not contact:
         return {"ok": False, "error": "contact_not_found"}
 
-    draft_id, gmail_url = _create_gmail_draft(uid, user_email, contact, subject, body)
+    # Load the user doc once — needed for both the resume attachment lookup
+    # (resumeURL + resumeFileName) and the signature block (name, university).
+    user_data = _load_user_profile(uid)
+
+    draft_id, gmail_url = _create_gmail_draft(
+        uid, user_email, contact, subject, body, user_data=user_data,
+    )
     if not gmail_url:
         return {
             "ok": False,
