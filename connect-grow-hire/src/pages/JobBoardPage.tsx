@@ -82,6 +82,54 @@ function whyOneLine(j: FeedJob): string {
   return j.ranked === false ? "Recently posted" : "Matched to your profile";
 }
 
+// Phase 4: application-deadline countdown.
+// Reads from either job.application_deadline (Perplexity, top-level — usually
+// "rolling" or YYYY-MM-DD for cycle-driven roles) or structured.application_deadline
+// (Firecrawl, posting-explicit — can be any human-readable string).
+// Returns null when there's no useful deadline to surface.
+type DeadlineUrgency = "urgent" | "soon" | "normal" | "rolling";
+function deadlineInfo(j: FeedJob): { label: string; urgency: DeadlineUrgency } | null {
+  const raw =
+    j.application_deadline ??
+    j.structured?.application_deadline ??
+    null;
+  if (!raw || typeof raw !== "string") return null;
+
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (trimmed.toLowerCase() === "rolling") {
+    return { label: "Rolling deadline", urgency: "rolling" };
+  }
+
+  // Try strict ISO first (what the Perplexity extractor writes), then a
+  // permissive Date parse for Firecrawl's looser strings ("December 1, 2026").
+  let date: Date | null = null;
+  const isoMatch = /^\d{4}-\d{2}-\d{2}$/.test(trimmed);
+  if (isoMatch) {
+    // Treat as UTC date at midnight so "today" math doesn't drift across timezones.
+    date = new Date(`${trimmed}T00:00:00Z`);
+  } else {
+    const parsed = new Date(trimmed);
+    if (!isNaN(parsed.getTime())) date = parsed;
+  }
+  if (!date || isNaN(date.getTime())) return null;
+
+  const now = new Date();
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const daysLeft = Math.ceil((date.getTime() - now.getTime()) / msPerDay);
+
+  if (daysLeft < 0) return null; // past, don't show
+  if (daysLeft === 0) return { label: "Closes today", urgency: "urgent" };
+  if (daysLeft === 1) return { label: "Closes tomorrow", urgency: "urgent" };
+  if (daysLeft <= 7) return { label: `Closes in ${daysLeft} days`, urgency: "urgent" };
+  if (daysLeft <= 30) return { label: `Closes in ${daysLeft} days`, urgency: "soon" };
+  if (daysLeft <= 90) {
+    const monthDay = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    return { label: `Closes ${monthDay}`, urgency: "normal" };
+  }
+  return null; // >90 days out — too far to be useful
+}
+
 // ─── small components ───────────────────────────────────────────────────────
 function FilterDropdown({
   label,
@@ -216,22 +264,33 @@ function StandoutCard({
           </a>
         )}
       </div>
-      {(j.match_badges?.length ?? 0) > 0 && (
-        <div className="match-chips">
-          {j.match_badges!.includes("dream_company") && (
-            <span className="match-chip dream">★ Dream company</span>
-          )}
-          {j.match_badges!.includes("target_company") && (
-            <span className="match-chip target">◎ Target company</span>
-          )}
-          {j.match_badges!.includes("alumni_at_company") && (
-            <span className="match-chip alumni">◉ Alumni you know</span>
-          )}
-          {j.match_badges!.includes("saved_company_affinity") && (
-            <span className="match-chip saved">⤴ You've saved jobs here</span>
-          )}
-        </div>
-      )}
+      {(() => {
+        const dl = deadlineInfo(j);
+        const badges = j.match_badges ?? [];
+        if (badges.length === 0 && !dl) return null;
+        return (
+          <div className="match-chips">
+            {dl && (
+              <span className={`match-chip deadline ${dl.urgency}`}>
+                {dl.urgency === "urgent" ? "🔥 " : dl.urgency === "soon" ? "⏳ " : "📅 "}
+                {dl.label}
+              </span>
+            )}
+            {badges.includes("dream_company") && (
+              <span className="match-chip dream">★ Dream company</span>
+            )}
+            {badges.includes("target_company") && (
+              <span className="match-chip target">◎ Target company</span>
+            )}
+            {badges.includes("alumni_at_company") && (
+              <span className="match-chip alumni">◉ Alumni you know</span>
+            )}
+            {badges.includes("saved_company_affinity") && (
+              <span className="match-chip saved">⤴ You've saved jobs here</span>
+            )}
+          </div>
+        );
+      })()}
       <div className="why">{whyOneLine(j)}</div>
       <div className="actions">
         <a className="primary" onClick={() => onOpenApply(j)}>Apply →</a>
@@ -327,22 +386,33 @@ function JobRow({
               </a>
             )}
           </div>
-          {(j.match_badges?.length ?? 0) > 0 && (
-            <div className="match-chips">
-              {j.match_badges!.includes("dream_company") && (
-                <span className="match-chip dream">★ Dream company</span>
-              )}
-              {j.match_badges!.includes("target_company") && (
-                <span className="match-chip target">◎ Target company</span>
-              )}
-              {j.match_badges!.includes("alumni_at_company") && (
-                <span className="match-chip alumni">◉ Alumni you know</span>
-              )}
-              {j.match_badges!.includes("saved_company_affinity") && (
-                <span className="match-chip saved">⤴ You've saved jobs here</span>
-              )}
-            </div>
-          )}
+          {(() => {
+            const dl = deadlineInfo(j);
+            const badges = j.match_badges ?? [];
+            if (badges.length === 0 && !dl) return null;
+            return (
+              <div className="match-chips">
+                {dl && (
+                  <span className={`match-chip deadline ${dl.urgency}`}>
+                    {dl.urgency === "urgent" ? "🔥 " : dl.urgency === "soon" ? "⏳ " : "📅 "}
+                    {dl.label}
+                  </span>
+                )}
+                {badges.includes("dream_company") && (
+                  <span className="match-chip dream">★ Dream company</span>
+                )}
+                {badges.includes("target_company") && (
+                  <span className="match-chip target">◎ Target company</span>
+                )}
+                {badges.includes("alumni_at_company") && (
+                  <span className="match-chip alumni">◉ Alumni you know</span>
+                )}
+                {badges.includes("saved_company_affinity") && (
+                  <span className="match-chip saved">⤴ You've saved jobs here</span>
+                )}
+              </div>
+            );
+          })()}
           <div className="why">{whyOneLine(j)}</div>
           <div className="actions">
             <a className="primary" onClick={(e) => { stop(e); onApply(j); }}>Apply →</a>

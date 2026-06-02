@@ -733,6 +733,11 @@ export interface FeedJob {
     | "alumni_at_company"
     | "saved_company_affinity"
   >;
+  // Phase 4: top-level deadline written by the Perplexity extractor for
+  // cycle-driven jobs (consulting/IB/quant). Either an ISO date string
+  // (YYYY-MM-DD), the literal "rolling", or absent. Posting-explicit
+  // deadlines extracted by Firecrawl live on `structured.application_deadline`.
+  application_deadline?: string | null;
   ranked: boolean;
   structured?: JobStructured;
 }

@@ -315,6 +315,28 @@ def run_title_enrich(limit: int = 200, backfill: bool = False, since_days: int |
     return result
 
 
+def run_extract_deadlines(limit: int = 50):
+    """Perplexity-backed deadline extraction for consulting/IB/quant jobs.
+
+    Phase 4 of the Job Board Elevation Plan. Targets cycle-driven categories
+    where the deadline is rarely on the individual posting but is well-known
+    from the broader recruiting calendar.
+    """
+    from backend.pipeline.deadline_extractor import extract_deadlines
+
+    logger.info("Running deadline extractor (limit=%d)...", limit)
+    result = extract_deadlines(limit=limit)
+
+    print()
+    print("Deadline extraction complete.")
+    print(f"  Processed:           {result.get('processed', 0)}")
+    print(f"  Completed:           {result.get('completed', 0)}")
+    print(f"  Failed:              {result.get('failed', 0)}")
+    print(f"  Skipped:             {result.get('skipped', 0)}")
+    print(f"  Estimated cost:      ${result.get('cost_estimate_usd', 0.0):.4f}")
+    return result
+
+
 def _parse_limit(default: int = 200) -> int:
     for arg in sys.argv:
         if arg.startswith("--limit="):
@@ -363,6 +385,9 @@ if __name__ == "__main__":
             mode, runner = "backfill-title-enrich", (
                 lambda: run_title_enrich(limit=limit, backfill=True, since_days=since_days)
             )
+        elif "--extract-deadlines" in sys.argv:
+            limit = _parse_limit(50)
+            mode, runner = "extract-deadlines", (lambda: run_extract_deadlines(limit=limit))
         elif "--fantastic-only" in sys.argv:
             mode, runner = "fantastic-only", run_fantastic_only
         elif "--fantastic-modified" in sys.argv:
