@@ -294,11 +294,28 @@ function StandoutCard({
       <div className="why">{whyOneLine(j)}</div>
       <div className="actions">
         <a className="primary" onClick={() => onOpenApply(j)}>Apply →</a>
-        <a onClick={() => onFindContact(j)}>Find contact</a>
+        {j.referral_contact ? (
+          <a
+            className="referral"
+            href={`/my-network/people?focus=${encodeURIComponent(j.referral_contact.contact_id)}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            ↗ Reach out to {firstName(j.referral_contact.name)}
+          </a>
+        ) : (
+          <a onClick={() => onFindContact(j)}>Find contact</a>
+        )}
         <a onClick={() => onSeeTeam(j)}>{HIRING_TEAM_LABEL}</a>
       </div>
     </div>
   );
+}
+
+function firstName(full: string): string {
+  if (!full) return "";
+  const trimmed = full.trim();
+  if (!trimmed) return "";
+  return trimmed.split(/\s+/)[0];
 }
 
 function JobRow({
@@ -416,7 +433,17 @@ function JobRow({
           <div className="why">{whyOneLine(j)}</div>
           <div className="actions">
             <a className="primary" onClick={(e) => { stop(e); onApply(j); }}>Apply →</a>
-            <a onClick={(e) => { stop(e); onFindContact(j); }}>Find contact</a>
+            {j.referral_contact ? (
+              <a
+                className="referral"
+                href={`/my-network/people?focus=${encodeURIComponent(j.referral_contact.contact_id)}`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                ↗ Reach out to {firstName(j.referral_contact.name)}
+              </a>
+            ) : (
+              <a onClick={(e) => { stop(e); onFindContact(j); }}>Find contact</a>
+            )}
             <a onClick={(e) => { stop(e); onSeeTeam(j); }}>
               {HIRING_TEAM_LABEL}<span className="credits"> · 5 cr</span>
             </a>

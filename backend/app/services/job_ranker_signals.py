@@ -57,6 +57,10 @@ class UserSignals:
     # company slug → count of saved contacts at that company. Used by the
     # editorial UI to render "3 alumni you know" rather than a binary badge.
     alumni_counts: dict[str, int] = field(default_factory=dict)
+    # Phase 5: company slug → best-contact dict {contact_id, name, title,
+    # has_email}. Drives the "Reach out to Sarah" CTA on job rows. "Best"
+    # is currently "first found with an email"; falls back to first overall.
+    top_contact_per_company: dict[str, dict] = field(default_factory=dict)
     saved_companies: set[str] = field(default_factory=set)
     dismissed_job_ids: set[str] = field(default_factory=set)
 
@@ -177,14 +181,46 @@ def load_user_signals(uid: str) -> UserSignals:
     # Alumni: contacts where the user has saved someone at a company.
     # We don't filter by role — even a peer at the company is useful
     # context for the badge ("you know 3 people here").
+    # Phase 5: also keep the "best" contact per company for the referral
+    # CTA. "Best" = first one we see with an email; falls back to first
+    # one overall. Good enough for v1 — future iteration can prefer
+    # alumni from the same school, recent senders, etc.
     try:
         for contact_doc in user_ref.collection("contacts").stream():
             cdata = contact_doc.to_dict() or {}
             company = cdata.get("company") or cdata.get("Company") or ""
             slug = normalize_company(company)
-            if slug:
-                signals.alumni_companies.add(slug)
-                signals.alumni_counts[slug] = signals.alumni_counts.get(slug, 0) + 1
+            if not slug:
+                continue
+            signals.alumni_companies.add(slug)
+            signals.alumni_counts[slug] = signals.alumni_counts.get(slug, 0) + 1
+
+            # Capture contact details if this is the first (or first with
+            # a usable email) for this company.
+            name = (
+                cdata.get("name")
+                or cdata.get("Name")
+                or f"{(cdata.get('firstName') or cdata.get('FirstName') or '').strip()} "
+                   f"{(cdata.get('lastName') or cdata.get('LastName') or '').strip()}".strip()
+            )
+            if not name:
+                continue
+            email = cdata.get("email") or cdata.get("Email") or ""
+            email_ok = bool(email) and email != "Not available"
+            existing = signals.top_contact_per_company.get(slug)
+            # Upgrade rules: take the first contact, but replace if we
+            # find one with an email and the existing doesn't have one.
+            should_set = (
+                existing is None
+                or (email_ok and not existing.get("has_email"))
+            )
+            if should_set:
+                signals.top_contact_per_company[slug] = {
+                    "contact_id": contact_doc.id,
+                    "name": name,
+                    "title": cdata.get("title") or cdata.get("Title") or "",
+                    "has_email": email_ok,
+                }
     except Exception:
         logger.exception("[Signals] Failed to load contacts for uid=%s", uid)
 

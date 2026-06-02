@@ -352,6 +352,19 @@
 }
 .jb-editorial .standouts .so .actions a:hover { color: var(--accent); border-bottom-color: var(--accent); }
 .jb-editorial .standouts .so .actions a.primary { color: var(--ink); }
+/* Phase 5: referral action stands out when the user has a contact at the
+   company — same shape as other actions but with the signal color. */
+.jb-editorial .actions a.referral,
+.jb-editorial .standouts .so .actions a.referral {
+  color: var(--signal);
+  border-bottom-color: rgba(176,86,60,.5);
+  text-decoration: none;
+}
+.jb-editorial .actions a.referral:hover,
+.jb-editorial .standouts .so .actions a.referral:hover {
+  color: var(--signal);
+  border-bottom-color: var(--signal);
+}
 
 /* ============ Rows ============ */
 .jb-editorial .rows { margin-top: 6px; border-top: 1px solid var(--line-2); }

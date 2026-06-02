@@ -342,6 +342,15 @@ def get_feed():
                 _, codes = user_signals.boost(j)
                 if codes:
                     j["match_badges"] = codes
+                # Phase 5: when the user has a saved contact at this company,
+                # surface the best one so the frontend can render a
+                # "Reach out to Sarah" CTA next to "Apply →".
+                from app.models.users import normalize_company as _nc
+                slug = _nc(j.get("company") or "")
+                if slug:
+                    contact = user_signals.top_contact_per_company.get(slug)
+                    if contact:
+                        j["referral_contact"] = contact
             out.append(j)
 
         # Phase 3: fill any null/generic match_reason on the top 10 with a

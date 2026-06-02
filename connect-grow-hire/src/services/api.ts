@@ -738,6 +738,15 @@ export interface FeedJob {
   // (YYYY-MM-DD), the literal "rolling", or absent. Posting-explicit
   // deadlines extracted by Firecrawl live on `structured.application_deadline`.
   application_deadline?: string | null;
+  // Phase 5: best saved contact at this job's company. Set when the user
+  // has at least one alumni at the company in their contacts subcollection.
+  // Drives the "Reach out to {Name}" CTA.
+  referral_contact?: {
+    contact_id: string;
+    name: string;
+    title?: string;
+    has_email?: boolean;
+  } | null;
   ranked: boolean;
   structured?: JobStructured;
 }
