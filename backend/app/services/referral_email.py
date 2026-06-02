@@ -159,30 +159,33 @@ def _load_latest_coffee_chat_prep(uid: str, contact_id: str) -> Optional[dict]:
     student already did research on this person. Surfacing it into the
     referral prompt means the email reads like a follow-up, not a cold
     pitch. Returns the raw prep dict (or None if none exists).
+
+    Note: filter by contactId only (no order_by) so we don't require a
+    composite Firestore index. Picks the newest in Python from the small
+    set returned. Users typically have <5 preps per contact.
     """
     try:
         db = get_db()
         if not db:
             return None
-        # Coffee-chat preps are filed under users/{uid}/coffee-chat-preps with
-        # a `contactId` field linking back to the contact doc id. Pull the
-        # newest one — older preps may be stale.
         prep_query = (
             db.collection("users")
             .document(uid)
             .collection("coffee-chat-preps")
             .where("contactId", "==", contact_id)
-            .order_by("createdAt", direction="DESCENDING")
-            .limit(1)
+            .limit(5)
         )
+        candidates = []
         for doc in prep_query.stream():
             data = doc.to_dict() or {}
             data["_id"] = doc.id
-            return data
-        return None
+            candidates.append(data)
+        if not candidates:
+            return None
+        # Newest first by createdAt string (ISO format sorts lexicographically).
+        candidates.sort(key=lambda d: d.get("createdAt") or "", reverse=True)
+        return candidates[0]
     except Exception:
-        # Missing composite index is the most common failure; log once and
-        # carry on without the prep — not a fatal error for the email.
         logger.warning(
             "[ReferralEmail] coffee-chat prep query failed uid=%s contact=%s",
             uid, contact_id, exc_info=True,
@@ -579,6 +582,43 @@ def _parse_subject_body(content: str) -> tuple[str, str]:
 # Gmail draft creation
 # ---------------------------------------------------------------------------
 
+def _split_full_name(contact: dict) -> tuple[str, str]:
+    """Best-effort extraction of (first_name, last_name) from a contact doc.
+
+    Saved contacts come from many sources (PDL search, LinkedIn import, manual
+    Find Humans, Gmail thread sync). Each writes the name field differently.
+    Try every variant we've seen in production.
+    """
+    full = (
+        contact.get("name")
+        or contact.get("Name")
+        or contact.get("fullName")
+        or contact.get("FullName")
+        or ""
+    ).strip()
+    first_field = (
+        contact.get("firstName")
+        or contact.get("FirstName")
+        or contact.get("first_name")
+        or ""
+    ).strip()
+    last_field = (
+        contact.get("lastName")
+        or contact.get("LastName")
+        or contact.get("last_name")
+        or ""
+    ).strip()
+
+    if first_field or last_field:
+        return first_field, last_field
+    if not full:
+        return "", ""
+    parts = full.split()
+    if len(parts) == 1:
+        return parts[0], ""
+    return parts[0], " ".join(parts[1:])
+
+
 def _create_gmail_draft(
     uid: str, user_email: str, contact: dict, subject: str, body: str
 ) -> tuple[Optional[str], Optional[str]]:
@@ -587,6 +627,10 @@ def _create_gmail_draft(
     Falls back to (None, None) when the user has no Gmail integration. The
     frontend handles that case by surfacing subject/body in a copy-paste
     fallback.
+
+    create_gmail_draft_for_user returns a dict {draft_id, message_id,
+    draft_url, recipient_email} on success or a "mock_*" string on failure
+    or when Gmail isn't connected — handle both.
     """
     try:
         from app.services.gmail_client import (
@@ -607,20 +651,18 @@ def _create_gmail_draft(
         if not recipient_email:
             return None, None
 
+        first_name, last_name = _split_full_name(contact)
         contact_for_draft = {
             "Email": recipient_email,
-            "FirstName": (contact.get("name") or contact.get("Name") or "").split()[:1] or [""],
-            "LastName": (contact.get("name") or contact.get("Name") or "").split()[1:] or [""],
+            "FirstName": first_name,
+            "LastName": last_name,
         }
-        # Flatten the FirstName / LastName lists into strings
-        contact_for_draft["FirstName"] = contact_for_draft["FirstName"][0] if contact_for_draft["FirstName"] else ""
-        contact_for_draft["LastName"] = " ".join(contact_for_draft["LastName"]) if isinstance(contact_for_draft["LastName"], list) else contact_for_draft["LastName"]
 
         # Check that Gmail is connected before we try.
         if not get_gmail_service_for_user(user_email, user_id=uid):
             return None, None
 
-        draft_id = create_gmail_draft_for_user(
+        result = create_gmail_draft_for_user(
             contact_for_draft,
             subject,
             body,
@@ -628,12 +670,19 @@ def _create_gmail_draft(
             user_email=user_email,
             user_id=uid,
         )
-        if not draft_id or draft_id.startswith("mock_"):
-            return None, None
-
-        # Build the Gmail UI URL pointing at the draft.
-        gmail_url = f"https://mail.google.com/mail/?authuser={user_email}#draft/{draft_id}"
-        return draft_id, gmail_url
+        # Success path: dict with draft_id / draft_url / message_id / recipient_email.
+        # Failure path: string starting with "mock_".
+        if isinstance(result, dict):
+            draft_id = result.get("draft_id")
+            draft_url = result.get("draft_url")
+            if not draft_id:
+                return None, None
+            # Prefer the URL the Gmail client built (it knows the message_id).
+            return draft_id, draft_url
+        if isinstance(result, str) and not result.startswith("mock_"):
+            # Older code path returned a raw draft id string. Construct URL.
+            return result, f"https://mail.google.com/mail/u/0/#draft/{result}"
+        return None, None
     except Exception:
         logger.exception("[ReferralEmail] Gmail draft create failed uid=%s", uid)
         return None, None
