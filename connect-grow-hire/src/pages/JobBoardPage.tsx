@@ -224,6 +224,7 @@ function StandoutCard({
   onToggleDream: (company: string) => Promise<void> | void;
 }) {
   const warm = (j.match_score ?? 0) >= 90;
+  const [standoutDrafting, setStandoutDrafting] = useState(false);
   return (
     <div className="so">
       <div className="top">
@@ -297,10 +298,15 @@ function StandoutCard({
         {j.referral_contact ? (
           <a
             className="referral"
-            href={`/my-network/people?focus=${encodeURIComponent(j.referral_contact.contact_id)}`}
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!standoutDrafting) openReferralDraft(j, setStandoutDrafting);
+            }}
+            style={standoutDrafting ? { opacity: 0.6, pointerEvents: "none" } : undefined}
           >
-            ↗ Reach out to {firstName(j.referral_contact.name)}
+            {standoutDrafting
+              ? "Drafting…"
+              : `↗ Reach out to ${firstName(j.referral_contact.name)}`}
           </a>
         ) : (
           <a onClick={() => onFindContact(j)}>Find contact</a>
@@ -316,6 +322,60 @@ function firstName(full: string): string {
   const trimmed = full.trim();
   if (!trimmed) return "";
   return trimmed.split(/\s+/)[0];
+}
+
+/**
+ * Phase 5 click handler — request a referral draft from the backend and open
+ * the resulting Gmail draft in a new tab. Falls back to a toast with the
+ * subject/body for copy-paste when Gmail isn't connected, and to a generic
+ * error toast when the call itself fails.
+ */
+async function openReferralDraft(
+  j: FeedJob,
+  setDrafting: (v: boolean) => void,
+): Promise<void> {
+  if (!j.referral_contact) return;
+  setDrafting(true);
+  try {
+    const result = await apiService.draftReferralEmail({
+      contact_id: j.referral_contact.contact_id,
+      job: {
+        job_id: j.job_id,
+        title: j.title,
+        company: j.company,
+        location: typeof j.location === "string" ? j.location : undefined,
+        apply_url: j.apply_url,
+        structured: j.structured,
+      },
+    });
+    if (result.ok && result.gmailUrl) {
+      window.open(result.gmailUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (result.ok && result.subject && result.body) {
+      // Gmail not connected — surface the draft for copy-paste. Done as a
+      // toast for now; a richer "copy draft" modal would be next iteration.
+      toast({
+        title: "Draft ready (Gmail not connected)",
+        description: `Subject: ${result.subject}\n\n${result.body.slice(0, 280)}${result.body.length > 280 ? "…" : ""}`,
+      });
+      return;
+    }
+    toast({
+      title: "Couldn't draft a referral",
+      description: result.error || "Try again or open the contact in My Network.",
+      variant: "destructive",
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    toast({
+      title: "Couldn't draft a referral",
+      description: msg.slice(0, 200),
+      variant: "destructive",
+    });
+  } finally {
+    setDrafting(false);
+  }
 }
 
 function JobRow({
@@ -344,6 +404,7 @@ function JobRow({
   onToggleDream: (company: string) => Promise<void> | void;
 }) {
   const [dismissing, setDismissing] = useState(false);
+  const [rowDrafting, setRowDrafting] = useState(false);
   const daysOld = postedDaysFrom(j.posted_at) ?? 0;
   const stale = daysOld >= STALE_DAYS;
   const score = j.match_score ?? null;
@@ -436,10 +497,15 @@ function JobRow({
             {j.referral_contact ? (
               <a
                 className="referral"
-                href={`/my-network/people?focus=${encodeURIComponent(j.referral_contact.contact_id)}`}
-                onClick={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  stop(e);
+                  if (!rowDrafting) openReferralDraft(j, setRowDrafting);
+                }}
+                style={rowDrafting ? { opacity: 0.6, pointerEvents: "none" } : undefined}
               >
-                ↗ Reach out to {firstName(j.referral_contact.name)}
+                {rowDrafting
+                  ? "Drafting…"
+                  : `↗ Reach out to ${firstName(j.referral_contact.name)}`}
               </a>
             ) : (
               <a onClick={(e) => { stop(e); onFindContact(j); }}>Find contact</a>

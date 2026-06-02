@@ -2115,6 +2115,53 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
     );
   }
 
+  /**
+   * Phase 5 quality lift — generate a referral outreach draft for a saved
+   * contact at a job's company. The backend pulls coffee-chat prep notes,
+   * recent activity, and JD/resume overlap, then drafts a two-step
+   * conversation-starter email and creates a Gmail draft. Returns the
+   * Gmail URL for the SPA to open in a new tab.
+   *
+   * Falls back to ok:true with gmailUrl:null when Gmail isn't connected —
+   * caller can show subject/body for copy-paste in that case.
+   */
+  async draftReferralEmail(params: {
+    contact_id: string;
+    job: {
+      job_id?: string;
+      title?: string;
+      company: string;
+      location?: string;
+      description?: string;
+      structured?: unknown;
+      apply_url?: string;
+    };
+  }): Promise<{
+    ok: boolean;
+    gmailUrl?: string | null;
+    draftId?: string | null;
+    subject?: string;
+    body?: string;
+    cached?: boolean;
+    context_used?: {
+      has_coffee_chat_prep?: boolean;
+      has_recent_activity?: boolean;
+      overlap_count?: number;
+      two_step_framing?: boolean;
+    };
+    error?: string;
+  }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest(
+      '/job-board/referral-draft',
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(params),
+      }
+    );
+  }
+
   async generateCoverLetter(params: GenerateCoverLetterRequest): Promise<GenerateCoverLetterResponse> {
     const response = await this.makeRequest<GenerateCoverLetterResponse>(
       '/job-board/generate-cover-letter',

@@ -8153,6 +8153,89 @@ def find_recruiter_endpoint():
         return jsonify({"error": str(e)}), 500
 
 
+@job_board_bp.route("/referral-draft", methods=["POST"])
+@require_firebase_auth
+def referral_draft_endpoint():
+    """Phase 5 quality lift: generate a referral outreach draft for a saved
+    contact at a job's company.
+
+    Distinct from /find-recruiter (which cold-searches for new contacts at the
+    company). This endpoint runs when the user already has a contact saved —
+    it pulls richer per-contact context (coffee-chat prep, recent activity,
+    JD/resume overlap) and produces a two-step "ask for chat" email, then
+    creates a Gmail draft and returns the URL for the SPA to open.
+
+    Request:
+      {
+        "contact_id": "<doc id under users/{uid}/contacts>",
+        "job": {
+          "job_id": "...",      // used for cache key
+          "title": "...",
+          "company": "...",
+          "location": "...",
+          "description": "...", // optional; falls back to structured
+          "structured": {...},  // optional; Firecrawl-extracted bullets
+          "apply_url": "..."    // optional
+        }
+      }
+
+    Response (200 on success):
+      {
+        "ok": true,
+        "gmailUrl": "https://mail.google.com/...",
+        "draftId": "...",
+        "subject": "...",
+        "body": "...",
+        "cached": false,
+        "context_used": {
+          "has_coffee_chat_prep": bool,
+          "has_recent_activity": bool,
+          "overlap_count": int,
+          "two_step_framing": true
+        }
+      }
+    Falls back to ok:true with gmailUrl:null when Gmail isn't connected —
+    the SPA can still show subject/body for copy-paste in that case.
+    """
+    try:
+        user_id = request.firebase_user.get("uid")
+        user_email = request.firebase_user.get("email") or ""
+        data = request.get_json(force=True, silent=True) or {}
+
+        contact_id = (data.get("contact_id") or "").strip()
+        job = data.get("job") or {}
+        if not contact_id:
+            return jsonify({"error": "contact_id required"}), 400
+        if not isinstance(job, dict) or not job.get("company"):
+            return jsonify({"error": "job with company required"}), 400
+
+        # Rate limit: gpt-4o per click is ~$0.05; 30/day is well above any
+        # legitimate single-session use and stops accidental spam from
+        # double-clicks or stuck UI states.
+        if not _check_user_rate_limit(user_id, "referral-draft-daily", "30 per day"):
+            return jsonify({
+                "error": "Daily limit reached",
+                "message": "You've drafted 30 referral emails today. Try again tomorrow.",
+            }), 429
+
+        from app.services.referral_email import build_referral_draft
+        result = build_referral_draft(
+            uid=user_id,
+            user_email=user_email,
+            contact_id=contact_id,
+            job=job,
+        )
+        if not result.get("ok"):
+            err = result.get("error", "unknown")
+            logger.warning("[ReferralDraft] generation failed uid=%s err=%s", user_id, err)
+            status = 404 if err == "contact_not_found" else 500
+            return jsonify({"error": err}), status
+        return jsonify(result), 200
+    except Exception as e:
+        logger.exception("[ReferralDraft] endpoint failed: %s", e)
+        return jsonify({"error": "internal_error"}), 500
+
+
 @job_board_bp.route("/parse-hiring-prompt", methods=["POST"])
 @require_firebase_auth
 def parse_hiring_prompt():
