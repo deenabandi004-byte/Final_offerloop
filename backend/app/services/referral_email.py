@@ -397,13 +397,23 @@ def _relationship_strength(
 ) -> str:
     """Classify the relationship strength based on signals we have.
 
-    Used to pick the ask framing:
-      strong   → direct ask for referral / resume forward
-      moderate → either ask works; honest direct preferred
-      weak     → ask for a 15-min chat, not a referral
+    v3 fix: "strong" requires actual *content* to reference. A bare
+    "Gmail thread exists" boolean is NOT enough — without the thread's
+    subject/body the model fabricates a fake prior conversation. The
+    boolean still moves us up to "moderate" (you've interacted, but we
+    don't have content to cite verbatim), which is honest.
+
+    Levels:
+      strong   → coffee-chat prep exists (rich content the model can cite)
+      moderate → prior thread OR shared school (interaction exists but no
+                 specific content the model can quote — use honest-direct
+                 opener, don't fabricate)
+      weak     → saved contact, no shared signal (treat as cold)
     """
-    if coffee_chat_prep or has_prior_email_thread:
+    if coffee_chat_prep:
         return "strong"
+    if has_prior_email_thread:
+        return "moderate"
     contact_school = (contact.get("college") or contact.get("College") or "").strip().lower()
     user_school = (user_school or "").strip().lower()
     if user_school and contact_school and user_school == contact_school:
@@ -413,27 +423,43 @@ def _relationship_strength(
 
 _ASK_FRAMING = {
     "strong": (
-        "RELATIONSHIP: STRONG (prior interaction or coffee-chat research exists).\n"
-        "ASK FRAMING: Lead with the prior interaction. Ask DIRECTLY: either "
-        "for a referral, or to share the student's resume with the hiring "
-        "team. Be plain about what you want. Always give them an out — "
-        "something like 'no pressure if this isn't the right fit, totally "
-        "understand if you'd rather point me to someone else'."
+        "RELATIONSHIP: STRONG (coffee-chat prep content exists — you have "
+        "ground-truth notes from the student's research on this person).\n"
+        "ASK FRAMING: Lead the opener by citing one specific detail from the "
+        "STUDENT'S PRIOR RESEARCH block. If a prior conversation is referenced "
+        "in the prep notes, you may say 'Following up on our chat about "
+        "[specific topic from the prep]' — but ONLY if a specific topic is "
+        "in the prep. Do NOT invent a conversation that isn't documented. "
+        "Ask DIRECTLY for a referral or to share the student's resume with "
+        "the hiring team. Always include an out clause."
     ),
     "moderate": (
-        "RELATIONSHIP: MODERATE (alumni / shared school but no prior chat).\n"
-        "ASK FRAMING: Either ask is fine — a brief chat OR a direct referral "
-        "request. Honest-direct works well here. Mention the shared school "
-        "in the opener naturally (not as 'I noticed we both went to X' — say "
-        "'Fellow [school] '24' or similar). Always include an out clause."
+        "RELATIONSHIP: MODERATE (interacted before via email, OR shared "
+        "school — but we do NOT have specific content (no coffee-chat prep, "
+        "no quoted prior message). Do NOT invent a prior conversation or "
+        "fabricate what was discussed.\n"
+        "ASK FRAMING: Use the honest-direct opener. If shared school: "
+        "'Fellow [school] '24 here — saw the [exact role title] open at "
+        "[company] and wanted to reach out.' If prior interaction without "
+        "content: 'Hi [first name] — applying to the [exact role title] at "
+        "[company] and wanted to reach out to you specifically.' Then ask "
+        "DIRECTLY for a referral or resume forward. Always include an out "
+        "clause. NEVER write 'Following up on our chat' or similar without "
+        "specific content to cite."
     ),
     "weak": (
-        "RELATIONSHIP: WEAK (saved contact, no shared signal).\n"
-        "ASK FRAMING: Do NOT ask for a referral in this email. Ask for a "
-        "brief 15-minute conversation about their experience at the company. "
-        "This is a genuine ask for perspective, not a backdoor referral. "
-        "Be honest that you don't know them well; that's fine — being a "
-        "stranger is okay as long as you're direct and respectful."
+        "RELATIONSHIP: WEAK / COLD (saved contact, no shared signal). The "
+        "recipient does not know the sender. This IS a cold email — frame "
+        "it as such.\n"
+        "ASK FRAMING: Acknowledge briefly that the sender doesn't know the "
+        "recipient yet ('I came across your name while researching [team]' "
+        "or 'I haven't had the chance to connect before, but…'). Then state "
+        "one specific, honest reason for reaching out to THIS person (their "
+        "team, their role, a specific aspect of their work that's relevant). "
+        "Do NOT ask for a referral in the first email — the recipient owes "
+        "you nothing yet. Ask for a brief 15-minute conversation about their "
+        "experience at the company. Be direct and respectful. Always give "
+        "them an out."
     ),
 }
 
@@ -518,12 +544,16 @@ def _job_summary(job: dict) -> str:
     structured = job.get("structured") or {}
     team = structured.get("team") or ""
     employment_type = structured.get("employment_type") or job.get("type") or ""
+    apply_url = job.get("apply_url") or job.get("url") or ""
     parts = [
         f"Role: {title}",
         f"Company: {company}",
         f"Location: {location}" if location else "",
         f"Team: {team}" if team else "",
         f"Type: {employment_type}" if employment_type else "",
+        # v3: surface JOB_URL so the model can inline it instead of
+        # hallucinating "the job link is attached".
+        f"JOB_URL (include this inline in the body as a plain URL): {apply_url}" if apply_url else "",
     ]
     return "\n".join(p for p in parts if p)
 

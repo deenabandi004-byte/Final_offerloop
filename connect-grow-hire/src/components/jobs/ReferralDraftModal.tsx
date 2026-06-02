@@ -18,7 +18,8 @@
  *   it lands in someone's inbox.
  */
 import { useEffect, useState } from "react";
-import { Loader2, RefreshCw, Send, Copy, AlertTriangle } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Loader2, RefreshCw, Send, Copy, AlertTriangle, Coffee } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -39,12 +40,13 @@ interface ReferralDraftModalProps {
 type ModalState = "loading" | "ready" | "committing" | "error";
 
 const RELATIONSHIP_LABEL: Record<string, string> = {
-  strong: "You've interacted before",
-  moderate: "Shared school / alumni",
-  weak: "Saved contact",
+  strong: "Coffee chat prep on file",
+  moderate: "Some shared context",
+  weak: "Cold — you haven't met",
 };
 
 export function ReferralDraftModal({ open, onOpenChange, job }: ReferralDraftModalProps) {
+  const navigate = useNavigate();
   const [state, setState] = useState<ModalState>("loading");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
@@ -210,14 +212,50 @@ export function ReferralDraftModal({ open, onOpenChange, job }: ReferralDraftMod
               {overlapCount > 0 && (
                 <span>· {overlapCount} JD/resume match{overlapCount > 1 ? "es" : ""}</span>
               )}
-              {!contextUsed?.has_coffee_chat_prep &&
-                !contextUsed?.has_recent_activity &&
-                overlapCount === 0 && (
-                  <span className="text-amber-600">
-                    · No prep / overlap signal — consider adding a coffee-chat prep first
-                  </span>
-                )}
             </div>
+
+            {/* Context-aware guidance. Weak relationship gets the strongest
+                warning — true cold emails convert poorly without prior
+                research. Moderate without overlap gets a softer nudge to
+                add a coffee-chat prep for richer context next time. */}
+            {relationship === "weak" && (
+              <div className="text-xs bg-amber-50 border border-amber-200 rounded px-3 py-2 flex items-start gap-2">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div className="text-amber-800 flex-1">
+                  <strong>This is essentially a cold email.</strong> You haven't
+                  connected with{" "}
+                  {(job?.referral_contact?.name || "this person").split(/\s+/)[0]} before,
+                  so the draft asks for a short chat rather than a referral. Running
+                  a Coffee Chat Prep first will give the next draft real research to
+                  cite — much higher response rate.
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-shrink-0"
+                  onClick={() => navigate("/coffee-chat-prep")}
+                >
+                  <Coffee className="w-3.5 h-3.5 mr-1.5" /> Start prep
+                </Button>
+              </div>
+            )}
+            {relationship === "moderate" && overlapCount === 0 &&
+              !contextUsed?.has_coffee_chat_prep && (
+                <div className="text-xs bg-slate-50 border border-slate-200 rounded px-3 py-2 flex items-start gap-2 text-slate-700">
+                  <div className="flex-1">
+                    No coffee-chat prep on this contact yet — running one would let
+                    the next draft cite specific things they've worked on.
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-shrink-0"
+                    onClick={() => navigate("/coffee-chat-prep")}
+                  >
+                    <Coffee className="w-3.5 h-3.5 mr-1.5" /> Add prep
+                  </Button>
+                </div>
+              )}
 
             {qualityIssues.length > 0 && (
               <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">

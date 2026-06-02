@@ -23,13 +23,23 @@ BANNED_PHRASES_VERBATIM = (
     "I hope this email finds you well",
     "I hope this finds you well",
     "I hope you are doing well",
+    "I hope you're doing well",   # v3: contracted form slipped through
+    "I hope all is well",
+    "Hope you're doing well",
     "I came across your profile",
     "I came across your name",
     "I'm reaching out to",
     "I am reaching out to",
     "I wanted to reach out",
     "I am writing to express",
-    # Filler / hedging
+    # Filler / hedging — v3: caught "which seems relevant to the role"
+    "seems relevant to the role",
+    "seems relevant",
+    "seems to align",
+    "appears relevant",
+    "might align",
+    "could be relevant",
+    "which I believe aligns",
     "I would appreciate the opportunity",
     "I would love the opportunity",
     "your time and consideration",
@@ -68,6 +78,11 @@ BANNED_PHRASES_VERBATIM = (
     "I enjoyed your recent post",
     "the innovative work happening",
     "the exciting projects",
+    # v3: model invented "the job link attached" when nothing of the sort was
+    # being attached. Resume IS attached; job URL goes inline if at all.
+    "the job link attached",
+    "the job link for reference",
+    "and the job link",
 )
 
 BANNED_PHRASES_SUBSTRING = (
@@ -129,7 +144,11 @@ list skills generically ("my Python and ML skills"). Do NOT claim \
 processed N requests/day" > "worked on data pipelines".
 
 CLOSE
-- Mention attached resume + job link ONCE.
+- Mention the attached resume ONCE. Do NOT claim "the job link is \
+attached" — only the resume PDF is attached.
+- If a JOB_URL is provided in the context, include it inline as a plain \
+URL in one of the body sentences ("The role is here: https://…"). Do NOT \
+hyperlink, do NOT use markdown.
 - Sign with the student's first name only. Do NOT write a full signature \
 block — the mail system appends one automatically.
 - One brevity acknowledgment max ("I know your inbox is full" OR \
