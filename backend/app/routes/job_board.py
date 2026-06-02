@@ -6388,24 +6388,83 @@ def fetch_personalized_jobs(
     user_profile: dict,
     job_types: List[str],
     locations: List[str],
-    max_jobs: int = 50,  # QUICK WIN: Reduced default from 150 to 50 for faster loading
+    max_jobs: int = 50,
     refresh: bool = False,
-    user_id: str = ""  # PHASE 2: Added for hard gate logging
+    user_id: str = ""
 ) -> tuple[List[dict], dict]:
+    """Serve the user-facing job feed from the Fantastic.jobs curated Firestore pool.
+
+    The pool is populated daily by the ingest pipeline (backend/pipeline/main.py)
+    with student-shaped recipes — internships, new-grad, MBB/IB/quant whitelists,
+    visa-sponsoring roles — and pre-filtered by quality_gate.py (no staffing
+    agencies, no scams, no senior-only roles, nothing >60 days old). This
+    function applies the per-user hard gates, dedup, and ranking on top.
+
+    Plan: docs/JOB_BOARD_ELEVATION_PLAN.md Phase 1.
     """
-    PHASE 3: Fetch jobs using intent-aligned queries and merge results.
-    Uses parallel execution for faster performance.
-    
-    Args:
-        user_profile: User's career profile (must have _intent_contract from Phase 1)
-        job_types: List of job types
-        locations: List of preferred locations
-        max_jobs: Maximum jobs to return (default 50)
-        refresh: Whether to bypass cache
-        user_id: User ID for logging (optional)
-        
-    Returns:
-        Tuple of (jobs list, metadata dict)
+    from app.services.job_serving import fetch_jobs_from_firestore
+
+    pool_jobs, pool_meta = fetch_jobs_from_firestore()
+
+    quality_filtered = filter_jobs_by_quality(pool_jobs, min_quality_score=MIN_QUALITY_SCORE)
+
+    intent_contract = user_profile.get("_intent_contract", {})
+    if intent_contract:
+        gated_jobs, gate_stats = apply_all_hard_gates(quality_filtered, intent_contract, user_id)
+    else:
+        logger.warning("[JobBoard] No intent_contract; skipping hard gates")
+        gated_jobs = quality_filtered
+        gate_stats = {
+            "total_rejected": 0,
+            "total_kept": len(quality_filtered),
+            "career_domain": 0,
+            "job_type": 0,
+            "location": 0,
+            "seniority": 0,
+        }
+
+    deduped, dedup_stats = deduplicate_jobs(gated_jobs)
+    weights = {job.get("id"): 1.0 for job in deduped if job.get("id")}
+    scored = score_jobs_by_resume_match(deduped, user_profile, weights)
+
+    metadata = {
+        "serving_source": "firestore",
+        "queries_used": [{
+            "query": "firestore_curated_pool",
+            "source": "fantasticjobs",
+            "jobs_found": len(pool_jobs),
+            "weight": 1.0,
+        }],
+        "total_fetched": pool_meta.get("pool_size", len(pool_jobs)),
+        "total_after_quality_filter": len(quality_filtered),
+        "total_after_intent_gates": len(gated_jobs),
+        "total_after_deduplication": len(deduped),
+        "total_after_filter": len(deduped),
+        "filtered_out": len(pool_jobs) - len(deduped),
+        "location": build_location_query(locations or user_profile.get("preferred_locations") or []),
+        "gate_stats": gate_stats,
+        "dedup_stats": dedup_stats,
+        "firestore_pool": pool_meta,
+    }
+    logger.info(
+        "[JobBoard] pool=%d quality=%d gated=%d deduped=%d scored=%d",
+        len(pool_jobs), len(quality_filtered), len(gated_jobs), len(deduped), len(scored),
+    )
+    return scored[:max_jobs], metadata
+
+
+def _fetch_personalized_jobs_legacy_serpapi(
+    user_profile: dict,
+    job_types: List[str],
+    locations: List[str],
+    max_jobs: int = 50,
+    refresh: bool = False,
+    user_id: str = ""
+) -> tuple[List[dict], dict]:
+    """Legacy SerpAPI-fanout job feed. No longer wired to the user-facing
+    endpoint — kept only because /api/job-board/search and agent_actions.py
+    still call fetch_jobs_from_serpapi directly. Slated for removal once
+    those call sites migrate (Phase 7 cleanup in the elevation plan).
     """
     # PHASE 3: Build intent-aligned queries (queries now include location)
     queries = build_personalized_queries(user_profile, job_types)
@@ -6573,12 +6632,22 @@ def get_job_listings():
     try:
         data = request.get_json(force=True, silent=True) or {}
         user_id = request.firebase_user.get('uid')
-        
+
         job_types = data.get("jobTypes", ["Internship"])
         industries = data.get("industries", [])
         locations = data.get("locations", [])
         search_query = data.get("searchQuery", "")
         refresh = data.get("refresh", False)  # Force refresh bypasses cache
+
+        # Phase 1 (Job Board Elevation Plan): cap the refresh path so a runaway
+        # client can't burn external API quota by spamming refresh=true. Normal
+        # cache-hit requests are not counted — only forced refreshes that
+        # bypass the cache. 50/day per user is well above any human pattern.
+        if refresh and not _check_user_rate_limit(user_id, "job-feed-refresh-daily", "50 per day"):
+            return jsonify({
+                "error": "Daily refresh limit reached",
+                "message": "You've refreshed the job feed 50 times today. The next refresh will be available tomorrow."
+            }), 429
         
         # Get pagination parameters
         page = data.get("page", 1)
@@ -7597,6 +7666,29 @@ def _check_find_humans_hourly_cap(user_id: str) -> bool:
         return True
 
 
+def _check_user_rate_limit(user_id: str, scope: str, limit_str: str) -> bool:
+    """Generic per-user rate-limit check backed by the Flask-Limiter storage.
+
+    Added as part of Phase 1 of the Job Board Elevation Plan to cap abuse on
+    expensive endpoints (recruiter/hiring-manager discovery, job-feed refresh).
+    Returns True if the request is allowed, False if it should be rejected
+    with HTTP 429. Fail-open on storage errors so a Firestore outage doesn't
+    block users.
+    """
+    try:
+        lim = get_limiter()
+        if not lim or not getattr(lim, "_storage", None):
+            return True
+        from limits import parse
+        from limits.strategies import FixedWindowRateLimiter
+        item = parse(limit_str)
+        strategy = FixedWindowRateLimiter(lim._storage)
+        return strategy.hit(item, scope, user_id or "anon")
+    except Exception as e:
+        logger.error(f"[RateLimit] {scope} check failed: {e}")
+        return True
+
+
 @job_board_bp.route("/find-recruiter", methods=["POST"])
 @require_firebase_auth
 @require_tier(['pro', 'elite'])
@@ -7640,6 +7732,16 @@ def find_recruiter_endpoint():
                     "error": "Hourly limit reached",
                     "message": "You've used Find the Humans 20 times this hour. Try again later."
                 }), 429
+
+        # Phase 1 (Job Board Elevation Plan): daily cap on recruiter discovery.
+        # Each call fans out to PDL + Hunter (5 app credits but ~$10-15 in
+        # external API spend pre-fixes). 100/day is comfortably above any
+        # legitimate user pattern but stops runaway clients.
+        if not _check_user_rate_limit(user_id, "find-recruiter-daily", "100 per day"):
+            return jsonify({
+                "error": "Daily limit reached",
+                "message": "You've used Find Recruiter 100 times today. Try again tomorrow."
+            }), 429
 
         no_parse = bool(data.get('no_parse'))
 
@@ -8091,6 +8193,16 @@ def find_hiring_manager_endpoint():
     try:
         user_id = request.firebase_user.get('uid')
         data = request.get_json(force=True, silent=True) or {}
+
+        # Phase 1 (Job Board Elevation Plan): daily cap on hiring-manager
+        # discovery. Each call fans out to a multi-tier PDL search + Hunter
+        # verification — by far the most expensive endpoint per request.
+        # 100/day caps abuse while leaving room for legitimate Pro/Elite use.
+        if not _check_user_rate_limit(user_id, "find-hiring-manager-daily", "100 per day"):
+            return jsonify({
+                "error": "Daily limit reached",
+                "message": "You've used Find Hiring Manager 100 times today. Try again tomorrow."
+            }), 429
 
         # Get job information from various sources
         company = data.get('company')
