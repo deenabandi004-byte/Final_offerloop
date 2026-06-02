@@ -12,6 +12,7 @@ import {
 } from "@/services/api";
 import { JobBoardSkeleton } from "@/components/JobBoardSkeleton";
 import { FindHumansModal, type FindHumansJob } from "@/components/jobs/FindHumansModal";
+import { ReferralDraftModal } from "@/components/jobs/ReferralDraftModal";
 import { toast } from "@/hooks/use-toast";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
@@ -215,6 +216,7 @@ function StandoutCard({
   onFindContact,
   onSeeTeam,
   onToggleDream,
+  onReferral,
 }: {
   j: FeedJob;
   isDream: boolean;
@@ -222,9 +224,9 @@ function StandoutCard({
   onFindContact: (j: FeedJob) => void;
   onSeeTeam: (j: FeedJob) => void;
   onToggleDream: (company: string) => Promise<void> | void;
+  onReferral: (j: FeedJob) => void;
 }) {
   const warm = (j.match_score ?? 0) >= 90;
-  const [standoutDrafting, setStandoutDrafting] = useState(false);
   return (
     <div className="so">
       <div className="top">
@@ -300,13 +302,10 @@ function StandoutCard({
             className="referral"
             onClick={(e) => {
               e.stopPropagation();
-              if (!standoutDrafting) openReferralDraft(j, setStandoutDrafting);
+              onReferral(j);
             }}
-            style={standoutDrafting ? { opacity: 0.6, pointerEvents: "none" } : undefined}
           >
-            {standoutDrafting
-              ? "Drafting…"
-              : `↗ Reach out to ${firstName(j.referral_contact.name)}`}
+            ↗ Reach out to {firstName(j.referral_contact.name)}
           </a>
         ) : (
           <a onClick={() => onFindContact(j)}>Find contact</a>
@@ -324,59 +323,10 @@ function firstName(full: string): string {
   return trimmed.split(/\s+/)[0];
 }
 
-/**
- * Phase 5 click handler — request a referral draft from the backend and open
- * the resulting Gmail draft in a new tab. Falls back to a toast with the
- * subject/body for copy-paste when Gmail isn't connected, and to a generic
- * error toast when the call itself fails.
- */
-async function openReferralDraft(
-  j: FeedJob,
-  setDrafting: (v: boolean) => void,
-): Promise<void> {
-  if (!j.referral_contact) return;
-  setDrafting(true);
-  try {
-    const result = await apiService.draftReferralEmail({
-      contact_id: j.referral_contact.contact_id,
-      job: {
-        job_id: j.job_id,
-        title: j.title,
-        company: j.company,
-        location: typeof j.location === "string" ? j.location : undefined,
-        apply_url: j.apply_url,
-        structured: j.structured,
-      },
-    });
-    if (result.ok && result.gmailUrl) {
-      window.open(result.gmailUrl, "_blank", "noopener,noreferrer");
-      return;
-    }
-    if (result.ok && result.subject && result.body) {
-      // Gmail not connected — surface the draft for copy-paste. Done as a
-      // toast for now; a richer "copy draft" modal would be next iteration.
-      toast({
-        title: "Draft ready (Gmail not connected)",
-        description: `Subject: ${result.subject}\n\n${result.body.slice(0, 280)}${result.body.length > 280 ? "…" : ""}`,
-      });
-      return;
-    }
-    toast({
-      title: "Couldn't draft a referral",
-      description: result.error || "Try again or open the contact in My Network.",
-      variant: "destructive",
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    toast({
-      title: "Couldn't draft a referral",
-      description: msg.slice(0, 200),
-      variant: "destructive",
-    });
-  } finally {
-    setDrafting(false);
-  }
-}
+// Phase 5: the referral CTA now opens an inline preview/edit modal instead of
+// firing off to Gmail directly. The modal handles generation + commit; this
+// file just decides which job opens it (via a top-level state lifted to the
+// page component).
 
 function JobRow({
   j,
@@ -390,6 +340,7 @@ function JobRow({
   onSeeTeam,
   onSave,
   onToggleDream,
+  onReferral,
 }: {
   j: FeedJob;
   isOpen: boolean;
@@ -402,9 +353,9 @@ function JobRow({
   onSeeTeam: (j: FeedJob) => void;
   onSave: (j: FeedJob) => Promise<void> | void;
   onToggleDream: (company: string) => Promise<void> | void;
+  onReferral: (j: FeedJob) => void;
 }) {
   const [dismissing, setDismissing] = useState(false);
-  const [rowDrafting, setRowDrafting] = useState(false);
   const daysOld = postedDaysFrom(j.posted_at) ?? 0;
   const stale = daysOld >= STALE_DAYS;
   const score = j.match_score ?? null;
@@ -497,15 +448,9 @@ function JobRow({
             {j.referral_contact ? (
               <a
                 className="referral"
-                onClick={(e) => {
-                  stop(e);
-                  if (!rowDrafting) openReferralDraft(j, setRowDrafting);
-                }}
-                style={rowDrafting ? { opacity: 0.6, pointerEvents: "none" } : undefined}
+                onClick={(e) => { stop(e); onReferral(j); }}
               >
-                {rowDrafting
-                  ? "Drafting…"
-                  : `↗ Reach out to ${firstName(j.referral_contact.name)}`}
+                ↗ Reach out to {firstName(j.referral_contact.name)}
               </a>
             ) : (
               <a onClick={(e) => { stop(e); onFindContact(j); }}>Find contact</a>
@@ -629,6 +574,10 @@ export const JobBoardPage: React.FC = () => {
   const [field, setField] = useState("All");
   const [sort, setSort] = useState("Best match");
   const [findHumansJob, setFindHumansJob] = useState<FindHumansJob | null>(null);
+  // Phase 5: which job's referral-email modal is open. The modal handles
+  // generation + edit + commit; the page just owns the lifted state so the
+  // modal can render once at the page level instead of one per row.
+  const [referralDraftJob, setReferralDraftJob] = useState<FeedJob | null>(null);
 
   const loadFeed = useCallback(async (refresh = false, opts?: { ungated?: boolean }) => {
     try {
@@ -1181,6 +1130,7 @@ export const JobBoardPage: React.FC = () => {
                               onFindContact={handleFindContact}
                               onSeeTeam={handleSeeTeam}
                               onToggleDream={handleToggleDream}
+                              onReferral={setReferralDraftJob}
                             />
                           ))}
                         </div>
@@ -1207,6 +1157,7 @@ export const JobBoardPage: React.FC = () => {
                               onSeeTeam={handleSeeTeam}
                               onSave={handleSave}
                               onToggleDream={handleToggleDream}
+                              onReferral={setReferralDraftJob}
                             />
                           ))}
                         </div>
@@ -1294,6 +1245,11 @@ export const JobBoardPage: React.FC = () => {
         open={!!findHumansJob}
         onOpenChange={(o) => !o && setFindHumansJob(null)}
         job={findHumansJob}
+      />
+      <ReferralDraftModal
+        open={!!referralDraftJob}
+        onOpenChange={(o) => !o && setReferralDraftJob(null)}
+        job={referralDraftJob}
       />
     </SidebarProvider>
   );

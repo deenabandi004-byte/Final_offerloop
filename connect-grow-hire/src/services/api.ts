@@ -2146,14 +2146,45 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
     context_used?: {
       has_coffee_chat_prep?: boolean;
       has_recent_activity?: boolean;
+      has_prior_thread?: boolean;
       overlap_count?: number;
-      two_step_framing?: boolean;
+      relationship?: "strong" | "moderate" | "weak";
+      quality_issues?: string[];
     };
     error?: string;
   }> {
     const headers = await this.getAuthHeaders();
     return this.makeRequest(
       '/job-board/referral-draft',
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(params),
+      }
+    );
+  }
+
+  /**
+   * Phase 5 step 2 — create the Gmail draft from user-edited text.
+   * Called after the student reviews/edits the LLM output in the preview
+   * modal. Trusts whatever subject/body is submitted (no regeneration).
+   * Returns the Gmail URL for the SPA to open.
+   */
+  async commitReferralDraft(params: {
+    contact_id: string;
+    subject: string;
+    body: string;
+  }): Promise<{
+    ok: boolean;
+    gmailUrl?: string | null;
+    draftId?: string | null;
+    subject?: string;
+    body?: string;
+    error?: string;
+  }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest(
+      '/job-board/referral-draft/commit',
       {
         method: 'POST',
         headers,

@@ -197,29 +197,68 @@ def _load_recent_activity(contact: dict) -> str:
     """Perplexity sonar pull for what the contact is currently working on.
 
     Returns a short prose paragraph or "" on failure. Cached via the
-    Perplexity client's own enrichment cache, so re-queries within the
-    TTL window cost nothing.
+    Perplexity client's own enrichment cache.
+
+    GUARD: rejects generic content that doesn't name a specific post,
+    paper, talk, or product. The previous version passed "innovative
+    projects happening at OpenAI"-style filler to the LLM, which then
+    confabulated a fake LinkedIn-post reference in the email opener.
+    If we don't have something specific, the prompt should fall back
+    to the honest-direct opener instead of fabricating one.
     """
-    name = (contact.get("name") or contact.get("Name") or "").strip()
+    full_name = (
+        contact.get("name") or contact.get("Name")
+        or f"{(contact.get('firstName') or contact.get('FirstName') or '').strip()} "
+           f"{(contact.get('lastName') or contact.get('LastName') or '').strip()}".strip()
+    ).strip()
     company = (contact.get("company") or contact.get("Company") or "").strip()
     title = (contact.get("title") or contact.get("Title") or "").strip()
-    if not name or not company:
+    if not full_name or not company:
         return ""
     try:
         from app.services.perplexity_client import quick_search
         query = (
-            f"What is {name} ({title} at {company}) currently working on or "
-            f"recently posted about? Reply with 1-3 short factual bullets. "
-            f"If you cannot find anything specific, reply 'NONE'."
+            f"What specifically has {full_name} ({title} at {company}) posted, "
+            f"published, or been quoted on in the last 60 days? Name the exact "
+            f"post title, paper, talk, podcast, or product launch. Do not "
+            f"summarize general company news. If you cannot find a specific "
+            f"named work by this individual, reply with the single word: NONE"
         )
         result = quick_search(query, recency="month")
-        content = (result or {}).get("content") or ""
+        content = ((result or {}).get("content") or "").strip()
         if not content or "NONE" in content.upper()[:50]:
             return ""
-        return content.strip()[:MAX_RECENT_ACTIVITY_CHARS]
+        # Reject if it looks generic — no proper nouns past the first 20 chars,
+        # or contains hedging language. These are the cases that lead to the
+        # "I enjoyed your recent post about innovative projects" disasters.
+        lower = content.lower()
+        bad_signals = (
+            "innovative projects", "exciting work", "general", "broadly",
+            "company has been", "team is working on", "the company",
+            "no specific", "could not find", "i cannot",
+        )
+        if any(s in lower for s in bad_signals):
+            logger.info("[ReferralEmail] recent-activity rejected as generic: %s", content[:120])
+            return ""
+        return content[:MAX_RECENT_ACTIVITY_CHARS]
     except Exception:
         logger.warning("[ReferralEmail] recent-activity lookup failed", exc_info=True)
         return ""
+
+
+def _has_prior_email_thread(uid: str, contact_email: str) -> bool:
+    """Check the saved-contact doc for any prior email thread signal.
+
+    Cheap probe — we don't fetch Gmail threads here, just look for fields
+    the existing email-generation flow writes when it creates a draft
+    (gmailDraftId, gmailThreadId, lastActivityAt). If any are present,
+    treat the relationship as having prior contact.
+    """
+    # Caller already loaded the contact, so passing the email back through
+    # would be redundant. Instead, the caller passes the contact dict
+    # directly to _relationship_strength which checks these fields.
+    # This helper kept for future Gmail-thread API check if we want it.
+    return False
 
 
 def _flatten_skills(skills_field: Any) -> list[str]:
@@ -328,56 +367,80 @@ def _extract_jd_resume_overlap(job: dict, profile: dict) -> list[str]:
 # Prompt construction
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = """You are drafting a referral-outreach email from a college \
-student to a saved professional contact at a company where the student is \
-interested in a specific open role.
+from app.services.email_rules import EMAIL_QUALITY_RULES
 
-CRITICAL FRAMING (do not deviate):
-- This email is the FIRST step of a two-step process. The goal of THIS email \
-is to start a 15-minute conversation, NOT to ask for a referral directly. \
-Referrals come from conversations.
-- Do not use the words "referral", "refer", "vouch", or "introduce me" \
-anywhere in the body or subject. Do not ask the recipient to forward the \
-student's resume. The ask is a brief chat, period.
 
-HARD RULES:
-- Plain prose, no bullet points, no headers, no markdown. 100-130 words for \
-the body, hard cap 150.
-- Subject line under 60 characters. Do not start with "Quick question" or \
-"Referral". Do not include the recipient's name in the subject.
-- Open with something specific to the recipient (their work, a shared school, \
-your prior conversation, something they recently posted). Never start with \
-"I hope this email finds you well", "I came across your profile", or "I'm \
-reaching out to". If you have no specific hook, lead with the role and your \
-honest interest, not a cliche.
-- Reference the specific role briefly and ONE concrete reason it interests \
-the student (a particular team, technology, or what the work involves).
-- Cite ONE specific overlap between the role and the student's background \
-when overlaps are provided. Be honest and specific — name a project, a \
-class, or a prior role. Do not list skills generically.
-- Ask for a SHORT chat (15 minutes, "in the next couple weeks" or similar). \
-Respect their time explicitly.
-- End with the student's first name only. Do NOT include a full signature, \
-contact info, or resume mention — those are appended automatically by the \
-mail system.
+# Relationship strength is computed from inputs and decides the ask framing.
+# This is research-backed: Stephanie Manwaring's best-received referral email
+# was direct. Career Principles' templates are direct. Ramit Sethi's scripts
+# are direct. The "ask for chat not referral" two-step is only better when
+# there's no real relationship — for saved warm contacts, directness wins.
+SYSTEM_PROMPT_BASE = """You are drafting a referral-outreach email from a \
+college student to a SAVED contact at a company where the student is \
+interested in a specific open role. The recipient is someone the student \
+already knows or has a meaningful shared context with (alumni, prior chat, \
+or saved from a search). This is NOT a cold email.
 
-BANNED PHRASES (never output these or close paraphrases):
-- "I would be a strong fit"
-- "I'm a strong candidate"
-- "I'd love to learn more about your role"  (cliche)
-- "I hope this email finds you well"
-- "I came across your profile"
-- "your time and consideration"
-- "I would love the opportunity"
-- "I'm reaching out to"
-- "wear many hats"
-- generic skill lists like "my Python and machine learning skills"
+YOUR JOB
+Write an email that gets a yes — either to a referral or to a short \
+conversation, depending on the relationship strength. Be honest, specific, \
+and direct. Sophisticated recipients reward clarity, not coyness.
 
-OUTPUT FORMAT (exact, no extra commentary):
-Subject: <subject line>
+""" + EMAIL_QUALITY_RULES
 
-<body paragraph(s)>
-"""
+
+def _relationship_strength(
+    contact: dict,
+    coffee_chat_prep,
+    has_prior_email_thread: bool,
+    user_school: str,
+) -> str:
+    """Classify the relationship strength based on signals we have.
+
+    Used to pick the ask framing:
+      strong   → direct ask for referral / resume forward
+      moderate → either ask works; honest direct preferred
+      weak     → ask for a 15-min chat, not a referral
+    """
+    if coffee_chat_prep or has_prior_email_thread:
+        return "strong"
+    contact_school = (contact.get("college") or contact.get("College") or "").strip().lower()
+    user_school = (user_school or "").strip().lower()
+    if user_school and contact_school and user_school == contact_school:
+        return "moderate"
+    return "weak"
+
+
+_ASK_FRAMING = {
+    "strong": (
+        "RELATIONSHIP: STRONG (prior interaction or coffee-chat research exists).\n"
+        "ASK FRAMING: Lead with the prior interaction. Ask DIRECTLY: either "
+        "for a referral, or to share the student's resume with the hiring "
+        "team. Be plain about what you want. Always give them an out — "
+        "something like 'no pressure if this isn't the right fit, totally "
+        "understand if you'd rather point me to someone else'."
+    ),
+    "moderate": (
+        "RELATIONSHIP: MODERATE (alumni / shared school but no prior chat).\n"
+        "ASK FRAMING: Either ask is fine — a brief chat OR a direct referral "
+        "request. Honest-direct works well here. Mention the shared school "
+        "in the opener naturally (not as 'I noticed we both went to X' — say "
+        "'Fellow [school] '24' or similar). Always include an out clause."
+    ),
+    "weak": (
+        "RELATIONSHIP: WEAK (saved contact, no shared signal).\n"
+        "ASK FRAMING: Do NOT ask for a referral in this email. Ask for a "
+        "brief 15-minute conversation about their experience at the company. "
+        "This is a genuine ask for perspective, not a backdoor referral. "
+        "Be honest that you don't know them well; that's fine — being a "
+        "stranger is okay as long as you're direct and respectful."
+    ),
+}
+
+
+def _build_system_prompt(relationship: str) -> str:
+    """Compose the full system prompt with the relationship-specific framing."""
+    return SYSTEM_PROMPT_BASE + "\n\n" + _ASK_FRAMING.get(relationship, _ASK_FRAMING["weak"])
 
 
 def _profile_summary(profile: dict) -> str:
@@ -537,7 +600,7 @@ def _build_user_prompt(
 # LLM call
 # ---------------------------------------------------------------------------
 
-def _call_llm(system_prompt: str, user_prompt: str) -> tuple[str, str]:
+def _call_llm(system_prompt: str, user_prompt: str, temperature: float = 0.5) -> tuple[str, str]:
     """Run gpt-4o on the assembled prompts. Returns (subject, body)."""
     from app.services.openai_client import get_openai_client
 
@@ -548,11 +611,42 @@ def _call_llm(system_prompt: str, user_prompt: str) -> tuple[str, str]:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        temperature=0.5,
+        temperature=temperature,
         max_tokens=600,
     )
     content = (response.choices[0].message.content or "").strip()
     return _parse_subject_body(content)
+
+
+def _call_llm_with_quality_check(
+    system_prompt: str, user_prompt: str
+) -> tuple[str, str, list[str]]:
+    """Generate, scrub for banned phrases, regenerate once if dirty.
+
+    Returns (subject, body, remaining_issues). Single retry — if the second
+    attempt still has issues, we hand back what we have and let the
+    inline-preview UI surface them so the student can edit.
+    """
+    from app.services.email_rules import detect_quality_issues
+
+    subject, body = _call_llm(system_prompt, user_prompt, temperature=0.5)
+    issues = detect_quality_issues(subject, body)
+    if not issues:
+        return subject, body, []
+
+    logger.info("[ReferralEmail] first draft had quality issues, regenerating: %s", issues[:3])
+    # Surface the issues to the model and ask it to fix them. Slightly
+    # higher temperature so it doesn't reproduce the same banned phrases.
+    fix_prompt = user_prompt + "\n\n---\nYOUR PREVIOUS DRAFT FAILED QUALITY CHECK. Issues: " \
+                 + "; ".join(issues[:5]) \
+                 + "\nRewrite from scratch, fixing these issues. Same output format."
+    subject2, body2 = _call_llm(system_prompt, fix_prompt, temperature=0.65)
+    issues2 = detect_quality_issues(subject2, body2)
+    if len(issues2) < len(issues):
+        return subject2, body2, issues2
+    # Regen didn't help — return the first draft, which was at least
+    # generated with the more-deterministic temperature.
+    return subject, body, issues
 
 
 def _parse_subject_body(content: str) -> tuple[str, str]:
@@ -692,28 +786,35 @@ def _create_gmail_draft(
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def build_referral_draft(uid: str, user_email: str, contact_id: str, job: dict) -> dict:
-    """Orchestrate the full click → draft pipeline.
+def build_referral_draft(
+    uid: str,
+    user_email: str,
+    contact_id: str,
+    job: dict,
+    *,
+    commit: bool = False,
+) -> dict:
+    """Generate referral email text. Returns subject + body + context.
 
-    Returns:
-      {
-        ok: bool,
-        gmailUrl: Optional[str],
-        draftId: Optional[str],
-        subject: str,
-        body: str,
-        cached: bool,
-        context_used: { has_coffee_chat_prep, has_recent_activity, overlap_count }
-      }
+    Phase-5 step 1 of two: produces the draft text from rich context. The
+    SPA shows it in a preview/edit modal; the user reviews, edits, and
+    clicks "Open in Gmail" to commit. Step 2 (commit_referral_draft below)
+    creates the actual Gmail draft from whatever text the user submits —
+    which may or may not match what we generated.
+
+    Set commit=True for the legacy auto-open behavior (creates the Gmail
+    draft immediately with the generated text, returns gmailUrl). Default
+    is False so the SPA can put a human in the loop.
     """
     if not uid or not contact_id:
         return {"ok": False, "error": "missing_uid_or_contact"}
 
     job_id = (job or {}).get("job_id") or (job or {}).get("id") or ""
-    if not job_id:
-        # No stable job id → cache won't help, generate fresh. Skip cache.
-        cached = None
-    else:
+    # Cache only the text — not the Gmail URL, which only exists in legacy
+    # commit=True path. The modal path doesn't reuse Gmail drafts across
+    # clicks because the user may edit between clicks.
+    cached = None
+    if job_id and commit:
         cached = _read_cached_draft(uid, contact_id, job_id)
     if cached and cached.get("gmailUrl"):
         return {
@@ -735,6 +836,30 @@ def build_referral_draft(uid: str, user_email: str, contact_id: str, job: dict) 
     recent_activity = _load_recent_activity(contact)
     overlaps = _extract_jd_resume_overlap(job or {}, profile)
 
+    # Has the user emailed this contact before? The save-on-send path in
+    # routes/emails.py writes gmailDraftId / gmailMessageId / lastActivityAt
+    # on the contact doc; presence of any of those = prior contact.
+    has_prior_thread = bool(
+        contact.get("gmailDraftId")
+        or contact.get("gmailMessageId")
+        or contact.get("gmailThreadId")
+        or contact.get("lastActivityAt")
+    )
+
+    user_school = (
+        ((profile.get("resumeParsed") or {}).get("education") or {}).get("school")
+        or profile.get("university")
+        or profile.get("school")
+        or ""
+    )
+    relationship = _relationship_strength(
+        contact=contact,
+        coffee_chat_prep=coffee_chat,
+        has_prior_email_thread=has_prior_thread,
+        user_school=user_school,
+    )
+    system_prompt = _build_system_prompt(relationship)
+
     user_prompt = _build_user_prompt(
         profile=profile,
         contact=contact,
@@ -745,7 +870,9 @@ def build_referral_draft(uid: str, user_email: str, contact_id: str, job: dict) 
     )
 
     try:
-        subject, body = _call_llm(SYSTEM_PROMPT, user_prompt)
+        subject, body, remaining_issues = _call_llm_with_quality_check(
+            system_prompt, user_prompt,
+        )
     except Exception as e:
         logger.exception("[ReferralEmail] LLM call failed uid=%s", uid)
         return {"ok": False, "error": f"llm_failed:{type(e).__name__}"}
@@ -753,23 +880,73 @@ def build_referral_draft(uid: str, user_email: str, contact_id: str, job: dict) 
     if not subject or not body:
         return {"ok": False, "error": "empty_generation"}
 
-    draft_id, gmail_url = _create_gmail_draft(uid, user_email, contact, subject, body)
-
     context_used = {
         "has_coffee_chat_prep": bool(coffee_chat),
         "has_recent_activity": bool(recent_activity),
+        "has_prior_thread": has_prior_thread,
         "overlap_count": len(overlaps),
-        "two_step_framing": True,
+        "relationship": relationship,
+        "quality_issues": remaining_issues,  # surface to the UI so user knows
     }
-    payload = {
+
+    payload: dict = {
         "ok": True,
-        "gmailUrl": gmail_url,
-        "draftId": draft_id,
+        "gmailUrl": None,
+        "draftId": None,
         "subject": subject,
         "body": body,
         "cached": False,
         "context_used": context_used,
     }
-    if job_id and gmail_url:
-        _write_cached_draft(uid, contact_id, job_id, payload)
+
+    # Legacy: commit immediately (no preview/edit). Kept so the route can
+    # still opt into the auto-open behavior if we ever want it.
+    if commit:
+        draft_id, gmail_url = _create_gmail_draft(uid, user_email, contact, subject, body)
+        payload["draftId"] = draft_id
+        payload["gmailUrl"] = gmail_url
+        if job_id and gmail_url:
+            _write_cached_draft(uid, contact_id, job_id, payload)
+
     return payload
+
+
+def commit_referral_draft(
+    uid: str, user_email: str, contact_id: str, subject: str, body: str
+) -> dict:
+    """Create a Gmail draft from user-edited text. Step 2 of the preview/edit flow.
+
+    The SPA calls this after the student has reviewed and (optionally
+    edited) the text produced by build_referral_draft. We do NOT regenerate
+    text here — we trust whatever the user submitted. Returns the Gmail
+    URL for the SPA to open.
+    """
+    if not uid or not contact_id:
+        return {"ok": False, "error": "missing_uid_or_contact"}
+    if not subject or not body:
+        return {"ok": False, "error": "empty_text"}
+    if len(subject) > 200 or len(body) > 6000:
+        # Defensive bounds — the prompt produces ~130 words but a
+        # determined user can paste a wall of text.
+        return {"ok": False, "error": "text_too_long"}
+
+    contact = _load_contact(uid, contact_id)
+    if not contact:
+        return {"ok": False, "error": "contact_not_found"}
+
+    draft_id, gmail_url = _create_gmail_draft(uid, user_email, contact, subject, body)
+    if not gmail_url:
+        return {
+            "ok": False,
+            "error": "gmail_not_connected",
+            # Still echo back the text so the SPA can show a copy-paste fallback.
+            "subject": subject,
+            "body": body,
+        }
+    return {
+        "ok": True,
+        "gmailUrl": gmail_url,
+        "draftId": draft_id,
+        "subject": subject,
+        "body": body,
+    }

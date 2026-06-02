@@ -8224,6 +8224,10 @@ def referral_draft_endpoint():
             user_email=user_email,
             contact_id=contact_id,
             job=job,
+            # Phase 5 step 1: generate text only. The SPA opens a preview/
+            # edit modal; the user then commits via /referral-draft/commit
+            # which creates the actual Gmail draft from their edited text.
+            commit=False,
         )
         if not result.get("ok"):
             err = result.get("error", "unknown")
@@ -8233,6 +8237,64 @@ def referral_draft_endpoint():
         return jsonify(result), 200
     except Exception as e:
         logger.exception("[ReferralDraft] endpoint failed: %s", e)
+        return jsonify({"error": "internal_error"}), 500
+
+
+@job_board_bp.route("/referral-draft/commit", methods=["POST"])
+@require_firebase_auth
+def referral_draft_commit_endpoint():
+    """Phase 5 step 2: create the Gmail draft from user-edited text.
+
+    Called after the student reviews the LLM-generated draft in the SPA
+    preview modal. Trusts whatever subject/body the user submits — no
+    regeneration. Returns the Gmail URL.
+
+    Request:
+      {
+        "contact_id": "...",
+        "subject": "...",
+        "body": "..."
+      }
+    """
+    try:
+        user_id = request.firebase_user.get("uid")
+        user_email = request.firebase_user.get("email") or ""
+        data = request.get_json(force=True, silent=True) or {}
+
+        contact_id = (data.get("contact_id") or "").strip()
+        subject = (data.get("subject") or "").strip()
+        body = (data.get("body") or "").strip()
+        if not contact_id:
+            return jsonify({"error": "contact_id required"}), 400
+        if not subject or not body:
+            return jsonify({"error": "subject and body required"}), 400
+
+        # Cheaper than generation — no LLM call. Still rate-limited so a
+        # stuck UI can't spam Gmail drafts.
+        if not _check_user_rate_limit(user_id, "referral-commit-daily", "60 per day"):
+            return jsonify({
+                "error": "Daily limit reached",
+                "message": "You've created 60 referral drafts today. Try again tomorrow.",
+            }), 429
+
+        from app.services.referral_email import commit_referral_draft
+        result = commit_referral_draft(
+            uid=user_id,
+            user_email=user_email,
+            contact_id=contact_id,
+            subject=subject,
+            body=body,
+        )
+        if not result.get("ok"):
+            err = result.get("error", "unknown")
+            logger.warning("[ReferralDraftCommit] failed uid=%s err=%s", user_id, err)
+            status = 404 if err == "contact_not_found" else (
+                400 if err in ("empty_text", "text_too_long") else 500
+            )
+            return jsonify(result), status
+        return jsonify(result), 200
+    except Exception as e:
+        logger.exception("[ReferralDraftCommit] endpoint failed: %s", e)
         return jsonify({"error": "internal_error"}), 500
 
 
