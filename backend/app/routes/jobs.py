@@ -159,11 +159,21 @@ def _serialize_jobs(jobs: list[dict]) -> list[dict]:
     return cleaned
 
 
-def _derive_match_signals(job: dict, profile: dict | None, saved_companies: set[str]) -> list[str]:
+def _derive_match_signals(
+    job: dict,
+    profile: dict | None,
+    saved_companies: set[str],
+    user_signals=None,
+) -> list[str]:
     """Build the multi-line 'Why this ranked' signals shown in the editorial UI.
 
     The ranker only stores a single `match_reason` string; this expands that
     into the bullet-list shape the design expects without re-running GPT.
+
+    Phase 2: when `user_signals` (a UserSignals dataclass) is provided, we
+    surface dream/target/alumni context as additional bullets. The ranking
+    boost is applied elsewhere (apply_feedback_adjustments); this function
+    only affects what the user reads, not the sort order.
     """
     profile = profile or {}
     signals: list[str] = []
@@ -171,6 +181,12 @@ def _derive_match_signals(job: dict, profile: dict | None, saved_companies: set[
     reason = (job.get("match_reason") or "").strip()
     if reason:
         signals.append(reason)
+
+    # Phase 2: dream/target/alumni bullets — only the strings that aren't
+    # already covered by the saved-companies signal below.
+    if user_signals is not None:
+        for bullet in user_signals.editorial_badges(job):
+            signals.append(bullet)
 
     company = (job.get("company") or "").strip()
     if company and company.lower() in saved_companies:
@@ -302,6 +318,16 @@ def get_feed():
     except Exception:
         pass
 
+    # Phase 2: load dream/target/alumni signals once per request. Cached for
+    # 5 min so repeat pulls from get_feed within a session are free. Failing
+    # to load is non-fatal — feed still renders, just without the new badges.
+    try:
+        from app.services.job_ranker_signals import load_user_signals
+        user_signals = load_user_signals(uid)
+    except Exception:
+        user_signals = None
+        logger.exception("[JobsFeed] load_user_signals failed for uid=%s", uid)
+
     def _enrich(jobs: list[dict]) -> list[dict]:
         """Filter dismissed jobs and attach the editorial match_signals array."""
         out: list[dict] = []
@@ -309,7 +335,13 @@ def get_feed():
             jid = j.get("job_id")
             if jid and jid in dismissed_ids:
                 continue
-            j["match_signals"] = _derive_match_signals(j, profile, saved_companies)
+            j["match_signals"] = _derive_match_signals(j, profile, saved_companies, user_signals)
+            # Phase 2: expose stable badge codes so the frontend can render
+            # a dedicated ⭐/🎓 chip without parsing prose strings.
+            if user_signals is not None:
+                _, codes = user_signals.boost(j)
+                if codes:
+                    j["match_badges"] = codes
             out.append(j)
         return out
 
@@ -578,6 +610,16 @@ def _background_rerank(uid: str):
         prefs_query = user_ref.collection("jobPreferences").limit(100)
         preferences = [doc.to_dict() for doc in prefs_query.stream()]
 
+        # Phase 2: load dream/target/alumni signals so the rerank can boost
+        # those companies. Cached for 5 min, so this is cheap on repeat
+        # reranks within a session.
+        try:
+            from app.services.job_ranker_signals import load_user_signals
+            user_signals = load_user_signals(uid)
+        except Exception:
+            user_signals = None
+            logger.exception("[Rerank] load_user_signals failed for uid=%s", uid)
+
         # Try semantic embedding-based prefilter (text-embedding-3-small),
         # gated by feature flag for safe rollout. Falls back to deterministic
         # keyword scoring if embeddings unavailable or flag disabled.
@@ -598,7 +640,7 @@ def _background_rerank(uid: str):
         if not candidates:
             candidates = prefilter_candidates(all_jobs, profile, top_n=50)
         ranked = rank_with_gpt(candidates, profile)
-        adjusted = apply_feedback_adjustments(ranked, preferences)
+        adjusted = apply_feedback_adjustments(ranked, preferences, user_signals=user_signals)
 
         # Deduplicate by title + company, cap per company, then take top 50
         deduped = _dedup_by_title_company(adjusted)

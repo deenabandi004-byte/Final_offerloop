@@ -725,6 +725,14 @@ export interface FeedJob {
   match_score: number | null;
   match_reason: string | null;
   match_signals?: string[];
+  // Phase 2: stable badge codes from the backend signal loader. Used to
+  // render dedicated chips (⭐ dream, 🎓 alumni) without parsing prose.
+  match_badges?: Array<
+    | "dream_company"
+    | "target_company"
+    | "alumni_at_company"
+    | "saved_company_affinity"
+  >;
   ranked: boolean;
   structured?: JobStructured;
 }

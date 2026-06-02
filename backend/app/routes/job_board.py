@@ -4352,27 +4352,45 @@ def filter_jobs_by_quality(jobs: List[dict], min_quality_score: int = MIN_QUALIT
     return filtered
 
 
-def score_jobs_by_resume_match(jobs: List[dict], user_profile: dict, query_weights: dict = None) -> List[dict]:
+def score_jobs_by_resume_match(
+    jobs: List[dict],
+    user_profile: dict,
+    query_weights: dict = None,
+    user_id: str = "",
+) -> List[dict]:
     """
     Score and rank all jobs based on user profile match AND quality.
-    
+
     Combined scoring:
     - Resume Match Score: 0-100 (how well job matches user's profile)
     - Quality Score: 0-50 (job posting quality signals)
-    - Final Score: Weighted combination with match prioritized
-    
+    - Phase 2 boost: dream/target/alumni/saved-affinity (folded into combined_score)
+    - Final Score: Weighted combination with match prioritized, plus signal boost
+
     Args:
         jobs: List of job dicts
         user_profile: User's career profile
         query_weights: Optional dict mapping job_id to query weight
-        
+        user_id: Firebase uid — required to load per-user signals (Phase 2).
+                 If omitted, signal boosts are skipped (legacy callers).
+
     Returns:
-        List of jobs with matchScore and qualityScore added, sorted by combined score descending
+        List of jobs with matchScore, qualityScore, combinedScore, and
+        matchSignals added, sorted by combined score descending.
     """
+    # Phase 2: load per-user signals once and reuse for every job in the
+    # batch. UserSignals.boost() returns (score_delta, [reason_codes]).
+    signals = None
+    if user_id:
+        try:
+            from app.services.job_ranker_signals import load_user_signals
+            signals = load_user_signals(user_id)
+        except Exception:
+            logger.exception("[JobBoard] Failed to load user signals; scoring without boosts")
+
     # Check if profile is empty or has no meaningful data
-    # Check for actual non-empty values (not just existence of keys)
     has_profile_data = (
-        user_profile and 
+        user_profile and
         (
             (user_profile.get("major") and user_profile.get("major").strip()) or
             (user_profile.get("skills") and len(user_profile.get("skills", [])) > 0) or
@@ -4382,37 +4400,46 @@ def score_jobs_by_resume_match(jobs: List[dict], user_profile: dict, query_weigh
             (user_profile.get("target_industries") and len(user_profile.get("target_industries", [])) > 0)
         )
     )
-    
+
     if not has_profile_data:
-        # No profile or empty profile, assign neutral match scores but still calculate quality
+        # No profile or empty profile, assign neutral match scores but still
+        # calculate quality + signal boost. A user with no resume but a dream
+        # companies list should still see those companies ranked first.
         logger.info("[JobBoard] No user profile data found, using neutral scores")
         for job in jobs:
+            boost, reasons = (signals.boost(job) if signals else (0, []))
+            quality_score = calculate_quality_score(job)
             job["matchScore"] = 50
-            job["qualityScore"] = calculate_quality_score(job)
-            job["combinedScore"] = 50 + (job["qualityScore"] * 0.5)  # Quality as tiebreaker
+            job["qualityScore"] = quality_score
+            job["combinedScore"] = round(50 + (quality_score * 0.5) + boost, 1)
+            job["matchSignals"] = reasons
         jobs.sort(key=lambda x: x.get("combinedScore", 0), reverse=True)
         return jobs
-    
+
     query_weights = query_weights or {}
-    
+
     for job in jobs:
         weight = query_weights.get(job.get("id"), 1.0)
-        
-        # Calculate both scores
+
+        # Calculate base scores (unchanged — kept inside 0-100 / 0-50 ranges
+        # for the UI display).
         match_score = score_job_for_user(job, user_profile, weight)
         quality_score = calculate_quality_score(job)
-        
-        # Combined score: 70% match, 30% quality
-        # This prioritizes relevance while still surfacing higher quality jobs
-        combined_score = (match_score * 0.7) + (quality_score * 0.6)
-        
+
+        # Phase 2 signal boost applied at the combined_score level so the
+        # matchScore display stays in its familiar 0-100 range, but a
+        # dream-company job reliably outranks a strong-keyword non-dream job.
+        boost, reasons = (signals.boost(job) if signals else (0, []))
+
+        combined_score = (match_score * 0.7) + (quality_score * 0.6) + boost
+
         job["matchScore"] = match_score
         job["qualityScore"] = quality_score
         job["combinedScore"] = round(combined_score, 1)
-    
-    # Sort by combined score descending
+        job["matchSignals"] = reasons
+
     jobs.sort(key=lambda x: x.get("combinedScore", 0), reverse=True)
-    
+
     return jobs
 
 
@@ -6403,8 +6430,19 @@ def fetch_personalized_jobs(
     Plan: docs/JOB_BOARD_ELEVATION_PLAN.md Phase 1.
     """
     from app.services.job_serving import fetch_jobs_from_firestore
+    from app.services.job_ranker_signals import load_user_signals
 
     pool_jobs, pool_meta = fetch_jobs_from_firestore()
+
+    # Phase 2: drop jobs the user has explicitly dismissed before any other
+    # processing. Cheap negative signal — they told us they don't want this
+    # role, we shouldn't waste a slot scoring it.
+    signals_preload = load_user_signals(user_id) if user_id else None
+    dismissed_count = 0
+    if signals_preload and signals_preload.dismissed_job_ids:
+        before = len(pool_jobs)
+        pool_jobs = [j for j in pool_jobs if j.get("id") not in signals_preload.dismissed_job_ids]
+        dismissed_count = before - len(pool_jobs)
 
     quality_filtered = filter_jobs_by_quality(pool_jobs, min_quality_score=MIN_QUALITY_SCORE)
 
@@ -6425,7 +6463,19 @@ def fetch_personalized_jobs(
 
     deduped, dedup_stats = deduplicate_jobs(gated_jobs)
     weights = {job.get("id"): 1.0 for job in deduped if job.get("id")}
-    scored = score_jobs_by_resume_match(deduped, user_profile, weights)
+    scored = score_jobs_by_resume_match(deduped, user_profile, weights, user_id=user_id)
+
+    # Phase 2 telemetry: how many top-N results carry signal badges. Lets us
+    # tell from logs whether ranking is actually surfacing user-specific
+    # matches or whether the badges are all blank (= the boosts aren't firing
+    # because nobody filled in dreamCompanies, etc.).
+    top_10 = scored[:10]
+    badge_counts = {
+        "dream_company": sum(1 for j in top_10 if "dream_company" in (j.get("matchSignals") or [])),
+        "target_company": sum(1 for j in top_10 if "target_company" in (j.get("matchSignals") or [])),
+        "alumni_at_company": sum(1 for j in top_10 if "alumni_at_company" in (j.get("matchSignals") or [])),
+        "saved_company_affinity": sum(1 for j in top_10 if "saved_company_affinity" in (j.get("matchSignals") or [])),
+    }
 
     metadata = {
         "serving_source": "firestore",
@@ -6441,14 +6491,17 @@ def fetch_personalized_jobs(
         "total_after_deduplication": len(deduped),
         "total_after_filter": len(deduped),
         "filtered_out": len(pool_jobs) - len(deduped),
+        "dismissed_filtered": dismissed_count,
+        "badge_counts_top10": badge_counts,
         "location": build_location_query(locations or user_profile.get("preferred_locations") or []),
         "gate_stats": gate_stats,
         "dedup_stats": dedup_stats,
         "firestore_pool": pool_meta,
     }
     logger.info(
-        "[JobBoard] pool=%d quality=%d gated=%d deduped=%d scored=%d",
+        "[JobBoard] pool=%d quality=%d gated=%d deduped=%d scored=%d dismissed=%d badges_top10=%s",
         len(pool_jobs), len(quality_filtered), len(gated_jobs), len(deduped), len(scored),
+        dismissed_count, badge_counts,
     )
     return scored[:max_jobs], metadata
 

@@ -638,7 +638,24 @@ Include every job_id. Order by match_score descending."""
 # Feedback adjustments
 # ---------------------------------------------------------------------------
 
-def apply_feedback_adjustments(ranked_jobs: list[dict], preferences: list[dict]) -> list[dict]:
+def apply_feedback_adjustments(
+    ranked_jobs: list[dict],
+    preferences: list[dict],
+    user_signals=None,
+) -> list[dict]:
+    """Apply user feedback (liked/disliked categories) and Phase 2 signal
+    boosts to the ranked job list.
+
+    The category-level liked/disliked counters are unchanged. Phase 2 adds:
+      - dream/target company hit  → up to +25
+      - alumni at company         → +20
+      - saved-company affinity    → +10
+
+    These boosts are added to match_score with a 100 cap so the UI display
+    stays in the familiar 0-100 range, but tie-breaking happens via the
+    `_signal_boost` field (which is uncapped) so two saturated jobs still
+    sort by signal strength.
+    """
     from collections import Counter
 
     liked = Counter()
@@ -657,15 +674,34 @@ def apply_feedback_adjustments(ranked_jobs: list[dict], preferences: list[dict])
     for job in ranked_jobs:
         if job["job_id"] in hidden:
             continue
+
+        signal_boost = 0
+        if user_signals is not None:
+            try:
+                signal_boost, _ = user_signals.boost(job)
+            except Exception:
+                signal_boost = 0
+
         if job.get("ranked") and job.get("match_score") is not None:
             score = job["match_score"]
             cat = job.get("category", "")
             score += min(liked.get(cat, 0) * 5, 15)
             score -= min(disliked.get(cat, 0) * 8, 24)
+            score += signal_boost
             job["match_score"] = max(0, min(100, score))
+
+        # Stored separately so the secondary sort can use the uncapped value.
+        job["_signal_boost"] = signal_boost
         adjusted.append(job)
 
-    return sorted(adjusted, key=lambda j: j.get("match_score") or 0, reverse=True)
+    # Primary sort: match_score (capped). Secondary sort: uncapped signal
+    # boost so a saturated dream-company hit still outranks a saturated
+    # non-dream hit.
+    return sorted(
+        adjusted,
+        key=lambda j: (j.get("match_score") or 0, j.get("_signal_boost", 0)),
+        reverse=True,
+    )
 
 
 def cap_per_company(jobs: list[dict], max_per_company: int = 3) -> list[dict]:

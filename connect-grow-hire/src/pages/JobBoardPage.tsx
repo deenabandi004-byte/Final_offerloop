@@ -216,6 +216,22 @@ function StandoutCard({
           </a>
         )}
       </div>
+      {(j.match_badges?.length ?? 0) > 0 && (
+        <div className="match-chips">
+          {j.match_badges!.includes("dream_company") && (
+            <span className="match-chip dream">★ Dream company</span>
+          )}
+          {j.match_badges!.includes("target_company") && (
+            <span className="match-chip target">◎ Target company</span>
+          )}
+          {j.match_badges!.includes("alumni_at_company") && (
+            <span className="match-chip alumni">◉ Alumni you know</span>
+          )}
+          {j.match_badges!.includes("saved_company_affinity") && (
+            <span className="match-chip saved">⤴ You've saved jobs here</span>
+          )}
+        </div>
+      )}
       <div className="why">{whyOneLine(j)}</div>
       <div className="actions">
         <a className="primary" onClick={() => onOpenApply(j)}>Apply →</a>
@@ -311,6 +327,22 @@ function JobRow({
               </a>
             )}
           </div>
+          {(j.match_badges?.length ?? 0) > 0 && (
+            <div className="match-chips">
+              {j.match_badges!.includes("dream_company") && (
+                <span className="match-chip dream">★ Dream company</span>
+              )}
+              {j.match_badges!.includes("target_company") && (
+                <span className="match-chip target">◎ Target company</span>
+              )}
+              {j.match_badges!.includes("alumni_at_company") && (
+                <span className="match-chip alumni">◉ Alumni you know</span>
+              )}
+              {j.match_badges!.includes("saved_company_affinity") && (
+                <span className="match-chip saved">⤴ You've saved jobs here</span>
+              )}
+            </div>
+          )}
           <div className="why">{whyOneLine(j)}</div>
           <div className="actions">
             <a className="primary" onClick={(e) => { stop(e); onApply(j); }}>Apply →</a>
