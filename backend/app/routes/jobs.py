@@ -343,6 +343,18 @@ def get_feed():
                 if codes:
                     j["match_badges"] = codes
             out.append(j)
+
+        # Phase 3: fill any null/generic match_reason on the top 10 with a
+        # data-derived sentence so the SPA never has to show "Matched to your
+        # profile". The background rerank still runs and overwrites these
+        # with GPT-quality reasons once cached, but this guarantees the
+        # first-load UX is specific.
+        try:
+            from app.services.match_reasoning import fill_match_reasons
+            fill_match_reasons(out, profile, top_n=10)
+        except Exception:
+            logger.exception("[JobsFeed] match_reasoning fill failed for uid=%s", uid)
+
         return out
 
     # Check cache
