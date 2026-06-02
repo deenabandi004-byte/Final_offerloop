@@ -16,12 +16,15 @@ import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { VideoDemo } from "@/components/VideoDemo";
 import { ProGate } from "@/components/ProGate";
 import { apiService, type Recruiter, type FeedJob } from "@/services/api";
-import { StickyCTA } from "@/components/StickyCTA";
 import { firebaseApi, type Recruiter as FirebaseRecruiter } from "../services/firebaseApi";
 import {
-  Users, Link, CheckCircle,
+  Users, Link, CheckCircle, ArrowUp,
   ArrowRight, Loader2, Upload, ChevronDown, ChevronUp
 } from "lucide-react";
+import { SearchPromptBox } from "@/components/find/SearchPromptBox";
+import { SearchModeSelector } from "@/components/find/SearchModeSelector";
+import { SendConfirmDialog } from "@/components/SendConfirmDialog";
+import { type OutreachMode, getDefaultOutreachMode, canUseOutreachMode } from "@/utils/featureAccess";
 import {
   getCompanyLogoUrl, getRecommendedCompanies,
   type RecommendedCompany, type UserContext, isContextEmpty,
@@ -79,9 +82,22 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
   // Set true when a chip click prefills the form so the next render auto-runs the search
   const pendingAutoSearch = useRef(false);
 
+  // Outreach mode (preview / draft / send), same contract as the People tab.
+  // Backend re-validates against tier; this drives the UI. Free lands on
+  // preview, Pro and Elite on draft.
+  const userTier: "free" | "pro" | "elite" =
+    user?.tier === "pro" || user?.tier === "elite" ? user.tier : "free";
+  const [outreachMode, setOutreachMode] = useState<OutreachMode>(() => getDefaultOutreachMode(userTier));
+  useEffect(() => {
+    if (!canUseOutreachMode(userTier, outreachMode)) {
+      setOutreachMode(getDefaultOutreachMode(userTier));
+    }
+  }, [userTier, outreachMode]);
+  // Hard confirm gate shown before any send (send is irreversible).
+  const [showSendConfirm, setShowSendConfirm] = useState(false);
+
 
   // Ref for original button to track visibility
-  const originalButtonRef = useRef<HTMLButtonElement>(null);
 
   // Tracker count (would come from API in real implementation)
   const [trackerCount, setTrackerCount] = useState(0);
@@ -245,8 +261,16 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
   const canSearch = savedResumeUrl && hasValidInput && !isSearching;
 
   // Handle search
-  const handleFindHiringManagers = async () => {
+  const handleFindHiringManagers = async (confirmedSend = false) => {
     if (!canSearch || !user) return;
+    // Send is irreversible: gate it behind the hard confirm dialog. The dialog's
+    // confirm handler re-invokes this with confirmedSend=true. This also covers
+    // the job-board card auto-search path, which calls this same function.
+    // Strict === true so a stray click-event argument cannot bypass the gate.
+    if (outreachMode === "send" && confirmedSend !== true) {
+      setShowSendConfirm(true);
+      return;
+    }
     setIsSearching(true);
     setProgress(0);
     setHmSuggestions([]);
@@ -311,7 +335,8 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
         return;
       }
 
-      // Call the API
+      // Call the API. Mode governs generate/draft/send; the backend re-validates
+      // it against tier and is the source of truth.
       const response = await apiService.findHiringManagers({
         company: companyName,
         jobTitle: jobTitleValue,
@@ -319,8 +344,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
         location: locationValue,
         jobUrl: jobPostingUrl || undefined,
         maxResults: estimatedManagers,
-        generateEmails: true,
-        createDrafts: true,
+        mode: outreachMode,
       });
 
       console.log('🔍 API Response:', JSON.stringify(response, null, 2));
@@ -350,6 +374,18 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
               const email = draft.recruiter_email || draft.recruiterEmail;
               if (email) {
                 draftMap.set(email.toLowerCase(), draft);
+              }
+            });
+          }
+
+          // Map of email -> sent info (send mode only). Drives the deterministic
+          // sent record below: the same fields People writes on a send.
+          const sentMap = new Map<string, any>();
+          if (response.sentEmails && Array.isArray(response.sentEmails)) {
+            response.sentEmails.forEach((s: any) => {
+              const email = s.recruiter_email || s.recruiterEmail;
+              if (email) {
+                sentMap.set(email.toLowerCase(), s);
               }
             });
           }
@@ -392,6 +428,16 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                 if (draftInfo.draft_id) recruiter.gmailDraftId = draftInfo.draft_id;
                 if (draftInfo.message_id) recruiter.gmailMessageId = draftInfo.message_id;
                 if (draftInfo.draft_url) recruiter.gmailDraftUrl = draftInfo.draft_url;
+              }
+              // Sent record (send mode): same fields People writes on a send,
+              // plus status Contacted so the tracker reflects that it went out.
+              const sentInfo = sentMap.get(managerEmail.toLowerCase());
+              if (sentInfo) {
+                recruiter.pipelineStage = "waiting_on_reply";
+                recruiter.emailSentAt = new Date().toISOString();
+                recruiter.status = "Contacted";
+                if (sentInfo.thread_id) recruiter.gmailThreadId = sentInfo.thread_id;
+                if (sentInfo.message_id) recruiter.gmailMessageId = sentInfo.message_id;
               }
             }
 
@@ -444,11 +490,17 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
       setManagersFound(foundCount);
 
       if (foundCount > 0) {
+        const sentCount = response.sentEmails?.length || 0;
+        const draftCount = response.draftsCreated?.length || 0;
+        let description = `${savedCount} saved to tracker.`;
+        if (sentCount > 0) {
+          description = `${savedCount} saved to tracker. ${sentCount} ${sentCount === 1 ? 'email' : 'emails'} sent from your Gmail.`;
+        } else if (draftCount > 0) {
+          description = `${savedCount} saved to tracker. Draft emails saved to your Gmail.`;
+        }
         toast({
           title: `Found ${foundCount} hiring manager${foundCount !== 1 ? 's' : ''}!`,
-          description: response.draftsCreated && response.draftsCreated.length > 0
-            ? `${savedCount} saved to tracker. Draft emails saved to your Gmail.`
-            : `${savedCount} saved to tracker.`,
+          description,
         });
       } else {
         const fallbackMsg = (response as any).fallback_message || (response as any).fallbackMessage || "";
@@ -533,50 +585,66 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                         disabled={isSearching || isUploadingResume}
                       />
 
-                      {/* Natural language prompt input */}
-                      {/* Job URL input */}
+                      {/* Job URL input — shared search-box shell (matches Find People) */}
                       <div style={{ marginTop: 20, marginBottom: 16 }}>
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'flex-start',
-                            gap: 10,
-                            padding: '16px 20px',
-                            border: '1.5px solid var(--warm-border, #E8E4DE)',
-                            borderRadius: 14,
-                            background: 'var(--warm-surface, #FAF9F6)',
-                            transition: 'all .15s',
-                            minHeight: 56,
-                          }}
-                          className="focus-within:border-[#2563EB] focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(37,99,235,0.12)]"
-                        >
-                          <Link style={{ width: 16, height: 16, flexShrink: 0, color: '#3B82F6', marginTop: 1 }} />
-                          <input
-                            type="url"
-                            value={jobPostingUrl}
-                            onChange={(e) => {
-                              setJobPostingUrl(e.target.value);
-                              if (e.target.value.trim()) {
-                                setShowManualEntry(false);
-                              }
-                            }}
-                            placeholder="Paste a job posting URL (LinkedIn, Greenhouse, Lever, etc.)"
+                        {/* Outreach mode picker, same component and contract as
+                            the People tab. Governs both entry points (paste-URL
+                            here and job-board card auto-search). */}
+                        <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'flex-start' }}>
+                          <SearchModeSelector
+                            tier={userTier}
+                            value={outreachMode}
+                            onChange={setOutreachMode}
                             disabled={isSearching}
-                            style={{
-                              flex: 1,
-                              border: 'none',
-                              background: 'none',
-                              fontSize: 14,
-                              color: '#0F172A',
-                              outline: 'none',
-                              fontFamily: 'inherit',
-                              lineHeight: 1.5,
-                            }}
                           />
-                          {jobPostingUrl && isValidUrl(jobPostingUrl) && (
-                            <CheckCircle style={{ width: 15, height: 15, flexShrink: 0, color: '#22C55E', marginTop: 1 }} />
-                          )}
                         </div>
+                        <SendConfirmDialog
+                          open={showSendConfirm}
+                          count={estimatedManagers}
+                          loading={isSearching}
+                          onCancel={() => setShowSendConfirm(false)}
+                          onConfirm={() => {
+                            setShowSendConfirm(false);
+                            handleFindHiringManagers(true);
+                          }}
+                        />
+                        <SearchPromptBox
+                          helper={null}
+                          onSubmit={() => handleFindHiringManagers()}
+                          submitDisabled={!canSearch}
+                          submitAriaLabel="Find hiring managers"
+                          submitIcon={isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUp className="w-4 h-4" />}
+                        >
+                          {/* link icon + URL input */}
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, paddingRight: 40 }}>
+                            <Link style={{ width: 16, height: 16, flexShrink: 0, color: '#3B82F6', marginTop: 2 }} />
+                            <input
+                              type="url"
+                              value={jobPostingUrl}
+                              onChange={(e) => {
+                                setJobPostingUrl(e.target.value);
+                                if (e.target.value.trim()) {
+                                  setShowManualEntry(false);
+                                }
+                              }}
+                              placeholder="Paste a job posting URL (LinkedIn, Greenhouse, Lever, etc.)"
+                              disabled={isSearching}
+                              style={{
+                                flex: 1,
+                                border: 'none',
+                                background: 'none',
+                                fontSize: 14,
+                                color: '#0F172A',
+                                outline: 'none',
+                                fontFamily: 'inherit',
+                                lineHeight: 1.5,
+                              }}
+                            />
+                            {jobPostingUrl && isValidUrl(jobPostingUrl) && (
+                              <CheckCircle style={{ width: 15, height: 15, flexShrink: 0, color: '#22C55E', marginTop: 2 }} />
+                            )}
+                          </div>
+                        </SearchPromptBox>
                       </div>
 
                       {/* Job/recommendation cards — below search box, like People tab */}
@@ -612,10 +680,9 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                               <span style={{
                                 fontSize: 10, fontWeight: 500, color: 'var(--ink-3, #8A8F9A)',
                                 letterSpacing: '0.14em', textTransform: 'uppercase' as const,
-                                fontFamily: "'JetBrains Mono', monospace",
-                                display: 'flex', alignItems: 'center', gap: 6,
+                                fontFamily: "'Libre Baskerville', Georgia, serif",
+                                display: 'flex', alignItems: 'center',
                               }}>
-                                <span style={{ color: 'var(--accent, #1B2A44)', fontSize: 11 }}>&#9670;</span>
                                 {hasJobs ? 'From your job board' : 'Recommended for you'}
                               </span>
                               <button
@@ -666,7 +733,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                                       className="suggestion-row-enter"
                                       style={{
                                         flex: '0 0 160px', width: 160,
-                                        borderRadius: 3, overflow: 'hidden',
+                                        borderRadius: 16, overflow: 'hidden',
                                         background: 'var(--elev, #FFFFFF)',
                                         border: '1px solid var(--line, #E8E8E8)',
                                         cursor: 'pointer', textAlign: 'left',
@@ -677,7 +744,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                                       }}
                                       onMouseEnter={e => {
                                         const el = e.currentTarget as HTMLButtonElement;
-                                        el.style.borderColor = 'var(--accent, #1B2A44)';
+                                        el.style.borderColor = 'var(--accent, #4A60A8)';
                                         el.style.boxShadow = 'inset 0 -1px 0 var(--line, #E8E8E8), 0 2px 6px rgba(26,29,35,0.06)';
                                         el.style.transform = 'translateY(-1px)';
                                       }}
@@ -772,7 +839,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                                         )}
 
                                         <div style={{
-                                          fontSize: 11, color: 'var(--accent, #1B2A44)', fontWeight: 500,
+                                          fontSize: 11, color: 'var(--accent, #4A60A8)', fontWeight: 500,
                                           display: 'flex', alignItems: 'center', gap: 4,
                                         }}>
                                           Find hiring manager
@@ -799,7 +866,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                                       className="suggestion-row-enter"
                                       style={{
                                         flex: '0 0 160px', width: 160,
-                                        borderRadius: 3, overflow: 'hidden',
+                                        borderRadius: 16, overflow: 'hidden',
                                         background: 'var(--elev, #FFFFFF)',
                                         border: '1px solid var(--line, #E8E8E8)',
                                         cursor: 'pointer', textAlign: 'left',
@@ -810,7 +877,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                                       }}
                                       onMouseEnter={e => {
                                         const el = e.currentTarget as HTMLButtonElement;
-                                        el.style.borderColor = 'var(--accent, #1B2A44)';
+                                        el.style.borderColor = 'var(--accent, #4A60A8)';
                                         el.style.boxShadow = 'inset 0 -1px 0 var(--line, #E8E8E8), 0 2px 6px rgba(26,29,35,0.06)';
                                         el.style.transform = 'translateY(-1px)';
                                       }}
@@ -903,7 +970,7 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                                         )}
 
                                         <div style={{
-                                          fontSize: 11, color: 'var(--accent, #1B2A44)', fontWeight: 500,
+                                          fontSize: 11, color: 'var(--accent, #4A60A8)', fontWeight: 500,
                                           display: 'flex', alignItems: 'center', gap: 4,
                                         }}>
                                           Find hiring manager
@@ -1051,46 +1118,6 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                           </div>
                         </div>
                       )}
-
-                      {/* CTA button — matches People/Companies style */}
-                      <button
-                        ref={originalButtonRef}
-                        onClick={handleFindHiringManagers}
-                        disabled={!canSearch}
-                        style={{
-                          width: '100%',
-                          height: 52,
-                          borderRadius: 12,
-                          background: isSearching ? 'var(--warm-border, #E8E4DE)'
-                            : !canSearch ? 'transparent'
-                            : 'var(--ink, #1A1D23)',
-                          color: isSearching ? 'var(--warm-ink-tertiary, #9C9590)'
-                            : !canSearch ? '#6B6560'
-                            : 'var(--paper, #FFFFFF)',
-                          border: !canSearch && !isSearching ? '1.5px solid #D5D0C9' : '1.5px solid transparent',
-                          fontSize: 15,
-                          fontWeight: 600,
-                          cursor: !canSearch ? 'default' : (isSearching ? 'not-allowed' : 'pointer'),
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 8,
-                          transition: 'all .15s',
-                          fontFamily: 'inherit',
-                        }}
-                      >
-                        {isSearching ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            <span>Finding hiring managers...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Users className="w-4 h-4" />
-                            <span>Find hiring managers</span>
-                          </>
-                        )}
-                      </button>
 
                       {/* Resume status — subtle text line below CTA */}
                       <div style={{ display: 'flex', justifyContent: 'center', marginTop: 10, marginBottom: 8 }}>
@@ -1347,18 +1374,6 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
         }
       `}</style>
 
-      {/* Sticky CTA - Only show on find-hiring-managers tab */}
-      {activeTab === 'find-hiring-managers' && (
-        <StickyCTA
-          originalButtonRef={originalButtonRef}
-          onClick={handleFindHiringManagers}
-          isLoading={isSearching}
-          disabled={!canSearch}
-          buttonClassName="rounded-[3px]"
-        >
-          <span>Find Hiring Managers</span>
-        </StickyCTA>
-      )}
     </>
   );
 

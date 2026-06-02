@@ -14,11 +14,12 @@ import {
   Users,
   Home,
   Repeat,
+  Search,
+  Coffee,
+  Mail,
+  Briefcase,
+  type LucideIcon as LucideIconType,
 } from "lucide-react";
-import CupIcon from "@/assets/sidebaricons/icons8-cup-48.png";
-import MailIcon from "@/assets/sidebaricons/icons8-important-mail-48.png";
-import MagnifyingGlassIcon from "@/assets/sidebaricons/icons8-magnifying-glass-50.png";
-import BriefcaseIcon from "@/assets/sidebaricons/icons8-briefcase-48.png";
 
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
@@ -42,52 +43,30 @@ import { cn } from "@/lib/utils";
 
 // ── Icon helpers ────────────────────────────────────────────────────────────
 
-const IMG_FILTER_ACTIVE =
-  "brightness(0) saturate(100%) invert(20%) sepia(99%) saturate(2400%) hue-rotate(222deg) brightness(96%) contrast(95%)";
-const IMG_FILTER_INACTIVE =
-  "brightness(0) saturate(100%) invert(44%) sepia(12%) saturate(560%) hue-rotate(176deg) brightness(94%) contrast(88%)";
-
+// One uniform monochrome icon system: every tab uses a lucide icon rendered at
+// the same size and stroke, colored by a single token (inactive ink, active
+// accent). No per-tab colors.
 type NavItemDef = {
   title: string;
   url: string;
   dataTour?: string;
   newTab?: boolean;
-  iconColor?: string; // per-item color for inactive state
-  activeColor?: string; // per-item override for active icon/text color
-  activeFilter?: string; // per-item override for active img filter
-  activeBg?: string; // per-item override for active background
-} & (
-  | { iconSrc: string; LucideIcon?: never }
-  | { LucideIcon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; iconSrc?: never }
-);
-
-// CSS filter generators - mid-tone hues tuned for the light sidebar background
-const ICON_FILTERS: Record<string, string> = {
-  blue:      "brightness(0) saturate(100%) invert(30%) sepia(94%) saturate(1700%) hue-rotate(213deg) brightness(95%) contrast(94%)",
-  sky:       "brightness(0) saturate(100%) invert(40%) sepia(70%) saturate(1200%) hue-rotate(180deg) brightness(95%) contrast(92%)",
-  indigo:    "brightness(0) saturate(100%) invert(28%) sepia(70%) saturate(1900%) hue-rotate(225deg) brightness(95%) contrast(95%)",
-  slate:     "brightness(0) saturate(100%) invert(44%) sepia(12%) saturate(560%) hue-rotate(176deg) brightness(94%) contrast(88%)",
-  brown:     "brightness(0) saturate(100%) invert(33%) sepia(40%) saturate(900%) hue-rotate(350deg) brightness(92%) contrast(92%)",
-  amber:     "brightness(0) saturate(100%) invert(50%) sepia(92%) saturate(1100%) hue-rotate(2deg) brightness(94%) contrast(94%)",
-  emerald:   "brightness(0) saturate(100%) invert(40%) sepia(64%) saturate(1100%) hue-rotate(118deg) brightness(92%) contrast(92%)",
-  rose:      "brightness(0) saturate(100%) invert(24%) sepia(82%) saturate(3000%) hue-rotate(331deg) brightness(94%) contrast(95%)",
-  violet:    "brightness(0) saturate(100%) invert(28%) sepia(82%) saturate(2200%) hue-rotate(245deg) brightness(95%) contrast(95%)",
-  teal:      "brightness(0) saturate(100%) invert(42%) sepia(58%) saturate(900%) hue-rotate(128deg) brightness(92%) contrast(92%)",
+  LucideIcon: LucideIconType;
 };
 
 // Group 1 - main nav (base items, Agent added dynamically for Elite)
 const baseNavItems: NavItemDef[] = [
-  { title: "Find", url: "/find", iconSrc: MagnifyingGlassIcon, iconColor: "blue" },
-  { title: "My Network", url: "/my-network", LucideIcon: Users, iconColor: "#7C3AED" },
-  { title: "Meeting Prep", url: "/coffee-chat-prep", iconSrc: CupIcon, iconColor: "amber", dataTour: "tour-coffee-chat-prep" },
-  { title: "Tracker", url: "/tracker", iconSrc: MailIcon, iconColor: "rose", dataTour: "tour-track-email" },
-  { title: "Job Board", url: "/job-board", iconSrc: BriefcaseIcon, iconColor: "emerald" },
+  { title: "Find", url: "/find", LucideIcon: Search },
+  { title: "My Network", url: "/my-network", LucideIcon: Users },
+  { title: "Meeting Prep", url: "/coffee-chat-prep", LucideIcon: Coffee, dataTour: "tour-coffee-chat-prep" },
+  { title: "Tracker", url: "/tracker", LucideIcon: Mail, dataTour: "tour-track-email" },
+  { title: "Job Board", url: "/job-board", LucideIcon: Briefcase },
 ];
 
 // Utility nav - bottom of sidebar
 const utilityNavItems: NavItemDef[] = [
-  { title: "Pricing", url: "/pricing", LucideIcon: Tag, iconColor: "#D97706" },
-  { title: "Documentation", url: "/documentation", LucideIcon: FileText, iconColor: "#0D9488" },
+  { title: "Pricing", url: "/pricing", LucideIcon: Tag },
+  { title: "Documentation", url: "/documentation", LucideIcon: FileText },
 ];
 
 
@@ -107,14 +86,14 @@ const NAV_PY = "11px";
 const NAV_GAP = "10px";
 const NAV_RADIUS = "8px";
 
-// White sidebar palette
-const ACTIVE_BG = "#EFF6FF";
-const ACTIVE_SHADOW = "inset 3px 0 0 #2563EB";
-const ACTIVE_COLOR = "#1D4ED8";
-const INACTIVE_ICON = "#64748B";
-const INACTIVE_LABEL = "#475569";
-const HOVER_BG = "#F1F5F9";
-const HOVER_LABEL = "#0F172A";
+// White sidebar palette (app tokens: accent + ink + surface)
+const ACTIVE_BG = "var(--primary-50, #EEF1F9)";
+const ACTIVE_COLOR = "var(--accent, #4A60A8)";
+const INACTIVE_ICON = "var(--ink-2, #4A4F5B)";
+const INACTIVE_LABEL = "var(--ink-2, #4A4F5B)";
+const HOVER_BG = "var(--surface, #F5F6F8)";
+const HOVER_LABEL = "var(--ink, #111318)";
+const NAV_STROKE = 1.75;
 
 // ── Component ───────────────────────────────────────────────────────────────
 
@@ -149,8 +128,8 @@ export function AppSidebar() {
   // Launchpad (home) + Loops nav available to all users
   const agentStatus = useAgentSidebarStatus();
   const mainNavItems: NavItemDef[] = [
-    { title: "Home", url: "/dashboard", LucideIcon: Home, iconColor: "#2563EB" },
-    { title: "Loops", url: "/agent", LucideIcon: Repeat, iconColor: "#4F46E5" },
+    { title: "Home", url: "/dashboard", LucideIcon: Home },
+    { title: "Loops", url: "/agent", LucideIcon: Repeat },
     ...baseNavItems,
   ];
 
@@ -159,26 +138,13 @@ export function AppSidebar() {
   const renderNavItem = (item: NavItemDef) => {
     const active = isActive(item.url);
 
-    const inactiveFilter = item.iconColor && ICON_FILTERS[item.iconColor]
-      ? ICON_FILTERS[item.iconColor]
-      : IMG_FILTER_INACTIVE;
-
-    const icon = item.iconSrc ? (
-      <img
-        src={item.iconSrc}
-        alt=""
-        className="h-4 w-4 flex-shrink-0"
-        style={{
-          filter: active ? (item.activeFilter || IMG_FILTER_ACTIVE) : inactiveFilter,
-          opacity: 1,
-        }}
-      />
-    ) : item.LucideIcon ? (
+    const icon = (
       <item.LucideIcon
         className="h-4 w-4 flex-shrink-0"
-        style={{ color: active ? (item.activeColor || ACTIVE_COLOR) : (item.iconColor && !ICON_FILTERS[item.iconColor] ? item.iconColor : INACTIVE_ICON) }}
+        strokeWidth={NAV_STROKE}
+        style={{ color: active ? ACTIVE_COLOR : INACTIVE_ICON }}
       />
-    ) : null;
+    );
 
     const linkProps = item.newTab
       ? { target: "_blank" as const, rel: "noopener noreferrer" }
@@ -212,8 +178,7 @@ export function AppSidebar() {
                 className="flex items-center justify-center rounded-[8px] transition-all"
                 style={{
                   padding: NAV_PY,
-                  background: active ? (item.activeBg || ACTIVE_BG) : "transparent",
-                  boxShadow: active ? ACTIVE_SHADOW : "none",
+                  background: active ? ACTIVE_BG : "transparent",
                   borderRadius: NAV_RADIUS,
                 }}
               >
@@ -281,9 +246,8 @@ export function AppSidebar() {
           fontSize: NAV_FONT_SIZE,
           fontWeight: active ? 600 : 400,
           fontFamily: "var(--font-body)",
-          background: active ? (item.activeBg || ACTIVE_BG) : "transparent",
-          boxShadow: active ? ACTIVE_SHADOW : "none",
-          color: active ? (item.activeColor || ACTIVE_COLOR) : INACTIVE_LABEL,
+          background: active ? ACTIVE_BG : "transparent",
+          color: active ? ACTIVE_COLOR : INACTIVE_LABEL,
         }}
         onMouseEnter={(e) => {
           if (!active) {
@@ -326,7 +290,7 @@ export function AppSidebar() {
           className="flex flex-col h-full overflow-hidden"
           style={{
             background: "#FFFFFF",
-            borderRight: "1px solid #E2E8F0",
+            borderRight: "1px solid var(--line, #E5E5E0)",
           }}
         >
           {/* User profile / toggle */}
@@ -488,29 +452,21 @@ export function AppSidebar() {
         <SidebarFooter
           className="p-3"
           style={{
-            borderTop: "1px solid #E2E8F0",
+            borderTop: "1px solid var(--line, #E5E5E0)",
             background: "#FFFFFF",
           }}
         >
           {!isCollapsed ? (
             <div className="space-y-2.5">
               {/* Credits */}
-              <div
-                style={{
-                  background: "#FFFFFF",
-                  border: "1px solid rgba(15,23,42,0.07)",
-                  borderRadius: "10px",
-                  padding: "10px 12px",
-                  boxShadow: "0 1px 2px rgba(15,23,42,0.05)",
-                }}
-              >
-                <div className="flex items-center justify-between mb-2">
+              <div style={{ padding: "2px 2px 0" }}>
+                <div className="flex items-center justify-between mb-1.5">
                   <span
                     style={{
                       fontSize: "11px",
                       fontWeight: 700,
-                      letterSpacing: "0.05em",
-                      color: "#64748B",
+                      letterSpacing: "0.06em",
+                      color: "var(--ink-3, #8A8F9A)",
                       fontFamily: "var(--font-body)",
                       textTransform: "uppercase" as const,
                     }}
@@ -518,24 +474,24 @@ export function AppSidebar() {
                     Credits
                   </span>
                   <span style={{ fontFamily: "var(--font-body)", lineHeight: 1 }}>
-                    <span style={{ fontSize: "14px", fontWeight: 700, color: "#1D4ED8" }}>
+                    <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--accent, #4A60A8)" }}>
                       {credits}
                     </span>
-                    <span style={{ fontSize: "12px", fontWeight: 500, color: "#94A3B8" }}>
+                    <span style={{ fontSize: "12px", fontWeight: 500, color: "var(--ink-3, #8A8F9A)" }}>
                       {" "}
                       / {maxCredits}
                     </span>
                   </span>
                 </div>
                 <div
-                  className="h-1.5 rounded-full overflow-hidden"
-                  style={{ background: "#E6EDF9" }}
+                  className="h-1 rounded-full overflow-hidden"
+                  style={{ background: "var(--primary-100, #E4E9F5)" }}
                 >
                   <div
                     className="h-full rounded-full transition-all duration-300"
                     style={{
                       width: `${creditPercentage}%`,
-                      background: "#3B82F6",
+                      background: "var(--accent, #4A60A8)",
                     }}
                   />
                 </div>
@@ -547,29 +503,24 @@ export function AppSidebar() {
                   trackUpgradeClick("sidebar", { from_location: "sidebar" });
                   navigate("/pricing");
                 }}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-[8px] transition-all"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-[8px] transition-all"
                 style={{
-                  background: "#2563EB",
+                  background: "var(--accent, #4A60A8)",
                   color: "#FFFFFF",
                   fontFamily: "var(--font-body)",
                   fontSize: "14px",
                   fontWeight: 600,
                   border: "none",
-                  boxShadow:
-                    "0 6px 16px -3px rgba(37,99,235,0.45), inset 0 1px 0 rgba(255,255,255,0.22)",
+                  boxShadow: "var(--shadow-sm, 0 1px 2px rgba(17,19,24,0.04))",
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "#1D4ED8";
-                  e.currentTarget.style.boxShadow =
-                    "0 8px 20px -3px rgba(37,99,235,0.55), inset 0 1px 0 rgba(255,255,255,0.22)";
+                  e.currentTarget.style.background = "var(--primary-600, #4C62A8)";
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "#2563EB";
-                  e.currentTarget.style.boxShadow =
-                    "0 6px 16px -3px rgba(37,99,235,0.45), inset 0 1px 0 rgba(255,255,255,0.22)";
+                  e.currentTarget.style.background = "var(--accent, #4A60A8)";
                 }}
               >
-                <Zap className="h-4 w-4" style={{ color: "#FCD34D", fill: "#FCD34D" }} />
+                <Zap className="h-4 w-4" style={{ color: "#FFFFFF" }} />
                 <span>Upgrade Plan</span>
               </button>
             </div>
@@ -583,20 +534,19 @@ export function AppSidebar() {
                   }}
                   className="w-full flex items-center justify-center p-2.5 rounded-[8px] transition-all"
                   style={{
-                    background: "#2563EB",
+                    background: "var(--accent, #4A60A8)",
                     color: "#FFFFFF",
                     border: "none",
-                    boxShadow:
-                      "0 6px 16px -3px rgba(37,99,235,0.45), inset 0 1px 0 rgba(255,255,255,0.22)",
+                    boxShadow: "var(--shadow-sm, 0 1px 2px rgba(17,19,24,0.04))",
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "#1D4ED8";
+                    e.currentTarget.style.background = "var(--primary-600, #4C62A8)";
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "#2563EB";
+                    e.currentTarget.style.background = "var(--accent, #4A60A8)";
                   }}
                 >
-                  <Zap className="h-5 w-5" style={{ color: "#FCD34D", fill: "#FCD34D" }} />
+                  <Zap className="h-5 w-5" style={{ color: "#FFFFFF" }} />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">

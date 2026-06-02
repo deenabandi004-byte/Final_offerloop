@@ -151,7 +151,7 @@ Chrome Extension ──► same Flask API at https://final-offerloop.onrender.co
 ## Core Features
 
 ### 1. Contact Search (FIND)
-**How it works**: User enters search criteria (company, title, location, university) → backend queries People Data Labs API (`pdl_client.py`, 3200+ lines) with ~50 metro area mappings → results filtered by tier limits (3/8/15 contacts) → optional Hunter.io email verification → results returned with LinkedIn, email, title, company, education.
+**How it works**: User enters search criteria (company, title, location, university) → backend queries People Data Labs API (`pdl_client.py`, 3200+ lines) with ~50 metro area mappings → results filtered by tier limits (3/8/30 contacts) → optional Hunter.io email verification → results returned with LinkedIn, email, title, company, education.
 
 **Key files**: `backend/app/services/pdl_client.py`, `backend/app/routes/runs.py`, `backend/app/routes/runs_hunter.py`, `connect-grow-hire/src/pages/FindPage.tsx`
 
@@ -235,7 +235,7 @@ Three tiers defined in `backend/app/config.py` (frontend mirror in `connect-grow
 | | Free | Pro ($9.99/mo) | Elite ($34.99/mo) |
 |---|---|---|---|
 | Credits/month | 500 | 3000 | 12000 |
-| Contacts/search | 3 | 8 | 15 |
+| Contacts/search | 3 | 8 | 30 |
 | Batch size | 1 | 5 | 15 |
 | Firm search | No | Yes | Yes |
 | Coffee chat preps | 3 lifetime | 10/mo | Unlimited |

@@ -4,7 +4,7 @@
   --brand: #1B2A44;          /* navy — sidebar, headline accents */
   --brand-2: #243656;
 
-  --accent: #1B2A44;         /* same navy — unified accent color */
+  --accent: #4A60A8;         /* slate-blue — unified accent / primary action */
 
   --ink: #111318;            /* primary text + primary button fill */
   --ink-2: #4A4F5B;
@@ -16,6 +16,22 @@
 
   --line: #E5E5E0;
   --line-2: #F0F0ED;
+
+  /* App canvas (grey background behind cards) */
+  --surface: #F5F6F8;
+
+  /* Serif heading navy */
+  --heading: #1E2D4D;
+
+  /* Slate-blue primary ramp */
+  --primary-50:  #EEF1F9;    /* active pill / chip bg */
+  --primary-100: #E4E9F5;    /* focus ring / glow */
+  --primary-200: #B6C3E8;    /* idle avatar fill */
+  --primary-600: #4C62A8;    /* button hover */
+
+  /* Status — orange */
+  --action-bg: #FBE6D6;
+  --action-fg: #E07A3E;
 
   /* Signals */
   --signal-pos: #16a34a;
@@ -40,7 +56,7 @@
   --line-2: #F0F0ED;
   --brand: #1B2A44;
   --brand-2: #243656;
-  --accent: #1B2A44;
+  --accent: #4A60A8;
   --signal-pos: #16a34a;
   --signal-neg: #dc2626;
   --signal-wait: #ca8a04;
@@ -61,7 +77,7 @@
   --line-2: #F0F0ED;
   --brand: #1B2A44;
   --brand-2: #243656;
-  --accent: #1B2A44;
+  --accent: #4A60A8;
   --signal-pos: #16a34a;
   --signal-neg: #dc2626;
   --signal-wait: #ca8a04;

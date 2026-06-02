@@ -270,10 +270,10 @@ def prompt_search():
                 return jsonify({"error": "Could not load user profile. Please try again."}), 500
 
         # Credit check outside try/except — always enforced
-        if credits_available < 15:
+        if credits_available < 5:
             return jsonify({
                 "error": "Insufficient credits",
-                "credits_needed": 15,
+                "credits_needed": 5,
                 "current_credits": credits_available,
             }), 400
 
@@ -283,6 +283,27 @@ def prompt_search():
         except (TypeError, ValueError):
             batch_size = None
         max_contacts = batch_size if batch_size and 1 <= batch_size <= tier_max else tier_max
+
+        # Outreach mode: "preview" (contacts only, no email, no draft),
+        # "draft" (generate email plus create Gmail draft, current behavior),
+        # or "send" (generate then send, Elite only, wired in a later chunk).
+        # Validated against tier here on the server. We never trust the client
+        # mode value: Free is clamped to preview, Pro to draft, Elite to send.
+        TIER_ALLOWED_MODES = {
+            "free": {"preview"},
+            "pro": {"preview", "draft"},
+            "elite": {"preview", "draft", "send"},
+        }
+        allowed_modes = TIER_ALLOWED_MODES.get(user_tier, {"preview"})
+        default_mode = "preview" if user_tier == "free" else "draft"
+        requested_mode = (data.get("mode") or "").strip().lower()
+        if requested_mode not in ("preview", "draft", "send"):
+            requested_mode = default_mode
+        if requested_mode not in allowed_modes:
+            # Requested a mode above this tier. Clamp down to their best allowed.
+            requested_mode = "draft" if "draft" in allowed_modes else "preview"
+        outreach_mode = requested_mode
+        print(f"[Runs] Outreach mode: requested={data.get('mode')!r}, tier={user_tier}, resolved={outreach_mode}")
 
         # Parse prompt
         parsed = parse_search_prompt_structured(prompt)
@@ -592,28 +613,34 @@ def prompt_search():
             if briefing:
                 contact["briefing"] = briefing
 
-        # Generate emails with resume text
-        try:
-            email_results = batch_generate_emails(
-                contacts=contacts,
-                resume_text=resume_text,
-                user_profile=user_profile,
-                career_interests=career_interests,
-                fit_context=None,
-                pre_parsed_user_info=(user_data or {}).get("resumeParsed"),
-                template_instructions=template_instructions,
-                email_template_purpose=email_template_purpose,
-                resume_filename=user_resume_filename,
-                subject_line=template_subject_line,
-                signoff_config=signoff_config,
-                auth_display_name=auth_display_name,
-                warmth_data=warmth_data,
-                uid=user_id,
-                enrichment_data=enrichment_data,
-            )
-        except Exception as e:
-            print(f"[Runs] Email generation failed (prompt-search): {e}")
+        # Generate emails with resume text. Skipped entirely in preview mode:
+        # preview returns contact info only, so no email is written and (because
+        # contacts_with_emails stays empty below) no Gmail draft is created.
+        if outreach_mode == "preview":
             email_results = {}
+            print(f"[Runs] Preview mode: skipping email generation and drafting for {len(contacts)} contacts")
+        else:
+            try:
+                email_results = batch_generate_emails(
+                    contacts=contacts,
+                    resume_text=resume_text,
+                    user_profile=user_profile,
+                    career_interests=career_interests,
+                    fit_context=None,
+                    pre_parsed_user_info=(user_data or {}).get("resumeParsed"),
+                    template_instructions=template_instructions,
+                    email_template_purpose=email_template_purpose,
+                    resume_filename=user_resume_filename,
+                    subject_line=template_subject_line,
+                    signoff_config=signoff_config,
+                    auth_display_name=auth_display_name,
+                    warmth_data=warmth_data,
+                    uid=user_id,
+                    enrichment_data=enrichment_data,
+                )
+            except Exception as e:
+                print(f"[Runs] Email generation failed (prompt-search): {e}")
+                email_results = {}
 
         contacts_with_emails = []
         for i, contact in enumerate(contacts):
@@ -700,10 +727,37 @@ def prompt_search():
             print(f"[Runs] Quality gate error (non-blocking): {qgate_err}")
 
         successful_drafts = 0
+        successful_sends = 0
         user_info = {"name": user_profile.get("name", ""), "email": user_profile.get("email", ""), "phone": "", "linkedin": ""}
         try:
             creds = _load_user_gmail_creds(user_id) if user_id else None
-            if creds and contacts_with_emails:
+            if creds and contacts_with_emails and outreach_mode == "send":
+                # Send mode (Elite): send the emails instead of drafting them.
+                # The send path builds identical messages (resume attachment
+                # included) and the sent fields are written in the save block.
+                from app.services.gmail_client import send_emails_parallel
+                send_results = send_emails_parallel(
+                    contacts_with_emails,
+                    resume_bytes=resume_content,
+                    resume_filename=resume_filename,
+                    user_info=user_info,
+                    user_id=user_id,
+                    tier=user_tier,
+                    user_email=user_email,
+                    resume_url=resume_url,
+                )
+                for item, send_result in zip(contacts_with_emails, send_results):
+                    contact = item["contact"]
+                    message_id = send_result.get("message_id", "") if isinstance(send_result, dict) else ""
+                    if message_id and not str(message_id).startswith("mock_"):
+                        successful_sends += 1
+                        contact["emailSent"] = True
+                        contact["gmailMessageId"] = message_id
+                        if send_result.get("thread_id"):
+                            contact["gmailThreadId"] = send_result["thread_id"]
+                        if send_result.get("recipient_email"):
+                            contact["_sentRecipientEmail"] = send_result["recipient_email"]
+            elif creds and contacts_with_emails:
                 from app.services.gmail_client import create_drafts_parallel
                 draft_results = create_drafts_parallel(
                     contacts_with_emails,
@@ -732,7 +786,7 @@ def prompt_search():
                 # Still deduct credits and save contacts even though drafts failed
                 if db and user_id:
                     try:
-                        deduct_credits_atomic(user_id, 15 * len(contacts), "prompt_search")
+                        deduct_credits_atomic(user_id, 5 * len(contacts), "prompt_search")
                     except Exception:
                         pass
                 return jsonify({
@@ -749,7 +803,7 @@ def prompt_search():
         credits_remaining = None
         if db and user_id:
             try:
-                credits_amount = 15 * len(contacts)
+                credits_amount = 5 * len(contacts)
                 success, remaining = deduct_credits_atomic(user_id, credits_amount, "prompt_search")
                 if success:
                     credits_used = credits_amount
@@ -849,6 +903,17 @@ def prompt_search():
                     contact_doc["lastActivityAt"] = now_iso
                     contact_doc["hasUnreadReply"] = False
                     contact_doc["gmailMessageId"] = contact.get("gmailMessageId") or None
+                    # Send mode: overlay the fields that mark this contact as
+                    # "sent" in the tracker. These mirror what the Gmail webhook
+                    # writes when it detects a SENT message, so a direct send and
+                    # a later webhook event converge instead of conflicting.
+                    if contact.get("emailSent"):
+                        contact_doc["pipelineStage"] = "waiting_on_reply"
+                        contact_doc["emailSentAt"] = now_iso
+                        contact_doc["draftStillExists"] = False
+                        contact_doc["draftToEmail"] = contact.get("_sentRecipientEmail") or contact_doc["draftToEmail"]
+                        if contact.get("gmailThreadId"):
+                            contact_doc["gmailThreadId"] = contact["gmailThreadId"]
                     contacts_ref.add(contact_doc)
                     saved_count += 1
                     # Avoid duplicates within same batch
@@ -887,6 +952,8 @@ def prompt_search():
             "contacts": contacts,
             "already_saved_contacts": saved_contact_cards,
             "successful_drafts": successful_drafts,
+            "successful_sends": successful_sends,
+            "mode": outreach_mode,
             "total_contacts": len(contacts),
             "tier": user_tier,
             "user_email": user_email,

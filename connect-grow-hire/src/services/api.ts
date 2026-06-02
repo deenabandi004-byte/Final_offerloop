@@ -1,5 +1,6 @@
 // src/services/api.ts
 import { auth } from '../lib/firebase';
+import type { OutreachMode } from '../utils/featureAccess';
 
 export const BACKEND_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/api\/?$/, '') ||
@@ -221,6 +222,12 @@ export interface DraftCreated {
   draft_url: string;
 }
 
+export interface SentEmail {
+  recruiter_email: string;
+  message_id?: string;
+  thread_id?: string;
+}
+
 export interface FindRecruiterResponse {
   recruiters: Recruiter[];
   emails?: RecruiterEmail[];
@@ -244,6 +251,8 @@ export interface FindHiringManagerResponse {
   hiringManagers: Recruiter[];  // Reuse Recruiter interface (same structure)
   emails?: RecruiterEmail[];
   draftsCreated?: DraftCreated[];
+  sentEmails?: SentEmail[];  // Present in send mode
+  mode?: OutreachMode;  // Server-resolved outreach mode
   jobTypeDetected: string;
   companyCleaned: string;
   totalFound: number;
@@ -1250,11 +1259,17 @@ class ApiService {
    * Prompt-based contact search (new endpoint). Same response shape as free-run plus parsed_query.
    * Works for all tiers; batchSize is capped by tier on backend.
    */
-  async runPromptSearch(data: { prompt: string; batchSize: number; emailTemplate?: EmailTemplate | null }): Promise<SearchResult> {
+  async runPromptSearch(data: { prompt: string; batchSize: number; emailTemplate?: EmailTemplate | null; mode?: OutreachMode }): Promise<SearchResult> {
     const headers = await this.getAuthHeaders();
     const payload: Record<string, unknown> = { prompt: data.prompt.trim(), batchSize: data.batchSize };
     if (data.emailTemplate && hasEmailTemplateValues(data.emailTemplate)) {
       payload.emailTemplate = data.emailTemplate;
+    }
+    if (data.mode) {
+      // Outreach mode: "preview" (contacts only), "draft" (default), "send".
+      // The backend re-validates this against the user tier and is the source
+      // of truth, so a tampered value cannot unlock a higher mode.
+      payload.mode = data.mode;
     }
     return this.makeRequest<SearchResult>('/prompt-search', {
       method: 'POST',
@@ -2061,8 +2076,9 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
     location?: string;
     jobUrl?: string;
     maxResults?: number;
-    generateEmails?: boolean;
-    createDrafts?: boolean;
+    generateEmails?: boolean;  // Legacy: superseded by mode, kept for compat
+    createDrafts?: boolean;    // Legacy: superseded by mode, kept for compat
+    mode?: OutreachMode;       // preview | draft | send (server re-validates vs tier)
   }): Promise<FindHiringManagerResponse> {
     const headers = await this.getAuthHeaders();
     return this.makeRequest<FindHiringManagerResponse>(

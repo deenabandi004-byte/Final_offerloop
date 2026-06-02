@@ -10,12 +10,13 @@ import {
   Plus,
   Upload,
   Download,
+  RefreshCw,
   ChevronUp,
   ChevronDown,
   ChevronLeft,
   Search as SearchIcon,
   Mail,
-  ExternalLink,
+  Linkedin,
   Trash2,
   Layers,
   List,
@@ -55,6 +56,31 @@ function normalizeLinkedInUrl(url?: string): string {
   }
   return `https://www.linkedin.com/in/${trimmed}`;
 }
+
+// LinkedIn profile link, rendered as the LinkedIn "in" mark (lucide `Linkedin`).
+// Replaces the old "↗ view" text link across every My Network spreadsheet so
+// the affordance is uniform (identical icon size everywhere). The icon keeps
+// the row's existing slate link color (NOT recolored to a new accent) and stays
+// square (h-4 w-4) so the logo isn't stretched. A subtle permanent underline
+// sits just beneath the icon to signal it's a link; it darkens on hover.
+// Returns null when there's no URL — callers that want a "-" placeholder render
+// their own (matching the old per-row behavior).
+const LinkedInLink: React.FC<{ url?: string; stopRowClick?: boolean }> = ({ url, stopRowClick }) => {
+  if (!url) return null;
+  return (
+    <a
+      href={normalizeLinkedInUrl(url)}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={stopRowClick ? (e) => e.stopPropagation() : undefined}
+      title="View LinkedIn profile"
+      aria-label="View LinkedIn profile"
+      className="inline-flex shrink-0 pb-px text-[#64748B] border-b border-[#CBD5E1] hover:border-[#64748B] transition-colors"
+    >
+      <Linkedin className="h-4 w-4" />
+    </a>
+  );
+};
 
 // Renders a list of company groups with a list/grid view toggle and a
 // grid-mode drill-in. Used by both People and Hiring Manager tabs when
@@ -461,9 +487,15 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
       // the bottom rather than jumbling with newer rows.
       const dirMul = recencyDir === "oldest" ? -1 : 1;
       out = [...out].sort((a, b) => {
-        const at = a.createdAt ? Date.parse(a.createdAt) : 0;
-        const bt = b.createdAt ? Date.parse(b.createdAt) : 0;
-        return (bt - at) * dirMul;
+        // Date.parse → NaN for malformed/empty strings; coerce to 0 so a row
+        // with a bad timestamp sinks predictably instead of poisoning the
+        // comparator (NaN math returns NaN, which leaves order unspecified).
+        const at = a.createdAt ? Date.parse(a.createdAt) || 0 : 0;
+        const bt = b.createdAt ? Date.parse(b.createdAt) || 0 : 0;
+        // Stable name tiebreaker so rows that share a timestamp (or both lack
+        // one) keep a deterministic order rather than jumbling on every
+        // re-sort - mirrors the Companies merge sort below.
+        return ((bt - at) * dirMul) || a.name.localeCompare(b.name);
       });
     }
     return out;
@@ -519,26 +551,26 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
       />
       <span /> {/* logo column - no header label */}
       <button className="text-left" onClick={() => toggleSort("name")}>
-        <span className="font-mono text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3">
+        <span className="font-sans text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3">
           Name<SortIcon col="name" />
         </span>
       </button>
       <button className="text-left" onClick={() => toggleSort("company")}>
-        <span className="font-mono text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3">
+        <span className="font-sans text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3">
           Company<SortIcon col="company" />
         </span>
       </button>
       <button className="text-left" onClick={() => toggleSort("role")}>
-        <span className="font-mono text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3">
+        <span className="font-sans text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3">
           Role<SortIcon col="role" />
         </span>
       </button>
       <button className="text-left" onClick={() => toggleSort("school")}>
-        <span className="font-mono text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3">
+        <span className="font-sans text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3">
           School<SortIcon col="school" />
         </span>
       </button>
-      <span className="font-mono text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3 text-right">
+      <span className="font-sans text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3 text-right">
         Actions
       </span>
     </div>
@@ -568,6 +600,10 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
         gap: 14,
         padding: "12px 16px",
         background: rowBaseBg(row, idx),
+        // Inherit the page's sans stack explicitly, matching the Companies
+        // list rows (source of truth for typography) so all three tabs render
+        // identical font family/size/weight.
+        fontFamily: "inherit",
       }}
       onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(91,119,153,0.08)"; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = rowBaseBg(row, idx); }}
@@ -578,12 +614,12 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
       />
       <div className="flex items-center justify-center">
         {row.company ? (
-          <CompanyLogo company={row.company} size={28} rounded={6} />
+          <CompanyLogo company={row.company} size={32} rounded={6} />
         ) : (
           <div
             style={{
-              width: 28,
-              height: 28,
+              width: 32,
+              height: 32,
               borderRadius: 6,
               background: "var(--paper-2, #FAFBFF)",
               border: "1px dashed var(--line, #E2E8F0)",
@@ -597,17 +633,7 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
           {row.email && (
             <span className="font-mono text-[10.5px] text-ink-3 truncate">{row.email}</span>
           )}
-          {row.linkedinUrl && (
-            <a
-              href={normalizeLinkedInUrl(row.linkedinUrl)}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="text-[11px] text-[#64748B] hover:underline inline-flex items-center gap-1 shrink-0"
-            >
-              <ExternalLink className="h-3 w-3" /> view
-            </a>
-          )}
+          <LinkedInLink url={row.linkedinUrl} stopRowClick />
         </div>
       </div>
       <div className="text-[12px] text-ink-2 truncate" style={{ minWidth: 0 }}>
@@ -1551,12 +1577,12 @@ const ManagersTable: React.FC<{
         onCheckedChange={toggleAll}
       />
       <span /> {/* logo column - no header label */}
-      <span className="font-mono text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3">Name</span>
-      <span className="font-mono text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3">LinkedIn</span>
-      <span className="font-mono text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3">Title</span>
-      <span className="font-mono text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3">Hiring for</span>
-      <span className="font-mono text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3">Company</span>
-      <span className="font-mono text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3 text-right">Added</span>
+      <span className="font-sans text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3">Name</span>
+      <span className="font-sans text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3">LinkedIn</span>
+      <span className="font-sans text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3">Title</span>
+      <span className="font-sans text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3">Hiring for</span>
+      <span className="font-sans text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3">Company</span>
+      <span className="font-sans text-[9px] font-medium uppercase tracking-[0.12em] text-ink-3 text-right">Added</span>
     </div>
   );
 
@@ -1575,6 +1601,9 @@ const ManagersTable: React.FC<{
         gap: 14,
         padding: "12px 16px",
         background: rowBaseBg(row, i),
+        // Match the Companies list rows (typography source of truth) so the
+        // Hiring Managers tab uses the same inherited font family/size/weight.
+        fontFamily: "inherit",
       }}
       onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(91,119,153,0.08)"; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = rowBaseBg(row, i); }}
@@ -1606,14 +1635,7 @@ const ManagersTable: React.FC<{
       </div>
       <div>
         {row.linkedinUrl ? (
-          <a
-            href={normalizeLinkedInUrl(row.linkedinUrl)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[11px] text-[#64748B] hover:underline inline-flex items-center gap-1"
-          >
-            <ExternalLink className="h-3 w-3" /> view
-          </a>
+          <LinkedInLink url={row.linkedinUrl} />
         ) : (
           <span className="text-ink-3"> - </span>
         )}
@@ -1699,6 +1721,41 @@ const ManagersTable: React.FC<{
 const capitalizeName = (s: string) =>
   s.replace(/\b[a-z]/g, c => c.toUpperCase()).replace(/\.[a-z]/g, c => c.toUpperCase());
 
+// Build a CSV from a header row + value rows and trigger a client-side
+// download. Cells containing commas/quotes/newlines are RFC-4180 quoted.
+const downloadCsv = (
+  filename: string,
+  headers: string[],
+  rows: Array<Array<string | number | undefined>>,
+) => {
+  const esc = (v: string | number | undefined) => {
+    const s = v == null ? "" : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const csv = [headers, ...rows].map((r) => r.map(esc).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+// ── Shared filter-bar control styling ────────────────────────────────────────
+// SINGLE SOURCE OF TRUTH for every control in the People / Companies / Hiring
+// Managers filter bars. All three tabs build their controls from these tokens
+// (and the render* helpers below), so they cannot drift apart in height,
+// padding, radius, font, or icon size. Tabs differ ONLY in which controls
+// render and their labels.
+const FB_SIZE = "h-10 px-3 rounded-full text-[14px]";           // height · padding · radius · font (incl. the dark +Add)
+const FB_FILL = "bg-paper-2/60 border border-line text-black";  // light pill fill + black text (every control except +Add)
+const FB_ICON = "h-3.5 w-3.5";                                   // icon size, matched to the 14px text
+const FB_ROW = "flex items-center justify-between gap-2 mb-3";   // one row: left filter group + right action group, hugging opposite edges
+const FB_GROUP = "flex items-center gap-1.5";                    // a cluster of controls within the row
+
 // ── Main Page ────────────────────────────────────────────────────────────────
 
 const MyNetworkPage: React.FC = () => {
@@ -1725,6 +1782,10 @@ const MyNetworkPage: React.FC = () => {
   const [addingPerson, setAddingPerson] = useState(false);
   const [addingCompany, setAddingCompany] = useState(false);
   const [addingManager, setAddingManager] = useState(false);
+  // Bumped by the "Refresh" button to re-run the data-loading effect below
+  // (it's listed in that effect's dependency array) so the user can pull the
+  // latest contacts/firms/managers without a full page reload.
+  const [refreshNonce, setRefreshNonce] = useState(0);
 
   // "Exploring" companies - a localStorage watch-list populated when the user
   // clicks a company card on Find > Companies. These bubble to the top of the
@@ -2104,7 +2165,7 @@ const MyNetworkPage: React.FC = () => {
         })
       );
     }).catch(() => {});
-  }, [user?.uid]);
+  }, [user?.uid, refreshNonce]);
 
   // ─── Inline-add save handlers ─────────────────────────────────────────────
   // Each table opens an empty row when its adding flag is true. The table
@@ -2333,12 +2394,101 @@ const MyNetworkPage: React.FC = () => {
     activeTab === "managers" ? (activeSelection.size === 1 ? "hiring manager" : "hiring managers") :
     activeSelection.size === 1 ? "person" : "people";
 
-  // Shared compact "Add X" pill rendered inline next to each tab's filter bar.
-  const AddButton = (
-    <Button variant="default" size="sm" onClick={onClickAdd}>
-      <Plus className="h-3.5 w-3.5" />
+  // "Add X" pill — shared across all three tabs. Stays dark/filled (default
+  // variant) with white text; FB_SIZE keeps it the exact height/shape/font of
+  // every other control.
+  const renderAddButton = () => (
+    <Button
+      variant="default"
+      size="sm"
+      onClick={onClickAdd}
+      className={FB_SIZE}
+    >
+      <Plus className={FB_ICON} />
       {addLabel}
     </Button>
+  );
+
+  // Search pill — shared by all three tabs (only the placeholder differs).
+  const renderSearch = (placeholder: string) => (
+    <div className={`flex items-center gap-1.5 ${FB_SIZE} ${FB_FILL}`} style={{ minWidth: 150 }}>
+      <SearchIcon className={`${FB_ICON} text-ink-3`} />
+      <input
+        type="text"
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        placeholder={placeholder}
+        className="flex-1 bg-transparent outline-none text-[14px] text-black placeholder:text-ink-3"
+      />
+    </div>
+  );
+
+  // "Group by company" toggle pill — shared by People + Hiring Managers (the
+  // Companies tab doesn't render it). Active state swaps fill/border only.
+  const renderGroupToggle = (active: boolean, onToggle: () => void) => (
+    <button
+      type="button"
+      onClick={onToggle}
+      title="Toggle company grouping"
+      className={`inline-flex items-center gap-1.5 font-medium ${FB_SIZE} ${
+        active ? "bg-[#64748B]/10 border border-[#64748B] text-black" : FB_FILL
+      }`}
+    >
+      {active ? <Layers className={FB_ICON} /> : <List className={FB_ICON} />}
+      {active ? "Grouped by company" : "Group by company"}
+    </button>
+  );
+
+  // Re-pull the active tab's data (contacts/firms/managers) without a full
+  // page reload by bumping the nonce wired into the data-loading effect.
+  const handleRefresh = () => {
+    setRefreshNonce((n) => n + 1);
+    toast({ title: "Refreshing your network…" });
+  };
+
+  // Export the active tab's rows to a CSV download. Exports the full saved
+  // set for that tab (not just the current search filter) so the file is a
+  // complete snapshot of that part of the network.
+  const handleExportCsv = () => {
+    if (activeTab === "companies") {
+      downloadCsv(
+        "my-network-companies.csv",
+        ["Company", "Industry", "HQ", "Contacts"],
+        companies.map((c) => [c.name, c.industry === "exploring" ? "" : c.industry, c.hq, c.alumni ?? 0]),
+      );
+    } else if (activeTab === "managers") {
+      downloadCsv(
+        "my-network-hiring-managers.csv",
+        ["Name", "Email", "Title", "Hiring For", "Company", "LinkedIn", "Added"],
+        managers.map((m) => [m.name, m.email, m.title, m.roleHiringFor, m.company, m.linkedinUrl, m.dateAdded]),
+      );
+    } else {
+      downloadCsv(
+        "my-network-people.csv",
+        ["Name", "Email", "Company", "Role", "School", "LinkedIn", "Added"],
+        people.map((p) => [p.name, p.email, p.company, p.role, p.school, p.linkedinUrl, p.createdAt]),
+      );
+    }
+  };
+
+  // Pill (icon + optional label) for the Refresh / Export CSV actions — shares
+  // the same FB_SIZE/FB_FILL tokens as every other control.
+  const renderToolButton = (
+    icon: React.ReactNode,
+    label: string,
+    onClick: () => void,
+    showLabel = true,
+  ) => (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={`inline-flex items-center gap-1.5 ${FB_SIZE} ${FB_FILL} hover:bg-paper-2 transition-colors`}
+    >
+      {icon}
+      {showLabel && label}
+    </button>
   );
 
   // List/Grid toggle pill for the active tab's grouped view. Only renders
@@ -2385,11 +2535,12 @@ const MyNetworkPage: React.FC = () => {
   );
 
   // Sort-direction dropdown for the active tab. Newest-first is default.
+  // Shared by all three tabs via the FB_* tokens.
   const renderSortDropdown = (value: SortDir, onChange: (v: SortDir) => void) => (
     <select
       value={value}
       onChange={(e) => onChange(e.target.value as SortDir)}
-      className="px-3 py-2 bg-paper-2/60 border border-line rounded-md text-[12.5px] text-ink-2 cursor-pointer outline-none"
+      className={`${FB_SIZE} ${FB_FILL} cursor-pointer outline-none`}
     >
       <option value="newest">Newest first</option>
       <option value="oldest">Oldest first</option>
@@ -2423,10 +2574,6 @@ const MyNetworkPage: React.FC = () => {
                   <Upload className="h-3.5 w-3.5" />
                   Import CSV
                 </Button>
-                <Button variant="secondary" size="sm">
-                  <Download className="h-3.5 w-3.5" />
-                  Export
-                </Button>
               </div>
             }
           />
@@ -2457,188 +2604,108 @@ const MyNetworkPage: React.FC = () => {
 
               {/* Filter bar - People */}
               {activeTab === "people" && (
-                <div className="flex items-center gap-2 mb-3 flex-wrap">
-                  {/* Search */}
-                  <div
-                    className="flex items-center gap-2 px-3 py-2 bg-paper-2/60 border border-line rounded-md"
-                    style={{ minWidth: 240 }}
-                  >
-                    <SearchIcon className="h-3.5 w-3.5 text-ink-3" />
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search name, company, email..."
-                      className="flex-1 bg-transparent outline-none text-[12.5px] text-ink placeholder:text-ink-3"
-                    />
+                <div className={FB_ROW}>
+                  {/* Left group: filters */}
+                  <div className={FB_GROUP}>
+                    {renderSearch("Search name, company, email...")}
+                    {renderSortDropdown(peopleSortDir, persistPeopleSort)}
+                    {renderGroupToggle(groupByCompany, () => setGroupByCompany((v) => !v))}
+
+                    {/* List/Grid view toggle, only meaningful while grouped */}
+                    {groupByCompany && renderViewToggle(peopleGroupedView, setPeopleGroupedViewPersisted)}
+
+                    {/* Clear - companyFilter can still be set via the Companies-tab
+                        drill-down even though the dropdown is gone. */}
+                    {(searchQuery || companyFilter) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearchQuery("");
+                          setCompanyFilter(null);
+                        }}
+                        className="text-[12px] text-ink-3 hover:text-ink-2 underline-offset-2 hover:underline"
+                      >
+                        Clear filters
+                      </button>
+                    )}
                   </div>
 
-                  {/* Company filter */}
-                  <select
-                    value={companyFilter ?? ""}
-                    onChange={(e) => setCompanyFilter(e.target.value || null)}
-                    className="px-3 py-2 bg-paper-2/60 border border-line rounded-md text-[12.5px] text-ink-2 cursor-pointer outline-none"
-                    style={{ minWidth: 180 }}
-                  >
-                    <option value="">All companies</option>
-                    {(() => {
-                      const counts = new Map<string, number>();
-                      for (const p of people) {
-                        const c = (p.company || "").trim();
-                        if (!c) continue;
-                        counts.set(c, (counts.get(c) || 0) + 1);
-                      }
-                      return [...counts.entries()]
-                        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-                        .map(([co, n]) => (
-                          <option key={co} value={co}>
-                            {co} ({n})
-                          </option>
-                        ));
-                    })()}
-                  </select>
-
-                  {renderSortDropdown(peopleSortDir, persistPeopleSort)}
-
-                  {/* Group toggle */}
-                  <button
-                    type="button"
-                    onClick={() => setGroupByCompany((v) => !v)}
-                    className={`inline-flex items-center gap-1.5 px-3 py-2 border rounded-md text-[12px] font-medium transition-colors ${
-                      groupByCompany
-                        ? "bg-[#64748B]/10 border-[#64748B] text-[#3F5878]"
-                        : "bg-paper-2/60 border-line text-ink-3 hover:text-ink-2"
-                    }`}
-                    title="Toggle company grouping"
-                  >
-                    {groupByCompany ? (
-                      <Layers className="h-3.5 w-3.5" />
-                    ) : (
-                      <List className="h-3.5 w-3.5" />
-                    )}
-                    {groupByCompany ? "Grouped by company" : "Group by company"}
-                  </button>
-
-                  {/* List/Grid view toggle, only meaningful while grouped */}
-                  {groupByCompany && renderViewToggle(peopleGroupedView, setPeopleGroupedViewPersisted)}
-
-                  {/* Clear */}
-                  {(searchQuery || companyFilter) && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSearchQuery("");
-                        setCompanyFilter(null);
-                      }}
-                      className="text-[12px] text-ink-3 hover:text-ink-2 underline-offset-2 hover:underline"
-                    >
-                      Clear filters
-                    </button>
-                  )}
-
-                  {/* Inline Add CTA - moved out of the AppHeader so the action
-                      sits next to the filter controls instead of the page chrome. */}
-                  <div className="ml-auto flex items-center gap-2">
+                  {/* Right group: actions */}
+                  <div className={FB_GROUP}>
+                    {renderToolButton(<RefreshCw className={FB_ICON} />, "Refresh", handleRefresh, false)}
+                    {renderToolButton(<Download className={FB_ICON} />, "Export CSV", handleExportCsv)}
                     {BulkDeleteButton}
-                    {AddButton}
+                    {renderAddButton()}
                   </div>
                 </div>
               )}
 
               {/* Filter bar - Companies */}
               {activeTab === "companies" && (
-                <div className="flex items-center gap-2 mb-3 flex-wrap">
-                  <div
-                    className="flex items-center gap-2 px-3 py-2 bg-paper-2/60 border border-line rounded-md"
-                    style={{ minWidth: 240 }}
-                  >
-                    <SearchIcon className="h-3.5 w-3.5 text-ink-3" />
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search company, industry, location..."
-                      className="flex-1 bg-transparent outline-none text-[12.5px] text-ink placeholder:text-ink-3"
-                    />
+                <div className={FB_ROW}>
+                  {/* Left group: filters */}
+                  <div className={FB_GROUP}>
+                    {renderSearch("Search company, industry, location...")}
+                    {renderSortDropdown(companiesSortDir, persistCompaniesSort)}
+                    {dismissedCompanies.size > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => persistDismissed(new Set())}
+                        className="text-[12px] text-[#3B82F6] hover:underline underline-offset-2"
+                        title="Show companies you've previously bulk-deleted from this view"
+                      >
+                        Restore {dismissedCompanies.size} hidden
+                      </button>
+                    )}
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery("")}
+                        className="text-[12px] text-ink-3 hover:text-ink-2 underline-offset-2 hover:underline"
+                      >
+                        Clear
+                      </button>
+                    )}
                   </div>
-                  {renderSortDropdown(companiesSortDir, persistCompaniesSort)}
-                  {dismissedCompanies.size > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => persistDismissed(new Set())}
-                      className="text-[12px] text-[#3B82F6] hover:underline underline-offset-2"
-                      title="Show companies you've previously bulk-deleted from this view"
-                    >
-                      Restore {dismissedCompanies.size} hidden
-                    </button>
-                  )}
-                  {searchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setSearchQuery("")}
-                      className="text-[12px] text-ink-3 hover:text-ink-2 underline-offset-2 hover:underline"
-                    >
-                      Clear
-                    </button>
-                  )}
-                  <div className="ml-auto flex items-center gap-2">
+
+                  {/* Right group: actions */}
+                  <div className={FB_GROUP}>
+                    {renderToolButton(<RefreshCw className={FB_ICON} />, "Refresh", handleRefresh, false)}
+                    {renderToolButton(<Download className={FB_ICON} />, "Export CSV", handleExportCsv)}
                     {BulkDeleteButton}
-                    {AddButton}
+                    {renderAddButton()}
                   </div>
                 </div>
               )}
 
               {/* Filter bar - Hiring Managers */}
               {activeTab === "managers" && (
-                <div className="flex items-center gap-2 mb-3 flex-wrap">
-                  <div
-                    className="flex items-center gap-2 px-3 py-2 bg-paper-2/60 border border-line rounded-md"
-                    style={{ minWidth: 240 }}
-                  >
-                    <SearchIcon className="h-3.5 w-3.5 text-ink-3" />
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search name, company, title, role..."
-                      className="flex-1 bg-transparent outline-none text-[12.5px] text-ink placeholder:text-ink-3"
-                    />
+                <div className={FB_ROW}>
+                  {/* Left group: filters */}
+                  <div className={FB_GROUP}>
+                    {renderSearch("Search name, company, title, role...")}
+                    {renderSortDropdown(managersSortDir, persistManagersSort)}
+                    {renderGroupToggle(managersGroupByCompany, () => setManagersGroupByCompany((v) => !v))}
+
+                    {managersGroupByCompany && renderViewToggle(managersGroupedView, setManagersGroupedViewPersisted)}
+
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery("")}
+                        className="text-[12px] text-ink-3 hover:text-ink-2 underline-offset-2 hover:underline"
+                      >
+                        Clear
+                      </button>
+                    )}
                   </div>
 
-                  {renderSortDropdown(managersSortDir, persistManagersSort)}
-
-                  <button
-                    type="button"
-                    onClick={() => setManagersGroupByCompany((v) => !v)}
-                    className={`inline-flex items-center gap-1.5 px-3 py-2 border rounded-md text-[12px] font-medium transition-colors ${
-                      managersGroupByCompany
-                        ? "bg-[#64748B]/10 border-[#64748B] text-[#3F5878]"
-                        : "bg-paper-2/60 border-line text-ink-3 hover:text-ink-2"
-                    }`}
-                    title="Toggle company grouping"
-                  >
-                    {managersGroupByCompany ? (
-                      <Layers className="h-3.5 w-3.5" />
-                    ) : (
-                      <List className="h-3.5 w-3.5" />
-                    )}
-                    {managersGroupByCompany ? "Grouped by company" : "Group by company"}
-                  </button>
-
-                  {managersGroupByCompany && renderViewToggle(managersGroupedView, setManagersGroupedViewPersisted)}
-
-                  {searchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setSearchQuery("")}
-                      className="text-[12px] text-ink-3 hover:text-ink-2 underline-offset-2 hover:underline"
-                    >
-                      Clear
-                    </button>
-                  )}
-                  <div className="ml-auto flex items-center gap-2">
+                  {/* Right group: actions */}
+                  <div className={FB_GROUP}>
+                    {renderToolButton(<RefreshCw className={FB_ICON} />, "Refresh", handleRefresh, false)}
+                    {renderToolButton(<Download className={FB_ICON} />, "Export CSV", handleExportCsv)}
                     {BulkDeleteButton}
-                    {AddButton}
+                    {renderAddButton()}
                   </div>
                 </div>
               )}

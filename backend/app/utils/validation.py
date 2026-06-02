@@ -12,7 +12,7 @@ class ContactSearchRequest(BaseModel):
     company: Optional[str] = Field(None, max_length=200, description="Company name (optional)")
     location: str = Field(..., min_length=1, max_length=200, description="Location (city, state)")
     collegeAlumni: Optional[str] = Field(None, max_length=200, description="College name for alumni filter")
-    batchSize: Optional[int] = Field(None, ge=1, le=15, description="Number of contacts to return (max 15 for elite tier)")
+    batchSize: Optional[int] = Field(None, ge=1, le=40, description="Number of contacts to return (max 40 for elite tier)")
     careerInterests: Optional[List[str]] = Field(None, max_length=10, description="Career interests")
     userProfile: Optional[dict] = Field(None, description="User profile data")
     
@@ -37,15 +37,15 @@ class ContactSearchRequest(BaseModel):
             return None
         if v < 1:
             raise ValueError('Batch size must be at least 1')
-        if v > 15:
-            raise ValueError('Batch size cannot exceed 15 (elite tier maximum)')
+        if v > 40:
+            raise ValueError('Batch size cannot exceed 40 (elite tier maximum)')
         return v
 
 
 class FirmSearchRequest(BaseModel):
     """Validation schema for firm search requests"""
     query: str = Field(..., min_length=1, max_length=500, description="Search query")
-    batchSize: Optional[int] = Field(None, ge=1, le=15, description="Number of firms to return")
+    batchSize: Optional[int] = Field(None, ge=1, le=40, description="Number of firms to return")
     
     @field_validator('query')
     @classmethod

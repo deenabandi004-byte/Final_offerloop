@@ -574,16 +574,14 @@ export function getCompanyLogoUrl(company: string): string | null {
   return domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=128` : null;
 }
 
-// Ordered list of logo URLs to try, best quality first: Clearbit's full-color
-// logo, then the Google favicon. Clearbit returns a real 404 for unknown
-// domains (so an onError handler can advance to the favicon); the favicon
-// always resolves. Consumers render the first that loads and fall back to a
-// monogram if every candidate fails. See <CompanyLogo />.
+// Logo URL(s) to try. Google's favicon service resolves for nearly every
+// domain; the consumer renders the first that loads and falls back to a
+// monogram if it fails. See <CompanyLogo />. (Clearbit's logo API was
+// discontinued and its host no longer resolves, so it was removed.)
 export function getCompanyLogoCandidates(company: string): string[] {
   const domain = getCompanyDomain(company);
   if (!domain) return [];
   return [
-    `https://logo.clearbit.com/${domain}`,
     `https://www.google.com/s2/favicons?domain=${domain}&sz=128`,
   ];
 }

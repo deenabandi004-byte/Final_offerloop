@@ -7,18 +7,19 @@ import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, ChevronRight, ChevronDown, X, LockKeyhole } from "lucide-react";
+import { ArrowLeft, ChevronRight, ChevronDown, X, LockKeyhole, Sparkles } from "lucide-react";
 import { apiService } from "@/services/api";
 import type { EmailTemplate, PresetOption, SavedEmailTemplate } from "@/services/api";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import { ResultActionButton } from "@/components/find/ResultActionButton";
 
 const MAX_CUSTOM_LEN = 4000;
 
 const PREVIEWS: Record<string, string> = {
   networking:
-    "Hi Alex,\n\nMy name is Deena, and I'm a junior studying Computer Science at USC. I came across your profile while researching engineering roles at Google, and your work on search infrastructure stood out. Would you be available for a brief 15–20 minute conversation at your convenience?\n\nBest regards,\nDeena",
+    "Hi Alex,\n\nMy name is Deena, and I'm a junior studying Computer Science at USC. I came across your profile while researching engineering roles at Google, and your work on search infrastructure stood out. Would you be available for a brief 15-20 minute conversation at your convenience?\n\nBest regards,\nDeena",
   referral:
     "Hi Alex,\n\nMy name is Deena, and I'm a junior studying Computer Science at USC. I noticed an open Software Engineer position on your team at Google that aligns well with my experience. Would you be open to referring me or connecting me with the appropriate hiring contact?\n\nThank you for your time,\nDeena",
   follow_up:
@@ -39,6 +40,53 @@ const PURPOSE_PILLS = [
 
 const CUSTOM_PURPOSE_ID = "custom";
 
+const SIGNOFF_PRESETS = ["Best,", "Thanks,", "Warm regards,", "Sincerely,", "Cheers,"];
+
+// Uppercase eyebrow label used above each left column section (SAVED, SIGN OFF,
+// SIGNATURE). Navy heading color comes from the existing --heading token.
+const SECTION_LABEL: React.CSSProperties = {
+  fontSize: 12,
+  letterSpacing: "0.14em",
+  fontWeight: 700,
+  color: "var(--heading, #1E2D4D)",
+  textTransform: "uppercase",
+  marginBottom: 12,
+};
+
+// Shared pill selector for the SAVED and SIGN OFF rows. Active state uses the
+// unified app accent (var(--accent)) so these match the redesigned Find pills.
+// Styling only: it owns no state, the parent passes active + onClick.
+function Pill({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        padding: "7px 16px",
+        fontSize: 12.5,
+        fontWeight: 500,
+        borderRadius: 999,
+        border: active ? "1px solid var(--accent, #4A60A8)" : "1px solid var(--line, #E5E5E0)",
+        background: active ? "var(--accent, #4A60A8)" : "var(--paper, #FFFFFF)",
+        color: active ? "#fff" : "var(--ink-2, #4A4F5B)",
+        cursor: "pointer",
+        transition: "all .15s",
+        fontFamily: "inherit",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
 function getPreview(key: string, firstName: string): string {
   const raw = PREVIEWS[key];
   if (!raw) return "";
@@ -51,6 +99,7 @@ export default function EmailTemplatesPage() {
   const { user } = useFirebaseAuth();
   const isElite = user?.tier === "elite";
   const firstName = (user?.name?.trim().split(/\s+/)[0] || "Deena").trim() || "Deena";
+  const userEmail = (user?.email || "").trim() || "youremail@gmail.com";
   const [savedTemplate, setSavedTemplate] = useState<EmailTemplate | null>(null);
   const [presets, setPresets] = useState<{ styles: PresetOption[]; purposes: PresetOption[] } | null>(null);
   const [purpose, setPurpose] = useState<string | null>("networking");
@@ -87,12 +136,12 @@ export default function EmailTemplatesPage() {
           savedTemplateId: template.savedTemplateId,
         });
         setSignoffPhrase(
-          ["Best,", "Thanks,", "Warm regards,", "Sincerely,", "Cheers,"].includes((template as any).signoffPhrase)
+          SIGNOFF_PRESETS.includes((template as any).signoffPhrase)
             ? (template as any).signoffPhrase
             : "custom"
         );
         setSignoffPhraseCustom(
-          ["Best,", "Thanks,", "Warm regards,", "Sincerely,", "Cheers,"].includes((template as any).signoffPhrase)
+          SIGNOFF_PRESETS.includes((template as any).signoffPhrase)
             ? ""
             : ((template as any).signoffPhrase || "")
         );
@@ -270,12 +319,12 @@ export default function EmailTemplatesPage() {
   if (loading) {
     return (
       <SidebarProvider>
-        <div className="flex min-h-screen w-full" style={{ background: 'var(--warm-bg, #FEFDFB)' }}>
+        <div className="flex min-h-screen w-full" style={{ background: "var(--surface, #F5F6F8)" }}>
           <AppSidebar />
           <MainContentWrapper>
             <AppHeader />
-            <main className="flex-1 flex items-center justify-center p-8">
-              <p style={{ color: 'var(--warm-ink-tertiary, #9C9590)' }}>Loading…</p>
+            <main className="flex-1 flex items-center justify-center p-8" style={{ background: "var(--paper, #FFFFFF)" }}>
+              <p style={{ color: "var(--ink-3, #8A8F9A)" }}>Loading...</p>
             </main>
           </MainContentWrapper>
         </div>
@@ -285,43 +334,19 @@ export default function EmailTemplatesPage() {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full font-sans" style={{ background: 'var(--warm-bg, #FEFDFB)' }}>
+      <div className="flex min-h-screen w-full font-sans" style={{ background: "var(--surface, #F5F6F8)" }}>
         <AppSidebar />
         <MainContentWrapper>
           <AppHeader title="Email Template" />
-          <main className="flex-1 overflow-y-auto" style={{ background: 'var(--warm-bg, #FEFDFB)', padding: "0 40px 64px" }}>
-            <div className="max-w-[800px] mx-auto" data-tour="tour-templates">
-              <button
-                type="button"
-                onClick={() => navigate("/find")}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  marginTop: 24,
-                  marginBottom: 20,
-                  fontSize: 13,
-                  color: 'var(--warm-ink-tertiary, #9C9590)',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                  padding: 0,
-                  transition: 'color .12s',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.color = '#1A1714'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--warm-ink-tertiary, #9C9590)'; }}
-              >
-                <ArrowLeft style={{ width: 14, height: 14 }} />
-                Back to Find
-              </button>
-
+          <main className="flex-1 overflow-y-auto" style={{ background: "var(--paper, #FFFFFF)", padding: "32px 40px 80px" }}>
+            <div className="max-w-[1080px] mx-auto" data-tour="tour-templates">
               <h1
                 style={{
                   fontFamily: "'Lora', Georgia, serif",
                   fontWeight: 600,
-                  fontSize: 22,
-                  color: '#1A1714',
+                  fontSize: 28,
+                  color: "#0F172A",
+                  letterSpacing: "-0.01em",
                   marginBottom: 6,
                 }}
               >
@@ -329,354 +354,317 @@ export default function EmailTemplatesPage() {
               </h1>
               <p
                 style={{
-                  fontSize: 13,
+                  fontSize: 13.5,
                   lineHeight: 1.6,
-                  color: 'var(--warm-ink-tertiary, #9C9590)',
+                  color: "var(--ink-3, #8A8F9A)",
                   marginBottom: 28,
+                  maxWidth: 640,
                 }}
               >
-                This controls how your outreach emails are written. Pick what you're asking for and how you want it to sound — check the preview below to see exactly what you'll get.
+                This controls how your outreach emails are written. Pick what you're asking for and how you want it to
+                sound, then check the live preview to see exactly what you'll get.
               </p>
 
-              {/* Purpose pills — defaults + saved custom templates */}
-              <div style={{ marginBottom: 24 }}>
-                <label style={{ fontSize: 13, fontWeight: 600, color: '#3B3530', display: 'block', marginBottom: 8 }}>What kind of email?</label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {PURPOSE_PILLS.map((pill) => {
-                    const isActive = purpose === pill.id && !activeSavedTemplateId;
-                    return (
-                      <button
-                        key={pill.id}
-                        type="button"
-                        onClick={() => handlePurposeClick(pill.id)}
-                        style={{
-                          padding: '8px 16px',
-                          fontSize: 12,
-                          fontWeight: 500,
-                          borderRadius: 8,
-                          border: isActive ? '1.5px solid #1A1714' : '1px solid var(--warm-border, #E8E4DE)',
-                          background: isActive ? '#1A1714' : 'var(--warm-surface, #FAFBFF)',
-                          color: isActive ? '#fff' : '#3B3530',
-                          cursor: 'pointer',
-                          transition: 'all .15s',
-                          fontFamily: 'inherit',
-                        }}
-                      >
-                        {pill.name}
-                        {pill.id === "networking" && " (default)"}
-                      </button>
-                    );
-                  })}
-                  {isElite && savedCustomTemplates.map((t) => {
-                    const isActive = activeSavedTemplateId === t.id;
-                    return (
-                      <div key={t.id} className="relative group">
-                        <button
-                          type="button"
-                          onClick={() => handleSavedTemplateClick(t)}
-                          style={{
-                            padding: '8px 16px',
-                            paddingRight: 28,
-                            fontSize: 12,
-                            fontWeight: 500,
-                            borderRadius: 8,
-                            border: isActive ? '1.5px solid #1A1714' : '1px solid var(--warm-border, #E8E4DE)',
-                            background: isActive ? '#1A1714' : 'var(--warm-surface, #FAFBFF)',
-                            color: isActive ? '#fff' : '#3B3530',
-                            cursor: 'pointer',
-                            transition: 'all .15s',
-                            fontFamily: 'inherit',
-                          }}
-                        >
-                          {t.name}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (confirm(`Delete "${t.name}"?`)) {
-                              handleDeleteSavedTemplate(t.id);
-                            }
-                          }}
-                          className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded-full hover:bg-red-100"
-                          aria-label={`Delete ${t.name}`}
-                        >
-                          <X className="h-3 w-3 text-red-500" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-                {hasPresetPurpose && !activeSavedTemplateId && PURPOSE_DESCRIPTIONS[purpose!] && (
-                  <p style={{ marginTop: 8, fontSize: 12, color: 'var(--warm-ink-tertiary, #9C9590)' }}>
-                    {PURPOSE_DESCRIPTIONS[purpose!]}
-                  </p>
-                )}
-              </div>
-
-              {/* Create Your Own Template — expandable card (Elite only) */}
-              {isElite ? (
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={isMakeYourOwn ? undefined : expandCreateYourOwn}
-                onKeyDown={(e) => {
-                  if (!isMakeYourOwn && (e.key === "Enter" || e.key === " ")) {
-                    e.preventDefault();
-                    expandCreateYourOwn();
-                  }
-                }}
-                style={{
-                  width: '100%',
-                  borderRadius: 12,
-                  border: isMakeYourOwn ? '1.5px solid #1A1714' : '1px solid var(--warm-border, #E8E4DE)',
-                  padding: '16px 20px',
-                  marginBottom: 28,
-                  cursor: isMakeYourOwn ? 'default' : 'pointer',
-                  background: isMakeYourOwn ? '#FFFFFF' : 'var(--warm-surface, #FAFBFF)',
-                  transition: 'all .15s',
-                }}
-              >
-                <div
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer' }}
-                  onClick={isMakeYourOwn ? (e) => { e.stopPropagation(); setPurpose("networking"); } : undefined}
-                  role={isMakeYourOwn ? "button" : undefined}
-                  tabIndex={isMakeYourOwn ? 0 : undefined}
-                  onKeyDown={
-                    isMakeYourOwn
-                      ? (e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            setPurpose("networking");
-                          }
-                        }
-                      : undefined
-                  }
-                >
-                  <span style={{ fontSize: 13, fontWeight: 500, color: '#3B3530' }}>Create Your Own Template</span>
-                  {isMakeYourOwn ? (
-                    <ChevronDown style={{ width: 14, height: 14, color: 'var(--warm-ink-tertiary, #9C9590)' }} />
-                  ) : (
-                    <ChevronRight style={{ width: 14, height: 14, color: 'var(--warm-ink-tertiary, #9C9590)' }} />
-                  )}
-                </div>
-                <div
-                  className={cn(
-                    "overflow-hidden transition-all duration-200 ease-out",
-                    isMakeYourOwn ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0"
-                  )}
-                >
-                  <div
-                    style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--warm-border, #E8E4DE)', display: 'flex', flexDirection: 'column', gap: 16 }}
-                    onClick={(e) => e.stopPropagation()}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+                {/* LEFT: controls */}
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => navigate("/find")}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      marginBottom: 24,
+                      fontSize: 13,
+                      color: "var(--ink-3, #8A8F9A)",
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      padding: 0,
+                      fontWeight: 500,
+                      transition: "color .12s",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent, #4A60A8)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.color = "var(--ink-3, #8A8F9A)"; }}
                   >
-                    <div>
-                      <label style={{ fontSize: 13, fontWeight: 500, color: '#3B3530', display: 'block', marginBottom: 6 }}>Template Name</label>
-                      <Input
-                        placeholder="e.g., Startup Pitch, Informational Interview Request..."
-                        value={templateName}
-                        onChange={(e) => setTemplateName(e.target.value.slice(0, 200))}
-                        className="w-full rounded-lg border-[#E8E4DE] bg-[#FAF9F6] text-[#1A1714] placeholder:text-[#9C9590] focus:bg-white focus:ring-2 focus:ring-[#1A1714]/10 focus:border-[#1A1714]"
-                      />
+                    <ArrowLeft style={{ width: 14, height: 14 }} />
+                    Back to Find
+                  </button>
+
+                  {/* SAVED: purpose presets + saved custom templates */}
+                  <div style={{ marginBottom: 26 }}>
+                    <div style={SECTION_LABEL}>Saved</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {PURPOSE_PILLS.map((pill) => {
+                        const isActive = purpose === pill.id && !activeSavedTemplateId;
+                        return (
+                          <Pill key={pill.id} active={isActive} onClick={() => handlePurposeClick(pill.id)}>
+                            {pill.name}
+                            {pill.id === "networking" && " (default)"}
+                          </Pill>
+                        );
+                      })}
+                      {isElite && savedCustomTemplates.map((t) => {
+                        const isActive = activeSavedTemplateId === t.id;
+                        return (
+                          <div key={t.id} className="relative group">
+                            <button
+                              type="button"
+                              onClick={() => handleSavedTemplateClick(t)}
+                              style={{
+                                padding: "7px 16px",
+                                paddingRight: 28,
+                                fontSize: 12.5,
+                                fontWeight: 500,
+                                borderRadius: 999,
+                                border: isActive ? "1px solid var(--accent, #4A60A8)" : "1px solid var(--line, #E5E5E0)",
+                                background: isActive ? "var(--accent, #4A60A8)" : "var(--paper, #FFFFFF)",
+                                color: isActive ? "#fff" : "var(--ink-2, #4A4F5B)",
+                                cursor: "pointer",
+                                transition: "all .15s",
+                                fontFamily: "inherit",
+                              }}
+                            >
+                              {t.name}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (confirm(`Delete "${t.name}"?`)) {
+                                  handleDeleteSavedTemplate(t.id);
+                                }
+                              }}
+                              className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded-full hover:bg-red-100"
+                              aria-label={`Delete ${t.name}`}
+                            >
+                              <X className="h-3 w-3 text-red-500" />
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
-                    <div>
-                      <label style={{ fontSize: 13, fontWeight: 500, color: '#3B3530', display: 'block', marginBottom: 6 }}>Email Subject Line</label>
-                      <Input
-                        placeholder="e.g., Quick question from a fellow USC Trojan"
-                        value={subjectLine}
-                        onChange={(e) => setSubjectLine(e.target.value.slice(0, 500))}
-                        className="w-full rounded-lg border-[#E8E4DE] bg-[#FAF9F6] text-[#1A1714] placeholder:text-[#9C9590] focus:bg-white focus:ring-2 focus:ring-[#1A1714]/10 focus:border-[#1A1714]"
-                      />
+                    {hasPresetPurpose && !activeSavedTemplateId && PURPOSE_DESCRIPTIONS[purpose!] && (
+                      <p style={{ marginTop: 8, fontSize: 12, color: "var(--ink-3, #8A8F9A)" }}>
+                        {PURPOSE_DESCRIPTIONS[purpose!]}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Create Your Own Template: expandable card (Elite only) */}
+                  {isElite ? (
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={isMakeYourOwn ? undefined : expandCreateYourOwn}
+                      onKeyDown={(e) => {
+                        if (!isMakeYourOwn && (e.key === "Enter" || e.key === " ")) {
+                          e.preventDefault();
+                          expandCreateYourOwn();
+                        }
+                      }}
+                      style={{
+                        width: "100%",
+                        borderRadius: 12,
+                        border: isMakeYourOwn ? "1px solid var(--accent, #4A60A8)" : "1px solid var(--line, #E5E5E0)",
+                        padding: "16px 20px",
+                        marginBottom: 26,
+                        cursor: isMakeYourOwn ? "default" : "pointer",
+                        background: isMakeYourOwn ? "var(--paper, #FFFFFF)" : "var(--paper-2, #FAFBFF)",
+                        transition: "all .15s",
+                      }}
+                    >
+                      <div
+                        style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer" }}
+                        onClick={isMakeYourOwn ? (e) => { e.stopPropagation(); setPurpose("networking"); } : undefined}
+                        role={isMakeYourOwn ? "button" : undefined}
+                        tabIndex={isMakeYourOwn ? 0 : undefined}
+                        onKeyDown={
+                          isMakeYourOwn
+                            ? (e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  setPurpose("networking");
+                                }
+                              }
+                            : undefined
+                        }
+                      >
+                        <span style={{ fontSize: 13, fontWeight: 500, color: "var(--ink-2, #4A4F5B)" }}>Create Your Own Template</span>
+                        {isMakeYourOwn ? (
+                          <ChevronDown style={{ width: 14, height: 14, color: "var(--ink-3, #8A8F9A)" }} />
+                        ) : (
+                          <ChevronRight style={{ width: 14, height: 14, color: "var(--ink-3, #8A8F9A)" }} />
+                        )}
+                      </div>
+                      <div
+                        className={cn(
+                          "overflow-hidden transition-all duration-200 ease-out",
+                          isMakeYourOwn ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0"
+                        )}
+                      >
+                        <div
+                          style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--line, #E5E5E0)", display: "flex", flexDirection: "column", gap: 16 }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div>
+                            <label style={{ fontSize: 13, fontWeight: 500, color: "var(--ink-2, #4A4F5B)", display: "block", marginBottom: 6 }}>Template Name</label>
+                            <Input
+                              placeholder="e.g., Startup Pitch, Informational Interview Request..."
+                              value={templateName}
+                              onChange={(e) => setTemplateName(e.target.value.slice(0, 200))}
+                              className="w-full rounded-lg border-[#E5E5E0] bg-[#FAFBFF] text-[#111318] placeholder:text-[#8A8F9A] focus:bg-white focus:ring-2 focus:ring-[#4A60A8]/15 focus:border-[#4A60A8]"
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: 13, fontWeight: 500, color: "var(--ink-2, #4A4F5B)", display: "block", marginBottom: 6 }}>Email Subject Line</label>
+                            <Input
+                              placeholder="e.g., Quick question from a fellow USC Trojan"
+                              value={subjectLine}
+                              onChange={(e) => setSubjectLine(e.target.value.slice(0, 500))}
+                              className="w-full rounded-lg border-[#E5E5E0] bg-[#FAFBFF] text-[#111318] placeholder:text-[#8A8F9A] focus:bg-white focus:ring-2 focus:ring-[#4A60A8]/15 focus:border-[#4A60A8]"
+                            />
+                          </div>
+                          <div>
+                            <p style={{ fontSize: 12, color: "var(--ink-3, #8A8F9A)", lineHeight: 1.5, marginBottom: 8 }}>
+                              Describe exactly what you want your emails to say, in plain English. Want to pitch your startup? Ask for an intro to their manager? Request a campus speaking slot? Just type it out.
+                            </p>
+                            <Textarea
+                              placeholder="e.g., Write a 3-sentence email pitching my startup to university career center directors and asking for a 15-minute demo call..."
+                              value={customInstructions}
+                              onChange={(e) => setCustomInstructions(e.target.value.slice(0, MAX_CUSTOM_LEN))}
+                              className="min-h-[72px] resize-y w-full rounded-lg border-[#E5E5E0] bg-[#FAFBFF] text-[#111318] placeholder:text-[#8A8F9A] focus:bg-white focus:ring-2 focus:ring-[#4A60A8]/15 focus:border-[#4A60A8]"
+                              maxLength={MAX_CUSTOM_LEN}
+                              rows={3}
+                            />
+                            <p style={{ fontSize: 11, color: "var(--ink-3, #8A8F9A)", textAlign: "right", marginTop: 4 }}>
+                              {MAX_CUSTOM_LEN - customInstructions.length} characters left
+                            </p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <p style={{ fontSize: 12, color: 'var(--warm-ink-tertiary, #9C9590)', lineHeight: 1.5, marginBottom: 8 }}>
-                        Describe exactly what you want your emails to say — in plain English. Want to pitch your startup? Ask for an intro to their manager? Request a campus speaking slot? Just type it out.
-                      </p>
-                      <Textarea
-                        placeholder="e.g., Write a 3-sentence email pitching my startup to university career center directors and asking for a 15-minute demo call..."
-                        value={customInstructions}
-                        onChange={(e) => setCustomInstructions(e.target.value.slice(0, MAX_CUSTOM_LEN))}
-                        className="min-h-[72px] resize-y w-full rounded-lg border-[#E8E4DE] bg-[#FAF9F6] text-[#1A1714] placeholder:text-[#9C9590] focus:bg-white focus:ring-2 focus:ring-[#1A1714]/10 focus:border-[#1A1714]"
-                        maxLength={MAX_CUSTOM_LEN}
-                        rows={3}
-                      />
-                      <p style={{ fontSize: 11, color: 'var(--warm-ink-tertiary, #9C9590)', textAlign: 'right', marginTop: 4 }}>
-                        {MAX_CUSTOM_LEN - customInstructions.length} characters left
-                      </p>
+                  ) : (
+                    <div style={{
+                      width: "100%",
+                      borderRadius: 12,
+                      border: "1px solid var(--line, #E5E5E0)",
+                      background: "var(--paper-2, #FAFBFF)",
+                      padding: "16px 20px",
+                      marginBottom: 26,
+                      opacity: 0.6,
+                      cursor: "default",
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                        <LockKeyhole style={{ width: 14, height: 14, color: "var(--ink-3, #8A8F9A)" }} />
+                        <span style={{ fontSize: 13, fontWeight: 500, color: "var(--ink-3, #8A8F9A)" }}>Create Your Own Template</span>
+                        <span style={{ fontSize: 11, color: "var(--ink-3, #8A8F9A)" }}>Elite, free trial available</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SIGN OFF */}
+                  <div style={{ marginBottom: 26 }}>
+                    <div style={SECTION_LABEL}>Sign Off</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {SIGNOFF_PRESETS.map((preset) => (
+                        <Pill
+                          key={preset}
+                          active={signoffPhrase === preset}
+                          onClick={() => {
+                            setSignoffPhrase(preset);
+                            setSignoffPhraseCustom("");
+                          }}
+                        >
+                          {preset}
+                        </Pill>
+                      ))}
+                      <Pill active={signoffPhrase === "custom"} onClick={() => setSignoffPhrase("custom")}>
+                        Custom
+                      </Pill>
+                      {signoffPhrase === "custom" && (
+                        <Input
+                          placeholder="e.g. Best regards,"
+                          value={signoffPhraseCustom}
+                          onChange={(e) => setSignoffPhraseCustom(e.target.value.slice(0, 50))}
+                          className="inline-flex w-[160px] h-8 text-xs rounded-full border-[#E5E5E0]"
+                          maxLength={50}
+                        />
+                      )}
                     </div>
                   </div>
-                </div>
-              </div>
-              ) : (
-              <div style={{
-                width: '100%',
-                borderRadius: 12,
-                border: '1px solid var(--warm-border, #E8E4DE)',
-                background: 'var(--warm-surface, #FAFBFF)',
-                padding: '16px 20px',
-                marginBottom: 28,
-                opacity: 0.6,
-                cursor: 'default',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                  <LockKeyhole style={{ width: 14, height: 14, color: 'var(--warm-ink-tertiary, #9C9590)' }} />
-                  <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--warm-ink-tertiary, #9C9590)' }}>Create Your Own Template</span>
-                  <span style={{ fontSize: 11, color: 'var(--warm-ink-tertiary, #9C9590)' }}>Elite · Free trial available</span>
-                </div>
-              </div>
-              )}
 
-              {/* Sign-off & signature — always visible */}
-              <div style={{ marginBottom: 28 }}>
-                <label style={{ fontSize: 13, fontWeight: 600, color: '#3B3530', display: 'block', marginBottom: 8 }}>Sign-off & signature</label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-                  {["Best,", "Thanks,", "Warm regards,", "Sincerely,", "Cheers,"].map((preset) => {
-                    const isActive = signoffPhrase === preset;
-                    return (
-                      <button
-                        key={preset}
-                        type="button"
-                        onClick={() => {
-                          setSignoffPhrase(preset);
-                          setSignoffPhraseCustom("");
-                        }}
-                        style={{
-                          padding: '6px 14px',
-                          fontSize: 12,
-                          fontWeight: 500,
-                          borderRadius: 8,
-                          border: isActive ? '1.5px solid #1A1714' : '1px solid var(--warm-border, #E8E4DE)',
-                          background: isActive ? '#1A1714' : 'var(--warm-surface, #FAFBFF)',
-                          color: isActive ? '#fff' : '#3B3530',
-                          cursor: 'pointer',
-                          transition: 'all .15s',
-                          fontFamily: 'inherit',
-                        }}
-                      >
-                        {preset}
-                      </button>
-                    );
-                  })}
-                  {(() => {
-                    const isActive = signoffPhrase === "custom";
-                    return (
-                      <button
-                        type="button"
-                        onClick={() => setSignoffPhrase("custom")}
-                        style={{
-                          padding: '6px 14px',
-                          fontSize: 12,
-                          fontWeight: 500,
-                          borderRadius: 8,
-                          border: isActive ? '1.5px solid #1A1714' : '1px solid var(--warm-border, #E8E4DE)',
-                          background: isActive ? '#1A1714' : 'var(--warm-surface, #FAFBFF)',
-                          color: isActive ? '#fff' : '#3B3530',
-                          cursor: 'pointer',
-                          transition: 'all .15s',
-                          fontFamily: 'inherit',
-                        }}
-                      >
-                        Custom
-                      </button>
-                    );
-                  })()}
-                  {signoffPhrase === "custom" && (
-                    <Input
-                      placeholder="e.g. Best regards,"
-                      value={signoffPhraseCustom}
-                      onChange={(e) => setSignoffPhraseCustom(e.target.value.slice(0, 50))}
-                      className="inline-flex w-[160px] h-8 text-xs rounded-lg border-[#E8E4DE]"
-                      maxLength={50}
+                  {/* SIGNATURE */}
+                  <div style={{ marginBottom: 26 }}>
+                    <div style={SECTION_LABEL}>Signature</div>
+                    <label style={{ fontSize: 12, fontWeight: 500, color: "var(--ink-2, #4A4F5B)", display: "block", marginBottom: 6 }}>Name, university, email, LinkedIn...</label>
+                    <Textarea
+                      placeholder={"e.g. John Smith\nUSC | Class of 2025\njohn@example.com"}
+                      value={signatureBlock}
+                      onChange={(e) => setSignatureBlock(e.target.value.slice(0, 500))}
+                      className="min-h-[90px] resize-y w-full rounded-lg border-[#E5E5E0] bg-[#FAFBFF] text-sm text-[#111318] placeholder:text-[#8A8F9A] focus:bg-white focus:ring-2 focus:ring-[#4A60A8]/15 focus:border-[#4A60A8]"
+                      maxLength={500}
+                      rows={3}
                     />
-                  )}
-                </div>
-                <div style={{ marginBottom: 8 }}>
-                  <label style={{ fontSize: 12, fontWeight: 500, color: '#3B3530', display: 'block', marginBottom: 6 }}>Signature block (name, university, email, LinkedIn…)</label>
-                  <Textarea
-                    placeholder="e.g. John Smith\nUSC | Class of 2025\njohn@example.com"
-                    value={signatureBlock}
-                    onChange={(e) => setSignatureBlock(e.target.value.slice(0, 500))}
-                    className="min-h-[72px] resize-y w-full rounded-lg border-[#E8E4DE] bg-[#FAF9F6] text-sm text-[#1A1714] placeholder:text-[#9C9590] focus:bg-white focus:ring-2 focus:ring-[#1A1714]/10 focus:border-[#1A1714]"
-                    maxLength={500}
-                    rows={3}
-                  />
-                  <p style={{ fontSize: 11, color: 'var(--warm-ink-tertiary, #9C9590)', textAlign: 'right', marginTop: 4 }}>{500 - signatureBlock.length} characters left</p>
-                </div>
-                <p style={{ fontSize: 11, color: 'var(--warm-ink-tertiary, #9C9590)', marginTop: 4 }}>Live preview:</p>
-                <pre style={{ fontSize: 12, color: '#3B3530', marginTop: 2, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
-                  {`${effectiveSignoff}\n${signatureBlock.trim() || firstName}`}
-                </pre>
-              </div>
+                    <p style={{ fontSize: 11, color: "var(--ink-3, #8A8F9A)", textAlign: "right", marginTop: 4 }}>{500 - signatureBlock.length} characters left</p>
+                  </div>
 
-              {/* Actions */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, marginBottom: 28 }}>
-                <button
-                  type="button"
-                  onClick={handleReset}
-                  style={{ fontSize: 13, color: 'var(--warm-ink-tertiary, #9C9590)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: 0, textDecoration: 'underline' }}
-                >
-                  Reset
-                </button>
-                <button
-                  type="button"
-                  onClick={handleApplyToSearch}
-                  disabled={isSaving}
-                  style={{
-                    padding: '9px 18px',
-                    fontSize: 13,
-                    fontWeight: 500,
-                    borderRadius: 8,
-                    border: '1.5px solid var(--warm-border, #E8E4DE)',
-                    background: 'transparent',
-                    color: '#3B3530',
-                    cursor: isSaving ? 'not-allowed' : 'pointer',
-                    fontFamily: 'inherit',
-                    transition: 'all .15s',
-                  }}
-                >
-                  Apply to this search
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveAsDefault}
-                  disabled={isSaving}
-                  style={{
-                    padding: '9px 18px',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    borderRadius: 8,
-                    border: '1.5px solid transparent',
-                    background: '#1A1714',
-                    color: '#fff',
-                    cursor: isSaving ? 'not-allowed' : 'pointer',
-                    fontFamily: 'inherit',
-                    transition: 'all .15s',
-                  }}
-                >
-                  {isSaving ? "Saving…" : isMakeYourOwn ? "Save Template" : "Save as default"}
-                </button>
-              </div>
+                  {/* Actions */}
+                  <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
+                    <ResultActionButton variant="primary" onClick={handleApplyToSearch} disabled={isSaving}>
+                      Apply to this search
+                    </ResultActionButton>
+                    <ResultActionButton variant="secondary" onClick={handleSaveAsDefault} disabled={isSaving}>
+                      {isSaving ? "Saving..." : isMakeYourOwn ? "Save Template" : "Save as default"}
+                    </ResultActionButton>
+                    <button
+                      type="button"
+                      onClick={handleReset}
+                      style={{ fontSize: 13, color: "var(--ink-3, #8A8F9A)", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0, textDecoration: "underline" }}
+                    >
+                      Reset
+                    </button>
+                  </div>
+                </div>
 
-              {/* Preview */}
-              <div style={{
-                borderLeft: '3px solid var(--warm-border, #E8E4DE)',
-                background: 'var(--warm-surface, #FAFBFF)',
-                borderRadius: '0 12px 12px 0',
-                padding: '16px 20px',
-              }}>
-                <p style={{ fontSize: 10, fontWeight: 500, color: 'var(--warm-ink-tertiary, #9C9590)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Preview</p>
-                {isMakeYourOwn ? (
-                  <p style={{ fontSize: 13, color: '#3B3530', lineHeight: 1.5 }}>
-                    Your emails will be generated based on your instructions above. Each email will be personalized to the contact.
+                {/* RIGHT: live email preview */}
+                <div className="md:sticky md:top-6 self-start" style={{ borderLeft: "1px solid var(--line, #E5E5E0)", paddingLeft: 28 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                    <span style={{ fontSize: 12, letterSpacing: "0.14em", fontWeight: 700, color: "var(--heading, #1E2D4D)", textTransform: "uppercase" }}>Preview</span>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--action-fg, #E07A3E)", background: "var(--action-bg, #FBE6D6)", fontSize: 10.5, fontWeight: 700, padding: "3px 9px", borderRadius: 5 }}>
+                      <Sparkles style={{ width: 11, height: 11 }} /> AI Draft
+                    </span>
+                  </div>
+                  <p style={{ fontSize: 12, color: "var(--ink-3, #8A8F9A)", marginBottom: 18 }}>
+                    This is a preview. Actual emails will be personalized to each contact.
                   </p>
-                ) : previewBody ? (
-                  <>
-                    <p style={{ fontSize: 11, color: 'var(--warm-ink-tertiary, #9C9590)', marginBottom: 12 }}>Actual emails will be personalized to each contact.</p>
-                    <pre style={{ fontSize: 13, color: '#3B3530', whiteSpace: 'pre-wrap', fontFamily: 'inherit', lineHeight: 1.6 }}>
-                      {previewBody}
-                    </pre>
-                  </>
-                ) : null}
+
+                  {([
+                    ["To", (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "var(--primary-50, #EEF1F9)", color: "var(--accent, #4A60A8)", borderRadius: 999, padding: "3px 9px", fontSize: 12, fontWeight: 500 }}>
+                        <span style={{ width: 21, height: 21, borderRadius: "50%", background: "var(--accent, #4A60A8)", color: "#fff", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>CN</span>
+                        Contact Name
+                      </span>
+                    )],
+                    ["From", <span style={{ color: "var(--ink-2, #4A4F5B)", fontSize: 12 }}>{userEmail}</span>],
+                    ["Subject", <span style={{ color: "var(--ink-2, #4A4F5B)", fontSize: 12 }}>{subjectLine.trim() || "Auto-generated subject line"}</span>],
+                  ] as [string, React.ReactNode][]).map(([label, value]) => (
+                    <div key={label} style={{ display: "grid", gridTemplateColumns: "60px 1fr", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--line-2, #F0F0ED)", fontSize: 13.5 }}>
+                      <div style={{ color: "var(--ink-3, #8A8F9A)", fontWeight: 500, fontSize: 12 }}>{label}</div>
+                      <div>{value}</div>
+                    </div>
+                  ))}
+
+                  <div style={{ marginTop: 18, fontSize: 13, lineHeight: 1.7, color: "var(--ink-2, #4A4F5B)", whiteSpace: "pre-wrap" }}>
+                    {isMakeYourOwn
+                      ? "Your emails will be generated based on your instructions above. Each email will be personalized to the contact."
+                      : previewBody
+                        ? previewBody
+                        : "Select a template to preview a sample email."}
+                  </div>
+                </div>
               </div>
             </div>
           </main>

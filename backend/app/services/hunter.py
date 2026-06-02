@@ -27,6 +27,28 @@ CACHE_TTL = 3600  # 1 hour TTL
 _email_verification_cache = {}  # type: Dict[str, Tuple[dict, float]]
 _verification_cache_lock = threading.Lock()
 
+# ✅ Circuit breaker: when Hunter returns 429 (rate limit), it's an account-wide
+# condition — every subsequent call in the batch/search will also 429. Retrying
+# each one (get_domain_pattern alone burns 1s+2s+4s=7s on a fully limited key)
+# adds massive latency for zero benefit. Trip a process-wide cooldown on the
+# first 429 so the rest of the search skips Hunter and falls back to pattern
+# synthesis instantly. Self-heals when the cooldown elapses.
+_hunter_circuit_lock = threading.Lock()
+_hunter_ratelimited_until = 0.0  # epoch seconds; skip Hunter calls until this time
+HUNTER_RATELIMIT_COOLDOWN = 60.0  # back off for 60s after a 429
+
+
+def _hunter_is_ratelimited() -> bool:
+    with _hunter_circuit_lock:
+        return time.time() < _hunter_ratelimited_until
+
+
+def _hunter_trip_ratelimit():
+    global _hunter_ratelimited_until
+    with _hunter_circuit_lock:
+        _hunter_ratelimited_until = time.time() + HUNTER_RATELIMIT_COOLDOWN
+    print(f"[Hunter] ⛔ Circuit breaker tripped — skipping Hunter calls for {HUNTER_RATELIMIT_COOLDOWN:.0f}s after 429")
+
 # Company domain mapping for common companies
 COMPANY_DOMAINS = {
     # Consulting
@@ -601,6 +623,11 @@ def find_email_with_hunter(first_name: str, last_name: str, domain: str, api_key
         print(f"[Hunter Email Finder] ⚠️ Missing required parameters: first={bool(first_name)}, last={bool(last_name)}, domain={bool(domain)}")
         return None, 0
 
+    # Circuit breaker: skip immediately if Hunter recently 429'd (account-wide)
+    if _hunter_is_ratelimited():
+        print(f"[Hunter Email Finder] ⏭️  Skipping (rate-limit cooldown active) for {first_name} {last_name} @ {domain}")
+        return None, 0
+
     url = "https://api.hunter.io/v2/email-finder"
     params = {
         "domain": domain,
@@ -619,16 +646,12 @@ def find_email_with_hunter(first_name: str, last_name: str, domain: str, api_key
             
             print(f"[Hunter Email Finder] ⏱️  Response status: {response.status_code} (total: {total_time:.2f}s, API: {api_time:.2f}s)")
             
-            # Handle rate limit (429) with exponential backoff - only sleep when actually rate limited
+            # Handle rate limit (429): trip the circuit breaker so the rest of
+            # the batch/search skips Hunter instead of each call re-hitting 429.
             if response.status_code == 429:
-                wait_time = min((2 ** attempt) * 1, 8)  # 1s, 2s, 4s, max 8s
-                print(f"[Hunter Email Finder] ⚠️ Rate limited (429), waiting {wait_time}s before retry {attempt + 1}/{max_retries}...")
-                if attempt < max_retries - 1:
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    print(f"[Hunter Email Finder] ❌ Rate limited after {max_retries} attempts")
-                    return None, 0
+                _hunter_trip_ratelimit()
+                print(f"[Hunter Email Finder] ❌ Rate limited (429) — backing off")
+                return None, 0
             
             if response.status_code != 200:
                 print(f"[Hunter Email Finder] ⚠️ Error response: {response.status_code}")
@@ -771,26 +794,32 @@ def get_domain_pattern(domain: str, api_key: str = None) -> str:
                 # Cache expired, remove it
                 del _email_pattern_cache[domain]
     
+    # Circuit breaker: skip immediately if Hunter recently 429'd (account-wide).
+    # Avoids burning 1s+2s+4s of retry sleeps per domain on a rate-limited key.
+    if _hunter_is_ratelimited():
+        print(f"📦 ⏭️  Skipping Hunter domain-search (rate-limit cooldown active) for {domain}")
+        return None
+
     # Fetch pattern from Hunter with retry logic (only sleeps on actual 429 rate limits)
     url = "https://api.hunter.io/v2/domain-search"
     params = {
         'domain': domain,
         'api_key': api_key
     }
-    
+
     max_retries = 3
     for attempt in range(max_retries):
         try:
             api_start = time.time()
             response = requests.get(url, params=params, timeout=10)
             api_time = time.time() - api_start
-            
-            # Handle rate limit (429) with exponential backoff
+
+            # Handle rate limit (429): trip the circuit breaker and bail. Don't
+            # sleep-retry — it's account-wide, the retries will just 429 too.
             if response.status_code == 429:
-                wait_time = (2 ** attempt) * 1  # 1s, 2s, 4s
-                print(f"⚠️ Hunter.io Domain Search rate limited (429), waiting {wait_time}s before retry {attempt + 1}/{max_retries}...")
-                time.sleep(wait_time)
-                continue
+                _hunter_trip_ratelimit()
+                print(f"⚠️ Hunter.io Domain Search rate limited (429) for {domain} — backing off")
+                return None
             
             if response.status_code == 200:
                 data = response.json()
@@ -1168,29 +1197,33 @@ def verify_email_hunter(email: str, api_key: str = None, use_cache: bool = True)
                     # Cache expired, remove it
                     del _email_verification_cache[email]
     
+    # Circuit breaker: skip immediately if Hunter recently 429'd (account-wide).
+    if _hunter_is_ratelimited():
+        print(f"📦 ⏭️  Skipping Hunter verify (rate-limit cooldown active) for {email}")
+        return None
+
     # Only sleep when actually rate limited (429), not preemptively
     url = "https://api.hunter.io/v2/email-verifier"
     params = {
         'email': email,
         'api_key': api_key
     }
-    
+
     max_retries = 3
     last_was_rate_limit = False
-    
+
     for attempt in range(max_retries):
         try:
             api_start = time.time()
             response = requests.get(url, params=params, timeout=10)
             api_time = time.time() - api_start
-        
-            # Handle rate limit (429) - actual rate limit, wait and retry
+
+            # Handle rate limit (429): trip the breaker and bail — retrying an
+            # account-wide rate limit just burns wall-clock time.
             if response.status_code == 429:
-                last_was_rate_limit = True
-                wait_time = (2 ** attempt) * 1  # 1s, 2s, 4s
-                print(f"⚠️ Hunter.io rate limited (429), waiting {wait_time}s before retry {attempt + 1}/{max_retries}...")
-                time.sleep(wait_time)
-                continue
+                _hunter_trip_ratelimit()
+                print(f"⚠️ Hunter.io rate limited (429) for {email} — backing off")
+                return None
             
             last_was_rate_limit = False
             

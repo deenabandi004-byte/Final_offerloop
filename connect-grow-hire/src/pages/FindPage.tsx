@@ -15,7 +15,6 @@ import { NoSchoolEmptyState } from "@/components/NoSchoolEmptyState";
 import { GoalsPromptBanner } from "@/components/find/GoalsPromptBanner";
 import { IS_DEV_PREVIEW, DEV_MOCK_USER } from "@/lib/devPreview";
 import { getUniversityShortName } from "@/lib/universityUtils";
-import { useSchoolTitle } from "@/hooks/useSchoolTitle";
 
 const ContactSearchPage = React.lazy(() => import("./ContactSearchPage"));
 const FirmSearchPage = React.lazy(() => import("./FirmSearchPage"));
@@ -95,7 +94,6 @@ export const SearchSurface: React.FC = () => {
     setSearchParams({ tab }, { replace: true });
   };
 
-  const schoolTitle = useSchoolTitle(userUniversity, "companies");
   const isCompaniesTab = activeTab === "companies";
 
   return (
@@ -107,10 +105,24 @@ export const SearchSurface: React.FC = () => {
             <PersonalizationStrip firstName={userFirstName} university={userUniversity} />
           )}
           <PageTitle
-            lead={isCompaniesTab ? schoolTitle.lead : undefined}
-            accent={isCompaniesTab ? schoolTitle.accent : "meet?"}
+            lead={
+              isCompaniesTab
+                ? "Discover"
+                : activeTab === "hiring-managers"
+                ? "Connect with"
+                : undefined
+            }
+            accent={
+              isCompaniesTab
+                ? "Companies"
+                : activeTab === "hiring-managers"
+                ? "Hiring Managers"
+                : "meet?"
+            }
           >
-            {isCompaniesTab ? undefined : "Who do you want to"}
+            {isCompaniesTab || activeTab === "hiring-managers"
+              ? undefined
+              : "Who do you want to"}
           </PageTitle>
         </div>
       </div>
@@ -270,8 +282,6 @@ const FindPage: React.FC = () => {
     setSearchParams({ tab }, { replace: true });
   };
 
-  // Personalized title for Companies tab
-  const schoolTitle = useSchoolTitle(userUniversity, "companies");
   const isCompaniesTab = activeTab === "companies";
 
   // No-school empty state
@@ -281,7 +291,7 @@ const FindPage: React.FC = () => {
         <div className="flex min-h-screen w-full font-sans" style={{ color: "var(--ink)" }}>
           <AppSidebar />
           <MainContentWrapper>
-            <AppHeader title="Find" />
+            <AppHeader title="" />
             <NoSchoolEmptyState
               uid={user.uid}
               onSchoolSet={() => setForceRefresh((n) => n + 1)}
@@ -300,60 +310,69 @@ const FindPage: React.FC = () => {
       }}>
         <AppSidebar />
         <MainContentWrapper>
-          <AppHeader title="Find" />
+          <AppHeader title="" />
           <GoalsPromptBanner />
 
           {/* Scrollable page body */}
           <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
             {/* Page title */}
             <div style={{ flexShrink: 0 }}>
-              <div style={{ maxWidth: 800, margin: '0 auto', padding: '14px 40px 6px' }}>
+              <div style={{ maxWidth: 1000, margin: '0 auto', padding: '14px 40px 6px' }}>
                 <PageTitle
                   align="center"
                   noScribble
-                  lead={isCompaniesTab ? schoolTitle.lead : undefined}
-                  accent={isCompaniesTab ? schoolTitle.accent.replace(/\.$/, '') : "meet?"}
-                >
-                  {isCompaniesTab ? undefined : "Who do you want to"}
-                </PageTitle>
+                  size={isCompaniesTab ? "lg" : "md"}
+                  lead={
+                    isCompaniesTab
+                      ? "Discover"
+                      : activeTab === "hiring-managers"
+                      ? "Connect with"
+                      : "Who do you want to"
+                  }
+                  accent={
+                    isCompaniesTab
+                      ? "Companies"
+                      : activeTab === "hiring-managers"
+                      ? "Hiring Managers"
+                      : "meet?"
+                  }
+                  subtitle={
+                    isCompaniesTab
+                      ? "Find companies that match your interests."
+                      : activeTab === "hiring-managers"
+                      ? "Find the hiring manager behind a role, and draft a message that gets noticed."
+                      : "Find the right people, get their contact info, and draft outreach in one step."
+                  }
+                />
               </div>
             </div>
 
-            {/* Tab bar */}
-            <div style={{ borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
-              <div style={{ maxWidth: 800, margin: "0 auto", padding: "0 40px" }}>
-                <div style={{ display: "flex", gap: 0, justifyContent: "center" }}>
-                  {TABS.map((tab) => {
+            {/* Tab bar — segmented control */}
+            <div style={{ flexShrink: 0, marginTop: 8, marginBottom: 18 }}>
+              <div style={{ maxWidth: 1000, margin: "0 auto", padding: "0 40px", display: "flex", justifyContent: "center" }}>
+                <div style={{ display: "inline-flex", background: "#fff", borderRadius: 12, border: "1px solid var(--line, #E5E5E5)", overflow: "hidden", boxShadow: "0 1px 3px rgba(15,18,25,0.06)" }}>
+                  {TABS.map((tab, i) => {
                     const isActive = activeTab === tab.id;
                     return (
                       <button
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id)}
-                        className="max-sm:!px-4 max-sm:!text-[13px]"
+                        className="max-sm:!px-5"
                         style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 7,
-                          padding: "12px 20px 10px",
-                          fontSize: 13,
-                          fontWeight: isActive ? 500 : 400,
-                          cursor: "pointer",
+                          padding: "12px 36px",
+                          fontSize: 10,
+                          fontWeight: 700,
+                          letterSpacing: "0.1em",
+                          textTransform: "uppercase",
+                          color: isActive ? "#fff" : "var(--ink, #111318)",
+                          background: isActive ? "var(--accent, #4A60A8)" : "transparent",
                           border: "none",
-                          borderBottom: isActive ? "2px solid var(--brand-blue, #3B82F6)" : "2px solid transparent",
-                          marginBottom: -1,
-                          background: "transparent",
-                          color: isActive ? "var(--brand-blue, #3B82F6)" : "var(--ink-3)",
-                          transition: "all .15s",
+                          borderLeft: !isActive && i !== 0 ? "1px solid var(--line, #E5E5E5)" : "none",
+                          cursor: "pointer",
                           fontFamily: "inherit",
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!isActive) (e.currentTarget as HTMLButtonElement).style.color = "var(--ink-2)";
-                        }}
-                        onMouseLeave={(e) => {
-                          if (!isActive) (e.currentTarget as HTMLButtonElement).style.color = "var(--ink-3)";
+                          transition: "background .15s, color .15s",
                         }}
                       >
-                        <tab.icon style={{ width: 14, height: 14, flexShrink: 0 }} />
                         <span className="hidden sm:inline">{tab.label}</span>
                         <span className="sm:hidden">{tab.mobileLabel}</span>
                       </button>
@@ -363,35 +382,9 @@ const FindPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Stats bar */}
-            {(() => {
-              const uniShort = getUniversityShortName(userUniversity);
-              const statsItems = [
-                uniShort ? `3,200+ ${uniShort} alumni tracked` : null,
-                '13,700+ jobs indexed',
-                'Updated today',
-              ].filter(Boolean) as string[];
-              return (
-                <div style={{
-                  display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 0,
-                  padding: '10px 0 14px',
-                  fontSize: 11, fontWeight: 400, color: 'var(--ink-2)',
-                  fontFamily: "'JetBrains Mono', monospace",
-                  flexShrink: 0,
-                }}>
-                  {statsItems.map((item, i) => (
-                    <React.Fragment key={item}>
-                      {i > 0 && <span style={{ margin: '0 8px', fontSize: 9 }}>·</span>}
-                      <span>{item}</span>
-                    </React.Fragment>
-                  ))}
-                </div>
-              );
-            })()}
-
             {/* Tab body */}
             <div style={{ flex: 1, overflowY: "auto", borderTop: "none" }}>
-              <div style={{ maxWidth: 800, margin: "0 auto", padding: "0 40px 44px" }}>
+              <div style={{ maxWidth: 1000, margin: "0 auto", padding: "0 40px 44px" }}>
               <Suspense
                 fallback={
                   <div className="flex items-center justify-center py-20">

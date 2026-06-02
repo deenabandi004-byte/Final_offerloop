@@ -25,6 +25,7 @@ import UscBeta from "@/pages/UscBeta";
 
 // Lazy load heavy pages for code splitting
 const AboutUs = React.lazy(() => import("./pages/AboutUs"));
+const ForStudents = React.lazy(() => import("./pages/ForStudents"));
 const NetworkTracker = React.lazy(() => import("./pages/NetworkTracker"));
 const CoffeeChatLibrary = React.lazy(() => import("./pages/CoffeeChatLibrary"));
 const ContactUs = React.lazy(() => import("./pages/ContactUs"));
@@ -360,6 +361,7 @@ const AppRoutes: React.FC = () => {
 
       {/* Public informational pages */}
       <Route path="/about" element={<Suspense fallback={<PageLoader />}><AboutUs /></Suspense>} />
+      <Route path="/for-students" element={<Suspense fallback={<PageLoader />}><ForStudents /></Suspense>} />
       <Route path="/contact" element={<Navigate to="/contact-us" replace />} />
       <Route path="/contact-us" element={<Suspense fallback={<PageLoader />}><ContactUs /></Suspense>} />
 

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Helmet } from "react-helmet-async";
 import { Check, ArrowLeft, Settings, Shield, ChevronDown, X, Menu } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useNavigate, Link } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import OfferloopLogo from '@/assets/offerloop_logo2.png';
@@ -149,8 +150,7 @@ const Pricing = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const navigate = useNavigate();
   const { user, updateUser, checkCredits } = useFirebaseAuth();
-  // isStudent is on the Firestore user doc; not yet typed on the auth-context User shape.
-  const isStudent = Boolean((user as { isStudent?: boolean } | null)?.isStudent);
+  const isStudent = Boolean(user?.isStudent);
   // Trial badge follows the toggle (visual). Real trial length in Stripe is set
   // server-side from the Firestore isStudent flag (see backend/app/services/stripe_client.py).
   const trialDays = showStudentPrice ? 30 : 14;

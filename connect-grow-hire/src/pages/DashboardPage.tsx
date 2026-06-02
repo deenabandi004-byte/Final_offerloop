@@ -212,24 +212,28 @@ function buildDiscovery(p?: Profile): Discovery {
 }
 
 /* ============================================================
-   Category color system - the page's entire color budget
+   Category color system - TWO accents only.
+   - Brand blue (var(--accent)) = every category action/link (People,
+     Companies, Hiring). Tint = var(--primary-50). No purple, no green.
+   - Orange = reserved EXCLUSIVELY for loop-related UI (the Loop card).
+   `color` is the solid text/icon color; `tint` is the icon-tile fill.
    ============================================================ */
 
 const CATS = {
   people: {
-    color: "#2563EB",
+    color: "var(--accent)", tint: "var(--primary-50)",
     label: "People", Icon: Users, action: "Find people",
   },
   companies: {
-    color: "#7C3AED",
+    color: "var(--accent)", tint: "var(--primary-50)",
     label: "Companies", Icon: Building2, action: "Find firms",
   },
   hm: {
-    color: "#0E9F6E",
+    color: "var(--accent)", tint: "var(--primary-50)",
     label: "Hiring", Icon: UserPlus, action: "Find hiring managers",
   },
   loop: {
-    color: "#D97706",
+    color: "#D97706", tint: "#D9770614",
     label: "Loop", Icon: Repeat, action: "Set up loop",
   },
 } as const;
@@ -239,8 +243,15 @@ type CatKey = keyof typeof CATS;
    Shared styles
    ============================================================ */
 
-const CARD = "rounded-[10px] border border-[#E6EAF1] bg-white";
-const CARD_HOVER = "transition-all hover:border-[#BFDBFE] hover:shadow-[0_4px_14px_rgba(59,130,246,0.08)]";
+// These mirror the My Network filter-bar tokens (FB_* in src/pages/MyNetworkPage.tsx,
+// the documented single source of truth) so Home reads as the same product:
+// cards use the rounded-st-xl + border-line treatment, and pill controls are
+// h-10 / rounded-full / 14px text with 14px icons.
+const CARD = "rounded-st-xl border border-line bg-white";
+const CARD_HOVER = "transition-all hover:border-[#CBD5E1] hover:shadow-[0_4px_14px_rgba(15,23,42,0.06)]";
+const PILL = "h-10 px-3 rounded-full text-[14px]";                                    // FB_SIZE
+const PILL_OUTLINE = "bg-paper-2/60 border border-line text-black hover:bg-paper-2";  // FB_FILL (secondary)
+const PILL_ICON = "h-3.5 w-3.5";                                                      // FB_ICON
 
 /* ============================================================
    Small presentational components
@@ -256,7 +267,7 @@ function ZoneHeader({
           {title}
         </h2>
         {count !== undefined && count > 0 && (
-          <span className="rounded-full bg-[#EFF4FF] px-2 py-0.5 text-[11px] font-semibold text-[#3B82F6]">
+          <span className="rounded-full bg-[var(--primary-50)] px-2 py-0.5 text-[11px] font-semibold text-[var(--accent)]">
             {count}
           </span>
         )}
@@ -279,7 +290,7 @@ function DiscoveryCard({
   return (
     <button
       onClick={onClick}
-      className="snap-start shrink-0 w-[230px] rounded-[14px] border border-[#E2E8F0] bg-white text-left shadow-[0_1px_3px_rgba(15,23,42,0.06)] transition-all duration-150 hover:-translate-y-1 hover:border-[#CBD5E1] hover:shadow-[0_12px_28px_rgba(15,23,42,0.12)]"
+      className="snap-start shrink-0 w-[230px] rounded-st-2xl border border-line bg-white text-left shadow-[0_1px_3px_rgba(15,23,42,0.06)] transition-all duration-150 hover:-translate-y-1 hover:border-[#CBD5E1] hover:shadow-[0_12px_28px_rgba(15,23,42,0.12)]"
     >
       <div className="p-3.5">
         {/* category row: company logo (or icon tile) + neutral label */}
@@ -289,7 +300,7 @@ function DiscoveryCard({
           ) : (
             <span
               className="flex h-9 w-9 items-center justify-center rounded-[9px] text-[14px] font-bold"
-              style={{ background: `${c.color}14`, color: c.color }}
+              style={{ background: c.tint, color: c.color }}
             >
               {monogram ? monogram : <Icon className="h-[18px] w-[18px]" />}
             </span>
@@ -457,7 +468,7 @@ export default function DashboardPage() {
     needs.push({
       key: `reply-${r.contactId}`,
       icon: <Mail className="h-4 w-4" />,
-      tone: "#3B82F6",
+      tone: "var(--accent)",
       text: `${r.contactName} replied to you`,
       sub: r.company || r.snippet?.slice(0, 60) || "Reply waiting in your tracker",
       cta: "Reply",
@@ -468,7 +479,7 @@ export default function DashboardPage() {
     needs.push({
       key: `mtg-${e.id}`,
       icon: <Calendar className="h-4 w-4" />,
-      tone: "#8B5CF6",
+      tone: "var(--accent)",
       text: `${e.type || "Meeting"} with ${e.contactName || "a contact"}`,
       sub: `${dayLabel(e.date)}${e.time ? ` at ${e.time}` : ""}${e.firm ? ` · ${e.firm}` : ""}`,
       cta: "Prep",
@@ -479,7 +490,7 @@ export default function DashboardPage() {
     needs.push({
       key: "loop-approvals",
       icon: <Repeat className="h-4 w-4" />,
-      tone: "#F59E0B",
+      tone: "var(--accent)",
       text: `Your last loop has ${loopPending} ${loopPending === 1 ? "action" : "actions"} to review`,
       sub: "Scout drafted these for you - approve or skip each one",
       cta: "Review",
@@ -612,7 +623,7 @@ export default function DashboardPage() {
   if (authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-[#3B82F6]" />
+        <Loader2 className="h-6 w-6 animate-spin text-[var(--accent)]" />
       </div>
     );
   }
@@ -632,8 +643,13 @@ export default function DashboardPage() {
 
               {/* ── 1. Blue hero band - greeting + metrics + Scout ── */}
               <section
-                className="animate-fadeInUp relative overflow-hidden rounded-[16px]"
-                style={{ background: "linear-gradient(135deg,#1D4ED8 0%,#3B82F6 56%,#60A5FA 100%)" }}
+                className="animate-fadeInUp relative overflow-hidden rounded-st-3xl"
+                /* Spec defines no surface gradient; this is a subtle depth gradient
+                   between two canonical APP-system colors — brand slate (--accent
+                   #4a60a8) into heading navy (--heading #1e2d4d). Ties the hero to
+                   the navy sidebar/headings. Swap to a flat `var(--accent)` if you
+                   want strictly solid. */
+                style={{ background: "linear-gradient(135deg,var(--accent) 0%,var(--heading) 100%)" }}
               >
                 {/* soft light decoration */}
                 <div
@@ -662,7 +678,7 @@ export default function DashboardPage() {
                   </div>
 
                   {/* get-started nudge above the metrics */}
-                  <div className="mt-3.5 flex flex-col gap-3 rounded-[10px] border border-white/20 bg-white/10 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="mt-3.5 flex flex-col gap-3 rounded-st-xl border border-white/20 bg-white/10 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="text-[13.5px] font-semibold text-white">Get started</p>
                       <p className="mt-0.5 text-[13px] text-white/75">
@@ -671,9 +687,9 @@ export default function DashboardPage() {
                     </div>
                     <Button
                       onClick={() => navigate("/agent/setup")}
-                      className="h-9 shrink-0 gap-1.5 bg-white px-4 text-[13px] font-semibold text-[#2563EB] hover:bg-white/90"
+                      className={`${PILL} shrink-0 gap-1.5 bg-white font-semibold text-[var(--accent)] hover:bg-white/90`}
                     >
-                      Start a loop <ArrowRight className="h-3.5 w-3.5" />
+                      Start a loop <ArrowRight className={PILL_ICON} />
                     </Button>
                   </div>
 
@@ -682,7 +698,7 @@ export default function DashboardPage() {
                     {bandMetrics.map((m) => (
                       <div
                         key={m.label}
-                        className="rounded-[10px] border border-white/15 bg-white/10 px-3.5 py-2"
+                        className="rounded-st-xl border border-white/15 bg-white/10 px-3.5 py-2"
                       >
                         <p className="font-serif text-[22px] leading-none text-white">{m.value}</p>
                         <p className="mt-1 text-[11.5px] font-medium text-white/70">{m.label}</p>
@@ -691,7 +707,7 @@ export default function DashboardPage() {
                   </div>
 
                   {/* Scout command bar */}
-                  <div className="mt-3.5 flex items-center gap-2 rounded-[10px] bg-white px-3.5 py-2.5 shadow-sm">
+                  <div className="mt-3.5 flex items-center gap-2 rounded-st-xl bg-white px-3.5 py-2.5 shadow-sm">
                     <input
                       value={scoutInput}
                       onChange={(e) => setScoutInput(e.target.value)}
@@ -703,12 +719,11 @@ export default function DashboardPage() {
                       ⌘K
                     </kbd>
                     <Button
-                      size="sm"
                       onClick={() => askScout(scoutInput)}
                       disabled={!scoutInput.trim()}
-                      className="h-8 gap-1 bg-[#3B82F6] px-3 text-[13px] hover:bg-[#2563EB]"
+                      className={`${PILL} gap-1.5 bg-[var(--accent)] text-white hover:bg-[var(--primary-600)]`}
                     >
-                      Ask Scout <ArrowRight className="h-3.5 w-3.5" />
+                      Ask Scout <ArrowRight className={PILL_ICON} />
                     </Button>
                   </div>
                 </div>
@@ -719,12 +734,12 @@ export default function DashboardPage() {
                 <ZoneHeader title="Needs you now" count={needs.length} />
                 {dataLoading ? (
                   <div className="space-y-2">
-                    <Skeleton className="h-[58px] w-full rounded-[10px]" />
-                    <Skeleton className="h-[58px] w-full rounded-[10px]" />
+                    <Skeleton className="h-[58px] w-full rounded-st-xl" />
+                    <Skeleton className="h-[58px] w-full rounded-st-xl" />
                   </div>
                 ) : needs.length === 0 ? (
                   <div className={`${CARD} flex items-center gap-2.5 px-4 py-3`}>
-                    <CircleCheck className="h-[18px] w-[18px] text-[#10B981]" />
+                    <CircleCheck className="h-[18px] w-[18px] text-[var(--accent)]" />
                     <p className="text-[13.5px] text-[#475569]">
                       You're all caught up - nothing needs you right now.
                     </p>
@@ -739,7 +754,7 @@ export default function DashboardPage() {
                       >
                         <span
                           className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[7px]"
-                          style={{ background: `${n.tone}18`, color: n.tone }}
+                          style={{ background: "var(--primary-50)", color: n.tone }}
                         >
                           {n.icon}
                         </span>
@@ -748,10 +763,9 @@ export default function DashboardPage() {
                           <p className="truncate text-[12px] text-[#94A3B8]">{n.sub}</p>
                         </div>
                         <Button
-                          size="sm"
                           variant="outline"
                           onClick={n.onClick}
-                          className="h-8 flex-shrink-0 border-[#E2E8F0] px-3 text-[12.5px] hover:border-[#BFDBFE] hover:text-[#3B82F6]"
+                          className={`${PILL} ${PILL_OUTLINE} flex-shrink-0`}
                         >
                           {n.cta}
                         </Button>
@@ -787,14 +801,14 @@ export default function DashboardPage() {
                     <div className="flex items-center gap-3">
                       <button
                         onClick={() => setLoopModalOpen(true)}
-                        className="flex items-center gap-1 text-[12.5px] font-medium text-[#64748B] hover:text-[#3B82F6]"
+                        className="flex items-center gap-1 text-[12.5px] font-medium text-[#64748B] hover:text-[var(--accent)]"
                       >
                         <HelpCircle className="h-3.5 w-3.5" /> What's a loop?
                       </button>
                       {!isLoopSetup && (
                         <button
                           onClick={() => navigate("/agent")}
-                          className="flex items-center gap-0.5 text-[12.5px] font-medium text-[#3B82F6] hover:underline"
+                          className="flex items-center gap-0.5 text-[12.5px] font-medium text-[var(--accent)] hover:underline"
                         >
                           Open Loops <ChevronRight className="h-3.5 w-3.5" />
                         </button>
@@ -805,7 +819,7 @@ export default function DashboardPage() {
 
                 {isLoopSetup ? (
                   <div
-                    className="rounded-[12px] border border-[#FCE4BE] p-5 sm:p-6"
+                    className="rounded-st-2xl border border-[#FCE4BE] p-5 sm:p-6"
                     style={{ background: "linear-gradient(135deg,#FEF6E7 0%,#FFFFFF 65%)" }}
                   >
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -825,9 +839,9 @@ export default function DashboardPage() {
                       </div>
                       <Button
                         onClick={() => navigate("/agent/setup")}
-                        className="h-10 flex-shrink-0 gap-1.5 self-start bg-[#F59E0B] px-5 text-[14px] text-white hover:bg-[#D97706] sm:self-center"
+                        className={`${PILL} flex-shrink-0 gap-1.5 self-start bg-[#F59E0B] text-white hover:bg-[#D97706] sm:self-center`}
                       >
-                        Set up a loop <ArrowRight className="h-4 w-4" />
+                        Set up a loop <ArrowRight className={PILL_ICON} />
                       </Button>
                     </div>
                   </div>
@@ -838,7 +852,7 @@ export default function DashboardPage() {
                         <span
                           className="flex h-2 w-2 rounded-full"
                           style={{
-                            background: isRunning ? "#3B82F6" : loopStatus === "active" ? "#10B981" : "#F59E0B",
+                            background: "#F59E0B",
                           }}
                         />
                         <span className="text-[14px] font-semibold text-[#0F172A]">
@@ -851,22 +865,21 @@ export default function DashboardPage() {
                         )}
                       </div>
                       <Button
-                        size="sm"
                         onClick={() => runNow()}
                         disabled={isRunNowPending || isRunning}
-                        className="h-8 gap-1.5 bg-[#F59E0B] px-3 text-[12.5px] text-white hover:bg-[#D97706]"
+                        className={`${PILL} gap-1.5 bg-[#F59E0B] text-white hover:bg-[#D97706]`}
                       >
                         {isRunNowPending || isRunning ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <Loader2 className={`${PILL_ICON} animate-spin`} />
                         ) : (
-                          <Play className="h-3.5 w-3.5" />
+                          <Play className={PILL_ICON} />
                         )}
                         {isRunning ? "Running" : "Start a loop"}
                       </Button>
                     </div>
 
                     {isRunning && cycleProgress && (
-                      <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 rounded-[8px] bg-[#FEF6E7] px-3.5 py-2.5 text-[12.5px] text-[#92400E]">
+                      <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 rounded-st-lg bg-[#FEF6E7] px-3.5 py-2.5 text-[12.5px] text-[#92400E]">
                         <span>{cycleProgress.contactsFound} contacts found</span>
                         <span>{cycleProgress.emailsDrafted} emails drafted</span>
                         <span>{cycleProgress.jobsFound} jobs found</span>
@@ -910,7 +923,7 @@ export default function DashboardPage() {
                     action={
                       <button
                         onClick={() => navigate("/tracker")}
-                        className="flex items-center gap-0.5 text-[12.5px] font-medium text-[#3B82F6] hover:underline"
+                        className="flex items-center gap-0.5 text-[12.5px] font-medium text-[var(--accent)] hover:underline"
                       >
                         Open tracker <ChevronRight className="h-3.5 w-3.5" />
                       </button>
@@ -918,8 +931,8 @@ export default function DashboardPage() {
                   />
                   {dataLoading ? (
                     <div className="grid gap-3 sm:grid-cols-2">
-                      <Skeleton className="h-[110px] rounded-[10px]" />
-                      <Skeleton className="h-[110px] rounded-[10px]" />
+                      <Skeleton className="h-[110px] rounded-st-xl" />
+                      <Skeleton className="h-[110px] rounded-st-xl" />
                     </div>
                   ) : (
                     <div className="grid gap-3 sm:grid-cols-2">
@@ -942,12 +955,11 @@ export default function DashboardPage() {
                             {c.reason}
                           </p>
                           <Button
-                            size="sm"
                             variant="outline"
                             onClick={c.onClick}
-                            className="mt-3 h-8 w-fit gap-1 border-[#E2E8F0] px-3 text-[12.5px] hover:border-[#BFDBFE] hover:text-[#3B82F6]"
+                            className={`${PILL} ${PILL_OUTLINE} mt-3 w-fit gap-1.5`}
                           >
-                            {c.cta} <ArrowRight className="h-3.5 w-3.5" />
+                            {c.cta} <ArrowRight className={PILL_ICON} />
                           </Button>
                         </div>
                       ))}
@@ -964,9 +976,9 @@ export default function DashboardPage() {
                     <button
                       key={t.label}
                       onClick={() => navigate(t.to)}
-                      className="flex items-center gap-2 rounded-full border border-[#E6EAF1] bg-white px-3.5 py-2 text-[12.5px] font-medium text-[#475569] transition-colors hover:border-[#BFDBFE] hover:text-[#3B82F6]"
+                      className={`inline-flex items-center gap-1.5 ${PILL} ${PILL_OUTLINE} font-medium transition-colors`}
                     >
-                      <span className="text-[#94A3B8]">{t.icon}</span>
+                      <span className="text-ink-3">{t.icon}</span>
                       {t.label}
                     </button>
                   ))}
@@ -995,7 +1007,7 @@ export default function DashboardPage() {
                         "Suggest follow-ups when conversations go quiet",
                       ].map((t, i) => (
                         <li key={i} className="flex gap-2.5">
-                          <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-[#EFF4FF] text-[11px] font-bold text-[#3B82F6]">
+                          <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-[var(--primary-50)] text-[11px] font-bold text-[var(--accent)]">
                             {i + 1}
                           </span>
                           <span>{t}</span>
@@ -1011,9 +1023,9 @@ export default function DashboardPage() {
                   </div>
                   <Button
                     onClick={() => { setLoopModalOpen(false); navigate("/agent/setup"); }}
-                    className="mt-1 w-full gap-1.5 bg-[#3B82F6] hover:bg-[#2563EB]"
+                    className={`${PILL} mt-1 w-full gap-1.5 bg-[var(--accent)] text-white hover:bg-[var(--primary-600)]`}
                   >
-                    Start your first loop <ArrowRight className="h-4 w-4" />
+                    Start your first loop <ArrowRight className={PILL_ICON} />
                   </Button>
                 </DialogContent>
               </Dialog>

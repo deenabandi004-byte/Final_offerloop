@@ -5,9 +5,9 @@ import { AppHeader } from "@/components/AppHeader";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { useScout } from "@/contexts/ScoutContext";
 import {
-  Search, Linkedin, Send, Loader2, Sparkles, ArrowRight,
+  Linkedin, Loader2, Sparkles, ArrowRight, ArrowUp,
   User, Check, CheckCircle,
-  FileText, Upload, Mail, Inbox, AlertCircle, X, ExternalLink, ChevronRight
+  FileText, Upload, Mail, Inbox, AlertCircle, X, ExternalLink, ChevronRight, Lock
 } from "lucide-react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -25,13 +25,17 @@ import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { trackFeatureActionCompleted, trackError } from "../lib/analytics";
 import { ACCEPTED_RESUME_TYPES, isValidResumeFile } from "@/utils/resumeFileTypes";
-import { StickyCTA } from "@/components/StickyCTA";
 import ContactImport from "@/components/ContactImport";
 import { motion, AnimatePresence } from "framer-motion";
 import DimensionChips from "@/components/find/DimensionChips";
 import CompanyAlternatives from "@/components/find/CompanyAlternatives";
 import RoleVariations from "@/components/find/RoleVariations";
 import QuickStarters from "@/components/find/QuickStarters";
+import { SearchPromptBox, PEOPLE_SEARCH_HELPER, PEOPLE_SEARCH_HELPER_SEND, PEOPLE_SEARCH_HELPER_PREVIEW } from "@/components/find/SearchPromptBox";
+import { SearchModeSelector } from "@/components/find/SearchModeSelector";
+import { ResultActionButton } from "@/components/find/ResultActionButton";
+import { SendConfirmDialog } from "@/components/SendConfirmDialog";
+import { type OutreachMode, getDefaultOutreachMode, canUseOutreachMode } from "@/utils/featureAccess";
 import { findCompletion, expandQueryForBackend } from "@/lib/specificity";
 import SuggestionChips from "@/components/find/SuggestionChips";
 import { TemplateButton } from "@/components/TemplateButton";
@@ -110,13 +114,6 @@ function normalizeLinkedInUrl(input: string): string {
 
 
 // Helper function for contact count guidance
-const getContactCountHelper = (count: number): string => {
-  if (count === 1) return "Perfect for testing a single, specific contact";
-  if (count <= 3) return "Great for focused outreach";
-  if (count <= 7) return "Good for exploring a company";
-  if (count <= 10) return "Solid networking foundation";
-  return "Maximum reach for broad exposure";
-};
 
 // Stripe-style Tabs Component with animated underline
 interface StripeTabsProps {
@@ -153,7 +150,7 @@ const StripeTabs: React.FC<StripeTabsProps> = ({ activeTab, onTabChange, tabs })
               relative pb-3 text-sm font-medium transition-colors duration-150
               focus:outline-none focus-visible:outline-none
               ${activeTab === tab.id
-                ? 'text-[#3B82F6]'
+                ? 'text-[var(--accent, #4A60A8)]'
                 : 'text-[#6B7280] hover:text-[#0F172A]'
               }
             `}
@@ -168,7 +165,7 @@ const StripeTabs: React.FC<StripeTabsProps> = ({ activeTab, onTabChange, tabs })
 
       {/* Animated underline indicator - sits on top of divider */}
       <div
-        className="absolute bottom-0 h-[2px] bg-[#3B82F6] transition-all duration-200 ease-out"
+        className="absolute bottom-0 h-[2px] bg-[var(--accent, #4A60A8)] transition-all duration-200 ease-out"
         style={{
           left: indicatorStyle.left,
           width: indicatorStyle.width,
@@ -177,6 +174,10 @@ const StripeTabs: React.FC<StripeTabsProps> = ({ activeTab, onTabChange, tabs })
     </div>
   );
 };
+
+// Find People default batch size per tier (where the slider initially sits).
+// Free's default equals its max (5), so the Free slider sits at its maximum.
+const PEOPLE_BATCH_DEFAULTS: Record<"free" | "pro" | "elite", number> = { free: 5, pro: 10, elite: 20 };
 
 const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; parentEmailTemplate?: EmailTemplate | null; isDevPreview?: boolean }> = ({ embedded = false, hideSubTabs = false, parentEmailTemplate, isDevPreview = false }) => {
   const { user: authUser, checkCredits, updateCredits } = useFirebaseAuth();
@@ -200,12 +201,23 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
     return "free";
   }, [effectiveUser?.tier]);
 
+  // Outreach mode picked before running a search. Free lands on preview (its
+  // only option), Pro and Elite land on draft. If the tier changes and the
+  // current selection is no longer allowed, fall back to the tier default.
+  const [outreachMode, setOutreachMode] = useState<OutreachMode>(() => getDefaultOutreachMode(userTier));
+  useEffect(() => {
+    if (!canUseOutreachMode(userTier, outreachMode)) {
+      setOutreachMode(getDefaultOutreachMode(userTier));
+    }
+  }, [userTier, outreachMode]);
+
+  // Hard confirm gate shown before any send (send is irreversible).
+  const [showSendConfirm, setShowSendConfirm] = useState(false);
+
   function isSearchResult(x: any): x is { contacts: any[]; successful_drafts?: number } {
     return x && Array.isArray(x.contacts);
   }
 
-  // Ref for original button to track visibility
-  const originalButtonRef = useRef<HTMLButtonElement>(null);
   const searchSuccessRef = useRef<HTMLDivElement>(null);
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -259,8 +271,6 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
   // surface this honestly above the result list so the user knows the system
   // worked harder for them — and which constraints loosened — instead of
   // pretending the original specific query yielded those people.
-  const [broadenedDimensions, setBroadenedDimensions] = useState<string[]>([]);
-  const [companyContext, setCompanyContext] = useState<string>("");
   const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
   const [searchBroadened, setSearchBroadened] = useState(false);
   const [lastSearchStats, setLastSearchStats] = useState<{
@@ -276,8 +286,19 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
     }
   }, [hasResults, isSearching]);
 
-  // Batch size state
-  const [batchSize, setBatchSize] = useState<number>(1);
+  // Batch size state. Default sits at a tier-specific value (free 5, pro 10,
+  // elite 20). For free, the default equals the max (5), so the slider sits at
+  // its maximum. The clamp effect below keeps it within maxBatchSize.
+  const userAdjustedBatchSize = useRef(false);
+  const [batchSize, setBatchSize] = useState<number>(() => PEOPLE_BATCH_DEFAULTS[userTier]);
+
+  // When the tier becomes known or changes and the user has not moved the
+  // slider yet, snap the default to that tier's value.
+  useEffect(() => {
+    if (!userAdjustedBatchSize.current) {
+      setBatchSize(PEOPLE_BATCH_DEFAULTS[userTier]);
+    }
+  }, [userTier]);
 
   // UI polish state
   const [suggestionsCollapsed, setSuggestionsCollapsed] = useState(false);
@@ -422,7 +443,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
   // Typewriter shows when input is blurred + empty (greeting state). Once the
   // user focuses or types, it gets out of the way — the QuickStarters row
   // below the input takes over the "what could I try?" job.
-  const showAnimatedPlaceholder = !searchPrompt && !inputFocused;
+  const showAnimatedPlaceholder = !searchPrompt;
   // Ghost-text autocomplete: predicts the rest of the word/phrase the user is typing
   // against the dimension lexicons. Tab or Right-arrow (when cursor at end) accepts.
   const ghostCompletion = useMemo(
@@ -446,9 +467,9 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
   }, [previewSwap, searchPrompt]);
 
   const maxBatchSize = useMemo(() => {
-    // Get tier-specific max contacts: free=3, pro=8, elite=15
-    const tierMax = userTier === 'free' ? 3 : userTier === 'pro' ? 8 : 15;
-    const creditMax = Math.floor((effectiveUser.credits ?? 0) / 15);
+    // Get tier-specific max contacts: free=5, pro=20, elite=40
+    const tierMax = userTier === 'free' ? 5 : userTier === 'pro' ? 20 : 40;
+    const creditMax = Math.floor((effectiveUser.credits ?? 0) / 5);
     return Math.min(tierMax, creditMax);
   }, [userTier, effectiveUser.credits]);
 
@@ -1119,7 +1140,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
   };
 
   // Search handler (prompt-based, single flow for all tiers)
-  const handleSearch = async () => {
+  const handleSearch = async (confirmedSend = false) => {
     if (!searchPrompt.trim()) {
       toast({
         title: "Enter a search",
@@ -1139,6 +1160,13 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
       return;
     }
 
+    // Send is irreversible: gate it behind the hard confirm dialog. The dialog's
+    // confirm handler re-invokes handleSearch(true) to actually run the send.
+    if (outreachMode === "send" && !confirmedSend) {
+      setShowSendConfirm(true);
+      return;
+    }
+
     setIsSearching(true);
     setProgressValue(10);
     setSearchComplete(false);
@@ -1146,7 +1174,6 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
     // different sub-rail suggestions each time (anchors stay stable).
     setRotationSeed((s) => s + 1);
     setResultMessage("");
-    setBroadenedDimensions([]);
     setSearchSuggestions([]);
     setSearchBroadened(false);
 
@@ -1172,13 +1199,13 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
       ]);
       setProgressValue(20);
 
-      if (currentCredits < 15) {
+      if (currentCredits < 5) {
         if (progressInterval) clearInterval(progressInterval);
         setIsSearching(false);
         setProgressValue(0);
         toast({
           title: "Insufficient Credits",
-          description: `You have ${currentCredits} credits. You need at least 15 credits to search.`,
+          description: `You have ${currentCredits} credits. You need at least 5 credits to search.`,
           variant: "destructive",
         });
         return;
@@ -1189,7 +1216,9 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
       // California". The frontend chip continues displaying the short label; only the
       // backend payload is rewritten so PDL's school matcher hits the right institution.
       const expandedPrompt = expandQueryForBackend(searchPrompt.trim());
-      const result = await apiService.runPromptSearch({ prompt: expandedPrompt, batchSize, emailTemplate: activeEmailTemplate });
+      // Mode reached here is already authorized: preview/draft run directly, and
+      // send only arrives after the hard confirm dialog (confirmedSend=true).
+      const result = await apiService.runPromptSearch({ prompt: expandedPrompt, batchSize, emailTemplate: activeEmailTemplate, mode: outreachMode });
 
       if (!isSearchResult(result)) {
         if (progressInterval) clearInterval(progressInterval);
@@ -1211,7 +1240,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
       if (progressInterval) clearInterval(progressInterval);
       setProgressValue(90);
 
-      const creditsUsed = (result as any)?.credits_used ?? result.contacts.length * 15;
+      const creditsUsed = (result as any)?.credits_used ?? result.contacts.length * 5;
       if ((result as any)?.credits_remaining !== undefined && updateCredits) {
         await updateCredits((result as any).credits_remaining).catch(() => {});
       } else if (updateCredits) {
@@ -1227,7 +1256,6 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
       setLastResults(result.contacts);
       setAlreadySavedResults(alreadySavedFromServer);
       setResultMessage(backendMessage);
-      setBroadenedDimensions(broadenedDims);
 
       // Append every completed search to a rolling localStorage list so Scout's
       // chat can reference "you searched for X yesterday and got 5 results"
@@ -1299,7 +1327,6 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
       } catch {
         // Non-fatal — localStorage may be disabled in private browsing.
       }
-      setCompanyContext((result as any)?.parsed_query?.company_context || "");
       setSearchSuggestions((result as any)?.suggestions || []);
       setSearchBroadened((result as any)?.search_broadened || false);
 
@@ -1400,6 +1427,17 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
           description: backendMessage
             || `All ${savedCount} matching contact(s) are already in your tracker. Open them in your network, or broaden your search to find new people.`,
           duration: 7000,
+        });
+      } else if ((result as any)?.mode === "send") {
+        // Send mode: confirm the emails actually went out, using the backend's
+        // sent count (the source of truth for how many sends succeeded).
+        const sentCount = Number((result as any)?.successful_sends ?? 0);
+        toast({
+          title: sentCount > 0 ? "Emails sent" : "Contacts Found!",
+          description: sentCount > 0
+            ? `Sent ${sentCount} ${sentCount === 1 ? "email" : "emails"}. Track replies in your Outbox.`
+            : `Found ${newCount} contacts, but no emails could be sent. Check your Gmail connection.`,
+          duration: 5000,
         });
       } else {
         toast({
@@ -1575,11 +1613,11 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
       {/* Gmail hint — subtle inline text, not a warning banner */}
       {gmailConnected === false && !gmailBannerDismissed && (
         <div style={{ maxWidth: '860px', margin: '0 auto', padding: '8px 32px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-          <span style={{ fontSize: 12, color: 'var(--warm-ink-tertiary, #9C9590)' }}>
+          <span style={{ fontSize: 12, color: 'var(--ink-3, #8A8F9A)' }}>
             <button
               type="button"
               onClick={initiateGmailOAuth}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--warm-ink-secondary, #6B6560)', textDecoration: 'underline', textUnderlineOffset: 2, fontFamily: 'inherit' }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--ink-2, #4A4F5B)', textDecoration: 'underline', textUnderlineOffset: 2, fontFamily: 'inherit' }}
             >
               Connect Gmail
             </button>
@@ -1589,7 +1627,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
             type="button"
             aria-label="Dismiss"
             onClick={dismissGmailBanner}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--warm-ink-tertiary, #9C9590)', fontSize: 14, lineHeight: 1, padding: 2 }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-3, #8A8F9A)', fontSize: 14, lineHeight: 1, padding: 2 }}
           >
             &times;
           </button>
@@ -1631,7 +1669,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
             }}
           >
             <div className="flex items-center gap-3">
-              <Sparkles className="w-4 h-4 text-[#3B82F6]" />
+              <Sparkles className="w-4 h-4 text-[var(--accent, #4A60A8)]" />
               <span className="text-sm text-[#6B7280]">
                 Targeting <span className="font-medium text-[#0F172A]">{currentFitContext.job_title}</span> at {currentFitContext.company || 'target companies'}
               </span>
@@ -1650,37 +1688,126 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
           </div>
         )}
 
+        {/* Outreach mode picker. Chosen before running a search: Get emails
+            (preview), Draft emails (default), or Send emails (Elite). */}
+        <div style={{ maxWidth: 896, marginLeft: 'auto', marginRight: 'auto', marginBottom: 10, display: 'flex', justifyContent: 'flex-start' }}>
+          <SearchModeSelector
+            tier={userTier}
+            value={outreachMode}
+            onChange={setOutreachMode}
+            disabled={isSearching || linkedInLoading}
+          />
+        </div>
+
+        <SendConfirmDialog
+          open={showSendConfirm}
+          count={batchSize}
+          loading={isSearching}
+          onCancel={() => setShowSendConfirm(false)}
+          onConfirm={() => {
+            setShowSendConfirm(false);
+            handleSearch(true);
+          }}
+        />
+
         {/* Hero search bar — full-width prompt. Company Alternatives sidebar is
             absolutely positioned in the empty space to the right of the form (outside
             the prompt bubble) so the prompt keeps its full width for typing. */}
-        <div style={{ marginTop: 0, marginBottom: 16, position: 'relative' }}>
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                padding: '22px 24px',
-                border: '1.5px solid var(--warm-border, #E8E4DE)',
-                borderRadius: 14,
-                background: 'var(--warm-surface, #FAFBFF)',
-                transition:
-                  'min-height .25s cubic-bezier(0.16, 1, 0.3, 1), border-color .15s, background .15s, box-shadow .15s',
-                // Collapsed when blurred + empty → just enough room for the input row.
-                // Expands smoothly when the user focuses or starts typing so the
-                // "Recommended for you" rail stays visible above the fold.
-                minHeight: inputFocused || searchPrompt.trim().length > 0 ? 180 : 64,
-              }}
-              className="hover:border-[#3B82F6] hover:bg-white focus-within:border-[#2563EB] focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(37,99,235,0.12)]"
+        <div style={{ marginTop: 0, marginBottom: 16, position: 'relative', maxWidth: 896, marginLeft: 'auto', marginRight: 'auto' }}>
+            <SearchPromptBox
+              onSubmit={handleSubmit}
+              submitDisabled={isSearching || linkedInLoading || !user}
+              submitAriaLabel={isLinkedInUrl(searchPrompt) ? "Import from LinkedIn" : "Search"}
+              helper={
+                outreachMode === 'send'
+                  ? PEOPLE_SEARCH_HELPER_SEND
+                  : outreachMode === 'preview'
+                    ? PEOPLE_SEARCH_HELPER_PREVIEW
+                    : PEOPLE_SEARCH_HELPER
+              }
+              submitIcon={
+                isSearching || linkedInLoading ? <Loader2 className="w-4 h-4 animate-spin" />
+                : isLinkedInUrl(searchPrompt) ? <Linkedin className="w-4 h-4" />
+                : <ArrowUp className="w-4 h-4" />
+              }
+              footer={
+                <>
+              {/* Role-variations pill row — Grammarly-style, sits directly below the
+                  typed sentence. Hover any pill to preview the swap, click to commit. */}
+              <div style={{ paddingLeft: 26, marginTop: 0 }}>
+                <RoleVariations
+                  prompt={searchPrompt}
+                  isSearching={isSearching}
+                  hasResults={hasResults}
+                  isLinkedIn={isLinkedInUrl(searchPrompt)}
+                  inputFocused={inputFocused}
+                  onAcceptSuggestion={(originalMatched, chosen) => {
+                    const escaped = originalMatched.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const regex = new RegExp(`\\b${escaped}\\b`, 'i');
+                    setSearchPrompt((prev) => prev.replace(regex, chosen.toLowerCase()));
+                    setPreviewSwap(null);
+                  }}
+                  onPreviewSuggestion={(originalMatched, chosen) =>
+                    setPreviewSwap({ matched: originalMatched, chosen })
+                  }
+                  onClearPreview={() => setPreviewSwap(null)}
+                />
+              </div>
+
+              {/* Row 2 — bottom of the prompt box. When the user has focus-but-empty,
+                  this slot shows the click-to-fill quick-starters (mental starting line).
+                  When the user has typed something, dimension chips take over. */}
+              <div style={{ paddingLeft: 26 }}>
+                {!searchPrompt.trim() ? (
+                  <QuickStarters
+                    visible
+                    onPick={(seed) => {
+                      // Treat the click as if the user had typed the seed verbatim:
+                      // fill the prompt, place caret at end, keep focus on the input,
+                      // and let the existing pipeline (DimensionChips, RoleVariations,
+                      // CompanyAlternatives, ghost completion) re-derive everything.
+                      setSearchPrompt(seed);
+                      requestAnimationFrame(() => {
+                        const el = promptInputRef.current;
+                        if (el) {
+                          el.focus();
+                          try {
+                            el.setSelectionRange(seed.length, seed.length);
+                          } catch {
+                            // Safari may throw on hidden/transparent inputs — non-fatal.
+                          }
+                        }
+                      });
+                    }}
+                    schoolShort={profileFacts.schoolShort}
+                    schoolFull={profileFacts.schoolFull}
+                    targetFirms={profileFacts.targetFirms}
+                    targetIndustries={profileFacts.targetIndustries}
+                    preferredLocations={profileFacts.preferredLocations}
+                    extractedRoles={profileFacts.extractedRoles}
+                  />
+                ) : (
+                  <DimensionChips
+                    prompt={searchPrompt}
+                    isSearching={isSearching}
+                    hasResults={hasResults}
+                    isLinkedIn={isLinkedInUrl(searchPrompt)}
+                    inputFocused={inputFocused}
+                  />
+                )}
+              </div>
+                </>
+              }
             >
               {/* Row 1 — search icon + input + LinkedIn pill */}
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                <Search style={{ width: 16, height: 16, flexShrink: 0, color: '#3B82F6', marginTop: 1 }} />
-              <div style={{ flex: 1, position: 'relative' }}>
+              <div style={{ flex: 1, position: 'relative', paddingRight: 40 }}>
                 {/* Pseudo-element styling for the transparent input:
                     - ::placeholder — keep it visible despite color:transparent on the host
                     - ::selection — keep selected text transparent (the visible rendering
                       lives in the overlay above; without this rule, the input's selected
                       text re-emerges and double-renders against the overlay). */}
-                <style>{`.ofl-search-input::placeholder{color:var(--warm-ink-tertiary,#9C9590);opacity:1;}.ofl-search-input::selection{color:transparent;background:rgba(59,130,246,0.20);}.ofl-search-input::-moz-selection{color:transparent;background:rgba(59,130,246,0.20);}`}</style>
+                <style>{`.ofl-search-input::placeholder{color:var(--ink-3, #8A8F9A);opacity:1;}.ofl-search-input::selection{color:transparent;background:rgba(74,96,168,0.20);}.ofl-search-input::-moz-selection{color:transparent;background:rgba(74,96,168,0.20);}`}</style>
                 <textarea
                   ref={promptInputRef}
                   className="ofl-search-input"
@@ -1757,14 +1884,12 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                       fontSize: 14,
                       fontFamily: 'inherit',
                       lineHeight: 1.5,
-                      color: 'var(--warm-ink-tertiary, #9C9590)',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
+                      color: 'var(--ink-3, #8A8F9A)',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
                     }}
                   >
-                    <style>{`@keyframes ofl-twblink{0%,50%{opacity:1}51%,100%{opacity:0}}.ofl-twcaret{display:inline-block;animation:ofl-twblink 1s steps(1) infinite;color:var(--brand-blue,#3B82F6);margin-left:1px;font-weight:500}`}</style>
-                    Paste a LinkedIn URL, or try &lsquo;<span>{typedText}</span><span className="ofl-twcaret">|</span>&rsquo;…
+                    e.g. Stripe engineers who studied at Michigan, hiring for summer 2026 SWE interns
                   </div>
                 )}
                 {/* Combined text overlay — typed text in primary ink + optional ghost suffix
@@ -1795,8 +1920,8 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                         <span style={{ color: '#0F172A' }}>{previewedPrompt.before}</span>
                         <span
                           style={{
-                            color: 'var(--brand-blue, #3B82F6)',
-                            background: 'rgba(59,130,246,0.12)',
+                            color: 'var(--accent, #4A60A8)',
+                            background: 'rgba(74,96,168,0.12)',
                             borderRadius: 3,
                             padding: '0 1px',
                           }}
@@ -1823,8 +1948,8 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                   display: 'flex',
                   alignItems: 'center',
                   gap: 4,
-                  background: 'rgba(59,130,246,0.10)',
-                  color: '#3B82F6',
+                  background: 'rgba(74,96,168,0.10)',
+                  color: 'var(--accent, #4A60A8)',
                   fontSize: 12,
                   fontWeight: 500,
                   padding: '4px 10px',
@@ -1837,72 +1962,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                 </div>
               )}
               </div>
-
-              {/* Role-variations pill row — Grammarly-style, sits directly below the
-                  typed sentence. Hover any pill to preview the swap, click to commit. */}
-              <div style={{ paddingLeft: 26, marginTop: 16 }}>
-                <RoleVariations
-                  prompt={searchPrompt}
-                  isSearching={isSearching}
-                  hasResults={hasResults}
-                  isLinkedIn={isLinkedInUrl(searchPrompt)}
-                  inputFocused={inputFocused}
-                  onAcceptSuggestion={(originalMatched, chosen) => {
-                    const escaped = originalMatched.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    const regex = new RegExp(`\\b${escaped}\\b`, 'i');
-                    setSearchPrompt((prev) => prev.replace(regex, chosen.toLowerCase()));
-                    setPreviewSwap(null);
-                  }}
-                  onPreviewSuggestion={(originalMatched, chosen) =>
-                    setPreviewSwap({ matched: originalMatched, chosen })
-                  }
-                  onClearPreview={() => setPreviewSwap(null)}
-                />
-              </div>
-
-              {/* Row 2 — bottom of the prompt box. When the user has focus-but-empty,
-                  this slot shows the click-to-fill quick-starters (mental starting line).
-                  When the user has typed something, dimension chips take over. */}
-              <div style={{ marginTop: 'auto', paddingLeft: 26, paddingTop: 18 }}>
-                {inputFocused && !searchPrompt.trim() ? (
-                  <QuickStarters
-                    visible
-                    onPick={(seed) => {
-                      // Treat the click as if the user had typed the seed verbatim:
-                      // fill the prompt, place caret at end, keep focus on the input,
-                      // and let the existing pipeline (DimensionChips, RoleVariations,
-                      // CompanyAlternatives, ghost completion) re-derive everything.
-                      setSearchPrompt(seed);
-                      requestAnimationFrame(() => {
-                        const el = promptInputRef.current;
-                        if (el) {
-                          el.focus();
-                          try {
-                            el.setSelectionRange(seed.length, seed.length);
-                          } catch {
-                            // Safari may throw on hidden/transparent inputs — non-fatal.
-                          }
-                        }
-                      });
-                    }}
-                    schoolShort={profileFacts.schoolShort}
-                    schoolFull={profileFacts.schoolFull}
-                    targetFirms={profileFacts.targetFirms}
-                    targetIndustries={profileFacts.targetIndustries}
-                    preferredLocations={profileFacts.preferredLocations}
-                    extractedRoles={profileFacts.extractedRoles}
-                  />
-                ) : (
-                  <DimensionChips
-                    prompt={searchPrompt}
-                    isSearching={isSearching}
-                    hasResults={hasResults}
-                    isLinkedIn={isLinkedInUrl(searchPrompt)}
-                    inputFocused={inputFocused}
-                  />
-                )}
-              </div>
-            </div>
+            </SearchPromptBox>
 
             {/* RIGHT — Company Alternatives, absolutely positioned in the empty space
                 outside the form's max-width container. Doesn't affect the prompt's
@@ -1952,28 +2012,6 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                 }}
               />
             </div>
-          {/* Template button + Import link */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 18 }}>
-            <TemplateButton
-              template={activeEmailTemplate}
-              onClick={() => navigate("/find/templates")}
-            />
-            <button
-              type="button"
-              onClick={() => setShowImportDialog(true)}
-              style={{ fontSize: 12, color: 'var(--ink-2, #4A4F5B)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '4px 6px', borderRadius: 6, transition: 'color .12s, background .12s' }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = 'var(--brand-blue, #3B82F6)';
-                e.currentTarget.style.background = 'rgba(59,130,246,0.06)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = 'var(--ink-2, #4A4F5B)';
-                e.currentTarget.style.background = 'transparent';
-              }}
-            >
-              Import contacts
-            </button>
-          </div>
         </div>
 
         {linkedInError && (
@@ -1983,109 +2021,129 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
           </div>
         )}
 
-        {/* Quantity slider — always visible, hidden for LinkedIn */}
+        {/* Quantity slider — matched to the Companies slider; hidden for LinkedIn URLs */}
         {!isLinkedInUrl(searchPrompt) && (
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 500, letterSpacing: '.05em', marginBottom: 8 }}>
+          <div style={{ marginTop: 8, marginBottom: 12 }}>
+            <div style={{
+              fontFamily: '"Libre Baskerville", Georgia, serif',
+              fontSize: 10, letterSpacing: '0.12em', color: '#8A8F97', marginBottom: 8,
+            }}>
               HOW MANY TO FIND?
             </div>
-            <div className="slider-container">
-              <div className="slider-wrapper">
-                <span className="text-xs text-[#94A3B8] min-w-[16px]">1</span>
-                <div className="slider-input-wrapper">
-                  <div
-                    className="slider-filled-track"
-                    style={{
-                      width: maxBatchSize > 1 ? `${((batchSize - 1) / (maxBatchSize - 1)) * 100}%` : '0%'
-                    }}
-                  />
-                  <input
-                    type="range"
-                    min={1}
-                    max={maxBatchSize}
-                    value={batchSize}
-                    onChange={(e) => {
-                      const clampedValue = Math.min(Number(e.target.value), maxBatchSize);
-                      setBatchSize(clampedValue);
-                    }}
-                    disabled={isSearching}
-                    className="slider-custom"
-                    aria-label="Number of contacts to find"
-                  />
-                </div>
-                <span className="text-xs text-[#94A3B8] min-w-[20px] text-right">{maxBatchSize}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: 11, color: '#8A8F97', minWidth: 12 }}>1</span>
+              <div className="slider-input-wrapper" style={{ flex: 1, position: 'relative', height: 4, background: '#E5E3DE', borderRadius: 2 }}>
+                <div style={{
+                  position: 'absolute', left: 0, top: 0, height: 4,
+                  width: maxBatchSize > 1 ? `${((batchSize - 1) / (maxBatchSize - 1)) * 100}%` : '0%',
+                  background: 'var(--accent, #1B2A44)', borderRadius: 2,
+                }} />
+                <input
+                  type="range"
+                  min={1}
+                  max={maxBatchSize}
+                  step={1}
+                  value={batchSize}
+                  onChange={(e) => { userAdjustedBatchSize.current = true; setBatchSize(Math.min(Number(e.target.value), maxBatchSize)); }}
+                  disabled={isSearching}
+                  className="slider-custom"
+                  aria-label="Number of contacts to find"
+                  style={{
+                    position: 'absolute', inset: 0, width: '100%', height: '100%',
+                    opacity: 0, cursor: 'pointer', margin: 0,
+                  }}
+                />
+                <div style={{
+                  position: 'absolute',
+                  left: `calc(${maxBatchSize > 1 ? ((batchSize - 1) / (maxBatchSize - 1)) * 100 : 0}% - 7px)`,
+                  top: -5, width: 14, height: 14, borderRadius: '50%',
+                  background: 'var(--accent, #1B2A44)',
+                  boxShadow: '0 1px 4px rgba(27,42,68,0.4)',
+                  pointerEvents: 'none',
+                }} />
               </div>
+              <span style={{ fontSize: 11, color: '#8A8F97', minWidth: 16, textAlign: 'right' }}>{maxBatchSize}</span>
             </div>
-            <p className="text-xs text-[#6B7280] mt-2">{batchSize} contact{batchSize !== 1 ? 's' : ''}. {getContactCountHelper(batchSize)}</p>
-            <div className="mt-2 flex items-center gap-2 text-xs text-[#6B7280]">
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[3px] bg-[#FAFBFF] border border-[#E2E8F0] font-medium text-[#0F172A]">
-                {batchSize * 15} credits
-              </span>
-              <span>of {effectiveUser.credits ?? 0} available</span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 9 }}>
+              <div style={{
+                fontFamily: "var(--serif, 'Instrument Serif', Georgia, serif)",
+                fontStyle: 'italic', fontSize: 13.5, color: '#111418',
+              }}>
+                Find {batchSize} contact{batchSize !== 1 ? 's' : ''}
+              </div>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#4A4F57' }}>
+                <span style={{
+                  display: 'inline-flex', padding: '3px 8px',
+                  background: '#FAFAF8', border: '1px solid #E5E3DE', borderRadius: 4,
+                  fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: '#111418',
+                }}>
+                  {batchSize * 5} credits
+                </span>
+                <span style={{ color: '#8A8F97' }}>of {effectiveUser.credits ?? 0}</span>
+              </div>
             </div>
           </div>
         )}
 
-        {/* CTA button */}
-        <button
-          ref={originalButtonRef}
-          onClick={handleSubmit}
-          disabled={isSearching || linkedInLoading}
-          style={{
-            width: '100%',
-            height: 52,
-            borderRadius: 12,
-            background: (isSearching || linkedInLoading) ? 'var(--warm-border, #E5E7EB)'
-              : (!searchPrompt.trim() || !user) ? 'var(--brand-blue-subtle, rgba(59,130,246,0.04))'
-              : 'var(--brand-blue, #3B82F6)',
-            color: (isSearching || linkedInLoading) ? 'var(--warm-ink-tertiary, #94A3B8)'
-              : (!searchPrompt.trim() || !user) ? 'var(--brand-blue, #3B82F6)'
-              : '#FFFFFF',
-            border: (!searchPrompt.trim() || !user) && !(isSearching || linkedInLoading) ? '1.5px solid var(--brand-blue, #3B82F6)' : '1.5px solid transparent',
-            fontSize: 15,
-            fontWeight: 600,
-            cursor: (isSearching || linkedInLoading) ? 'not-allowed' : 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 8,
-            transition: 'all .15s ease',
-            fontFamily: 'inherit',
-          }}
-          onMouseEnter={(e) => {
-            if (isSearching || linkedInLoading) return;
-            const idle = !searchPrompt.trim() || !user;
-            (e.currentTarget as HTMLButtonElement).style.background = idle
-              ? 'var(--brand-blue-soft, rgba(59,130,246,0.10))'
-              : 'var(--brand-blue-hover, #2563EB)';
-            (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 2px 8px rgba(59,130,246,0.18)';
-          }}
-          onMouseLeave={(e) => {
-            if (isSearching || linkedInLoading) return;
-            const idle = !searchPrompt.trim() || !user;
-            (e.currentTarget as HTMLButtonElement).style.background = idle
-              ? 'var(--brand-blue-subtle, rgba(59,130,246,0.04))'
-              : 'var(--brand-blue, #3B82F6)';
-            (e.currentTarget as HTMLButtonElement).style.boxShadow = 'none';
-          }}
-        >
-          {isSearching || linkedInLoading ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span>{linkedInLoading ? 'Importing...' : 'Networking...'}</span>
-            </>
-          ) : isLinkedInUrl(searchPrompt) ? (
-            <>
-              <Linkedin className="w-4 h-4" />
-              <span>Import from LinkedIn</span>
-            </>
-          ) : (
-            <>
-              <Search className="w-4 h-4" />
-              <span>Network</span>
-            </>
-          )}
-        </button>
+        {/* Email Template + Resume — matched pair, centered; Import link kept right */}
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 18, marginBottom: 4 }}>
+          <TemplateButton
+            template={activeEmailTemplate}
+            onClick={() => navigate("/find/templates")}
+          />
+          {/* Resume button — matches TemplateButton; replaces the old "Resume: <filename>" line */}
+          <button
+            type="button"
+            onClick={() => document.getElementById('resume-upload')?.click()}
+            disabled={isSearching || isUploadingResume}
+            title={savedResumeFileName || undefined}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 9,
+              padding: '12px 20px',
+              border: '1px solid var(--line, #E5E5E0)',
+              borderRadius: 12,
+              background: 'var(--paper, #FFFFFF)',
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              fontSize: 14,
+              fontWeight: 500,
+              color: 'var(--ink, #111318)',
+              transition: 'all .15s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = 'var(--accent, #4A60A8)';
+              e.currentTarget.style.color = 'var(--accent, #4A60A8)';
+              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(74,96,168,0.08)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = 'var(--line, #E5E5E0)';
+              e.currentTarget.style.color = 'var(--ink, #111318)';
+              e.currentTarget.style.boxShadow = 'none';
+            }}
+          >
+            <Upload style={{ width: 18, height: 18, color: 'currentColor', opacity: 0.7 }} />
+            <span style={{ color: 'currentColor' }}>{savedResumeUrl ? 'Resume' : 'Upload Resume'}</span>
+            {savedResumeUrl && <Check className="w-4 h-4 text-green-600" />}
+          </button>
+          {/* Import contacts — kept on the right */}
+          <button
+            type="button"
+            onClick={() => setShowImportDialog(true)}
+            style={{ position: 'absolute', right: 0, fontSize: 12, color: 'var(--ink-2, #4A4F5B)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '4px 6px', borderRadius: 6, transition: 'color .12s, background .12s' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = 'var(--accent, #4A60A8)';
+              e.currentTarget.style.background = 'rgba(74,96,168,0.06)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = 'var(--ink-2, #4A4F5B)';
+              e.currentTarget.style.background = 'transparent';
+            }}
+          >
+            Import contacts
+          </button>
+        </div>
 
         {/* Resume upload card — shown when no results and no resume */}
         {!hasResults && !isSearching && !savedResumeUrl && (
@@ -2094,7 +2152,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
             style={{
               marginTop: 20,
               background: '#FFFFFF',
-              border: '1px solid var(--warm-border, #E8E4DE)',
+              border: '1px solid var(--line, #E5E5E0)',
               borderRadius: 12,
               padding: '18px 20px',
               display: 'flex',
@@ -2106,19 +2164,19 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
               width: 44,
               height: 44,
               borderRadius: 10,
-              background: 'var(--warm-surface, #FAFBFF)',
+              background: 'var(--paper-2, #FAFBFF)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               flexShrink: 0,
             }}>
-              <FileText style={{ width: 20, height: 20, color: '#6B6560' }} />
+              <FileText style={{ width: 20, height: 20, color: 'var(--ink-2, #4A4F5B)' }} />
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, fontWeight: 500, color: '#1A1714', marginBottom: 3 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink, #111318)', marginBottom: 3 }}>
                 Upload your resume for better matches
               </div>
-              <div style={{ fontSize: 12, color: 'var(--warm-ink-tertiary, #9C9590)', lineHeight: 1.5 }}>
+              <div style={{ fontSize: 12, color: 'var(--ink-3, #8A8F9A)', lineHeight: 1.5 }}>
                 We'll find people who hired for roles like yours — and tailor your outreach automatically.
               </div>
             </div>
@@ -2126,7 +2184,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
               className="max-sm:w-full"
               onClick={() => document.getElementById('resume-upload')?.click()}
               style={{
-                background: '#1A1714',
+                background: 'var(--ink, #111318)',
                 color: '#fff',
                 border: 'none',
                 borderRadius: 8,
@@ -2144,28 +2202,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
         )}
 
         {/* Resume status — compact indicator when resume is already uploaded */}
-        {savedResumeUrl && savedResumeFileName && !hasResults && !isSearching && (
-          <div style={{ display: 'flex', justifyContent: 'center', marginTop: 10 }}>
-            <button
-              onClick={() => document.getElementById('resume-upload')?.click()}
-              disabled={isSearching || isUploadingResume}
-              style={{
-                fontSize: 11,
-                color: 'var(--warm-ink-tertiary, #9C9590)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                cursor: 'pointer',
-                background: 'none',
-                border: 'none',
-                fontFamily: 'inherit',
-              }}
-            >
-              <Check className="w-3 h-3 text-green-600" />
-              Resume: <span style={{ fontWeight: 500, fontFamily: "'JetBrains Mono', monospace" }}>{savedResumeFileName}</span>
-            </button>
-          </div>
-        )}
+        {/* Resume status now lives in the Resume button beside Email Template (above). */}
 
         {/* Suggestion cards — visible whenever the input doesn't have focus and there
             are no results yet. Includes the case where the user has typed content and
@@ -2225,7 +2262,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                 {lastResults.length + alreadySavedResults.length} {(lastResults.length + alreadySavedResults.length) === 1 ? 'result' : 'results'} found
               </div>
               <span style={{ fontSize: 11, color: '#94A3B8' }}>
-                {lastResults.length > 0 ? `${lastResults.length} new — saved to your tracker automatically` : ''}
+                {lastResults.length > 0 ? `${lastResults.length} new: saved to your tracker automatically` : ''}
                 {lastResults.length > 0 && alreadySavedResults.length > 0 ? ' · ' : ''}
                 {alreadySavedResults.length > 0 ? `${alreadySavedResults.length} already in your tracker` : ''}
               </span>
@@ -2236,7 +2273,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
             {resultMessage && lastResults.length === 0 && (
               <div style={{
                 padding: '10px 14px',
-                background: alreadySavedResults.length > 0 ? 'rgba(245,158,11,0.06)' : 'rgba(59,130,246,0.05)',
+                background: alreadySavedResults.length > 0 ? 'rgba(245,158,11,0.06)' : 'rgba(74,96,168,0.05)',
                 border: alreadySavedResults.length > 0 ? '0.5px solid #FDE68A' : '0.5px solid #BFDBFE',
                 borderRadius: 6,
                 fontSize: 13,
@@ -2252,46 +2289,6 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                 or more constraints to find these contacts. Tells the user honestly
                 that the system expanded its search rather than pretending the
                 original specific query yielded these people. */}
-            {broadenedDimensions.length > 0 && lastResults.length > 0 && (() => {
-              const labels: Record<string, string> = {
-                title: 'role',
-                industry: 'industry',
-                location: 'location',
-                company: 'company',
-              };
-              const list = broadenedDimensions.map((d) => labels[d] || d);
-              let phrase = '';
-              if (list.length === 1) {
-                phrase = `the ${list[0]} filter`;
-              } else if (list.length === 2) {
-                phrase = `the ${list[0]} and ${list[1]} filters`;
-              } else {
-                phrase = `${list.slice(0, -1).map((l) => `the ${l}`).join(', ')}, and ${list[list.length - 1]} filters`;
-              }
-              return (
-                <div
-                  style={{
-                    padding: '8px 12px',
-                    background: 'rgba(59,130,246,0.06)',
-                    border: '0.5px solid rgba(59,130,246,0.20)',
-                    borderRadius: 6,
-                    fontSize: 12,
-                    color: 'var(--ink-2, #4A4F5B)',
-                    lineHeight: 1.45,
-                    marginBottom: 12,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  <Sparkles style={{ width: 12, height: 12, color: 'var(--brand-blue, #3B82F6)', flexShrink: 0 }} />
-                  <span>
-                    Expanded by loosening {phrase} — your exact match was thin, so we surfaced the closest alternates.
-                  </span>
-                </div>
-              );
-            })()}
-
             {/* Cross-tab suggestions (e.g. "Find recruiters at X") */}
             {searchSuggestions.length > 0 && lastResults.length === 0 && (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -2311,7 +2308,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                       border: '1px solid #E2E8F0',
                       borderRadius: 6,
                       fontSize: 13,
-                      color: '#3B82F6',
+                      color: 'var(--accent, #4A60A8)',
                       cursor: 'pointer',
                       fontWeight: 500,
                       transition: 'all .12s',
@@ -2323,21 +2320,6 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
               </div>
             )}
 
-            {/* Company context hint — explains when search intent was reinterpreted */}
-            {companyContext && (
-              <div style={{
-                padding: '8px 12px',
-                background: 'rgba(59,130,246,0.05)',
-                border: '0.5px solid #E2E8F0',
-                borderRadius: 3,
-                fontSize: 12,
-                color: '#6B7280',
-                lineHeight: 1.4,
-              }}>
-                {companyContext.replace(/[.]+$/, '')}. Showing related roles at this organization.
-              </div>
-            )}
-
             {/* Contact cards */}
             {lastResults.length <= 8 && lastResults.map((c: any, i: number) => {
               const name = toTitleCase([c.FirstName || c.firstName, c.LastName || c.lastName].filter(Boolean).join(' ') || (c.Email || c.email || '').split('@')[0] || 'Unknown');
@@ -2346,13 +2328,21 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
               const email = c.Email || c.email || '';
               const linkedin = c.LinkedIn || c.linkedinUrl || '';
               const initials = name.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase();
+              // Per-contact email state derived from what the search returned,
+              // not a mode flag. hasDraft and isSent drive the right-side action.
+              const hasDraft = !!(c.emailSubject || c.emailBody);
+              const isSent = !!c.emailSent;
+              const canDraft = canUseOutreachMode(userTier, 'draft');
+              const isExpanded = expandedEmailIdx === i;
+              const linkedinHref = linkedin
+                ? (linkedin.startsWith('http') ? linkedin : `https://${linkedin}`)
+                : '';
               return (
                 <div
                   key={i}
                   style={{
                     display: 'flex',
-                    alignItems: 'center',
-                    gap: 11,
+                    flexDirection: 'column',
                     padding: '11px 13px',
                     background: '#fff',
                     border: '0.5px solid #E2E8F0',
@@ -2362,156 +2352,217 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                     transition: 'all .12s',
                   }}
                   onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLDivElement).style.borderColor = '#3B82F6';
-                    (e.currentTarget as HTMLDivElement).style.boxShadow = '0 1px 3px rgba(59,130,246,.08)';
+                    (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--accent, #4A60A8)';
+                    (e.currentTarget as HTMLDivElement).style.boxShadow = '0 1px 3px rgba(74,96,168,.08)';
                   }}
                   onMouseLeave={(e) => {
                     (e.currentTarget as HTMLDivElement).style.borderColor = '#E2E8F0';
                     (e.currentTarget as HTMLDivElement).style.boxShadow = 'none';
                   }}
                 >
-                  <div style={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: '50%',
-                    background: 'rgba(59,130,246,0.10)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: '#0F172A',
-                    flexShrink: 0,
-                  }}>
-                    {initials}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontSize: 13, fontWeight: 500, color: '#0F172A' }}>{name}</span>
-                      {/* Warmth indicator */}
-                      {(() => {
-                        const label = c.warmth_label || (c.warmth_tier === 'warm' ? 'Strong match' : c.warmth_tier === 'neutral' ? 'Good fit' : '');
-                        if (!label) return null;
-                        const isRoleMismatch = label === 'Right company, different role';
-                        const isStrong = label === 'Strong fit' || label === 'Strong match';
-                        const tooltipText = (() => {
-                          const sigs = c.warmth_signals || [];
-                          return sigs.slice(0, 2).map((s: any) => s.detail || s.signal?.replace(/_/g, ' ')).filter(Boolean).join(', ');
-                        })();
-                        return (
-                          <span
-                            title={tooltipText}
-                            style={{
-                              padding: '1px 6px',
-                              borderRadius: 3,
-                              background: isStrong
-                                ? 'rgba(34, 197, 94, 0.10)'
-                                : isRoleMismatch
-                                  ? 'rgba(148, 163, 184, 0.15)'
-                                  : 'rgba(245, 158, 11, 0.10)',
-                              color: isStrong
-                                ? '#16A34A'
-                                : isRoleMismatch
-                                  ? '#64748B'
-                                  : '#D97706',
-                              fontSize: 10,
-                              fontWeight: 600,
-                              fontFamily: "'DM Sans', system-ui, sans-serif",
-                            }}
-                          >
-                            {label}
-                          </span>
-                        );
-                      })()}
+                  {/* Top row: identity on the left, tidy action column on the right.
+                      Card stays compact, it only grows when the draft is expanded. */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+                    <div style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: '50%',
+                      background: 'rgba(74,96,168,0.10)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: '#0F172A',
+                      flexShrink: 0,
+                    }}>
+                      {initials}
                     </div>
-                    <div style={{ fontSize: 11, color: '#6B7280', marginTop: 1 }}>
-                      {[title, company].filter(Boolean).join(' at ')}
-                    </div>
-                    {/* Briefing line — "Why this person" */}
-                    {c.briefing && (
-                      <div style={{ fontSize: 11, color: '#6B7280', marginTop: 3, lineHeight: 1.3 }}>
-                        {c.briefing}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 13, fontWeight: 500, color: '#0F172A' }}>{name}</span>
+                        {/* Warmth indicator */}
+                        {(() => {
+                          const label = c.warmth_label || (c.warmth_tier === 'warm' ? 'Strong match' : c.warmth_tier === 'neutral' ? 'Good fit' : '');
+                          if (!label) return null;
+                          const isRoleMismatch = label === 'Right company, different role';
+                          const isStrong = label === 'Strong fit' || label === 'Strong match';
+                          const tooltipText = (() => {
+                            const sigs = c.warmth_signals || [];
+                            return sigs.slice(0, 2).map((s: any) => s.detail || s.signal?.replace(/_/g, ' ')).filter(Boolean).join(', ');
+                          })();
+                          return (
+                            <span
+                              title={tooltipText}
+                              style={{
+                                padding: '1px 6px',
+                                borderRadius: 3,
+                                background: isStrong
+                                  ? 'rgba(34, 197, 94, 0.12)'
+                                  : isRoleMismatch
+                                    ? 'rgba(148, 163, 184, 0.18)'
+                                    : 'rgba(245, 158, 11, 0.14)',
+                                color: isStrong
+                                  ? '#15803D'
+                                  : isRoleMismatch
+                                    ? '#475569'
+                                    : '#B45309',
+                                fontSize: 10,
+                                fontWeight: 600,
+                                fontFamily: "'DM Sans', system-ui, sans-serif",
+                              }}
+                            >
+                              {label}
+                            </span>
+                          );
+                        })()}
                       </div>
-                    )}
-                    {/* 1C: Email preview (collapsed by default) */}
-                    {(c.emailSubject || c.emailBody) && (
-                      <div style={{ marginTop: 6 }}>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setExpandedEmailIdx(expandedEmailIdx === i ? null : i); }}
-                          style={{
-                            display: 'flex', alignItems: 'center', gap: 4,
-                            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-                            fontFamily: 'inherit', fontSize: 11, color: '#3B82F6', fontWeight: 500,
-                          }}
+                      <div style={{ fontSize: 11, color: '#6B7280', marginTop: 1 }}>
+                        {[title, company].filter(Boolean).join(' at ')}
+                      </div>
+                      {/* Email address shows on every card, in every mode */}
+                      {email && (
+                        <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>
+                          {email}
+                        </div>
+                      )}
+                      {/* Briefing line — "Why this person" */}
+                      {c.briefing && (
+                        <div style={{ fontSize: 11, color: '#6B7280', marginTop: 3, lineHeight: 1.3 }}>
+                          {c.briefing}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Right action column: the email action and the LinkedIn pill
+                        read as a tidy pair. Buttons are short, not full width. */}
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-end',
+                      gap: 6,
+                      flexShrink: 0,
+                    }}>
+                      {/* Email action. Sent and draft states expand to read inline.
+                          In preview with a tier that cannot draft, this is the
+                          upgrade prompt (same locked treatment as the mode selector).
+                          A paid tier in preview sees no email button, just keeps
+                          email and LinkedIn. */}
+                      {isSent ? (
+                        <ResultActionButton
+                          variant="secondary"
+                          size="sm"
+                          className="text-green-700 hover:text-green-700 font-semibold"
+                          onClick={(e) => { e.stopPropagation(); setExpandedEmailIdx(isExpanded ? null : i); }}
                         >
-                          <Mail style={{ width: 11, height: 11 }} />
-                          <span style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {c.emailSubject || 'Draft email'}
-                          </span>
+                          <CheckCircle style={{ width: 13, height: 13 }} />
+                          {isExpanded ? 'Hide message' : 'Sent, view in Gmail'}
+                        </ResultActionButton>
+                      ) : hasDraft ? (
+                        <ResultActionButton
+                          variant="secondary"
+                          size="sm"
+                          className="text-st-accent hover:text-st-accent font-semibold"
+                          onClick={(e) => { e.stopPropagation(); setExpandedEmailIdx(isExpanded ? null : i); }}
+                        >
+                          {isExpanded ? 'Hide draft' : 'View draft'}
                           <ChevronRight style={{
-                            width: 11, height: 11,
-                            transform: expandedEmailIdx === i ? 'rotate(90deg)' : 'none',
+                            width: 12, height: 12,
+                            transform: isExpanded ? 'rotate(90deg)' : 'none',
                             transition: 'transform .15s',
                           }} />
-                        </button>
-                        {expandedEmailIdx === i && (
-                          <div style={{
-                            marginTop: 6, padding: '8px 10px',
-                            background: '#F8FAFC', borderRadius: 4, border: '0.5px solid #E2E8F0',
-                          }}>
-                            {c.emailSubject && (
-                              <div style={{ fontSize: 12, fontWeight: 600, color: '#0F172A', marginBottom: 4 }}>
-                                {c.emailSubject}
-                              </div>
-                            )}
-                            <div style={{ fontSize: 11, color: '#475569', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
-                              {c.emailBody}
-                            </div>
-                            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                              {c.gmailDraftUrl && (
-                                <a
-                                  href={c.gmailDraftUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={(e) => e.stopPropagation()}
-                                  style={{
-                                    fontSize: 11, fontWeight: 500, color: '#3B82F6',
-                                    display: 'flex', alignItems: 'center', gap: 3,
-                                    textDecoration: 'none',
-                                  }}
-                                >
-                                  <Send style={{ width: 10, height: 10 }} /> Open Draft
-                                </a>
-                              )}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const text = `Subject: ${c.emailSubject || ''}\n\n${c.emailBody || ''}`;
-                                  navigator.clipboard.writeText(text);
-                                  toast({ description: 'Email copied to clipboard' });
-                                }}
-                                style={{
-                                  fontSize: 11, fontWeight: 500, color: '#6B7280',
-                                  background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-                                  fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 3,
-                                }}
-                              >
-                                <FileText style={{ width: 10, height: 10 }} /> Copy Email
-                              </button>
-                            </div>
-                          </div>
-                        )}
+                        </ResultActionButton>
+                      ) : !canDraft ? (
+                        <ResultActionButton
+                          variant="secondary"
+                          size="sm"
+                          title="Upgrade to Pro to draft emails automatically."
+                          style={{ color: '#94A3B8', cursor: 'not-allowed' }}
+                          onClick={(e) => { e.stopPropagation(); }}
+                        >
+                          <FileText style={{ width: 13, height: 13 }} /> Draft Email
+                          <Lock style={{ width: 11, height: 11 }} />
+                        </ResultActionButton>
+                      ) : null}
+
+                      {/* LinkedIn pill: lucide glyph plus label, secondary language.
+                          Not the brand-restricted LinkedIn logo. */}
+                      {linkedinHref && (
+                        <ResultActionButton
+                          variant="secondary"
+                          size="sm"
+                          href={linkedinHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                        >
+                          <Linkedin style={{ width: 14, height: 14 }} /> LinkedIn
+                        </ResultActionButton>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Expanded email panel: the card grows only when this is open */}
+                  {isExpanded && (hasDraft || isSent) && (
+                    <div style={{
+                      marginTop: 10, padding: '12px 14px',
+                      background: '#F8FAFC', borderRadius: 6, border: '0.5px solid #E2E8F0',
+                    }}>
+                      {c.emailSubject && (
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#0F172A', marginBottom: 6 }}>
+                          {c.emailSubject}
+                        </div>
+                      )}
+                      {/* Sender context so the panel reads like a real email */}
+                      <div style={{ fontSize: 11, color: '#94A3B8', marginBottom: 10, lineHeight: 1.5 }}>
+                        {email && <div>To: {email}</div>}
+                        {user?.email && <div>From: {user.email}</div>}
                       </div>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                    {email && <span style={{ fontSize: 11, color: '#94A3B8' }}>{email}</span>}
-                    {linkedin && (
-                      <a href={linkedin.startsWith('http') ? linkedin : `https://${linkedin}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
-                        <ExternalLink className="w-3.5 h-3.5" style={{ color: '#94A3B8' }} />
-                      </a>
-                    )}
-                  </div>
+                      <div style={{ fontSize: 12, color: '#334155', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                        {c.emailBody}
+                      </div>
+                      <div style={{ display: 'flex', gap: 12, marginTop: 12, alignItems: 'center' }}>
+                        {!isSent && c.gmailDraftUrl && (
+                          <ResultActionButton
+                            variant="primary"
+                            size="sm"
+                            href={c.gmailDraftUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                          >
+                            <Mail style={{ width: 13, height: 13 }} /> Open in Gmail
+                          </ResultActionButton>
+                        )}
+                        {isSent && (
+                          <a
+                            href="https://mail.google.com/mail/u/0/#sent"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 5,
+                              color: '#15803D', fontSize: 12, fontWeight: 600, textDecoration: 'none',
+                            }}
+                          >
+                            <CheckCircle style={{ width: 12, height: 12 }} /> Sent, view in Gmail
+                          </a>
+                        )}
+                        <ResultActionButton
+                          variant="secondary"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const text = `Subject: ${c.emailSubject || ''}\n\n${c.emailBody || ''}`;
+                            navigator.clipboard.writeText(text);
+                            toast({ description: 'Email copied to clipboard' });
+                          }}
+                        >
+                          <FileText style={{ width: 13, height: 13 }} /> Copy email
+                        </ResultActionButton>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -2589,9 +2640,16 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                         {linkedin && (
-                          <a href={linkedin.startsWith('http') ? linkedin : `https://${linkedin}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
-                            <ExternalLink className="w-3.5 h-3.5" style={{ color: '#CBD5E1' }} />
-                          </a>
+                          <ResultActionButton
+                            variant="secondary"
+                            size="sm"
+                            href={linkedin.startsWith('http') ? linkedin : `https://${linkedin}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                          >
+                            <Linkedin style={{ width: 14, height: 14 }} /> LinkedIn
+                          </ResultActionButton>
                         )}
                       </div>
                     </div>
@@ -2600,51 +2658,40 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
               </>
             )}
 
-            {/* Action buttons */}
-            <div style={{ display: 'flex', gap: 7, marginTop: 14 }}>
-              <button
-                onClick={() => navigate('/outbox')}
-                style={{
-                  flex: 1,
-                  height: 37,
-                  borderRadius: 3,
-                  background: '#3B82F6',
-                  color: '#fff',
-                  border: 'none',
-                  fontSize: 12,
-                  fontWeight: 500,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 5,
-                  fontFamily: 'inherit',
-                }}
+            {/* Action buttons. Batch path to Gmail and the tracker. The Gmail
+                drafts button shows only when drafts actually exist (derived from
+                per-contact state, not a mode flag). "View in Outbox" was dropped
+                because it redirected to the tracker, which the Tracker button now
+                covers directly. */}
+            <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+              {lastResults.some((c: any) => c.gmailDraftUrl && !c.emailSent) && (
+                <ResultActionButton
+                  variant="primary"
+                  href="https://mail.google.com/mail/u/0/#drafts"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1"
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  Open Gmail drafts
+                </ResultActionButton>
+              )}
+              <ResultActionButton
+                variant="secondary"
+                onClick={() => navigate('/tracker')}
+                className="flex-1"
               >
-                <Inbox className="w-3 h-3" />
-                View in Outbox
-              </button>
-              <button
+                <Inbox className="w-3.5 h-3.5" />
+                Tracker
+              </ResultActionButton>
+              <ResultActionButton
+                variant="secondary"
                 onClick={() => navigate('/contact-directory')}
-                style={{
-                  flex: 1,
-                  height: 37,
-                  borderRadius: 3,
-                  background: '#fff',
-                  border: '0.5px solid #E2E8F0',
-                  color: '#6B7280',
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 5,
-                  fontFamily: 'inherit',
-                }}
+                className="flex-1"
               >
-                <User className="w-3 h-3" />
+                <User className="w-3.5 h-3.5" />
                 View in Spreadsheet
-              </button>
+              </ResultActionButton>
             </div>
           </div>
         )}
@@ -2686,7 +2733,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                     flex: 1,
                     height: 37,
                     borderRadius: 3,
-                    background: '#3B82F6',
+                    background: 'var(--accent, #4A60A8)',
                     color: '#fff',
                     border: 'none',
                     fontSize: 12,
@@ -2728,20 +2775,6 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
           </div>
         )}
       </div>
-
-      {/* Sticky CTA */}
-      {searchPrompt.trim() && <StickyCTA
-        originalButtonRef={originalButtonRef}
-        onClick={handleSubmit}
-        isLoading={isSearching || linkedInLoading}
-        disabled={isSearching || linkedInLoading || !user}
-        buttonClassName="rounded-[3px]"
-      >
-        {isLinkedInUrl(searchPrompt)
-          ? <span className="flex items-center gap-2"><Linkedin className="w-4 h-4" />Import from LinkedIn</span>
-          : <span>Network</span>
-        }
-      </StickyCTA>}
 
       <EliteGateModal open={showEliteGate} onClose={() => setShowEliteGate(false)} />
 
@@ -2828,7 +2861,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                 <Button
                   type="button"
                   onClick={() => isElite ? navigate("/find/templates") : setShowEliteGate(true)}
-                  className="h-8 px-4 rounded-[3px] bg-[#3B82F6] hover:bg-[#2563EB] text-white text-sm font-medium transition-all"
+                  className="h-8 px-4 rounded-[3px] bg-[var(--accent, #4A60A8)] hover:bg-[var(--primary-600, #4C62A8)] text-white text-sm font-medium transition-all"
                   data-tour="tour-templates-button"
                 >
                   <FileText className="h-4 w-4" />

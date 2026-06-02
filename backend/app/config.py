@@ -172,7 +172,7 @@ STRIPE_ELITE_PRICE_ID = os.getenv('STRIPE_ELITE_PRICE_ID', 'price_1ScLcfERY2WrVH
 # ========================================
 TIER_CONFIGS = {
     'free': {
-        'max_contacts': 3,   # Maximum contacts returned per search
+        'max_contacts': 5,   # Maximum contacts returned per search
         'batch_size': 1,      # Maximum batch operations allowed (per audit spec)
         'min_contacts': 1,
         'fields': ['FirstName', 'LastName', 'LinkedIn', 'Email', 'Title', 'Company', 'City', 'State', 'College', 'Hometown'],
@@ -199,7 +199,7 @@ TIER_CONFIGS = {
         'max_credit_budget_per_week_per_loop': 150,
     },
     'pro': {
-        'max_contacts': 8,   # Maximum contacts returned per search
+        'max_contacts': 20,  # Maximum contacts returned per search
         'batch_size': 5,      # Maximum batch operations allowed (per audit spec)
         'min_contacts': 1, 
         'fields': ['FirstName', 'LastName', 'LinkedIn', 'Email', 'Title', 'Company', 'City', 'State', 'College',
@@ -228,7 +228,7 @@ TIER_CONFIGS = {
         'max_credit_budget_per_week_per_loop': 600,
     },
     'elite': {
-        'max_contacts': 15,  # Maximum contacts returned per search
+        'max_contacts': 40,  # Maximum contacts returned per search
         'batch_size': 15,     # Maximum batch operations allowed (per audit spec)
         'min_contacts': 1,
         'fields': ['FirstName', 'LastName', 'LinkedIn', 'Email', 'Title', 'Company', 'City', 'State', 'College',
