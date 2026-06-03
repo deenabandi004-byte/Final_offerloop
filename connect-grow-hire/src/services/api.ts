@@ -858,6 +858,19 @@ export interface FeedJob {
   match_signals?: string[];
   ranked: boolean;
   structured?: JobStructured;
+  // Phase 1: per-axis signals + natural bucket tag, both optional and
+  // additive. The composite stays on match_score for backward compat;
+  // signals carries the four component scores so callers that want the
+  // breakdown can render it. bucket is the natural REACH/STRONG/HIDDEN
+  // tag emitted by the backend; under render_mode "legacy" it is for
+  // observability only.
+  signals?: {
+    relevance: number | null;
+    landability: number | null;
+    pipeline: number | null;
+    discovery: number | null;
+  } | null;
+  bucket?: "strong" | "reach" | "hidden" | null;
 }
 
 export interface SavedJob {

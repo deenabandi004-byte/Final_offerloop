@@ -77,10 +77,9 @@ const ICON_FILTERS: Record<string, string> = {
 // Group 1 — main nav (base items, Agent added dynamically for Elite)
 const baseNavItems: NavItemDef[] = [
   { title: "Find", url: "/find", iconSrc: MagnifyingGlassIcon, iconColor: "blue" },
-  { title: "Profile", url: "/profile", LucideIcon: User, iconColor: "#818CF8" },
-  { title: "My Network", url: "/my-network", LucideIcon: Users, iconColor: "#A78BFA" },
-  { title: "Coffee Chat Prep", url: "/coffee-chat-prep", iconSrc: CupIcon, iconColor: "amber", dataTour: "tour-coffee-chat-prep" },
-  { title: "Tracker", url: "/tracker", iconSrc: MailIcon, iconColor: "rose", dataTour: "tour-track-email" },
+  { title: "My Network", url: "/my-network", LucideIcon: Users, iconColor: "#7C3AED" },
+  { title: "Meeting Prep", url: "/coffee-chat-prep", iconSrc: CupIcon, iconColor: "amber", dataTour: "tour-coffee-chat-prep" },
+  { title: "Outbox", url: "/outbox", iconSrc: MailIcon, iconColor: "rose", dataTour: "tour-track-email" },
   { title: "Job Board", url: "/job-board", iconSrc: BriefcaseIcon, iconColor: "emerald" },
 ];
 

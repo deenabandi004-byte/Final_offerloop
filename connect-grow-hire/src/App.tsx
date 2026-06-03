@@ -25,10 +25,6 @@ import UscBeta from "@/pages/UscBeta";
 
 // Lazy load heavy pages for code splitting
 const AboutUs = React.lazy(() => import("./pages/AboutUs"));
-const NetworkTracker = React.lazy(() => import("./pages/NetworkTracker"));
-const CompanyTrackerPage = React.lazy(() => import("./pages/CompanyTrackerPage"));
-const CalendarPage = React.lazy(() => import("./pages/CalendarPage"));
-const Contact = React.lazy(() => import("./pages/Contact"));
 const CoffeeChatLibrary = React.lazy(() => import("./pages/CoffeeChatLibrary"));
 const ContactDirectory = React.lazy(() => import("./pages/ContactDirectory"));
 const ContactUs = React.lazy(() => import("./pages/ContactUs"));
@@ -40,7 +36,15 @@ const AccountSettings = React.lazy(() => import("./pages/AccountSettings"));
 const Pricing = React.lazy(() => import("./pages/Pricing"));
 const DocumentationPage = React.lazy(() => import("./pages/DocumentationPage"));
 const JobBoardPage = React.lazy(() => import("./pages/JobBoardPage"));
-const HiringManagerTrackerPage = React.lazy(() => import("./pages/HiringManagerTrackerPage"));
+// Job board redesign is now the production component for /job-board.
+// /dev/job-board-redesign is kept as a same-component fallback URL for one
+// day of confirmation. The old JobBoardPage import above stays unrouted
+// pending deletion after that confirmation window.
+const JobBoardRedesign = React.lazy(() => import("./pages/JobBoardPage.redesign"));
+// /outbox renders the redesign. /tracker is preserved as a redirect for
+// internal call sites until a sweep updates them. The old NetworkTracker
+// page file is unrouted pending deletion.
+const NetworkTrackerRedesign = React.lazy(() => import("./pages/NetworkTrackerRedesign"));
 const MyNetworkPage = React.lazy(() => import("./pages/MyNetworkPage"));
 const NotFound = React.lazy(() => import("./pages/NotFound"));
 const PaymentSuccess = React.lazy(() => import("./pages/PaymentSuccess"));
@@ -269,6 +273,16 @@ const AppRoutes: React.FC = () => {
           </Suspense>
         }
       />
+      <Route
+        path="/dev/job-board-redesign"
+        element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <JobBoardRedesign />
+            </Suspense>
+          </ProtectedRoute>
+        }
+      />
 
       {/* Protected App Pages - Wrapped in Suspense for lazy loading */}
       <Route path="/dashboard" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><DashboardPage /></Suspense></ProtectedRoute>} />
@@ -277,9 +291,8 @@ const AppRoutes: React.FC = () => {
       <Route path="/my-network" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><MyNetworkPage /></Suspense></ProtectedRoute>} />
       <Route path="/my-network/:tab" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><MyNetworkPage /></Suspense></ProtectedRoute>} />
       <Route path="/contact-search" element={<Navigate to="/find" replace />} />
-      <Route path="/tracker" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><NetworkTracker /></Suspense></ProtectedRoute>} />
-      <Route path="/outbox" element={<Navigate to="/tracker" replace />} />
-      <Route path="/calendar" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CalendarPage /></Suspense></ProtectedRoute>} />
+      <Route path="/outbox" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><NetworkTrackerRedesign /></Suspense></ProtectedRoute>} />
+      <Route path="/tracker" element={<Navigate to="/outbox" replace />} />
       {/* Legacy /home redirect to contact search */}
       <Route path="/home" element={<Navigate to="/dashboard" replace />} />
       <Route path="/contact-directory" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ContactDirectory /></Suspense></ProtectedRoute>} />
@@ -295,7 +308,7 @@ const AppRoutes: React.FC = () => {
       <Route path="/find/templates" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><EmailTemplatesPage /></Suspense></ProtectedRoute>} />
       <Route path="/interview-prep" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><InterviewPrepPage /></Suspense></ProtectedRoute>} />
       <Route path="/firm-search" element={<Navigate to="/find?tab=companies" replace />} />
-      <Route path="/job-board" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><JobBoardPage /></Suspense></ProtectedRoute>} />
+      <Route path="/job-board" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><JobBoardRedesign /></Suspense></ProtectedRoute>} />
       <Route path="/recruiter-spreadsheet" element={<Navigate to="/find?tab=hiring-managers" replace />} />
       <Route path="/hiring-manager-tracker" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><HiringManagerTrackerPage /></Suspense></ProtectedRoute>} />
       <Route path="/company-tracker" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CompanyTrackerPage /></Suspense></ProtectedRoute>} />
