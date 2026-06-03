@@ -80,7 +80,7 @@ const baseNavItems: NavItemDef[] = [
   { title: "Find", url: "/find", iconSrc: MagnifyingGlassIcon, iconColor: "blue" },
   { title: "My Network", url: "/my-network", LucideIcon: Users, iconColor: "#7C3AED" },
   { title: "Meeting Prep", url: "/coffee-chat-prep", iconSrc: CupIcon, iconColor: "amber", dataTour: "tour-coffee-chat-prep" },
-  { title: "Tracker", url: "/tracker", iconSrc: MailIcon, iconColor: "rose", dataTour: "tour-track-email" },
+  { title: "Outbox", url: "/outbox", iconSrc: MailIcon, iconColor: "rose", dataTour: "tour-track-email" },
   { title: "Job Board", url: "/job-board", iconSrc: BriefcaseIcon, iconColor: "emerald" },
 ];
 

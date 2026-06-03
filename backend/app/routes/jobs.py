@@ -8,15 +8,97 @@ from backend.app.utils.job_ranking import (
     rank_with_gpt,
     apply_feedback_adjustments,
     cap_per_company,
+    attach_signals_and_buckets,
     _is_excluded as _is_excluded_job,
     _is_non_us as _is_international_job,
 )
+from backend.app.job_ranking_config import get_active_profile
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor
 import logging
 import threading
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: signals + bucket attachment on cached top_jobs + per-render telemetry
+# ---------------------------------------------------------------------------
+
+def _attach_signals_from_cache(top_jobs: list, cache: dict) -> list:
+    """Attach signals + bucket fields to cached top_jobs.
+
+    Defensive: missing cache keys default to empty dicts, so old cache
+    entries written before phase 1 produce signals=None / bucket=None on
+    each job (the FeedJob type marks both optional).
+    """
+    cached_signals = (cache or {}).get("signals") or {}
+    cached_buckets = (cache or {}).get("buckets") or {}
+    for j in top_jobs:
+        jid = j.get("job_id")
+        j["signals"] = cached_signals.get(jid)
+        j["bucket"] = cached_buckets.get(jid)
+    return top_jobs
+
+
+def _build_telemetry_update(top_jobs: list) -> dict:
+    """Build the Firestore update dict for one feed render.
+
+    Aggregates bucket counts and signal sums across the rendered top_jobs
+    list. All values use Increment so concurrent renders for the same
+    (date, uid) merge cleanly without transactions.
+    """
+    from google.cloud.firestore_v1.transforms import Sentinel, SERVER_TIMESTAMP
+    from google.cloud.firestore_v1 import Increment
+
+    bucket_totals = {"strong": 0, "reach": 0, "hidden": 0}
+    signal_sums = {"relevance": 0.0, "landability": 0.0, "pipeline": 0.0, "discovery": 0.0}
+    signal_counts = {"relevance": 0, "landability": 0, "pipeline": 0, "discovery": 0}
+    for j in top_jobs:
+        b = j.get("bucket")
+        if b in bucket_totals:
+            bucket_totals[b] += 1
+        sig = j.get("signals") or {}
+        for k in signal_sums:
+            v = sig.get(k)
+            if v is None:
+                continue
+            signal_sums[k] += float(v)
+            signal_counts[k] += 1
+
+    updates: dict = {
+        "n_renders": Increment(1),
+        "last_rendered_at": SERVER_TIMESTAMP,
+    }
+    for b, n in bucket_totals.items():
+        updates[f"bucket_totals.{b}"] = Increment(n)
+    for k, s in signal_sums.items():
+        updates[f"signal_sums.{k}"] = Increment(s)
+    for k, c in signal_counts.items():
+        updates[f"signal_counts.{k}"] = Increment(c)
+    return updates
+
+
+def _write_telemetry_async(uid: str, top_jobs: list) -> None:
+    """Fire-and-forget telemetry write. One doc per (date, uid), merged."""
+    def _do():
+        try:
+            db = get_db()
+            if db is None:
+                return
+            date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            doc_id = f"{date_str}__{uid}"
+            updates = _build_telemetry_update(top_jobs)
+            updates["uid"] = uid
+            updates["date"] = date_str
+            db.collection("feed_telemetry").document(doc_id).set(updates, merge=True)
+        except Exception as e:
+            logger.warning("feed_telemetry write failed for %s: %s", uid, e)
+    try:
+        _ranking_pool.submit(_do)
+    except Exception:
+        # If the pool refuses (e.g., shutdown), drop telemetry silently.
+        pass
 
 jobs_bp = Blueprint("jobs", __name__)
 
@@ -413,9 +495,11 @@ def get_feed():
         cached_scores = cache.get("scores", {})
         cached_reasons = cache.get("reasons", {})
         top_jobs = _enrich(_load_top_jobs_from_cache(cached_ids, cached_scores, cached_reasons))
+        top_jobs = _attach_signals_from_cache(top_jobs, cache)
         new_matches_raw, nm_from_cache = _fetch_new_matches(cached_scores, cached_reasons)
         new_matches = _enrich(new_matches_raw)
         new_matches, top_jobs, gated_info = _apply_gates(new_matches, top_jobs)
+        _write_telemetry_async(uid, top_jobs)
 
         return jsonify({
             "new_matches": _serialize_jobs(new_matches) if not nm_from_cache else new_matches,
@@ -434,6 +518,7 @@ def get_feed():
         cached_scores = cache.get("scores", {})
         cached_reasons = cache.get("reasons", {})
         top_jobs = _enrich(_load_top_jobs_from_cache(cached_ids, cached_scores, cached_reasons))
+        top_jobs = _attach_signals_from_cache(top_jobs, cache)
         new_matches_raw, nm_from_cache = _fetch_new_matches(cached_scores, cached_reasons)
         new_matches = _enrich(new_matches_raw)
 
@@ -444,6 +529,7 @@ def get_feed():
             logger.info(f"Triggered background re-rank for {uid}")
 
         new_matches, top_jobs, gated_info = _apply_gates(new_matches, top_jobs)
+        _write_telemetry_async(uid, top_jobs)
         return jsonify({
             "new_matches": _serialize_jobs(new_matches) if not nm_from_cache else new_matches,
             "top_jobs": _serialize_jobs(top_jobs),
@@ -476,6 +562,7 @@ def get_feed():
             j["ranked"] = False
         top_jobs = _enrich(top_jobs)
         new_matches, top_jobs, gated_info = _apply_gates(new_matches, top_jobs)
+        _write_telemetry_async(uid, top_jobs)
 
         return jsonify({
             "new_matches": _serialize_jobs(new_matches) if not nm_from_cache else new_matches,
@@ -515,6 +602,7 @@ def get_feed():
         logger.info(f"Triggered background ranking for {uid} (first visit)")
 
     new_matches, top_jobs, gated_info = _apply_gates(new_matches, top_jobs)
+    _write_telemetry_async(uid, top_jobs)
     return jsonify({
         "new_matches": _serialize_jobs(new_matches) if not nm_from_cache else new_matches,
         "top_jobs": _serialize_jobs(top_jobs),
@@ -603,10 +691,19 @@ def _background_rerank(uid: str):
         # Deduplicate by title + company, cap per company, then take top 50
         deduped = _dedup_by_title_company(adjusted)
         top_jobs = cap_per_company(deduped, max_per_company=3)[:50]
+
+        # Phase 1: attach four signals + natural bucket + replace match_score
+        # with the composite. Hard-drops on landability < hard_drop floor
+        # also happen here. Under the default config, composite == relevance
+        # so match_score is numerically unchanged.
+        top_jobs = attach_signals_and_buckets(top_jobs, get_active_profile(), profile)
+
         cache_data = {
             "job_ids": [j["job_id"] for j in top_jobs],
             "scores": {j["job_id"]: j.get("match_score") for j in top_jobs},
             "reasons": {j["job_id"]: j.get("match_reason") for j in top_jobs},
+            "signals": {j["job_id"]: j.get("signals") for j in top_jobs},
+            "buckets": {j["job_id"]: j.get("bucket") for j in top_jobs},
             "ranked_at": datetime.now(timezone.utc),
         }
         user_ref.update({"jobFeedCache": cache_data})
