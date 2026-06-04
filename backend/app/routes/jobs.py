@@ -411,6 +411,23 @@ def get_feed():
     else:
         cache_stale_ok = False
 
+    # Purposeful Leakage: if the user has edited their hardNos since the
+    # cache was written, force a re-rank — otherwise the cached top_jobs
+    # still reflect the pre-edit penalties. We compare hashes, not raw
+    # text, so an empty/unset hardNos compares equal across cache writes.
+    if cache_valid or cache_stale_ok:
+        from backend.app.utils.hardnos_parser import _hash_text as _hardnos_hash
+        live_hn = profile.get("hardNos") or ""
+        live_hash = _hardnos_hash(live_hn) if live_hn.strip() else ""
+        cached_hash = cache.get("hardnos_text_hash", "")
+        if live_hash != cached_hash:
+            logger.info(
+                "hardNos changed for %s (cached=%s live=%s) — invalidating",
+                uid, cached_hash or "<empty>", live_hash or "<empty>",
+            )
+            cache_valid = False
+            cache_stale_ok = False
+
     # Check new_matches cache (short TTL — 5 min)
     nm_cache = cache.get("new_matches_cache") or {}
     nm_cached_at = nm_cache.get("cached_at")
@@ -673,7 +690,7 @@ def _background_rerank(uid: str):
         candidates = []
         if feature_flags.is_enabled("embedding_ranker", uid=uid, default=False):
             from backend.app.utils.embedding_ranker import embedding_rank
-            candidates = embedding_rank(all_jobs, profile, uid, top_n=50)
+            candidates = embedding_rank(all_jobs, profile, uid, top_n=150)
             if candidates:
                 logger.info(
                     "Embedding rank: top score %.1f, bottom %.1f (%d candidates)",
@@ -684,27 +701,87 @@ def _background_rerank(uid: str):
             else:
                 logger.info("Embedding rank returned empty, falling back to deterministic")
         if not candidates:
-            candidates = prefilter_candidates(all_jobs, profile, top_n=50)
+            candidates = prefilter_candidates(all_jobs, profile, top_n=150)
         ranked = rank_with_gpt(candidates, profile)
         adjusted = apply_feedback_adjustments(ranked, preferences)
 
-        # Deduplicate by title + company, cap per company, then take top 50
+        # Deduplicate by title + company, cap per company, then take top 150.
+        # Pool history: 50 → 100 → 150. Wider net so adjacent / branch-out
+        # roles show up alongside the strongest fits. The UI translates the
+        # internal match score into a word-based label (Strong fit / Similar
+        # to you / hidden) in JobCard.tsx — lower-tier jobs are surfaced
+        # without a discouraging numeric badge.
+        # Wide pool before slot carve-out so the stretch picker has real
+        # choices. Do NOT pre-truncate to 150 here; that happens after
+        # exploration-slot selection below.
         deduped = _dedup_by_title_company(adjusted)
-        top_jobs = cap_per_company(deduped, max_per_company=3)[:50]
+        capped = cap_per_company(deduped, max_per_company=3)
 
         # Phase 1: attach four signals + natural bucket + replace match_score
         # with the composite. Hard-drops on landability < hard_drop floor
         # also happen here. Under the default config, composite == relevance
         # so match_score is numerically unchanged.
-        top_jobs = attach_signals_and_buckets(top_jobs, get_active_profile(), profile)
+        capped = attach_signals_and_buckets(capped, get_active_profile(), profile)
+
+        # Purposeful Leakage step 2: apply hardNos soft penalty AFTER the
+        # composite is final. Penalty is -30 on a 0-100 scale, never a drop;
+        # excellent-otherwise matches survive, dim matches sink. Parsing is
+        # LLM-extracted and cached by (uid, hardNos-hash) in Firestore so
+        # we pay once per edit, not once per re-rank.
+        #
+        # No population gate: an explicit user rejection signal deserves
+        # real weight from day one. Periodic spot-checks via
+        # backend/scripts/hardnos_verification.py catch over-broad
+        # extractions across the user base.
+        from backend.app.utils.hardnos_parser import (
+            apply_hardnos_penalty,
+            extract_hardnos_concepts,
+        )
+        hardnos_concepts = extract_hardnos_concepts(profile, db, uid)
+        capped, hardnos_penalized = apply_hardnos_penalty(capped, hardnos_concepts)
+
+        # Purposeful Leakage step 3: carve ~15-20% of slots for exploration
+        # jobs (composite 30-55%, ranked by embedding adjacency when
+        # available). Strict pool keeps the strongest fits; stretch pool
+        # injects serendipity so the feed never collapses to look-alikes.
+        from backend.app.utils.exploration_slots import (
+            carve_stretch_slots,
+            count_narrative_boosted,
+        )
+        top_jobs, slot_counts = carve_stretch_slots(capped)
+        narrative_boosted = count_narrative_boosted(top_jobs, profile)
+
+        # Purposeful Leakage step 4: composition telemetry. Honest counts
+        # derived from real ranking decisions; written to cache so we can
+        # audit retrospectively without re-running the ranker.
+        composition = {
+            "top_strict":        slot_counts["strict"],
+            "top_stretch":       slot_counts["stretch"],
+            "narrative_boosted": narrative_boosted,
+            "hardnos_penalized": hardnos_penalized,
+            "hardnos_concepts":  len(hardnos_concepts),
+            "computed_at":       datetime.now(timezone.utc),
+        }
+        logger.info("composition: %s", composition)
+
+        # hardNos hash is stored alongside the cache so get_feed can detect
+        # a profile edit and invalidate without waiting for the 30-min TTL.
+        # Empty hardNos → empty hash; both sides compare equal so the check
+        # is a no-op for users who haven't populated the field.
+        from backend.app.utils.hardnos_parser import _hash_text as _hardnos_hash
+        _hn_text = profile.get("hardNos") or ""
+        hardnos_hash = _hardnos_hash(_hn_text) if _hn_text.strip() else ""
 
         cache_data = {
-            "job_ids": [j["job_id"] for j in top_jobs],
-            "scores": {j["job_id"]: j.get("match_score") for j in top_jobs},
-            "reasons": {j["job_id"]: j.get("match_reason") for j in top_jobs},
-            "signals": {j["job_id"]: j.get("signals") for j in top_jobs},
-            "buckets": {j["job_id"]: j.get("bucket") for j in top_jobs},
-            "ranked_at": datetime.now(timezone.utc),
+            "job_ids":          [j["job_id"] for j in top_jobs],
+            "scores":           {j["job_id"]: j.get("match_score") for j in top_jobs},
+            "reasons":          {j["job_id"]: j.get("match_reason") for j in top_jobs},
+            "signals":          {j["job_id"]: j.get("signals") for j in top_jobs},
+            "buckets":          {j["job_id"]: j.get("bucket") for j in top_jobs},
+            "slots":            {j["job_id"]: j.get("slot") for j in top_jobs},
+            "composition":      composition,
+            "hardnos_text_hash": hardnos_hash,
+            "ranked_at":        datetime.now(timezone.utc),
         }
         user_ref.update({"jobFeedCache": cache_data})
         logger.info(f"Background re-rank complete for {uid}")
@@ -808,3 +885,4 @@ def get_filters():
     _filters_cache["cached_at"] = now
 
     return jsonify(result)
+
