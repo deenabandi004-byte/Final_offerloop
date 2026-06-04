@@ -17,14 +17,17 @@ import {
 import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 import posthog from "../lib/posthog";
+import { TIER_CONFIGS } from "../lib/constants";
 
 const getMonthKey = () => new Date().toISOString().slice(0, 7);
-const initialCreditsByTier = (tier: "free" | "pro" | "elite") => {
-  if (tier === "free") return 300;
-  if (tier === "pro") return 1500;
-  if (tier === "elite") return 3000;
-  return 300; // default to free
-};
+
+// Per-tier monthly credit cap. Backed by lib/constants.ts (the canonical
+// frontend mirror of backend/app/config.py:TIER_CONFIGS). Don't duplicate
+// the numbers here — older versions of this file did, drifted from the
+// canonical values, and showed users a cap that was less than their
+// remaining balance (e.g. "11680 / 3000" for an Elite user).
+const initialCreditsByTier = (tier: "free" | "pro" | "elite") =>
+  TIER_CONFIGS[tier].credits;
 
 interface User {
   uid: string;
@@ -32,7 +35,7 @@ interface User {
   name: string;
   picture?: string;
   accessToken?: string;
-  tier: "free" | "pro";
+  tier: "free" | "pro" | "elite";
   credits: number;
   maxCredits: number;
   subscriptionId?: string;
@@ -137,15 +140,25 @@ export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ childr
       const userDocRef = doc(db, "users", firebaseUser.uid);
       const snap = await getDoc(userDocRef);
       if (snap.exists()) {
-        const d = snap.data() as Partial<User>;
+        const d = snap.data() as Partial<User> & { subscriptionTier?: "free" | "pro" | "elite" };
+        // subscriptionTier is the source-of-truth field set by the Stripe
+        // webhook; `tier` is the legacy fallback (see CLAUDE.md). Prefer the
+        // canonical one and only fall back to `tier` for users whose record
+        // pre-dates the rename.
+        const effectiveTier = d.subscriptionTier || d.tier || "free";
+        // Always derive maxCredits from the effective tier — never trust the
+        // Firestore-stored value, which can be stale across plan changes
+        // (this is what made "11680 / 3000" appear for upgraded users). The
+        // current balance still comes from Firestore, which is fine: it can
+        // legitimately exceed the cap due to bonus credits.
         const userData = {
           uid: firebaseUser.uid,
           email: firebaseUser.email || "",
           name: firebaseUser.displayName || "",
           picture: firebaseUser.photoURL || undefined,
-          tier: d.tier || "free",
-          credits: d.credits ?? initialCreditsByTier(d.tier || "free"),
-          maxCredits: d.maxCredits ?? initialCreditsByTier(d.tier || "free"),
+          tier: effectiveTier,
+          credits: d.credits ?? initialCreditsByTier(effectiveTier),
+          maxCredits: initialCreditsByTier(effectiveTier),
           stripeCustomerId: d.stripeCustomerId,
           stripeSubscriptionId: d.stripeSubscriptionId,
           subscriptionStatus: d.subscriptionStatus,

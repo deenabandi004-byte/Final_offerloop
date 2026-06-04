@@ -3,9 +3,10 @@
 Offerloop Job Pipeline — entry point.
 
 Usage:
-    python pipeline/main.py                          # Full pipeline: fetch → normalize → write
-    python pipeline/main.py --skip-fantastic          # Full pipeline, skip Fantastic.jobs
-    python pipeline/main.py --fantastic-only          # Fantastic.jobs only (7d window)
+    python pipeline/main.py                          # Default: full pipeline EXCEPT the paid 7d Fantastic.jobs sweep
+    python pipeline/main.py --include-fantastic-7d    # Full pipeline INCLUDING the paid 7d FJ sweep (~500-1000 Jobs credits)
+    python pipeline/main.py --skip-fantastic          # (Alias for default — kept for backward compat)
+    python pipeline/main.py --fantastic-only          # Fantastic.jobs only (7d window) — gated by FJ_FULL_BACKFILL_ENABLED=true
     python pipeline/main.py --fantastic-modified      # FJ daily delta via /modified-ats-24h (no Jobs credits)
     python pipeline/main.py --sweep-expired           # FJ Expired Jobs sweep — mark Firestore docs expired=true
     python pipeline/main.py --cleanup                 # Delete expired jobs only
@@ -151,6 +152,18 @@ def run_fantastic_only():
     from backend.pipeline.fetcher import fetch_fantasticjobs
     from backend.pipeline.normalizer import normalize_all
     from backend.pipeline.writer import write_jobs
+
+    # Guard: the 7d window hits /active-ats-7d which spends Jobs credits
+    # (~500-1000 per full run across the 10 student-cycle recipes). Require
+    # explicit opt-in via env so an accidental --fantastic-only doesn't burn
+    # the monthly quota.
+    if os.getenv("FJ_FULL_BACKFILL_ENABLED", "false").lower() != "true":
+        print(
+            "FJ_FULL_BACKFILL_ENABLED is not 'true' — refusing to run the 7d "
+            "Fantastic.jobs backfill (~500-1000 Jobs credits/run). "
+            "Set FJ_FULL_BACKFILL_ENABLED=true to override."
+        )
+        sys.exit(2)
 
     logger.info("Fetching jobs from Fantastic.jobs only...")
     raw = fetch_fantasticjobs()
@@ -396,8 +409,18 @@ if __name__ == "__main__":
             mode, runner = "sweep-expired", run_sweep_expired
         elif "--skip-fantastic" in sys.argv:
             mode, runner = "skip-fantastic", (lambda: run_pipeline(skip_fantastic=True))
+        elif "--include-fantastic-7d" in sys.argv:
+            # Explicit opt-in for the paid 7d FJ sweep alongside the other sources.
+            # Still gated by FJ_FULL_BACKFILL_ENABLED inside run_fantastic_only-equivalent
+            # path; here we just flip the skip flag in run_pipeline.
+            mode, runner = "full-with-fantastic", (lambda: run_pipeline(skip_fantastic=False))
         else:
-            mode, runner = "full", run_pipeline
+            # Default now SKIPS the paid 7d Fantastic.jobs sweep. The daily
+            # `_fantastic_modified_loop` + `_fantastic_expired_loop` daemons
+            # (wsgi.py) already keep the index fresh via FREE endpoints
+            # (/modified-ats-24h, /active-ats-expired). Opt back in with
+            # --include-fantastic-7d when running an intentional backfill.
+            mode, runner = "full", (lambda: run_pipeline(skip_fantastic=True))
 
         started = datetime.now(timezone.utc)
         try:

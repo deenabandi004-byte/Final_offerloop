@@ -7914,12 +7914,16 @@ def find_recruiter_endpoint():
                 "creditsAvailable": current_credits
             }), 402
         
-        # Get user's requested max_results (default: 5, max: 10)
+        # Get user's requested max_results. Cap lowered 10 -> 4 (2026-06)
+        # because the unified referral-draft workflow proved that beyond 3-4
+        # recruiters per company, click-through drops sharply AND each extra
+        # PDL record is another billed credit. Default 3 to match the SPA's
+        # FindHumansModal usage.
         try:
-            max_results_requested = int(data.get('maxResults', 5))
+            max_results_requested = int(data.get('maxResults', 3))
         except (TypeError, ValueError):
-            max_results_requested = 5
-        max_results_requested = min(max(max_results_requested, 1), 10)
+            max_results_requested = 3
+        max_results_requested = min(max(max_results_requested, 1), 4)
         
         # Calculate how many recruiters user can afford (RECRUITER_CREDIT_COST per recruiter)
         max_affordable = current_credits // RECRUITER_CREDIT_COST
@@ -8117,6 +8121,34 @@ def find_recruiter_endpoint():
                 logger.info(f"[FindRecruiter] Gmail not connected (no credentials found in integrations/gmail), skipping draft creation")
                 logger.info(f"[FindRecruiter] User ID: {user_id}")
 
+        # Phase 6 (June 2026): unified referral-draft workflow.
+        # Cache the validated recruiter list so the new
+        # /referral-draft/from-find-recruiter endpoint can read it back
+        # (server-side trust boundary — clients never send contact fields).
+        # 60-min TTL matches discovery_cache; cache_doc keyed per (uid,
+        # company, jobTitle, hour-bucket) so the same search within the
+        # cache window collides cleanly.
+        from app.services.alumni_discovery import (
+            _generate_search_id as _gen_recruiter_search_id,
+            write_recruiter_cache,
+        )
+        recruiter_search_id = _gen_recruiter_search_id(
+            user_id, company, job_title or "",
+        )
+        try:
+            write_recruiter_cache(user_id, recruiter_search_id, {
+                "search_id": recruiter_search_id,
+                "company": result.get("company_cleaned") or company,
+                "job_title": job_title or "",
+                "recruiters": affordable_recruiters,
+            })
+        except Exception as _cache_err:
+            # Cache write is best-effort — never fail the search over it.
+            logger.warning(
+                "[FindRecruiter] recruiter_cache write failed uid=%s: %s",
+                user_id, _cache_err,
+            )
+
         response = {
             "recruiters": affordable_recruiters,
             "emails": affordable_emails,
@@ -8129,7 +8161,8 @@ def find_recruiter_endpoint():
             "foundCount": len(affordable_recruiters),
             "creditsCharged": credits_charged,
             "creditsRemaining": new_balance,
-            "message": result.get("message")
+            "message": result.get("message"),
+            "searchId": recruiter_search_id,
         }
         
         # Add message if there are more available
@@ -9302,4 +9335,59 @@ def get_mock_jobs(
     
     # Return more jobs (up to 50) to simulate real API behavior
     return all_jobs * 3  # Repeat the list 3 times to get ~36 jobs for internships
+
+
+# =============================================================================
+# SAVED JOBS — student bookmarks
+# =============================================================================
+# Stored at users/{uid}/savedJobs/{job_id}. The frontend POSTs here when a
+# student clicks "Save" on a job card; the read at jobs.py:312 powers the
+# "saved company" affinity badge in the feed.
+
+@job_board_bp.route("/saved-jobs", methods=["GET"])
+@require_firebase_auth
+def list_saved_jobs():
+    uid = request.firebase_user["uid"]
+    db = get_db()
+    snap = db.collection("users").document(uid).collection("savedJobs").stream()
+    saved = []
+    for d in snap:
+        data = d.to_dict() or {}
+        data["job_id"] = data.get("job_id") or d.id
+        saved_at = data.get("saved_at")
+        if hasattr(saved_at, "isoformat"):
+            data["saved_at"] = saved_at.isoformat()
+        saved.append(data)
+    return jsonify({"saved": saved, "count": len(saved)})
+
+
+@job_board_bp.route("/saved-jobs", methods=["POST"])
+@require_firebase_auth
+def save_job():
+    uid = request.firebase_user["uid"]
+    payload = request.get_json(silent=True) or {}
+    job_id = payload.get("job_id")
+    if not job_id:
+        return jsonify({"error": "job_id required"}), 400
+    db = get_db()
+    doc_ref = db.collection("users").document(uid).collection("savedJobs").document(str(job_id))
+    doc_ref.set({
+        "job_id": str(job_id),
+        "title": payload.get("title"),
+        "company": payload.get("company"),
+        "location": payload.get("location"),
+        "apply_url": payload.get("apply_url"),
+        "match_score": payload.get("match_score"),
+        "saved_at": firestore.SERVER_TIMESTAMP,
+    })
+    return jsonify({"success": True, "job_id": str(job_id)})
+
+
+@job_board_bp.route("/saved-jobs/<job_id>", methods=["DELETE"])
+@require_firebase_auth
+def unsave_job(job_id: str):
+    uid = request.firebase_user["uid"]
+    db = get_db()
+    db.collection("users").document(uid).collection("savedJobs").document(str(job_id)).delete()
+    return jsonify({"success": True, "job_id": str(job_id)})
 

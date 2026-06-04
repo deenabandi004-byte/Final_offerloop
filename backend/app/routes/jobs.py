@@ -401,12 +401,14 @@ def get_feed():
         """Fetch new_matches from Firestore, or return from cache if fresh."""
         if nm_valid:
             return nm_cache.get("jobs", []), True
-        # Pull a wider window so dedup + cap_per_company have headroom to keep 20 varied results
+        # Pull a wider window so dedup + cap_per_company have headroom for the
+        # display cap. Without this slack a few high-volume employers would
+        # saturate the window before the cap_per_company stage.
         new_query = (
             db.collection("jobs")
             .where("posted_at", ">=", twenty_four_hours_ago)
             .order_by("posted_at", direction="DESCENDING")
-            .limit(120)
+            .limit(800)
         )
         raw = []
         for d in new_query.stream():
@@ -425,11 +427,11 @@ def get_feed():
             raw.append(j)
 
         # Collapse title variants ("Teller (Full Time)" + "Teller (Part Time)" → one),
-        # then cap to max 2 per company so a single batch poster can't fill the feed.
+        # then cap per company so a single batch poster can't fill the feed.
         deduped = _dedup_by_title_company(raw)
         # _dedup_by_title_company sorts by score; for unranked new_matches we want recency.
         deduped.sort(key=lambda j: (j.get("posted_at") or 0), reverse=True)
-        new_matches = cap_per_company(deduped, max_per_company=2)[:20]
+        new_matches = cap_per_company(deduped, max_per_company=8)[:150]
         # Persist new_matches to cache (fire-and-forget)
         try:
             user_ref.update({
@@ -442,10 +444,16 @@ def get_feed():
             pass
         return new_matches, False
 
+    # Display slice: cache stores up to 1000 ranked job_ids (rich inventory for
+    # future pagination), but each response only hydrates the top 300 for speed.
+    # Cuts Firestore reads from ~10 RPCs to ~3 and payload from ~2.5MB to ~600KB.
+    MAX_DISPLAY_TOP_JOBS = 300
+
     def _load_top_jobs_from_cache(cached_ids, cached_scores, cached_reasons):
-        """Hydrate top_jobs from cached job IDs."""
+        """Hydrate top_jobs from cached job IDs (first N for fast first paint)."""
         top_jobs = []
         if cached_ids:
+            cached_ids = cached_ids[:MAX_DISPLAY_TOP_JOBS]
             for i in range(0, len(cached_ids), 100):
                 chunk = cached_ids[i:i + 100]
                 refs = [db.collection("jobs").document(jid) for jid in chunk]
@@ -518,11 +526,11 @@ def get_feed():
         top_query = (
             db.collection("jobs")
             .order_by("posted_at", direction="DESCENDING")
-            .limit(80)
+            .limit(1000)
         )
         top_jobs = [d.to_dict() for d in top_query.stream()]
         top_jobs = [j for j in top_jobs if not _is_international_job(j) and not _is_excluded_job(j)]
-        top_jobs = cap_per_company(top_jobs, max_per_company=3)[:50]
+        top_jobs = cap_per_company(top_jobs, max_per_company=10)[:300]
         for j in top_jobs:
             j["match_score"] = None
             j["match_reason"] = None
@@ -546,11 +554,11 @@ def get_feed():
     top_query = (
         db.collection("jobs")
         .order_by("posted_at", direction="DESCENDING")
-        .limit(80)
+        .limit(1000)
     )
     top_jobs = [d.to_dict() for d in top_query.stream()]
     top_jobs = [j for j in top_jobs if not _is_international_job(j) and not _is_excluded_job(j)]
-    top_jobs = cap_per_company(top_jobs, max_per_company=3)[:50]
+    top_jobs = cap_per_company(top_jobs, max_per_company=10)[:300]
     for j in top_jobs:
         j["match_score"] = None
         j["match_reason"] = None
@@ -621,7 +629,7 @@ def _background_rerank(uid: str):
         all_query = (
             db.collection("jobs")
             .order_by("posted_at", direction="DESCENDING")
-            .limit(500)
+            .limit(5000)
         )
         all_jobs = [doc.to_dict() for doc in all_query.stream()]
 
@@ -648,7 +656,7 @@ def _background_rerank(uid: str):
         candidates = []
         if feature_flags.is_enabled("embedding_ranker", uid=uid, default=False):
             from backend.app.utils.embedding_ranker import embedding_rank
-            candidates = embedding_rank(all_jobs, profile, uid, top_n=50)
+            candidates = embedding_rank(all_jobs, profile, uid, top_n=1500)
             if candidates:
                 logger.info(
                     "Embedding rank: top score %.1f, bottom %.1f (%d candidates)",
@@ -659,13 +667,13 @@ def _background_rerank(uid: str):
             else:
                 logger.info("Embedding rank returned empty, falling back to deterministic")
         if not candidates:
-            candidates = prefilter_candidates(all_jobs, profile, top_n=50)
+            candidates = prefilter_candidates(all_jobs, profile, top_n=1500)
         ranked = rank_with_gpt(candidates, profile)
         adjusted = apply_feedback_adjustments(ranked, preferences, user_signals=user_signals)
 
-        # Deduplicate by title + company, cap per company, then take top 50
+        # Deduplicate by title + company, cap per company, then take top N
         deduped = _dedup_by_title_company(adjusted)
-        top_jobs = cap_per_company(deduped, max_per_company=3)[:50]
+        top_jobs = cap_per_company(deduped, max_per_company=10)[:1000]
         cache_data = {
             "job_ids": [j["job_id"] for j in top_jobs],
             "scores": {j["job_id"]: j.get("match_score") for j in top_jobs},

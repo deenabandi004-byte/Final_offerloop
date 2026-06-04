@@ -212,19 +212,25 @@ function Ledger({ summary }: { summary: JobFeedSummary | null }) {
 function StandoutCard({
   j,
   isDream,
+  discoveryEnabled,
+  isNegativeCached,
   onOpenApply,
   onFindContact,
   onSeeTeam,
   onToggleDream,
   onReferral,
+  onDiscoverAlumni,
 }: {
   j: FeedJob;
   isDream: boolean;
+  discoveryEnabled: boolean;
+  isNegativeCached: boolean;
   onOpenApply: (j: FeedJob) => void;
   onFindContact: (j: FeedJob) => void;
   onSeeTeam: (j: FeedJob) => void;
   onToggleDream: (company: string) => Promise<void> | void;
   onReferral: (j: FeedJob) => void;
+  onDiscoverAlumni: (j: FeedJob) => void;
 }) {
   const warm = (j.match_score ?? 0) >= 90;
   return (
@@ -307,6 +313,19 @@ function StandoutCard({
           >
             ↗ Reach out to {firstName(j.referral_contact.name)}
           </a>
+        ) : discoveryEnabled && isNegativeCached ? (
+          <a
+            aria-disabled
+            style={{ opacity: 0.5, cursor: "default" }}
+            title="We checked recently and didn't find alumni at this company."
+            onClick={(e) => e.stopPropagation()}
+          >
+            Already checked — no alumni
+          </a>
+        ) : discoveryEnabled ? (
+          <a onClick={(e) => { e.stopPropagation(); onDiscoverAlumni(j); }}>
+            Find alumni at {j.company}
+          </a>
         ) : (
           <a onClick={() => onFindContact(j)}>Find contact</a>
         )}
@@ -333,6 +352,8 @@ function JobRow({
   isOpen,
   isSaved,
   isDream,
+  discoveryEnabled,
+  isNegativeCached,
   onToggle,
   onDismiss,
   onApply,
@@ -341,11 +362,14 @@ function JobRow({
   onSave,
   onToggleDream,
   onReferral,
+  onDiscoverAlumni,
 }: {
   j: FeedJob;
   isOpen: boolean;
   isSaved: boolean;
   isDream: boolean;
+  discoveryEnabled: boolean;
+  isNegativeCached: boolean;
   onToggle: (id: string) => void;
   onDismiss: (id: string) => Promise<void> | void;
   onApply: (j: FeedJob) => void;
@@ -354,6 +378,7 @@ function JobRow({
   onSave: (j: FeedJob) => Promise<void> | void;
   onToggleDream: (company: string) => Promise<void> | void;
   onReferral: (j: FeedJob) => void;
+  onDiscoverAlumni: (j: FeedJob) => void;
 }) {
   const [dismissing, setDismissing] = useState(false);
   const daysOld = postedDaysFrom(j.posted_at) ?? 0;
@@ -451,6 +476,19 @@ function JobRow({
                 onClick={(e) => { stop(e); onReferral(j); }}
               >
                 ↗ Reach out to {firstName(j.referral_contact.name)}
+              </a>
+            ) : discoveryEnabled && isNegativeCached ? (
+              <a
+                aria-disabled
+                style={{ opacity: 0.5, cursor: "default" }}
+                title="We checked recently and didn't find alumni at this company."
+                onClick={stop}
+              >
+                Already checked — no alumni
+              </a>
+            ) : discoveryEnabled ? (
+              <a onClick={(e) => { stop(e); onDiscoverAlumni(j); }}>
+                Find alumni at {j.company}
               </a>
             ) : (
               <a onClick={(e) => { stop(e); onFindContact(j); }}>Find contact</a>
@@ -577,7 +615,41 @@ export const JobBoardPage: React.FC = () => {
   // Phase 5: which job's referral-email modal is open. The modal handles
   // generation + edit + commit; the page just owns the lifted state so the
   // modal can render once at the page level instead of one per row.
-  const [referralDraftJob, setReferralDraftJob] = useState<FeedJob | null>(null);
+  //
+  // Carries `mode` so the same modal renders the saved-contact path AND
+  // the auto-discover-alumni path (eng review, June 2026 — mode prop on
+  // ReferralDraftModal).
+  const [referralDraftJob, setReferralDraftJob] = useState<
+    { job: FeedJob; mode: "saved" | "discovery" } | null
+  >(null);
+
+  // ---- Alumni-discovery: capability flag + negative cache + school -----
+  // Negative cache is batch-loaded ONCE on mount (single Firestore range
+  // query) so per-row CTA branching never costs N reads (eng review fix).
+  // The capability flag short-circuits when DISCOVER_ALUMNI_ENABLED=false
+  // on the backend — UI falls back to the original "Find contact" CTA.
+  const [discoveryEnabled, setDiscoveryEnabled] = useState(false);
+  const [negativeCacheCompanies, setNegativeCacheCompanies] = useState<Set<string>>(
+    new Set(),
+  );
+  const [studentSchool, setStudentSchool] = useState<string | null>(null);
+  const tierMaxForDiscovery = useMemo(() => {
+    const tier = (user as { tier?: string } | null)?.tier ?? "free";
+    return tier === "elite" ? 8 : tier === "pro" ? 5 : 3;
+  }, [user]);
+
+  const normalizeCompany = useCallback(
+    (c: string) => (c || "").toLowerCase().trim(),
+    [],
+  );
+
+  const handleNegativeCacheHit = useCallback((company: string) => {
+    setNegativeCacheCompanies((prev) => {
+      const next = new Set(prev);
+      next.add((company || "").toLowerCase().trim());
+      return next;
+    });
+  }, []);
 
   const loadFeed = useCallback(async (refresh = false, opts?: { ungated?: boolean }) => {
     try {
@@ -626,8 +698,39 @@ export const JobBoardPage: React.FC = () => {
           : [];
       setDreamCompanies(list);
       setDreamCompanyKeys(new Set(list.map((s) => s.toLowerCase().trim())));
+      // Same Firestore read also surfaces the student's school, used by
+      // the "Find alumni at {company}" discovery flow. Picks the same
+      // precedence as the backend (`alumni_discovery._user_school_from_profile`).
+      const schoolCandidate =
+        d?.resumeParsed?.education?.school ||
+        d?.university ||
+        d?.school ||
+        d?.academics?.university ||
+        d?.academics?.school ||
+        null;
+      setStudentSchool(
+        typeof schoolCandidate === "string" && schoolCandidate.trim()
+          ? schoolCandidate.trim()
+          : null,
+      );
     } catch (err) {
       console.warn("dream companies fetch failed", err);
+    }
+  }, []);
+
+  // Single batch read of the user's "no alumni at {company}" negative
+  // cache. Stays scoped to the page mount — adjacent tabs in the same
+  // session will get a fresh snapshot when this re-mounts.
+  const loadDiscoveryState = useCallback(async () => {
+    try {
+      const res = await apiService.getDiscoveryNegativeCache();
+      setDiscoveryEnabled(res.enabled);
+      setNegativeCacheCompanies(
+        new Set((res.companies || []).map((c) => c.toLowerCase().trim())),
+      );
+    } catch (err) {
+      console.warn("discovery negative cache fetch failed", err);
+      setDiscoveryEnabled(false);
     }
   }, []);
 
@@ -636,7 +739,8 @@ export const JobBoardPage: React.FC = () => {
     loadFeed();
     loadSaved();
     loadDreamCompanies();
-  }, [user, loadFeed, loadSaved, loadDreamCompanies]);
+    loadDiscoveryState();
+  }, [user, loadFeed, loadSaved, loadDreamCompanies, loadDiscoveryState]);
 
   // Merge and de-duplicate new_matches + top_jobs into a single feed.
   const allJobs: FeedJob[] = useMemo(() => {
@@ -679,6 +783,50 @@ export const JobBoardPage: React.FC = () => {
 
   const standouts = useMemo(() => filteredJobs.slice(0, 2), [filteredJobs]);
   const restJobs  = useMemo(() => filteredJobs.slice(2), [filteredJobs]);
+
+  // ── pagination (client-side over the filtered + ranked list) ───────────────
+  // 50 per page — fits a typical viewport with a few cards on screen and gives
+  // students a clear "Page 3 of 9" progress signal that infinite scroll lacks.
+  // The backend already caps the response at ~300 top + ~150 new for snappy
+  // load; client-side paging just controls how many cards mount at once.
+  const PAGE_SIZE = 50;
+  const [currentPage, setCurrentPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(restJobs.length / PAGE_SIZE));
+  // Clamp the page when filters narrow results (page 7 of 9 → page 2 of 2).
+  const safePage = Math.min(currentPage, totalPages);
+  const pagedJobs = useMemo(
+    () => restJobs.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [restJobs, safePage],
+  );
+  const pageStart = restJobs.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
+  const pageEnd = Math.min(safePage * PAGE_SIZE, restJobs.length);
+
+  // Reset to page 1 whenever the filtered set's identity changes (filters/sort/search).
+  // Watching restJobs handles all three sources at once and avoids tracking each
+  // filter input separately.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [jobType, field, search, sort]);
+
+  // Re-clamp if user is on a page that no longer exists (e.g. filters narrowed).
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
+
+  const goToPage = useCallback((next: number) => {
+    setCurrentPage(prev => {
+      const clamped = Math.max(1, Math.min(totalPages, Math.floor(next) || 1));
+      if (clamped !== prev) {
+        // Scroll the user back to the top of the list so page 2 doesn't dump
+        // them mid-card. requestAnimationFrame defers until after the new
+        // page's cards have mounted.
+        requestAnimationFrame(() => {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        });
+      }
+      return clamped;
+    });
+  }, [totalPages]);
 
   // Derive Ledger summary from data we already have. The previous
   // /api/job-board/summary endpoint was never implemented on the backend,
@@ -1126,11 +1274,14 @@ export const JobBoardPage: React.FC = () => {
                               key={j.job_id}
                               j={j}
                               isDream={dreamCompanyKeys.has((j.company || "").toLowerCase().trim())}
+                              discoveryEnabled={discoveryEnabled}
+                              isNegativeCached={negativeCacheCompanies.has(normalizeCompany(j.company))}
                               onOpenApply={handleApply}
                               onFindContact={handleFindContact}
                               onSeeTeam={handleSeeTeam}
                               onToggleDream={handleToggleDream}
-                              onReferral={setReferralDraftJob}
+                              onReferral={(job) => setReferralDraftJob({ job, mode: "saved" })}
+                              onDiscoverAlumni={(job) => setReferralDraftJob({ job, mode: "discovery" })}
                             />
                           ))}
                         </div>
@@ -1143,13 +1294,15 @@ export const JobBoardPage: React.FC = () => {
                           <a className="all" onClick={() => loadFeed(true)}>Adjust ranking →</a>
                         </div>
                         <div className="rows">
-                          {restJobs.map(j => (
+                          {pagedJobs.map(j => (
                             <JobRow
                               key={j.job_id}
                               j={j}
                               isOpen={openId === j.job_id}
                               isSaved={savedIds.has(j.job_id)}
                               isDream={dreamCompanyKeys.has((j.company || "").toLowerCase().trim())}
+                              discoveryEnabled={discoveryEnabled}
+                              isNegativeCached={negativeCacheCompanies.has(normalizeCompany(j.company))}
                               onToggle={handleToggle}
                               onDismiss={handleDismiss}
                               onApply={handleApply}
@@ -1157,17 +1310,60 @@ export const JobBoardPage: React.FC = () => {
                               onSeeTeam={handleSeeTeam}
                               onSave={handleSave}
                               onToggleDream={handleToggleDream}
-                              onReferral={setReferralDraftJob}
+                              onReferral={(job) => setReferralDraftJob({ job, mode: "saved" })}
+                              onDiscoverAlumni={(job) => setReferralDraftJob({ job, mode: "discovery" })}
                             />
                           ))}
                         </div>
                         <div className="page-bar">
                           <span className="meta">
-                            <em>1–{restJobs.length}</em> of <em>{filteredJobs.length}</em>
+                            <em>{pageStart}–{pageEnd}</em> of <em>{restJobs.length}</em>
                           </span>
-                          <div className="nav">
-                            <button disabled type="button">← Prev</button>
-                            <button type="button" onClick={() => loadFeed(true)}>Refresh →</button>
+                          <div className="nav" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <button
+                              type="button"
+                              disabled={safePage <= 1}
+                              onClick={() => goToPage(safePage - 1)}
+                            >
+                              ← Prev
+                            </button>
+                            <span style={{ fontSize: 13, opacity: 0.8 }}>
+                              Page{" "}
+                              <input
+                                type="number"
+                                min={1}
+                                max={totalPages}
+                                value={safePage}
+                                onChange={(e) => goToPage(parseInt(e.target.value, 10))}
+                                aria-label="Jump to page"
+                                style={{
+                                  width: 48,
+                                  textAlign: "center",
+                                  padding: "2px 4px",
+                                  margin: "0 4px",
+                                  border: "1px solid currentColor",
+                                  borderRadius: 4,
+                                  background: "transparent",
+                                  color: "inherit",
+                                }}
+                              />
+                              of {totalPages}
+                            </span>
+                            <button
+                              type="button"
+                              disabled={safePage >= totalPages}
+                              onClick={() => goToPage(safePage + 1)}
+                            >
+                              Next →
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => loadFeed(true)}
+                              style={{ marginLeft: 8 }}
+                              title="Re-rank against your resume"
+                            >
+                              Refresh
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -1249,7 +1445,11 @@ export const JobBoardPage: React.FC = () => {
       <ReferralDraftModal
         open={!!referralDraftJob}
         onOpenChange={(o) => !o && setReferralDraftJob(null)}
-        job={referralDraftJob}
+        job={referralDraftJob?.job ?? null}
+        mode={referralDraftJob?.mode ?? "saved"}
+        studentSchool={studentSchool}
+        tierMax={tierMaxForDiscovery}
+        onNegativeCacheHit={handleNegativeCacheHit}
       />
     </SidebarProvider>
   );

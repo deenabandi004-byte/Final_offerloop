@@ -28,7 +28,9 @@ import pytest
 
 from app.services import loop_service
 from app.services.loop_service import (
+    LOOP_AUTO_SEND_MODES,
     LOOP_MODES,
+    MUTABLE_LOOP_FIELDS,
     _loop_defaults,
     create_loop,
 )
@@ -50,6 +52,59 @@ def test_loop_modes_constant_is_complete():
     to also update _loop_defaults, the route validation, the brief parser
     classifier, and the frontend type union."""
     assert LOOP_MODES == {"people", "roles", "both"}
+
+
+# ── Phase 9: auto-send schema ────────────────────────────────────────────
+
+
+def test_loop_defaults_includes_autosend_fields():
+    """Phase 9 added autoSendMode + supporting fields. Default must match
+    today's "Autopilot" behavior (draft_only — cycle runs, Gmail draft
+    created, no send) so existing users see no behavior change until they
+    opt into send_for_me explicitly.
+
+    autoSendApprovedAfter defaults to 0: if a user picks "Send for me"
+    they get auto-send from cycle 1, no warmup gate. The field stays on
+    the schema so power users can PATCH a non-zero value to require
+    manual approvals (e.g. for a high-stakes Loop)."""
+    defaults = _loop_defaults()
+    assert defaults["autoSendMode"] == "draft_only"
+    assert defaults["autoSendApprovedCount"] == 0
+    assert defaults["autoSendApprovedAfter"] == 0
+    assert defaults["hardDailySendCap"] is None
+
+
+def test_loop_auto_send_modes_constant_is_complete():
+    """If you add a new auto-send mode, this test fails — forcing you to
+    also update the wizard radio, the send gate, the validation schema,
+    and the frontend type union."""
+    assert LOOP_AUTO_SEND_MODES == {"approve_each", "draft_only", "send_for_me"}
+
+
+def test_autosendapprovedcount_is_server_managed():
+    """Critical: clients must NEVER be able to bump autoSendApprovedCount
+    via the Loop PATCH endpoint — that would let a user bypass the first-N
+    gate by setting count >= autoSendApprovedAfter. Only the
+    /approve-send endpoint (Phase D / step 10) is allowed to write it."""
+    assert "autoSendApprovedCount" not in MUTABLE_LOOP_FIELDS
+    # Sanity-check the user-mutable trio
+    assert "autoSendMode" in MUTABLE_LOOP_FIELDS
+    assert "autoSendApprovedAfter" in MUTABLE_LOOP_FIELDS
+    assert "hardDailySendCap" in MUTABLE_LOOP_FIELDS
+
+
+def test_cycle_lock_fields_are_server_managed():
+    """Phase 9.1 — cycleRunning and cycleStartedAt drive the concurrency
+    lock. If a client could PATCH them, they could either:
+      - Set cycleRunning=False mid-cycle and break the duplicate-send
+        guard we just shipped.
+      - Set cycleRunning=True forever and DOS their own Loop.
+    Both are bad. Lock is server-side only."""
+    defaults = _loop_defaults()
+    assert defaults["cycleRunning"] is False
+    assert defaults["cycleStartedAt"] is None
+    assert "cycleRunning" not in MUTABLE_LOOP_FIELDS
+    assert "cycleStartedAt" not in MUTABLE_LOOP_FIELDS
 
 
 def test_create_loop_with_both_mode_persists(monkeypatch):
@@ -226,3 +281,165 @@ def test_post_loops_invalid_mode_returns_400():
 def test_patch_loop_with_mode_returns_400():
     """PATCH /api/agent/loops/<id> with loopMode in body returns 400 loopMode_read_only."""
     pass
+
+
+# ── Cadence wizard — output-first budget derivation ──────────────────────
+#
+# The Loop setup wizard sends weeklyTarget + loopMode but intentionally
+# omits creditBudgetPerWeek. loop_service.create_loop derives the budget
+# from BUNDLED_COST_PER_PERSON[mode] × weeklyTarget × BUNDLED_BUDGET_BUFFER,
+# clamped to the tier max and floored at 25. These tests lock that contract.
+
+
+def test_create_loop_derives_budget_from_weekly_target(monkeypatch):
+    """Wizard path: client omits creditBudgetPerWeek but sends weeklyTarget
+    and loopMode. Service derives the budget."""
+    from app.services.loop_budget import (
+        BUNDLED_BUDGET_BUFFER,
+        BUNDLED_COST_PER_PERSON,
+    )
+
+    db, writes = _fake_db_capturing_writes()
+    monkeypatch.setattr(loop_service, "get_db", lambda: db)
+    monkeypatch.setattr(loop_service, "_migrate_legacy_config", lambda _uid: None)
+
+    create_loop(
+        uid="u1",
+        tier="pro",
+        payload={
+            "briefText": "8 PMs at Stripe",
+            "loopMode": "people",
+            "weeklyTarget": 8,
+            # NOTE: creditBudgetPerWeek intentionally omitted — wizard path.
+        },
+    )
+
+    expected = int(8 * BUNDLED_COST_PER_PERSON["people"] * BUNDLED_BUDGET_BUFFER)
+    assert writes[0]["creditBudgetPerWeek"] == expected
+
+
+def test_create_loop_client_supplied_budget_wins(monkeypatch):
+    """Settings escape-hatch path: client supplies an explicit cap. The
+    service trusts it (clamped to tier max + 25 floor), ignoring the
+    derived value."""
+    db, writes = _fake_db_capturing_writes()
+    monkeypatch.setattr(loop_service, "get_db", lambda: db)
+    monkeypatch.setattr(loop_service, "_migrate_legacy_config", lambda _uid: None)
+
+    create_loop(
+        uid="u1",
+        tier="pro",
+        payload={
+            "briefText": "8 PMs at Stripe",
+            "loopMode": "people",
+            "weeklyTarget": 8,
+            "creditBudgetPerWeek": 250,  # power user override
+        },
+    )
+
+    assert writes[0]["creditBudgetPerWeek"] == 250
+
+
+def test_create_loop_derived_budget_clamped_to_tier_max(monkeypatch):
+    """Free tier caps weekly budget at 150. A people-mode Loop with
+    weeklyTarget=15 (~207 cr) must be clamped to 150."""
+    db, writes = _fake_db_capturing_writes()
+    monkeypatch.setattr(loop_service, "get_db", lambda: db)
+    monkeypatch.setattr(loop_service, "_migrate_legacy_config", lambda _uid: None)
+
+    create_loop(
+        uid="u1",
+        tier="free",
+        payload={
+            "briefText": "15 PMs at Stripe",
+            "loopMode": "people",
+            "weeklyTarget": 15,
+        },
+    )
+
+    # Free max_credit_budget_per_week_per_loop = 150 (config.py)
+    assert writes[0]["creditBudgetPerWeek"] == 150
+
+
+def test_create_loop_derived_budget_respects_loop_mode(monkeypatch):
+    """Roles mode uses a lower bundled cost (6 cr/person) than people
+    mode (12). Same weeklyTarget should produce a smaller derived budget."""
+    from app.services.loop_budget import (
+        BUNDLED_BUDGET_BUFFER,
+        BUNDLED_COST_PER_PERSON,
+    )
+
+    db, writes = _fake_db_capturing_writes()
+    monkeypatch.setattr(loop_service, "get_db", lambda: db)
+    monkeypatch.setattr(loop_service, "_migrate_legacy_config", lambda _uid: None)
+
+    create_loop(
+        uid="u1",
+        tier="pro",
+        payload={
+            "briefText": "10 SWE roles",
+            "loopMode": "roles",
+            "weeklyTarget": 10,
+        },
+    )
+
+    expected = int(10 * BUNDLED_COST_PER_PERSON["roles"] * BUNDLED_BUDGET_BUFFER)
+    assert writes[0]["creditBudgetPerWeek"] == expected
+
+
+def test_create_loop_send_for_me_adds_send_budget(monkeypatch):
+    """Phase 9 — when the Loop is in autoSendMode='send_for_me', the
+    derived budget must include the per-send overhead. Verifies the
+    wizard's '+1 cr per send' adder is reflected in what gets stored."""
+    from app.services.loop_budget import (
+        AUTO_SEND_CREDIT_COST,
+        BUNDLED_BUDGET_BUFFER,
+        BUNDLED_COST_PER_PERSON,
+    )
+
+    db, writes = _fake_db_capturing_writes()
+    monkeypatch.setattr(loop_service, "get_db", lambda: db)
+    monkeypatch.setattr(loop_service, "_migrate_legacy_config", lambda _uid: None)
+
+    create_loop(
+        uid="u1",
+        tier="pro",
+        payload={
+            "briefText": "8 PMs at Stripe",
+            "loopMode": "people",
+            "weeklyTarget": 8,
+            "autoSendMode": "send_for_me",
+        },
+    )
+
+    base = int(8 * BUNDLED_COST_PER_PERSON["people"] * BUNDLED_BUDGET_BUFFER)
+    send_addon = int(8 * AUTO_SEND_CREDIT_COST * BUNDLED_BUDGET_BUFFER)
+    assert writes[0]["creditBudgetPerWeek"] == base + send_addon
+
+
+def test_create_loop_draft_only_does_not_add_send_budget(monkeypatch):
+    """Defense: a Loop in 'draft_only' must produce the same budget as one
+    that omits autoSendMode entirely. Guards against a regression where
+    the +1 adder applied to every Loop."""
+    from app.services.loop_budget import (
+        BUNDLED_BUDGET_BUFFER,
+        BUNDLED_COST_PER_PERSON,
+    )
+
+    db, writes = _fake_db_capturing_writes()
+    monkeypatch.setattr(loop_service, "get_db", lambda: db)
+    monkeypatch.setattr(loop_service, "_migrate_legacy_config", lambda _uid: None)
+
+    create_loop(
+        uid="u1",
+        tier="pro",
+        payload={
+            "briefText": "8 PMs at Stripe",
+            "loopMode": "people",
+            "weeklyTarget": 8,
+            "autoSendMode": "draft_only",
+        },
+    )
+
+    expected = int(8 * BUNDLED_COST_PER_PERSON["people"] * BUNDLED_BUDGET_BUFFER)
+    assert writes[0]["creditBudgetPerWeek"] == expected

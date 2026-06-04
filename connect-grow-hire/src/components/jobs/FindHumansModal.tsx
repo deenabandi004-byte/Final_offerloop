@@ -11,7 +11,7 @@
  * CardAccentBorder / StatusLine).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, ExternalLink, Loader2, MailCheck, X } from "lucide-react";
+import { AlertTriangle, ExternalLink, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { SteppedLoadingBar } from "@/components/ui/LoadingBar";
@@ -27,6 +27,8 @@ import {
   type FindRecruiterResponse,
   type Recruiter,
 } from "@/services/api";
+import { toast } from "@/hooks/use-toast";
+import { ReferralDraftModal } from "./ReferralDraftModal";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,11 +51,14 @@ interface FindHumansModalProps {
 
 type ModalState = "idle" | "loading" | "success" | "error";
 
+// Loading-step copy tightened (June 2026) to match the rewire: the bulk
+// draft step is gone, so we don't promise "drafting emails…" anymore.
+// Each step lasts ~2s in the SteppedLoadingBar, so 3 steps ~ 6s — which
+// matches the new ~5s find_recruiter wall-clock budget.
 const LOADING_STEPS = [
   { id: "read", label: "Reading job posting…" },
-  { id: "search", label: "Searching for hiring teams…" },
+  { id: "search", label: "Searching for the right contacts…" },
   { id: "match", label: "Cross-referencing your background…" },
-  { id: "draft", label: "Drafting emails…" },
 ] as const;
 
 // Aesthetic constant from the agentic queue design (non-negotiable per design doc).
@@ -101,7 +106,17 @@ function ReceiptRow({ receipt }: { receipt: FindHumansReceipt }) {
   );
 }
 
-function CandidateReceiptCard({ recruiter }: { recruiter: Recruiter }) {
+function CandidateReceiptCard({
+  recruiter,
+  onDraftReferral,
+  isDrafting,
+  isAnyDrafting,
+}: {
+  recruiter: Recruiter;
+  onDraftReferral: () => void;
+  isDrafting: boolean;
+  isAnyDrafting: boolean;
+}) {
   const name = recruiterFullName(recruiter);
   const subtitle = recruiterSubtitle(recruiter);
   const location = recruiterLocation(recruiter);
@@ -125,16 +140,39 @@ function CandidateReceiptCard({ recruiter }: { recruiter: Recruiter }) {
           </ul>
         )}
 
-        {recruiter.LinkedIn && (
-          <a
-            href={recruiter.LinkedIn.startsWith('http') ? recruiter.LinkedIn : `https://${recruiter.LinkedIn}`}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="mt-2 inline-flex items-center gap-1 text-xs text-[#2563EB] hover:underline"
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          {recruiter.LinkedIn && (
+            <a
+              href={recruiter.LinkedIn.startsWith('http') ? recruiter.LinkedIn : `https://${recruiter.LinkedIn}`}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="inline-flex items-center gap-1 text-xs text-[#2563EB] hover:underline"
+            >
+              View LinkedIn <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+
+          {/* Phase 6 (June 2026): unified referral-draft workflow. Each
+              row opens the same rich preview/edit modal that saved + alumni
+              flows use. Server persists the recruiter as a contact then
+              calls build_referral_draft. Bulk Gmail drafts retired. */}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onDraftReferral}
+            disabled={isAnyDrafting}
+            aria-label={`Draft referral email to ${name}`}
+            className="h-7 px-2 text-xs"
           >
-            View LinkedIn <ExternalLink className="h-3 w-3" />
-          </a>
-        )}
+            {isDrafting ? (
+              <>
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" /> Drafting…
+              </>
+            ) : (
+              "Draft referral"
+            )}
+          </Button>
+        </div>
       </div>
     </CardAccentBorder>
   );
@@ -149,6 +187,20 @@ export function FindHumansModal({ open, onOpenChange, job }: FindHumansModalProp
   const [response, setResponse] = useState<FindRecruiterResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingStepId, setLoadingStepId] = useState<string>(LOADING_STEPS[0].id);
+
+  // Per-row drafting state. `draftingEmail` is the recruiter currently
+  // being persisted + drafted by /referral-draft/from-find-recruiter.
+  // `stagedDraft` holds the LLM output once it lands, and stacks the
+  // ReferralDraftModal on top in `prefilled` mode.
+  const [draftingEmail, setDraftingEmail] = useState<string | null>(null);
+  const [stagedDraft, setStagedDraft] = useState<{
+    recruiterName: string;
+    contactId: string;
+    subject: string;
+    body: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    contextUsed: any;
+  } | null>(null);
 
   // Token to ignore stale responses if the modal is closed/reopened mid-flight.
   const requestTokenRef = useRef(0);
@@ -186,14 +238,20 @@ export function FindHumansModal({ open, onOpenChange, job }: FindHumansModalProp
     startStepAnimation();
 
     try {
+      // Phase 6 (June 2026): the rewire drops the bulk email-gen + Gmail
+      // draft loop from this call. Each row drafts on-demand via
+      // /referral-draft/from-find-recruiter when the user clicks "Draft
+      // referral", which is faster (cuts ~10s off the wait) AND gives
+      // every email the rich build_referral_draft treatment instead of
+      // the simpler bulk template.
       const result = await apiService.findRecruiters({
         company: job.company,
         jobTitle: job.title || undefined,
         jobDescription: job.description || undefined,
         location: job.location || undefined,
         jobUrl: job.url || undefined,
-        generateEmails: true,
-        createDrafts: true,
+        generateEmails: false,
+        createDrafts: false,
         no_parse: true,
         source: "find_humans",
         maxResults: 3,
@@ -259,8 +317,73 @@ export function FindHumansModal({ open, onOpenChange, job }: FindHumansModalProp
 
   // ----- render -----
 
-  const draftCount = response?.draftsCreated?.length ?? 0;
   const recruiters = response?.recruiters ?? [];
+
+  // Per-row draft handler — calls /from-find-recruiter, then stages the
+  // result so the ReferralDraftModal can render in prefilled mode.
+  const onDraftReferral = useCallback(async (r: Recruiter) => {
+    if (!response?.searchId) {
+      toast({
+        title: "Couldn't draft this referral",
+        description: "The recruiter search didn't return a cache id. Re-run the search.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!r.Email) {
+      toast({
+        title: "No email on file for this recruiter",
+        description: "Try a different result.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setDraftingEmail(r.Email);
+    try {
+      const draft = await apiService.draftReferralFromFindRecruiter({
+        search_id: response.searchId,
+        recruiter_email: r.Email,
+        job: {
+          company: job?.company || r.Company || "",
+          title: job?.title || "",
+          location: job?.location || undefined,
+          apply_url: job?.url || undefined,
+          description: job?.description || undefined,
+        },
+      });
+      if (draft.code === "recruiter_cache_expired") {
+        toast({
+          title: "Search results expired",
+          description: "Re-run Find the Connection to draft a referral.",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (!draft.ok || !draft.contact_id || !draft.subject || !draft.body) {
+        toast({
+          title: "Couldn't draft this referral",
+          description: draft.error || "Try again or pick another recruiter.",
+          variant: "destructive",
+        });
+        return;
+      }
+      setStagedDraft({
+        recruiterName: recruiterFullName(r),
+        contactId: draft.contact_id,
+        subject: draft.subject,
+        body: draft.body,
+        contextUsed: draft.context_used || null,
+      });
+    } catch (e) {
+      toast({
+        title: "Couldn't draft this referral",
+        description: e instanceof Error ? e.message : "Network error.",
+        variant: "destructive",
+      });
+    } finally {
+      setDraftingEmail(null);
+    }
+  }, [response?.searchId, job]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -269,7 +392,7 @@ export function FindHumansModal({ open, onOpenChange, job }: FindHumansModalProp
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <DialogTitle className="text-base font-semibold text-gray-900">
-                Find the Humans
+                Find the Connection
               </DialogTitle>
               {job?.title && job?.company && (
                 <p className="mt-0.5 text-xs text-gray-500 truncate">
@@ -279,7 +402,7 @@ export function FindHumansModal({ open, onOpenChange, job }: FindHumansModalProp
               {state === "success" && response && (
                 <p className="mt-1 text-xs text-gray-500">
                   Charged: {response.creditsCharged} credits for {recruiters.length}{" "}
-                  {recruiters.length === 1 ? "human" : "humans"}
+                  {recruiters.length === 1 ? "connection" : "connections"}
                 </p>
               )}
             </div>
@@ -313,6 +436,9 @@ export function FindHumansModal({ open, onOpenChange, job }: FindHumansModalProp
                 <CandidateReceiptCard
                   key={`${r.Email || r.LinkedIn || "r"}-${i}`}
                   recruiter={r}
+                  onDraftReferral={() => void onDraftReferral(r)}
+                  isDrafting={draftingEmail === r.Email}
+                  isAnyDrafting={draftingEmail !== null}
                 />
               ))}
             </div>
@@ -328,35 +454,51 @@ export function FindHumansModal({ open, onOpenChange, job }: FindHumansModalProp
           )}
         </div>
 
-        <div className="border-t border-gray-100 px-5 py-3 flex items-center justify-between gap-2">
-          {state === "success" && draftCount > 0 ? (
-            <span className="inline-flex items-center gap-1.5 text-xs text-gray-600">
-              <MailCheck className="h-3.5 w-3.5 text-[#3B82F6]" />
-              {draftCount} draft{draftCount === 1 ? "" : "s"} ready in Gmail
-            </span>
-          ) : (
-            <span />
+        <div className="border-t border-gray-100 px-5 py-3 flex items-center justify-end gap-2">
+          {state === "error" && (
+            <Button size="sm" variant="outline" onClick={() => void runSearch()}>
+              Retry
+            </Button>
           )}
-
-          <div className="flex items-center gap-2">
-            {state === "error" && (
-              <Button size="sm" variant="outline" onClick={() => void runSearch()}>
-                Retry
-              </Button>
-            )}
-            {state === "loading" ? (
-              <Button size="sm" disabled>
-                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                Searching…
-              </Button>
-            ) : (
-              <Button size="sm" onClick={() => onOpenChange(false)}>
-                {state === "success" ? "Done" : "Close"}
-              </Button>
-            )}
-          </div>
+          {state === "loading" ? (
+            <Button size="sm" disabled>
+              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              Searching…
+            </Button>
+          ) : (
+            <Button size="sm" onClick={() => onOpenChange(false)}>
+              {state === "success" ? "Done" : "Close"}
+            </Button>
+          )}
         </div>
       </DialogContent>
+
+      {/* Stacked rich preview/edit. Owned by FindHumansModal so closing it
+          drops you back here to pick another recruiter without re-running
+          /find-recruiter (which would re-burn credits). The job context
+          carries through so build_referral_draft can cite JD/resume overlap. */}
+      {stagedDraft && (
+        <ReferralDraftModal
+          open
+          onOpenChange={(o) => !o && setStagedDraft(null)}
+          mode="prefilled"
+          job={{
+            job_id: job?.id || "",
+            title: job?.title || "",
+            company: job?.company || "",
+            location: job?.location,
+            apply_url: job?.url,
+            // ReferralDraftModal accepts FeedJob; the missing optional
+            // fields are fine. Cast guards against the structural mismatch.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          } as any}
+          prefilledContactId={stagedDraft.contactId}
+          prefilledSubject={stagedDraft.subject}
+          prefilledBody={stagedDraft.body}
+          prefilledContextUsed={stagedDraft.contextUsed}
+          prefilledContactName={stagedDraft.recruiterName}
+        />
+      )}
     </Dialog>
   );
 }

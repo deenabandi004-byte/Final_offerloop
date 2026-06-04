@@ -11,6 +11,8 @@ export const TIER_CONFIGS = {
     coffeeChat: true,
     timeSavedMinutes: 200,
     usesResume: false,
+    // Phase 9 — Loop auto-send. Free never auto-sends.
+    maxAutoSendsPerDay: 0,
   },
   pro: {
     maxContacts: 8,
@@ -21,6 +23,7 @@ export const TIER_CONFIGS = {
     coffeeChat: true,
     timeSavedMinutes: 1200,
     usesResume: true,
+    maxAutoSendsPerDay: 25,
   },
   elite: {
     maxContacts: 15,
@@ -31,6 +34,7 @@ export const TIER_CONFIGS = {
     coffeeChat: true,
     timeSavedMinutes: 5000,
     usesResume: true,
+    maxAutoSendsPerDay: 75,
   },
 } as const;
 

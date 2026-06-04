@@ -238,6 +238,12 @@ export interface FindRecruiterResponse {
   creditsNeededForMore?: number;
   message?: string;
   error?: string;
+  // Phase 6 (June 2026): trust-boundary cache id for the unified
+  // referral-draft workflow. The SPA passes this back to
+  // /referral-draft/from-find-recruiter so the server can re-look up the
+  // chosen recruiter from `users/{uid}/recruiter_cache/{searchId}` without
+  // trusting client-sent contact fields. 60-min TTL.
+  searchId?: string;
 }
 
 export interface FindHiringManagerResponse {
@@ -368,6 +374,14 @@ export interface OutboxThread {
   // True when a draft has been in draft_created state > 24h with no matched
   // Gmail thread (webhook silent-drop). UI should nudge the user to Refresh.
   needsManualSync?: boolean;
+  // Phase 9 — auto-send. loopId is stamped by agent_actions; the others
+  // are written by _try_auto_send when the send gate denies. Tracker UI
+  // reads these to render the pause pill + "Send anyway" action.
+  loopId?: string | null;
+  autoSendPausedReason?: string | null;
+  autoSendDailyCap?: number | null;
+  autoSendError?: string | null;
+  emailVerificationStatus?: "valid" | "invalid" | "unknown" | "risky" | string | null;
   // Legacy aliases — used by Outbox.tsx and Dashboard.tsx until migrated
   contactName?: string;
   jobTitle?: string;
@@ -2191,6 +2205,181 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
         body: JSON.stringify(params),
       }
     );
+  }
+
+  /**
+   * Discover alumni at a company for the referral CTA when the student
+   * has no saved contact at that company. Feature-flagged behind
+   * DISCOVER_ALUMNI_ENABLED on the backend — when off, every call here
+   * returns 404 and the JobBoardPage hides the CTA.
+   *
+   * Charges up to N PDL credits where N is the tier max (Free 3 / Pro 5 /
+   * Elite 8). Cache hits (60-min discovery_cache or PDL pdl_search_cache)
+   * cost 0.
+   */
+  async discoverAlumniForJob(params: {
+    job_id: string;
+    company: string;
+    title?: string;
+    allow_drop_title?: boolean;
+    allow_no_school_fallback?: boolean;
+  }): Promise<{
+    contacts: Array<{
+      pdl_id: string;
+      first_name: string;
+      last_name: string;
+      title: string;
+      company: string;
+      school: string;
+      linkedin_url: string;
+      email: string;
+      email_available: boolean;
+      relationship: 'moderate' | 'weak';
+      match_strength: 'strong' | 'moderate' | 'weak';
+      match_reasons: string[];
+      matched_on: string[];
+    }>;
+    credits_used: number;
+    cache_hit: boolean | 'negative';
+    rung: 'school+company+title' | 'school+company' | 'no-alumni-fallback' | 'empty';
+    tier_max: number;
+    partial: boolean;
+    code?: 'no_school' | 'no_title' | 'no_company' | 'no_job_id' | 'pdl_timeout';
+  }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest(
+      '/job-board/discover-alumni',
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(params),
+      }
+    );
+  }
+
+  /**
+   * Persist a discovered alum into the user's contacts (dedup by identity
+   * key) and produce a referral draft via the same pipeline the saved-
+   * contact CTA uses. Server re-reads the contact from
+   * users/{uid}/discovery_cache/{job_id} — only `pdl_id` is trusted from
+   * the client, so a forged payload can't poison the LLM prompt or save
+   * arbitrary fields.
+   *
+   * 410 with code "discovery_expired" means the 60-min cache expired
+   * mid-flow — the SPA should re-run discovery.
+   */
+  async draftReferralFromDiscovery(params: {
+    job_id: string;
+    pdl_id: string;
+    job: {
+      job_id?: string;
+      title?: string;
+      company: string;
+      location?: string;
+      description?: string;
+      structured?: unknown;
+      apply_url?: string;
+    };
+  }): Promise<{
+    ok: boolean;
+    contact_id?: string;
+    was_new?: boolean;
+    subject?: string;
+    body?: string;
+    cached?: boolean;
+    relationship?: 'strong' | 'moderate' | 'weak';
+    context_used?: {
+      has_coffee_chat_prep?: boolean;
+      has_recent_activity?: boolean;
+      overlap_count?: number;
+      two_step_framing?: boolean;
+    };
+    error?: string;
+    code?: 'discovery_expired' | 'pdl_id_not_in_cache' | 'no_company';
+  }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest(
+      '/job-board/referral-draft/from-discovery',
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(params),
+      }
+    );
+  }
+
+  /**
+   * Batch-load the user's "no alumni at {company}" negative cache. Called
+   * ONCE on JobBoardPage mount so the JobRow CTA can branch into the
+   * disabled "Already checked — no alumni" state without N reads per row.
+   *
+   * 7-day TTL per entry. Empty list when the feature flag is off (404
+   * passthrough) — the SPA treats that as "no flagged companies".
+   */
+  /**
+   * Persist a "Find the Connection" recruiter into the user's contacts
+   * (dedup by identity_key) and produce a referral draft via the same
+   * `build_referral_draft` pipeline the saved-contact and alumni paths
+   * use. Server re-reads the recruiter from
+   * `users/{uid}/recruiter_cache/{searchId}` — only `(search_id,
+   * recruiter_email)` is trusted from the client.
+   *
+   * 410 with code "recruiter_cache_expired" means the 60-min cache rolled
+   * over mid-flow — the SPA should re-run /find-recruiter.
+   */
+  async draftReferralFromFindRecruiter(params: {
+    search_id: string;
+    recruiter_email: string;
+    job: {
+      job_id?: string;
+      title?: string;
+      company: string;
+      location?: string;
+      description?: string;
+      structured?: unknown;
+      apply_url?: string;
+    };
+  }): Promise<{
+    ok: boolean;
+    contact_id?: string;
+    was_new?: boolean;
+    subject?: string;
+    body?: string;
+    cached?: boolean;
+    relationship?: 'strong' | 'moderate' | 'weak';
+    context_used?: {
+      has_coffee_chat_prep?: boolean;
+      has_recent_activity?: boolean;
+      overlap_count?: number;
+      two_step_framing?: boolean;
+    };
+    error?: string;
+    code?: 'recruiter_cache_expired' | 'recruiter_email_not_in_cache' | 'no_company';
+  }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest(
+      '/job-board/referral-draft/from-find-recruiter',
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(params),
+      }
+    );
+  }
+
+  async getDiscoveryNegativeCache(): Promise<{ companies: string[]; enabled: boolean }> {
+    const headers = await this.getAuthHeaders();
+    try {
+      const res = await this.makeRequest<{ companies: string[] }>(
+        '/job-board/discovery-negative-cache',
+        { method: 'GET', headers },
+      );
+      return { companies: res?.companies ?? [], enabled: true };
+    } catch {
+      // 404 when feature flag is off — distinguish from "enabled but no
+      // entries" so JobBoardPage can hide the "Find alumni" CTA entirely.
+      return { companies: [], enabled: false };
+    }
   }
 
   async generateCoverLetter(params: GenerateCoverLetterRequest): Promise<GenerateCoverLetterResponse> {

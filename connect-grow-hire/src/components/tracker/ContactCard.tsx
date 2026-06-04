@@ -1,4 +1,5 @@
 import type { OutboxThread } from "@/services/api";
+import { describeAutoSendPause } from "@/services/loops";
 import { statusLine, type BucketType } from "./shared/contactStatus";
 
 export type { BucketType };
@@ -84,6 +85,12 @@ export function ContactCard({ contact, bucket, isSelected, onClick }: ContactCar
   const subtitle = [contact.title, contact.company].filter(Boolean).join(" at ");
   const chip = actionChip(contact, bucket);
   const isReplied = contact.hasUnreadReply || contact.pipelineStage === "replied";
+  // Phase 9 — show why auto-send is paused for this contact, if at all.
+  // Read-only pill here; the actionable "Send anyway" lives in ConversationPanel.
+  const pause = describeAutoSendPause(contact.autoSendPausedReason, {
+    effectiveCap: contact.autoSendDailyCap,
+    verificationStatus: contact.emailVerificationStatus,
+  });
 
   return (
     <button
@@ -124,11 +131,22 @@ export function ContactCard({ contact, bucket, isSelected, onClick }: ContactCar
         )}
       </div>
 
-      {/* chip */}
-      {chip && (
-        <span className={`flex-shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${chip.className}`}>
-          {chip.label}
+      {/* chip — pause pill takes priority over the standard action chip when
+          auto-send is blocked. Same slot, same visual weight. */}
+      {pause ? (
+        <span
+          className="flex-shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
+          style={{ background: "rgba(217,119,6,0.10)", color: "#B45309" }}
+          title={pause.detail || undefined}
+        >
+          {pause.label}
         </span>
+      ) : (
+        chip && (
+          <span className={`flex-shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${chip.className}`}>
+            {chip.label}
+          </span>
+        )
       )}
     </button>
   );

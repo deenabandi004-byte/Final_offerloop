@@ -179,7 +179,27 @@ def _gmail_service(creds):
 
 
 def send_email_for_user(uid: str, to: str, subject: str, body_html: str) -> dict:
-    """Send an email via user's Gmail OAuth credentials (appears as from themselves)."""
+    """Send an email via user's Gmail OAuth credentials (from the student's
+    own address).
+
+    Returns a tight, explicit contract:
+        {
+            "id":       Gmail message id (str),
+            "threadId": Gmail thread id (str),
+            "labelIds": list[str],  # whatever Gmail stamped
+        }
+
+    Phase 9 callers (Loop auto-send) MUST stamp `id` and `threadId` onto the
+    contact doc immediately so the Pub/Sub webhook can join replies via the
+    preferred `gmailThreadId` join key rather than falling back to
+    draftToEmail / alternateEmails matching (see gmail_webhook.py:230).
+
+    Raises:
+        ValueError: no Gmail credentials on file for this user, or the
+            Gmail client failed to build (token expired and refresh failed).
+        googleapiclient errors propagate unchanged so callers can distinguish
+        quota / auth / network failures.
+    """
     creds = _load_user_gmail_creds(uid)
     if not creds:
         raise ValueError(f"No Gmail credentials for uid={uid}")
@@ -192,9 +212,15 @@ def send_email_for_user(uid: str, to: str, subject: str, body_html: str) -> dict
     message["to"] = to
     message["subject"] = subject
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
-    return service.users().messages().send(
+    resp = service.users().messages().send(
         userId="me", body={"raw": raw}
-    ).execute()
+    ).execute() or {}
+
+    return {
+        "id": resp.get("id", ""),
+        "threadId": resp.get("threadId", ""),
+        "labelIds": resp.get("labelIds", []) or [],
+    }
 
 
 def start_gmail_watch(uid):

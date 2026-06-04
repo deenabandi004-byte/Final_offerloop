@@ -17,10 +17,12 @@ import { updateAgentConfig, deployAgent, parseBrief, type ParsedBrief } from "@/
 import { firebaseApi } from "@/services/firebaseApi";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useCreateLoop } from "@/hooks/useLoops";
-import { listLoops } from "@/services/loops";
+import { listLoops, type LoopAutoSendMode } from "@/services/loops";
 import useDebounce from "@/hooks/use-debounce";
 import { loopCopy, type LoopModeForCopy } from "@/lib/loopCopy";
 import { ModeIndicator } from "@/components/loop/ModeIndicator";
+import { useSubscription } from "@/hooks/useSubscription";
+import type { Tier } from "@/utils/featureAccess";
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -44,9 +46,40 @@ const BRIEF_PARSE_DEBOUNCE_MS = 600;
 // OpenAI calls on the user's first few keystrokes.
 const MIN_BRIEF_CHARS_TO_PARSE = 8;
 
-// Mirror of backend CREDIT_COSTS.contact in app/services/loop_budget.py
-// (find + draft per contact). Keep in sync with LoopActivityFeed.tsx.
-const CREDIT_COST_PER_CONTACT = 9;
+// Mirror of backend BUNDLED_COST_PER_PERSON in app/services/loop_budget.py.
+// Single per-person all-in number for the Cadence wizard — includes the
+// contact spend plus the amortized HM / job / company lookups that fire
+// per cycle. Backend derives creditBudgetPerWeek from
+// weeklyTarget × this map[loopMode] × 1.15, so wizard math here must match
+// what the server will store. Keep in sync.
+const BUNDLED_COST_PER_PERSON: Record<LoopModeForCopy, number> = {
+  people: 12,
+  roles: 6,
+  both: 10,
+};
+
+// Phase 9 — mirror of backend AUTO_SEND_CREDIT_COST in loop_budget.py.
+// Surcharge per outreach when the Loop is in autoSendMode="send_for_me".
+// Covers the Hunter email-verification call; Gmail send itself is free.
+const AUTO_SEND_CREDIT_COST = 1;
+
+// Tier-gated upper bound on the "people / week" slider. Same numbers as
+// max_contacts_per_search in backend TIER_CONFIGS so the wizard caps match
+// the rest of the product.
+const TIER_MAX_PEOPLE_PER_WEEK: Record<Tier, number> = {
+  free: 3,
+  pro: 8,
+  elite: 15,
+};
+
+// Per-tier max weekly credit budget per Loop. Mirrors
+// max_credit_budget_per_week_per_loop in backend TIER_CONFIGS. null = no cap
+// (Elite). Used only for the "Plan covers up to X" coverage line.
+const TIER_MAX_BUDGET_PER_WEEK: Record<Tier, number | null> = {
+  free: 150,
+  pro: 600,
+  elite: null,
+};
 
 const KIND_META: Record<string, { color: string; label: string }> = {
   scan:     { color: "#7d8ba6", label: "scan" },
@@ -439,7 +472,10 @@ function StepRail({
             }}
           >
             {active && (
-              <span className="absolute left-0 top-0 bottom-0 w-[2px]" style={{ background: "var(--brand)" }} />
+              <span
+                className="absolute left-0 top-0 bottom-0 w-[3px]"
+                style={{ background: "var(--spark, var(--brand))" }}
+              />
             )}
             <div className="flex items-center gap-2.5">
               <span
@@ -476,23 +512,30 @@ function StepRail({
 
 function PreviewRail({ form, litTo }: { form: FormState; litTo: number }) {
   const traces = useMemo(() => buildPreviewTraces(form), [form]);
+  // Spark accent — the eight-char hex appends RGB alpha for the tint and border.
+  const spark = "var(--spark, #2563EB)";
 
   return (
-    <aside
-      className="w-[300px] shrink-0 border-l border-line flex-col gap-4 hidden lg:flex"
-      style={{ background: "var(--paper-2)", padding: "28px 20px" }}
-    >
+    <aside className="w-[336px] shrink-0 flex-col gap-4 hidden lg:flex p-5">
+      <div
+        className="flex flex-col gap-4 rounded-[18px] p-[18px]"
+        style={{
+          background: "color-mix(in srgb, var(--spark, #2563EB) 5%, transparent)",
+          border:
+            "1px solid color-mix(in srgb, var(--spark, #2563EB) 14%, transparent)",
+        }}
+      >
       <div>
         <div className="flex items-center gap-2 mb-1.5">
           <PulseDot color="#d4a017" />
           <MonoTag color="var(--signal-wait)">preview &middot; not running</MonoTag>
         </div>
         <p
-          className="font-medium leading-[1.25]"
-          style={{ color: "var(--ink)", fontSize: 17 }}
+          className="font-serif leading-[1.3] tracking-[-0.01em]"
+          style={{ color: "var(--ink)", fontSize: 19 }}
         >
           What your loop{" "}
-          <em className="italic" style={{ fontWeight: 500 }}>will do</em> once deployed.
+          <em className="italic" style={{ color: spark }}>will do</em> once deployed.
         </p>
       </div>
 
@@ -535,8 +578,9 @@ function PreviewRail({ form, litTo }: { form: FormState; litTo: number }) {
         })}
       </div>
 
-      <div className="border-t border-line pt-3.5 mt-auto text-[11.5px] leading-[1.5]" style={{ color: "var(--ink-3)" }}>
+      <div className="text-[11px] leading-[1.5]" style={{ color: "var(--ink-3)" }}>
         Nothing sends without your approval. Pause the loop any time.
+      </div>
       </div>
     </aside>
   );
@@ -551,8 +595,12 @@ interface FormState {
   locations: string[];
   preferAlumni: boolean;
   weeklyTarget: number;
-  creditBudget: number;
-  approvalMode: "review_first" | "autopilot";
+  // Phase 9 — three-mode autonomy spectrum. Default "draft_only" matches
+  // today's "Autopilot" behavior (cycles run, AI drafts to Gmail drafts,
+  // student sends manually). "approve_each" is the new honest version of
+  // the old "Review first" (cycles now actually run). "send_for_me"
+  // opts into background send + first-N + Hunter-gated.
+  autoSendMode: LoopAutoSendMode;
   loopMode: LoopModeForCopy;
 }
 
@@ -775,65 +823,170 @@ function BigSlider({
 function StepCadence({
   form,
   set,
+  tier,
 }: {
   form: FormState;
   set: (patch: Partial<FormState>) => void;
+  tier: Tier;
 }) {
+  const tierMax = TIER_MAX_PEOPLE_PER_WEEK[tier];
+  const planMax = TIER_MAX_BUDGET_PER_WEEK[tier];
+  const bundled = BUNDLED_COST_PER_PERSON[form.loopMode];
+
+  // Clamp a stored target that exceeds the current tier's max — e.g. a user
+  // who downgraded between Loops. Self-corrects on tier change.
+  useEffect(() => {
+    if (form.weeklyTarget > tierMax) set({ weeklyTarget: tierMax });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tierMax]);
+
+  const safeTarget = Math.min(form.weeklyTarget, tierMax);
+  // Phase 9 — when send_for_me is on, each outreach adds the auto-send
+  // surcharge (Hunter verify). Shown as a separate adder line so the
+  // base bundled number stays stable as the user toggles modes.
+  const autoSendOn = form.autoSendMode === "send_for_me";
+  const baseWeeklyCredits = safeTarget * bundled;
+  const sendAdder = autoSendOn ? safeTarget * AUTO_SEND_CREDIT_COST : 0;
+  const weeklyCredits = baseWeeklyCredits + sendAdder;
+  const planPct = planMax ? Math.round((weeklyCredits / planMax) * 100) : null;
+  const atMax = safeTarget >= tierMax;
+  // send_for_me is Pro/Elite only — keep the wizard's gate aligned with
+  // the backend's tier_no_autosend check in agent_send_gate.
+  const sendForMeLocked = tier === "free";
+
+  // If the user lands on Step 2 with send_for_me selected but has since
+  // become Free (downgrade, refresh, etc.), snap back to draft_only so
+  // they can't deploy a Loop that the backend would refuse.
+  useEffect(() => {
+    if (sendForMeLocked && form.autoSendMode === "send_for_me") {
+      set({ autoSendMode: "draft_only" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sendForMeLocked]);
+
+  // What's in the bundled cost — one-line tooltip-equivalent listing
+  // the things that fire per outreach. Mode-aware so roles users don't
+  // see "hiring-manager lookup" copy that doesn't apply to them.
+  const bundleParts =
+    form.loopMode === "roles"
+      ? "finding roles, drafting outreach, hiring-manager lookup"
+      : form.loopMode === "both"
+        ? "finding contacts, drafting outreach, hiring-manager lookup, job match"
+        : "finding contacts, drafting outreach, hiring-manager lookup, job match";
+
   return (
     <div>
-      <Field label="Weekly contact target" hint="New contacts per week">
+      <Field label="People per week" hint="How many new contacts should this Loop reach each week?">
         <BigSlider
-          value={form.weeklyTarget}
-          unit="contacts / week"
+          value={safeTarget}
+          unit="people / week"
           min={1}
-          max={15}
+          max={tierMax}
           step={1}
           onChange={(v) => set({ weeklyTarget: v })}
-          ariaLabel="Weekly contact target"
+          ariaLabel="People per week"
         />
+        <div className="text-xs mt-2" style={{ color: "var(--ink-3)" }}>
+          About{" "}
+          <span style={{ color: "var(--ink-2)", fontWeight: 500 }}>
+            {weeklyCredits} credits / week
+          </span>{" "}
+          — includes {bundleParts}
+          {autoSendOn && (
+            <>
+              {" "}+ {sendAdder} cr for auto-send ({AUTO_SEND_CREDIT_COST} per send)
+            </>
+          )}
+          .
+          {planMax !== null && planPct !== null && (
+            <>
+              {" "}Plan covers up to {planMax} cr/wk · you're at {planPct}%.
+            </>
+          )}
+        </div>
+        {atMax && tier === "free" && (
+          <a
+            href="/pricing"
+            className="text-xs mt-1.5 inline-block underline"
+            style={{ color: "var(--spark, #2563EB)" }}
+          >
+            Pro fits up to 8 / week →
+          </a>
+        )}
+        {atMax && tier === "pro" && (
+          <a
+            href="/pricing"
+            className="text-xs mt-1.5 inline-block underline"
+            style={{ color: "var(--spark, #2563EB)" }}
+          >
+            Elite fits up to 15 / week →
+          </a>
+        )}
       </Field>
 
-      <Field label="Credit budget" hint="Max credits per week">
-        <BigSlider
-          value={form.creditBudget}
-          unit="credits / week"
-          min={10}
-          max={150}
-          step={10}
-          onChange={(v) => set({ creditBudget: v })}
-          ariaLabel="Credit budget per week"
-        />
-        {(() => {
-          const estimated = form.weeklyTarget * CREDIT_COST_PER_CONTACT;
-          const underfunded = form.creditBudget < estimated;
-          return (
-            <div
-              className="text-xs mt-2"
-              style={{ color: underfunded ? "#b91c1c" : "var(--ink-3)" }}
-            >
-              {underfunded
-                ? `Budget too low: ${form.weeklyTarget} contacts/week needs ~${estimated} credits. Raise the budget or lower the target.`
-                : `${form.weeklyTarget} contacts/week ≈ ${estimated} credits (each find + draft costs ${CREDIT_COST_PER_CONTACT}).`}
-            </div>
-          );
-        })()}
-      </Field>
-
-      <Field label="Approval mode">
-        <div className="grid grid-cols-2 gap-2.5">
+      <Field label="What should the agent do?">
+        {/* Three points on the autonomy spectrum, stacked vertically. The
+            third (send_for_me) is gated on tier — Free locks it with a
+            /pricing nudge. */}
+        <div className="grid grid-cols-1 gap-2.5">
           <ModeCard
-            active={form.approvalMode === "review_first"}
-            title="Review first"
+            active={form.autoSendMode === "approve_each"}
+            title="Approve each find"
+            desc="Cycles run on schedule. I click Approve on each find before any credits are spent."
+            onClick={() => set({ autoSendMode: "approve_each" })}
+          />
+          <ModeCard
+            active={form.autoSendMode === "draft_only"}
+            title="Draft to my Gmail"
             tag="recommended"
-            desc="Agent drafts everything; nothing sends until you approve."
-            onClick={() => set({ approvalMode: "review_first" })}
+            desc="Cycles run, AI drafts emails into my Gmail drafts folder. I send manually."
+            onClick={() => set({ autoSendMode: "draft_only" })}
           />
-          <ModeCard
-            active={form.approvalMode === "autopilot"}
-            title="Autopilot"
-            desc="Agent sends approved templates automatically within your budget."
-            onClick={() => set({ approvalMode: "autopilot" })}
-          />
+          {sendForMeLocked ? (
+            <button
+              type="button"
+              onClick={() => {/* locked — clicking is a no-op */}}
+              className="text-left p-3.5 rounded-lg border cursor-not-allowed"
+              style={{
+                borderColor: "var(--line)",
+                background: "var(--paper)",
+                opacity: 0.55,
+              }}
+              aria-disabled="true"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <span
+                  className="w-2.5 h-2.5 rounded-full border-2"
+                  style={{ borderColor: "var(--ink-3)", borderWidth: 1.5 }}
+                />
+                <span className="text-[13px] font-semibold" style={{ color: "var(--ink)" }}>
+                  Send for me
+                </span>
+                <span className="ml-auto">
+                  <MonoTag>Pro &amp; Elite</MonoTag>
+                </span>
+              </div>
+              <div className="text-xs leading-relaxed pl-[18px]" style={{ color: "var(--ink-2)" }}>
+                Cycles run, AI drafts AND sends from my Gmail. Capped at 25/day on Pro,
+                75/day on Elite. +{AUTO_SEND_CREDIT_COST} credit per send.{" "}
+                <a
+                  href="/pricing"
+                  className="underline"
+                  style={{ color: "var(--spark, #2563EB)" }}
+                >
+                  Upgrade to enable →
+                </a>
+              </div>
+            </button>
+          ) : (
+            <ModeCard
+              active={form.autoSendMode === "send_for_me"}
+              title="Send for me"
+              tag={tier === "elite" ? "75/day" : "25/day"}
+              desc={`Cycles run, AI drafts AND sends from my Gmail. +${AUTO_SEND_CREDIT_COST} credit per send.`}
+              onClick={() => set({ autoSendMode: "send_for_me" })}
+            />
+          )}
         </div>
       </Field>
     </div>
@@ -841,12 +994,21 @@ function StepCadence({
 }
 
 function StepReview({ form, university }: { form: FormState; university: string }) {
+  const bundled = BUNDLED_COST_PER_PERSON[form.loopMode];
+  const autoSendOn = form.autoSendMode === "send_for_me";
+  const sendAdder = autoSendOn ? form.weeklyTarget * AUTO_SEND_CREDIT_COST : 0;
+  const weeklyCredits = form.weeklyTarget * bundled + sendAdder;
+  const autoSendLabel: Record<LoopAutoSendMode, string> = {
+    approve_each: "Approve each find",
+    draft_only: "Draft to my Gmail",
+    send_for_me: "Send for me (auto-send)",
+  };
   const rows: Array<{ k: string; v: string }> = [
     { k: "Companies", v: form.companies.length ? form.companies.join(", ") : "\u2014" },
     { k: "Roles", v: form.roles.length ? form.roles.join(", ") : "\u2014" },
-    { k: "Weekly target", v: `${form.weeklyTarget} contacts / week` },
-    { k: "Credit budget", v: `${form.creditBudget} credits / week` },
-    { k: "Approval mode", v: form.approvalMode === "review_first" ? "Review first" : "Autopilot" },
+    { k: "People per week", v: `${form.weeklyTarget} / week` },
+    { k: "Estimated cost", v: `\u2248 ${weeklyCredits} credits / week` },
+    { k: "Agent autonomy", v: autoSendLabel[form.autoSendMode] },
     {
       k: "Alumni priority",
       v: form.preferAlumni ? (university ? `On \u2014 ${university}` : "On") : "Off",
@@ -899,9 +1061,23 @@ function StepReview({ form, university }: { form: FormState; university: string 
 
 // ── Main component ─────────────────────────────────────────────────────
 
-export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
+export function AgentSetupInline({
+  onDeployed,
+  // Optional pre-seed for the brief textarea. The fleet's NewLoopTile passes
+  // this through location.state when a user one-taps a quickstart suggestion;
+  // the AgentSetup page hands it down here. Empty string is treated as no
+  // seed (the default cold-start experience).
+  initialBrief = "",
+  initialLoopMode,
+}: {
+  onDeployed: () => void;
+  initialBrief?: string;
+  initialLoopMode?: "people" | "roles" | "both";
+}) {
   const { toast } = useToast();
   const { user } = useFirebaseAuth();
+  const { subscription } = useSubscription();
+  const tier: Tier = subscription?.tier ?? "free";
   const createLoopMut = useCreateLoop();
   const [stepIdx, setStepIdx] = useState(0);
   const [deploying, setDeploying] = useState(false);
@@ -924,13 +1100,17 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
     locations: [],
     preferAlumni: true,
     weeklyTarget: 5,
-    creditBudget: 100,
-    approvalMode: "review_first",
+    // "draft_only" matches today's "Autopilot" — Gmail drafts get created
+    // but no sends happen. Safest default for a new Loop and matches the
+    // backend default in _loop_defaults.
+    autoSendMode: "draft_only",
     // Default to "people" (today's networking behavior). For returning users,
     // the effect below queries their most recent Loop and re-defaults to that
     // Loop's mode — so a student whose last Loop was "roles" doesn't have to
     // re-pick every time. The parser still wins once the brief is typed.
-    loopMode: "people",
+    // initialLoopMode (e.g. from a quickstart template) takes precedence over
+    // the "people" default.
+    loopMode: initialLoopMode ?? "people",
   });
   const set = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }));
 
@@ -938,7 +1118,11 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
   // mount. If the user has no past Loops, the listLoops promise resolves
   // empty and the "people" default stands. Network or auth failures are
   // silently swallowed — better to keep the default than block the wizard.
+  // Skipped when a quickstart template explicitly seeded a loopMode — the
+  // user's most recent choice was just made (the chip tap), so we honor it
+  // over their most-recent Loop.
   useEffect(() => {
+    if (initialLoopMode) return;
     let cancelled = false;
     listLoops()
       .then(({ loops }) => {
@@ -953,7 +1137,7 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
       })
       .catch(() => { /* keep "people" default */ });
     return () => { cancelled = true; };
-  }, []);
+  }, [initialLoopMode]);
 
   // ── Prompt-first brief state ─────────────────────────────────────────
   // The textarea is the primary input on Step 01. Its value debounces into
@@ -962,7 +1146,7 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
   // user can override. Subsequent textarea edits trigger re-parses that
   // overwrite chip groups (the wizard's chip behavior is "parser output
   // you can fine-tune, until you re-type the prompt").
-  const [briefText, setBriefText] = useState("");
+  const [briefText, setBriefText] = useState(initialBrief);
   const [parsePhase, setParsePhase] = useState<ParsePhase>("idle");
   // Guard against stale parses overwriting fresh results (user types fast).
   const lastParseTokenRef = useRef(0);
@@ -1018,32 +1202,24 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
 
   const step = STEPS[stepIdx];
   const isLast = stepIdx === STEPS.length - 1;
-  const estimatedWeeklyCredits = form.weeklyTarget * CREDIT_COST_PER_CONTACT;
-  const budgetUnderfunded = form.creditBudget < estimatedWeeklyCredits;
   // Mode-aware copy for the Goals headline (and subtitle). Other steps stay
   // shared. school is the user's actual university when known so the alumni
   // toggle shows concrete language.
   const goalsCopy = loopCopy(form.loopMode, { school: university || "" });
   // Deploy when EITHER the textarea has real content OR the user filled in
   // chips manually. The two paths converge — buildSyntheticBrief covers the
-  // chip-only case.
+  // chip-only case. Credit budget is derived server-side from weeklyTarget +
+  // loopMode (see loop_service.create_loop), so there's no budget-underfunded
+  // gate here anymore.
   const hasBrief = briefText.trim().length >= MIN_BRIEF_CHARS_TO_PARSE;
   const hasChipTargets = form.companies.length > 0 || form.industries.length > 0;
-  const canDeploy = (hasBrief || hasChipTargets) && !budgetUnderfunded;
+  const canDeploy = hasBrief || hasChipTargets;
 
   const handleDeploy = async () => {
     if (!hasBrief && !hasChipTargets) {
       toast({
         title: "Add a goal",
         description: "Type your goal in the textbox or add at least one company / industry.",
-        variant: "destructive",
-      });
-      return;
-    }
-    if (budgetUnderfunded) {
-      toast({
-        title: "Budget too low",
-        description: `${form.weeklyTarget} contacts/week needs ~${estimatedWeeklyCredits} credits. Raise the budget or lower the target.`,
         variant: "destructive",
       });
       return;
@@ -1077,6 +1253,15 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
         mode: form.loopMode,
       };
 
+      // Map the new three-mode autoSendMode to the legacy two-state
+      // approvalMode field used by the singleton agent_config doc. Both
+      // send-capable modes (draft_only + send_for_me) translate to
+      // "autopilot" since they auto-cycle; approve_each maps to
+      // "review_first". The legacy doc is going away once everything
+      // reads from the Loop doc directly; this is a compat shim.
+      const legacyApprovalMode =
+        form.autoSendMode === "approve_each" ? "review_first" : "autopilot";
+
       await updateAgentConfig({
         targetCompanies: form.companies,
         targetIndustries: form.industries,
@@ -1085,8 +1270,7 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
         // it would silently boost nothing. Gate to actual school presence.
         preferAlumni: hasUniversity && form.preferAlumni,
         weeklyContactTarget: form.weeklyTarget,
-        creditBudgetPerWeek: form.creditBudget,
-        approvalMode: form.approvalMode,
+        approvalMode: legacyApprovalMode,
       });
       await deployAgent();
 
@@ -1095,16 +1279,19 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
       // (users/{uid}/settings/agent_config). Without this createLoop the
       // wizard "deploys" but no card ever shows up in the fleet view —
       // useCreateLoop invalidates the list query so /agent refetches.
+      // creditBudgetPerWeek is intentionally omitted — loop_service derives
+      // it from weeklyTarget + loopMode + autoSendMode. reviewBeforeSend
+      // and automationEnabled are also dropped from the wizard payload;
+      // the backend now derives both from autoSendMode in loop_service
+      // _loop_defaults + loop_jobs.synthetic_config.
       await createLoopMut.mutateAsync({
         briefText: finalBriefText,
         briefParsed: finalBriefParsed,
         name: deriveLoopName(form),
-        reviewBeforeSend: form.approvalMode === "review_first",
         weeklyTarget: form.weeklyTarget,
         cadence: "weekly",
-        creditBudgetPerWeek: form.creditBudget,
-        automationEnabled: form.approvalMode === "autopilot",
         loopMode: form.loopMode,
+        autoSendMode: form.autoSendMode,
       });
 
       toast({
@@ -1133,30 +1320,45 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
       {/* Main form column */}
       <div className="flex-1 min-w-0">
         <div className="max-w-[640px] mx-auto px-4 sm:px-8 py-8 pb-20">
-          {/* Hero */}
+          {/* Hero — spruce: accent dot eyebrow + spark-color terminal word */}
           <div className="mb-7">
-            <MonoTag>&middot; step {step.num}</MonoTag>
+            <div className="flex items-center gap-2">
+              <span
+                className="inline-block rounded-full"
+                style={{ width: 6, height: 6, background: "var(--spark, #2563EB)" }}
+                aria-hidden
+              />
+              <MonoTag>step {step.num}</MonoTag>
+            </div>
             <h1
-              className="font-serif mt-2.5 mb-2 text-[28px] sm:text-[32px] leading-[1.1] tracking-[-0.02em]"
+              className="font-serif mt-3 mb-2 text-[34px] sm:text-[40px] leading-[1.12] tracking-[-0.01em]"
               style={{ color: "var(--ink)", fontWeight: 400 }}
             >
               {stepIdx === 0 && (
                 <>
-                  Tell your Loop <em className="italic" style={{ fontWeight: 400 }}>{goalsCopy.goalsTitleAccent}</em> to chase.
+                  Tell your Loop <em className="italic" style={{ fontWeight: 400 }}>{goalsCopy.goalsTitleAccent}</em> to{" "}
+                  <span style={{ color: "var(--spark, #2563EB)" }}>chase.</span>
                 </>
               )}
               {stepIdx === 1 && (
                 <>
-                  Set the <em className="italic" style={{ fontWeight: 400 }}>pace</em> and the rules.
+                  Set the <em className="italic" style={{ fontWeight: 400 }}>pace</em> and the{" "}
+                  <span style={{ color: "var(--spark, #2563EB)" }}>rules.</span>
                 </>
               )}
               {stepIdx === 2 && (
                 <>
-                  Look it over, then <em className="italic" style={{ fontWeight: 400 }}>deploy.</em>
+                  Look it over, then{" "}
+                  <em
+                    className="italic"
+                    style={{ fontWeight: 400, color: "var(--spark, #2563EB)" }}
+                  >
+                    deploy.
+                  </em>
                 </>
               )}
             </h1>
-            <p className="text-[13.5px] max-w-[470px]" style={{ color: "var(--ink-2)" }}>
+            <p className="text-[14.5px] leading-[1.55] max-w-[470px]" style={{ color: "var(--ink-2)" }}>
               {stepIdx === 0 && goalsCopy.goalsSubtitle}
               {stepIdx === 1 &&
                 "Caps the loop so it doesn't over-reach. We recommend Review First to start."}
@@ -1180,7 +1382,7 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
                 university={university || ""}
               />
             )}
-            {stepIdx === 1 && <StepCadence form={form} set={set} />}
+            {stepIdx === 1 && <StepCadence form={form} set={set} tier={tier} />}
             {stepIdx === 2 && <StepReview form={form} university={university || ""} />}
           </div>
 

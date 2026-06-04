@@ -6,7 +6,7 @@
 // the design.
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, Sparkles, X } from "lucide-react";
+import { Loader2, Plus, X } from "lucide-react";
 import { LOOP_COPY, loopCopy, type LoopModeForCopy } from "@/lib/loopCopy";
 import {
   useCreateLoop,
@@ -230,7 +230,7 @@ export function StartLoopHero({
       {/* ── Hero ── */}
       <div className="text-center">
         <h1
-          className="font-serif text-[44px] sm:text-[56px] leading-[1.05] tracking-[-0.02em]"
+          className="font-serif text-[44px] sm:text-[56px] leading-[1.05] tracking-[-0.01em]"
           style={{ color: "var(--ink, #0F172A)" }}
         >
           Start a{" "}
@@ -480,7 +480,6 @@ export function StartLoopHero({
             className="mt-4 inline-flex items-center gap-2 text-[12px] mx-auto"
             style={{ color: "var(--ink-2)" }}
           >
-            <Sparkles className="h-3.5 w-3.5" style={{ color: "var(--ink-3)" }} />
             {estimateQuery.isLoading || !estimateQuery.data ? (
               <span style={{ color: "var(--ink-3)" }}>
                 {LOOP_COPY.estimate.loading}

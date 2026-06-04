@@ -3,7 +3,7 @@ Authentication services - credit management only
 (require_firebase_auth is in extensions.py to avoid circular dependencies)
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from firebase_admin import firestore
 from app.extensions import get_db
 from app.config import TIER_CONFIGS
@@ -111,6 +111,132 @@ def check_and_reset_usage(user_ref, user_data):
 
     except Exception as e:
         logger.error("Error checking usage reset: %s", e)
+
+
+# ── Phase 9: daily auto-send counter ────────────────────────────────────
+#
+# Loop auto-send (when autoSendMode == "send_for_me") is capped per day,
+# per user, in their LOCAL timezone — sending until midnight UTC for a
+# West Coast user would mean their "today" cap drains 5 hours earlier
+# than it should.
+#
+# Two fields on users/{uid}:
+#   sendsToday: int       — count of auto-sends this user-local day
+#   sendsTodayDate: str   — "YYYY-MM-DD" in user's tz; mismatch triggers
+#                           atomic rollover on next increment
+#
+# Source of truth for the cap is TIER_CONFIGS[tier]['max_auto_sends_per_day'],
+# but a Loop can override downward via hardDailySendCap (checked in the
+# send gate, not here — this helper just enforces the user-tier cap).
+
+def _user_local_date_str(now_utc: datetime, tz_name: str | None) -> str:
+    """Return 'YYYY-MM-DD' in the user's timezone. Falls back to PT if
+    the timezone string is missing or invalid. Mirrors the pattern in
+    loop_budget._user_local_hour."""
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(tz_name) if tz_name else ZoneInfo("America/Los_Angeles")
+        return now_utc.astimezone(tz).strftime("%Y-%m-%d")
+    except Exception:
+        try:
+            from zoneinfo import ZoneInfo
+            return now_utc.astimezone(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d")
+        except Exception:
+            return now_utc.strftime("%Y-%m-%d")
+
+
+def get_sends_today(user_id: str, now: datetime | None = None) -> int:
+    """Read the user's current auto-send count for today (user-local).
+
+    Non-transactional. Returns 0 if the stored sendsTodayDate doesn't match
+    today's user-local date (the actual rollover write happens lazily on the
+    next increment_sends_today_atomic call — this read just tells callers
+    what the gate would see).
+
+    Used by the send gate for pre-flight checks. The real reservation is
+    increment_sends_today_atomic, which is race-safe.
+    """
+    db = get_db()
+    user_doc = db.collection('users').document(user_id).get()
+    if not user_doc.exists:
+        return 0
+    user_data = user_doc.to_dict() or {}
+    now_utc = now or datetime.now(timezone.utc)
+    tz_name = user_data.get('timezone') or user_data.get('tz')
+    today = _user_local_date_str(now_utc, tz_name)
+    if user_data.get('sendsTodayDate') != today:
+        return 0
+    return int(user_data.get('sendsToday', 0) or 0)
+
+
+def increment_sends_today_atomic(
+    user_id: str,
+    tier: str,
+    hard_cap: int | None = None,
+    now: datetime | None = None,
+) -> tuple[bool, int, int]:
+    """Atomically reserve one slot in today's auto-send budget.
+
+    Args:
+        user_id: Firebase uid.
+        tier: 'free' | 'pro' | 'elite'.
+        hard_cap: Optional per-Loop ceiling (Loop.hardDailySendCap). When set,
+            the effective cap is min(tier_cap, hard_cap). When None, just tier.
+        now: For test injection.
+
+    Returns:
+        (success, new_count, effective_cap)
+        - success False means the cap was hit; no increment happened.
+        - new_count is the post-increment value on success, or the existing
+          count on failure.
+        - effective_cap is the cap that gated this call (useful for the
+          autoSendPausedReason copy).
+
+    Rollover: if the stored sendsTodayDate doesn't match today (user-local),
+    the increment overwrites sendsToday=1 and stamps sendsTodayDate=today in
+    the same atomic write.
+
+    Race-safe: uses a Firestore transaction so two simultaneous sends can't
+    both bypass the cap.
+    """
+    db = get_db()
+    user_ref = db.collection('users').document(user_id)
+    now_utc = now or datetime.now(timezone.utc)
+
+    tier_cap = int(TIER_CONFIGS.get(tier, TIER_CONFIGS['free']).get('max_auto_sends_per_day', 0))
+    effective_cap = tier_cap if hard_cap is None else min(tier_cap, int(hard_cap))
+
+    @firestore.transactional
+    def reserve_in_transaction(transaction):
+        user_doc = user_ref.get(transaction=transaction)
+        if not user_doc.exists:
+            return False, 0, effective_cap
+
+        user_data = user_doc.to_dict() or {}
+        tz_name = user_data.get('timezone') or user_data.get('tz')
+        today = _user_local_date_str(now_utc, tz_name)
+        stored_date = user_data.get('sendsTodayDate')
+        stored_count = int(user_data.get('sendsToday', 0) or 0)
+
+        current = stored_count if stored_date == today else 0
+
+        if current >= effective_cap:
+            return False, current, effective_cap
+
+        new_count = current + 1
+        transaction.update(user_ref, {
+            'sendsToday': new_count,
+            'sendsTodayDate': today,
+            'lastAutoSendAt': now_utc.isoformat(),
+        })
+        return True, new_count, effective_cap
+
+    try:
+        transaction = db.transaction()
+        return reserve_in_transaction(transaction)
+    except Exception as e:
+        logger.error("Error in atomic send-count reservation: %s", e)
+        return False, 0, effective_cap
 
 
 def can_access_feature(tier: str, feature: str, user_data: dict, tier_config: dict) -> tuple[bool, str]:

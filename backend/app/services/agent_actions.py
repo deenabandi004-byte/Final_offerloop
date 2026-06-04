@@ -36,6 +36,153 @@ def _perplexity_only(uid: str) -> bool:
     except Exception:
         return False
 
+
+def _try_auto_send(
+    uid: str,
+    config: dict,
+    user_data: dict,
+    contact_doc: dict,
+    email: str,
+    email_subject: str,
+    email_body: str,
+    now_iso: str,
+) -> int:
+    """Phase 9 — run the send gate, and if allowed, actually send the email
+    from the student's Gmail. Mutates `contact_doc` in place to stamp either
+    successful-send fields (gmailMessageId, gmailThreadId, emailSentAt,
+    pipelineStage="email_sent") or the autoSendPausedReason / autoSendError
+    that drives the /tracker pause pill.
+
+    Args:
+        config: synthetic_config built by loop_jobs.run_loop_cycle_job;
+            carries autoSendMode + first-N counters + hardDailySendCap.
+        contact_doc: the contact doc being assembled before Firestore .add().
+            Verification cache fields (emailVerifiedAt + emailVerificationStatus)
+            are read from here and written back on every gate call so the
+            30-day cache window is always refreshed.
+
+    Returns:
+        Credit cost to bill for this contact. AUTO_SEND_CREDIT_COST when a
+        real send fired; 0 when the gate denied, the atomic reservation lost
+        a race, or Gmail returned an error.
+    """
+    if not email.strip() or not email_body.strip():
+        logger.info(
+            "auto_send_skipped uid=%s reason=blank_email_or_body has_email=%s has_body=%s",
+            uid, bool(email.strip()), bool(email_body.strip()),
+        )
+        return 0  # No email to send — nothing to gate.
+
+    from app.services.agent_send_gate import can_auto_send
+    from app.services.auth import increment_sends_today_atomic
+    from app.services.gmail_client import send_email_for_user
+    from app.services.loop_budget import AUTO_SEND_CREDIT_COST
+
+    tier = (
+        user_data.get("subscriptionTier")
+        or user_data.get("tier")
+        or "free"
+    )
+    user_tz = user_data.get("timezone") or user_data.get("tz")
+
+    # Build minimal loop + contact views from config / the in-flight doc.
+    # config carries the auto-send state via loop_jobs.synthetic_config.
+    loop_view = {
+        "autoSendMode": config.get("autoSendMode", "draft_only"),
+        "autoSendApprovedCount": config.get("autoSendApprovedCount", 0),
+        # 0 = no warmup gate (the shipping default). Legacy "5" here was a
+        # latent regression-trap: when the user actually had 0 in Firestore,
+        # `loop.get(k, 5)` returned 0 correctly, but downstream `or 5`
+        # patterns silently turned it back into 5. We now default to the
+        # same value the schema does.
+        "autoSendApprovedAfter": config.get("autoSendApprovedAfter", 0),
+        "hardDailySendCap": config.get("hardDailySendCap"),
+    }
+    contact_view = {
+        "email": email,
+        "emailVerifiedAt": contact_doc.get("emailVerifiedAt"),
+        "emailVerificationStatus": contact_doc.get("emailVerificationStatus"),
+    }
+
+    logger.info(
+        "auto_send_gate_start uid=%s tier=%s autoSendMode=%s approvedCount=%s approvedAfter=%s hardCap=%s",
+        uid, tier, loop_view["autoSendMode"], loop_view["autoSendApprovedCount"],
+        loop_view["autoSendApprovedAfter"], loop_view["hardDailySendCap"],
+    )
+
+    gate = can_auto_send(
+        uid=uid,
+        tier=tier,
+        loop=loop_view,
+        contact=contact_view,
+        user_timezone=user_tz,
+    )
+
+    # Persist Hunter's verdict whenever it was consulted (fresh or cached)
+    # so the next cycle's gate hits the cache instead of paying again.
+    verification = gate.get("verification")
+    if verification:
+        contact_doc["emailVerifiedAt"] = verification.get("verifiedAt")
+        contact_doc["emailVerificationStatus"] = verification.get("status")
+
+    if not gate["allowed"]:
+        contact_doc["autoSendPausedReason"] = gate.get("reason") or "unknown"
+        if gate.get("effective_cap") is not None:
+            contact_doc["autoSendDailyCap"] = gate["effective_cap"]
+        logger.info(
+            "auto_send_denied uid=%s reason=%s effective_cap=%s verification_status=%s",
+            uid, gate.get("reason"), gate.get("effective_cap"),
+            (verification or {}).get("status"),
+        )
+        return 0
+
+    # Atomic per-user daily-cap reservation. The pre-flight read in the
+    # gate is non-atomic; this is the race-safe commit. A simultaneous
+    # send may pass the gate but lose this race — in which case we don't
+    # send and stamp daily_cap.
+    reserved, _new_count, effective_cap = increment_sends_today_atomic(
+        uid,
+        tier,
+        hard_cap=loop_view.get("hardDailySendCap"),
+    )
+    if not reserved:
+        contact_doc["autoSendPausedReason"] = "daily_cap"
+        contact_doc["autoSendDailyCap"] = effective_cap
+        logger.info(
+            "auto_send_denied uid=%s reason=daily_cap_race effective_cap=%s",
+            uid, effective_cap,
+        )
+        return 0
+
+    try:
+        send_result = send_email_for_user(
+            uid,
+            to=email,
+            subject=email_subject,
+            body_html=email_body,
+        )
+    except Exception as e:
+        # Gmail flapped (quota / auth / network). Don't refund the daily-cap
+        # slot — if Gmail is unhappy, we don't want to immediately retry.
+        logger.warning(
+            "auto_send_failed uid=%s contact_email=%s err=%s",
+            uid, email, e,
+        )
+        contact_doc["autoSendError"] = str(e)
+        contact_doc["autoSendPausedReason"] = "send_error"
+        return 0
+
+    contact_doc["gmailMessageId"] = send_result.get("id", "")
+    contact_doc["gmailThreadId"] = send_result.get("threadId", "")
+    contact_doc["emailSentAt"] = now_iso
+    contact_doc["pipelineStage"] = "email_sent"
+    contact_doc["inOutbox"] = True
+    logger.info(
+        "auto_send_ok uid=%s contact_email=%s message_id=%s",
+        uid, email, send_result.get("id", ""),
+    )
+    return AUTO_SEND_CREDIT_COST
+
 # ── Common domain mapping for Clearbit logos ──────────────────────────────
 
 _COMPANY_DOMAINS = {
@@ -465,6 +612,9 @@ def execute_find_and_draft(
     now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     today = datetime.now().strftime("%m/%d/%Y")
     saved_contacts = []
+    # Phase 9 — accumulates AUTO_SEND_CREDIT_COST per contact whose send
+    # actually fired. Added to credits_spent at the bottom.
+    auto_send_credits = 0
 
     for idx, contact in enumerate(filtered):
         email = (contact.get("Email") or contact.get("WorkEmail") or contact.get("email") or "").strip()
@@ -491,6 +641,10 @@ def execute_find_and_draft(
             "pdlId": contact.get("pdlId") or "",
             "source": "agent",
             "agentCycleId": action.get("cycleId"),
+            # Phase 9 — loopId lets the approve-send endpoint verify a
+            # contact belongs to the Loop being approved. HM contacts
+            # already had this; backfill here for parity.
+            "loopId": config.get("loopId", ""),
             "inOutbox": True,
             "draftCreatedAt": now_iso,
             "emailGeneratedAt": now_iso,
@@ -555,6 +709,21 @@ def execute_find_and_draft(
             except Exception as e:
                 logger.warning("Gmail draft creation failed: %s", e)
 
+        # Phase 9 — auto-send gate. No-op unless the Loop is in
+        # autoSendMode="send_for_me" and all six gate checks pass. Mutates
+        # contact_doc in place to stamp either successful-send fields or
+        # autoSendPausedReason. Returns credits to charge (0 or 1).
+        auto_send_credits += _try_auto_send(
+            uid=uid,
+            config=config,
+            user_data=user_data,
+            contact_doc=contact_doc,
+            email=email,
+            email_subject=email_data.get("subject", "") if email_data else "",
+            email_body=email_data.get("body", "") if email_data else "",
+            now_iso=now_iso,
+        )
+
         doc_ref = contacts_ref.add(contact_doc)
         contact_id = doc_ref[1].id if isinstance(doc_ref, tuple) else ""
         saved_contacts.append({
@@ -571,7 +740,9 @@ def execute_find_and_draft(
         })
 
     # Per-contact credit cost — see CREDIT_COSTS in loop_budget.py.
-    credits_spent = len(saved_contacts) * CREDIT_COSTS["contact"]
+    # auto_send_credits is the Phase 9 per-send overhead (+1 per actually
+    # sent email; 0 for draft-only and for denied/failed sends).
+    credits_spent = len(saved_contacts) * CREDIT_COSTS["contact"] + auto_send_credits
     try:
         deduct_credits_atomic(uid, credits_spent, "agent_find")
     except Exception:
@@ -1022,6 +1193,8 @@ def execute_find_hiring_managers(
     today = datetime.now().strftime("%m/%d/%Y")
     user_email = user_data.get("email", "")
     saved = []
+    # Phase 9 — see execute_find_and_draft for rationale.
+    auto_send_credits = 0
 
     for idx, hm in enumerate(hms):
         # Get email data from the emails list if available
@@ -1090,6 +1263,18 @@ def execute_find_hiring_managers(
             except Exception as e:
                 logger.warning("Gmail draft creation for HM failed: %s", e)
 
+        # Phase 9 — auto-send gate. Same pattern as execute_find_and_draft.
+        auto_send_credits += _try_auto_send(
+            uid=uid,
+            config=config,
+            user_data=user_data,
+            contact_doc=contact_doc,
+            email=hm_email,
+            email_subject=email_subject,
+            email_body=email_body,
+            now_iso=now_iso,
+        )
+
         ref = contacts_ref.add(contact_doc)
         contact_id = ref[1].id
         saved.append({
@@ -1107,7 +1292,9 @@ def execute_find_hiring_managers(
         })
 
     # Per-HM credit cost — see CREDIT_COSTS in loop_budget.py.
-    credits = len(saved) * CREDIT_COSTS["hiring_manager"]
+    # auto_send_credits is the Phase 9 per-send overhead (+1 per actually
+    # sent HM email; 0 for draft-only and for denied/failed sends).
+    credits = len(saved) * CREDIT_COSTS["hiring_manager"] + auto_send_credits
     if credits > 0:
         try:
             deduct_credits_atomic(uid, credits, "agent_find_hm")

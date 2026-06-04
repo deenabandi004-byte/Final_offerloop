@@ -38,7 +38,11 @@ import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 
 // Mirror of backend CREDIT_COSTS.contact in app/services/loop_budget.py.
 // Keep in sync with AgentSetupInline.tsx and LoopActivityFeed.tsx.
-const CREDIT_COST_PER_CONTACT = 9;
+// Mirror of backend BUNDLED_COST_PER_PERSON["people"] in
+// app/services/loop_budget.py. Includes contact spend plus amortized
+// HM / job / company lookups. Settings modal is mode-agnostic; assume
+// people-mode (the most common path) for the hint.
+const CREDIT_COST_PER_CONTACT = 12;
 
 // Keep in sync with AgentSetupInline.tsx — small list, low drift risk.
 const INDUSTRY_OPTIONS = [
@@ -130,11 +134,12 @@ export function AgentSettingsModal({
     !local.enableHiringManagers &&
     !local.enableCompanyDiscovery;
 
-  // Guard: a weekly contact target costs ~9 credits per contact. If the
-  // budget can't cover the target, the agent stops mid-week. Block Save.
+  // The wizard derives the weekly credit budget from weeklyContactTarget
+  // (see backend loop_service.create_loop + BUNDLED_COST_PER_PERSON). This
+  // field is now an optional hard cap a power user can lower (or raise to
+  // the tier max) after creation. We no longer block Save on it.
   const estimatedWeeklyCredits =
     local.weeklyContactTarget * CREDIT_COST_PER_CONTACT;
-  const budgetUnderfunded = local.creditBudgetPerWeek < estimatedWeeklyCredits;
 
   const updateList = (
     key: "targetCompanies" | "targetIndustries" | "targetRoles" | "targetLocations",
@@ -249,7 +254,7 @@ export function AgentSettingsModal({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-xs text-muted-foreground">
-                  Credit budget/week
+                  Hard weekly credit cap (advanced)
                 </Label>
                 <Input
                   type="number"
@@ -271,13 +276,10 @@ export function AgentSettingsModal({
                 value={[local.creditBudgetPerWeek]}
                 onValueChange={([v]) => setLocal((p) => ({ ...p, creditBudgetPerWeek: v }))}
               />
-              <p
-                className="text-xs"
-                style={{ color: budgetUnderfunded ? "#b91c1c" : undefined }}
-              >
-                {budgetUnderfunded
-                  ? `Budget too low: ${local.weeklyContactTarget} contacts/week needs ~${estimatedWeeklyCredits} credits.`
-                  : `${local.weeklyContactTarget} contacts/week ≈ ${estimatedWeeklyCredits} credits (each costs ${CREDIT_COST_PER_CONTACT}).`}
+              <p className="text-xs text-muted-foreground">
+                By default we size this from your people/week target — about{" "}
+                {estimatedWeeklyCredits} cr for {local.weeklyContactTarget} people.
+                Override if you want a hard ceiling.
               </p>
             </div>
           </div>
@@ -455,7 +457,6 @@ export function AgentSettingsModal({
               disabled={
                 !isDirty ||
                 allDiscoveryOff ||
-                budgetUnderfunded ||
                 lifecycle.updateConfig.isPending
               }
             >

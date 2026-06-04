@@ -18,8 +18,8 @@ export default {
 		},
 		fontFamily: {
 			sans: ['Inter', 'system-ui', 'sans-serif'],
-			serif: ['"Instrument Serif"', 'Georgia', 'serif'],
-			display: ['"Instrument Serif"', 'Georgia', 'serif'],
+			serif: ['"Libre Baskerville"', 'Georgia', 'serif'],
+			display: ['"Libre Baskerville"', 'Georgia', 'serif'],
 			mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
 		},
 		extend: {
