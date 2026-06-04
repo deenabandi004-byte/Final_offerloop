@@ -886,3 +886,107 @@ def get_filters():
 
     return jsonify(result)
 
+
+# ---------------------------------------------------------------------------
+# Saved jobs (bookmarks) + Applied jobs
+#
+# Stored at users/{uid}/savedJobs/{job_id} and users/{uid}/appliedJobs/{job_id}.
+# Snapshot the visible job fields at the moment of action so the user can still
+# see them in their bins even after the original posting expires upstream.
+# The savedJobs collection is also read by jobs.py:378 to seed match signals
+# ("Goldman is on your saved-companies list").
+# ---------------------------------------------------------------------------
+
+def _snapshot_job_doc(uid: str, data: dict, action_field: str) -> dict:
+    """Build the document we persist for a save or apply action."""
+    return {
+        "job_id": data.get("job_id"),
+        "title": data.get("title"),
+        "company": data.get("company"),
+        "location": data.get("location"),
+        "apply_url": data.get("apply_url"),
+        "match_score": data.get("match_score"),
+        "logo_url": data.get("logo_url"),
+        action_field: datetime.now(timezone.utc),
+    }
+
+
+def _list_user_collection(uid: str, sub: str, order_field: str) -> list[dict]:
+    db = get_db()
+    docs = (
+        db.collection("users")
+        .document(uid)
+        .collection(sub)
+        .order_by(order_field, direction="DESCENDING")
+        .stream()
+    )
+    items: list[dict] = []
+    for doc in docs:
+        d = doc.to_dict() or {}
+        ts = d.get(order_field)
+        if hasattr(ts, "isoformat"):
+            d[order_field] = ts.isoformat()
+        items.append(d)
+    return items
+
+
+@jobs_bp.route("/api/job-board/saved-jobs", methods=["GET"])
+@require_firebase_auth
+def list_saved_jobs():
+    uid = request.firebase_user["uid"]
+    items = _list_user_collection(uid, "savedJobs", "saved_at")
+    return jsonify({"saved": items, "count": len(items)})
+
+
+@jobs_bp.route("/api/job-board/saved-jobs", methods=["POST"])
+@require_firebase_auth
+def save_job():
+    uid = request.firebase_user["uid"]
+    data = request.get_json(silent=True) or {}
+    job_id = data.get("job_id")
+    if not job_id:
+        return jsonify({"error": "job_id is required"}), 400
+    db = get_db()
+    doc = _snapshot_job_doc(uid, data, "saved_at")
+    db.collection("users").document(uid).collection("savedJobs").document(job_id).set(doc)
+    return jsonify({"success": True, "job_id": job_id})
+
+
+@jobs_bp.route("/api/job-board/saved-jobs/<job_id>", methods=["DELETE"])
+@require_firebase_auth
+def unsave_job(job_id: str):
+    uid = request.firebase_user["uid"]
+    db = get_db()
+    db.collection("users").document(uid).collection("savedJobs").document(job_id).delete()
+    return jsonify({"success": True, "job_id": job_id})
+
+
+@jobs_bp.route("/api/job-board/applied-jobs", methods=["GET"])
+@require_firebase_auth
+def list_applied_jobs():
+    uid = request.firebase_user["uid"]
+    items = _list_user_collection(uid, "appliedJobs", "applied_at")
+    return jsonify({"applied": items, "count": len(items)})
+
+
+@jobs_bp.route("/api/job-board/applied-jobs", methods=["POST"])
+@require_firebase_auth
+def mark_applied():
+    uid = request.firebase_user["uid"]
+    data = request.get_json(silent=True) or {}
+    job_id = data.get("job_id")
+    if not job_id:
+        return jsonify({"error": "job_id is required"}), 400
+    db = get_db()
+    doc = _snapshot_job_doc(uid, data, "applied_at")
+    db.collection("users").document(uid).collection("appliedJobs").document(job_id).set(doc)
+    return jsonify({"success": True, "job_id": job_id})
+
+
+@jobs_bp.route("/api/job-board/applied-jobs/<job_id>", methods=["DELETE"])
+@require_firebase_auth
+def unmark_applied(job_id: str):
+    uid = request.firebase_user["uid"]
+    db = get_db()
+    db.collection("users").document(uid).collection("appliedJobs").document(job_id).delete()
+    return jsonify({"success": True, "job_id": job_id})
