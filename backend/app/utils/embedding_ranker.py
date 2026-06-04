@@ -73,11 +73,35 @@ def _flatten_skills(skills) -> list[str]:
     return out
 
 
+def _narrative_text(profile: dict) -> str:
+    """Distill the user's free-form narrative fields into embedding input.
+
+    Per PURPOSEFUL_LEAKAGE_BRIEF.md, narrative fields are SOFT semantic
+    signals. They bias the embedding pool toward semantically-similar jobs
+    but never auto-extract structured chips and never gate. Each field is
+    truncated to ~800 chars to bound input cost; we ignore None / empty.
+
+    Returns "" when the user has no narrative fields populated, so the
+    calling _resume_text adds nothing rather than adding empty markers.
+    """
+    parts = []
+    direction = profile.get("directionNarrative")
+    if isinstance(direction, str) and direction.strip():
+        parts.append(f"What I'm hunting for: {direction.strip()[:800]}")
+    context = profile.get("personalContext")
+    if isinstance(context, str) and context.strip():
+        parts.append(f"Other context: {context.strip()[:800]}")
+    return "\n".join(parts)
+
+
 def _resume_text(profile: dict) -> str:
     """Distill the profile into a focused embedding input.
 
     Order matters — the first lines carry the most weight because the model
-    will attend to them more strongly in short inputs.
+    will attend to them more strongly in short inputs. Narrative fields
+    (directionNarrative, personalContext) go LAST so hard signals
+    (skills, education, experience) dominate the embedding and narrative
+    only nudges adjacent matches up rather than overwhelming the pool.
     """
     parts = []
     rp = profile.get("resumeParsed") or {}
@@ -126,6 +150,11 @@ def _resume_text(profile: dict) -> str:
     raw = profile.get("resumeText")
     if isinstance(raw, str) and raw.strip():
         parts.append(raw[:2000])
+
+    # 6) Free-form narrative (soft semantic bias, LAST so hard signals lead)
+    narrative = _narrative_text(profile)
+    if narrative:
+        parts.append(narrative)
 
     return "\n".join(parts).strip()
 
