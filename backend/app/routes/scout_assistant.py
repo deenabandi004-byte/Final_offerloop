@@ -547,14 +547,6 @@ def scout_assistant_briefing_stream():
     from app.services.scout.strategist import build_strategist_prompt
     from app.services.scout import strategy as strategy_mod
 
-    # Phase 5: feature flag gates the strategist rebuild so we can ramp
-    # to 100% on stable users only. Off by default until eval pass.
-    if not os.getenv("SCOUT_STRATEGIST_PROMPT_V2"):
-        return jsonify({
-            "error": "strategist_disabled",
-            "message": "The strategist briefing is not enabled for this build.",
-        }), 503
-
     payload = request.get_json(force=True, silent=True) or {}
     user_info = payload.get("user_info") or {}
     if not isinstance(user_info, dict):
