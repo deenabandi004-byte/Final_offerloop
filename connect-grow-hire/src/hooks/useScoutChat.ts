@@ -880,6 +880,16 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
 /**
  * Format message content (handle markdown-like formatting).
  * HTML-escapes first to prevent XSS, then applies safe formatting.
+ *
+ * Supports:
+ *   **bold**
+ *   [link text](url)  — internal /relative-paths render as styled chips so
+ *     the strategist briefing's deep-link CTAs land as readable buttons
+ *     instead of URL-encoded blobs in prose. External (http/https) URLs
+ *     open in a new tab; internal links get an `data-scout-link` attribute
+ *     so the panel can intercept the click and route via react-router
+ *     instead of triggering a full page reload.
+ *   \n -> <br />
  */
 export function formatMessage(content: string): string {
   // Escape HTML entities BEFORE inserting any HTML tags
@@ -890,7 +900,26 @@ export function formatMessage(content: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 
-  return escaped
+  // Markdown links: [text](url). We have already HTML-escaped the content,
+  // so & in URLs is `&amp;`; un-escape it inside the href so the URL still
+  // works when the user clicks (React Router params depend on real `&`).
+  const withLinks = escaped.replace(
+    /\[([^\]]+)\]\(([^)\s]+)\)/g,
+    (_full, text, href) => {
+      const realHref = href.replace(/&amp;/g, '&')
+      const isExternal = /^https?:\/\//i.test(realHref)
+      const attrs = isExternal
+        ? `href="${realHref}" target="_blank" rel="noopener noreferrer"`
+        : `href="${realHref}" data-scout-link="1"`
+      return (
+        `<a ${attrs} class="inline-flex items-center gap-1 px-3 py-1.5 mt-1 mb-1 rounded-full ` +
+        `bg-[var(--brand-blue)] text-white text-xs font-medium no-underline hover:bg-[#2563EB] ` +
+        `transition-colors">${text}</a>`
+      )
+    },
+  )
+
+  return withLinks
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\n/g, '<br />');
 }

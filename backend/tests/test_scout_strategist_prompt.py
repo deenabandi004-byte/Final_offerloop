@@ -115,6 +115,23 @@ def test_prompt_asks_for_5_to_7_steps_with_3_to_5_bullets():
     assert "3-5 rationale bullets" in prompt
 
 
+def test_prompt_requires_markdown_links_not_raw_navigate_strings():
+    """The CTA per step must be a Markdown link, not 'navigate URL' text.
+    Without this rule the model writes raw URL-encoded blobs in prose."""
+    prompt = build_strategist_prompt(_full_user_context())
+    assert "Markdown link" in prompt
+    # The negative phrasing the prompt uses to ban the old format. The
+    # leading text and "navigate" can be separated by whitespace due to
+    # Python's line-continuation in the prompt definition; match loosely.
+    assert "DO NOT write the word" in prompt
+    assert '"navigate"' in prompt
+    # Also the URL-encoding ban so spaces don't get %20'd inside the link.
+    assert "DO NOT URL-encode" in prompt
+    # Example Markdown-link format must be in the prompt so the model has
+    # a concrete template to pattern-match against.
+    assert "[Start this Loop" in prompt
+
+
 def test_final_action_rail_at_end_of_prompt():
     """Final instruction MUST be the briefing-output directive — LLMs weight
     end-of-prompt heavily, and this is the load-bearing instruction."""

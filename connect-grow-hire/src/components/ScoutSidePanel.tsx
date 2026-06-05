@@ -944,6 +944,21 @@ export function ScoutSidePanel() {
                                     <div className="bg-gray-100 rounded-3xl rounded-bl-md px-4 py-2.5">
                                       <div
                                         className="text-sm text-gray-900 leading-relaxed [overflow-wrap:anywhere] break-words"
+                                        // Intercept clicks on chips marked
+                                        // data-scout-link so they route via
+                                        // react-router instead of triggering
+                                        // a full page reload (which would
+                                        // close the Scout panel).
+                                        onClick={(e) => {
+                                          const target = e.target as HTMLElement
+                                          const link = target.closest('a[data-scout-link]') as HTMLAnchorElement | null
+                                          if (!link) return
+                                          const href = link.getAttribute('href') || ''
+                                          if (!href.startsWith('/')) return
+                                          e.preventDefault()
+                                          closePanel()
+                                          navigate(href)
+                                        }}
                                         dangerouslySetInnerHTML={{ __html: formatMessage(message.content) }}
                                       />
                                       {/* Phase 4B (E1): inline coverage gauge

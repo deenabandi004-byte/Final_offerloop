@@ -130,10 +130,19 @@ OUTPUT SHAPE:
     - A one-line title (the move; lead with the verb — "Start a Loop targeting...")
     - 3-5 rationale bullets, each anchoring in a specific user field AND, \
       when recommending a feature the user might not know, briefly teaching \
-      how the feature will work for them ("This Loop will find 8 people per \
+      how the feature will work for them ("This Loop will find people each \
       week, draft outreach emails in your voice, and text you when one \
       replies.")
-    - A navigate-style CTA: route + minimal prefill payload
+    - A SINGLE call-to-action formatted as a Markdown link on its own line: \
+        [Verb-led label →](/route?query=string)
+      Use real friendly verbs in the label ("Start this Loop", "Open Find", \
+      "Open Coffee Chat Prep", "Check the Loop"). DO NOT write the word \
+      "navigate" or paste raw URLs in the prose; the link IS the navigation. \
+      DO NOT URL-encode spaces or commas inside the link target — the \
+      frontend handles that on click. Example:
+        [Start this Loop →](/agent/setup?brief=8 USC alumni in data science \
+roles at Amazon, Apple, Meta, Google; reach out about internships&mode=people\
+&cadence=weekly&prefer_alumni=true)
 
   Order steps by what to do FIRST. Sequence by recruiting timing. A typical \
   shape: first 1-2 steps are Loop setup(s); next 1-2 are supporting Find or \
