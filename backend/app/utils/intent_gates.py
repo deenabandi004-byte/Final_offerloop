@@ -94,6 +94,41 @@ _STATE_CODES = {
 }
 
 
+# Major US job hubs — always pass the location gate regardless of the
+# user's preferredLocation. Why: a student who picked "Boston" still
+# wants to see strong roles in NYC/SF/Seattle/etc. — those hubs are
+# where most internships and new-grad roles cluster, and dropping them
+# silently makes the feed feel empty. The user's preference remains the
+# primary signal (matched-city jobs sort higher upstream); this list
+# is an additive allowlist, not a replacement.
+_MAJOR_US_HUBS = {
+    # NYC metro
+    "new york", "manhattan", "brooklyn", "queens", "jersey city", "newark",
+    # SF Bay Area
+    "san francisco", "south san francisco", "san jose", "palo alto",
+    "mountain view", "menlo park", "cupertino", "sunnyvale", "redwood city",
+    "santa clara", "oakland", "berkeley", "fremont",
+    # LA metro
+    "los angeles", "santa monica", "culver city", "el segundo", "long beach",
+    "pasadena", "burbank", "irvine", "anaheim",
+    # Boston metro
+    "boston", "cambridge", "somerville", "waltham",
+    # Chicago
+    "chicago", "evanston",
+    # Seattle metro
+    "seattle", "bellevue", "redmond", "kirkland",
+    # DC metro
+    "washington", "arlington", "alexandria", "reston", "mclean",
+    # Other top hubs
+    "austin", "atlanta", "denver", "boulder", "san diego",
+    "dallas", "plano", "irving", "fort worth",
+    "miami", "philadelphia", "houston",
+    "minneapolis", "st. paul", "saint paul",
+    "portland", "phoenix", "raleigh", "durham",
+    "nashville", "charlotte", "pittsburgh", "detroit",
+}
+
+
 def _extract_state_codes(text: str) -> list[str]:
     """Pull 2-letter US state codes from a location preference.
 
@@ -503,6 +538,16 @@ def _gate_by_location(job: dict, intent: dict) -> bool:
     if pref_states:
         loc_states = set(_extract_state_codes(loc_text))
         if loc_states & pref_states:
+            return False
+
+    # 3) Major-hub pass-through: always allow jobs in big-tech / big-finance
+    #    cities so a student who picked one location still sees high-quality
+    #    roles in other major hubs. Their preferred location is honored by
+    #    upstream ranking (matched-city jobs sort higher); this gate just
+    #    stops silently hiding NYC/SF/LA/Boston/Seattle/Austin/etc. jobs
+    #    from someone who picked a single city elsewhere.
+    for hub in _MAJOR_US_HUBS:
+        if hub in loc_text:
             return False
 
     return True

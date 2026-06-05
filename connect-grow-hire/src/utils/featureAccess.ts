@@ -4,6 +4,45 @@
 
 export type Tier = 'free' | 'pro' | 'elite';
 
+/**
+ * Outreach mode for the Find search: what we do after finding contacts.
+ *  - "preview": return contact info only (no email written, no draft). Free tier.
+ *  - "draft": write the email and create a Gmail draft. Pro and Elite.
+ *  - "send": write and send the email. Elite only.
+ * The backend (runs.py prompt_search) is the source of truth and re-validates
+ * the chosen mode against the user tier. These helpers exist only to drive the
+ * UI and must stay in sync with the backend TIER_ALLOWED_MODES map.
+ */
+export type OutreachMode = 'preview' | 'draft' | 'send';
+
+const TIER_ALLOWED_MODES: Record<Tier, OutreachMode[]> = {
+  free: ['preview'],
+  pro: ['preview', 'draft'],
+  elite: ['preview', 'draft', 'send'],
+};
+
+/**
+ * Modes this tier is allowed to use, in display order (preview, draft, send).
+ */
+export function getAllowedOutreachModes(tier: Tier): OutreachMode[] {
+  return TIER_ALLOWED_MODES[tier] || TIER_ALLOWED_MODES.free;
+}
+
+/**
+ * Whether a tier may use a given mode.
+ */
+export function canUseOutreachMode(tier: Tier, mode: OutreachMode): boolean {
+  return getAllowedOutreachModes(tier).includes(mode);
+}
+
+/**
+ * The mode a tier should land on by default: draft for anyone who can draft,
+ * otherwise preview (Free, whose only option is preview).
+ */
+export function getDefaultOutreachMode(tier: Tier): OutreachMode {
+  return canUseOutreachMode(tier, 'draft') ? 'draft' : 'preview';
+}
+
 export interface TierLimits {
   credits: number;
   alumniSearches: number | 'unlimited';

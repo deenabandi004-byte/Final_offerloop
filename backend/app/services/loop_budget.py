@@ -32,6 +32,35 @@ CREDIT_COSTS = {
     "company": 1,          # execute_discover_companies (per saved company)  (was 2)
 }
 
+# Bundled per-person cost shown in the Loop wizard. Reflects the typical
+# cycle mix calibrated against estimate_cycle_cost() — contact (9) plus
+# the amortized share of HM (13), job (1×~5), and company (1×~3) lookups
+# that fire per cycle. Used by loop_service.create_loop() to derive
+# creditBudgetPerWeek from the user's weeklyTarget so the wizard can be
+# output-first ("how many people / week") instead of asking the user to
+# pick credits directly.
+# Mirrored in connect-grow-hire/src/components/agent/AgentSetupInline.tsx —
+# keep in sync.
+BUNDLED_COST_PER_PERSON = {
+    "people": 12,  # 9 contact + ~3 amortized HM/job/company per outreach
+    "roles":  6,   # job-driven; fewer per-person contact spends
+    "both":   10,  # half-and-half blend
+}
+
+# Safety buffer applied to the derived weekly budget so cycle-to-cycle
+# variance (an extra HM, a few more jobs) doesn't trip budget_capped on a
+# user who picked the recommended setting.
+BUNDLED_BUDGET_BUFFER = 1.15
+
+# Phase 9 — per-send overhead when a Loop is in autoSendMode="send_for_me".
+# Covers the Hunter email verification call (~$0.005). The Gmail send itself
+# is free. Charged in agent_actions._try_auto_send only on successful send;
+# Hunter overhead on rejected sends is absorbed.
+# loop_service.create_loop adds weeklyTarget × this × BUNDLED_BUDGET_BUFFER
+# to the derived creditBudgetPerWeek when the Loop is send_for_me. Surface
+# in the wizard as "+1 credit per send".
+AUTO_SEND_CREDIT_COST = 1
+
 # Hours per cycle by cadence. None = manual, never auto-fires.
 CADENCE_HOURS = {
     "daily": 24,

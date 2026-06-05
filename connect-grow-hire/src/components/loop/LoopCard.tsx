@@ -5,10 +5,10 @@
 // the primary action. No technical jargon visible anywhere.
 
 import { Link } from "react-router-dom";
-import { ArrowRight, Pause, Play } from "lucide-react";
-import { LOOP_COPY } from "@/lib/loopCopy";
+import { ArrowRight, Pause, Play, Trash2 } from "lucide-react";
+import { LOOP_COPY, loopCopy } from "@/lib/loopCopy";
 import type { Loop, LoopStatus } from "@/services/loops";
-import { usePauseLoop, useResumeLoop, useStartLoop } from "@/hooks/useLoops";
+import { useDeleteLoop, usePauseLoop, useResumeLoop, useStartLoop } from "@/hooks/useLoops";
 
 const STATUS_META: Record<
   LoopStatus,
@@ -100,14 +100,20 @@ export function LoopCard({ loop }: { loop: Loop }) {
   const startMut = useStartLoop();
   const pauseMut = usePauseLoop();
   const resumeMut = useResumeLoop();
+  const deleteMut = useDeleteLoop();
 
   const found = loop.totalContactsFound;
   const target = Math.max(1, loop.weeklyTarget);
   const pct = Math.min(100, Math.round((found / target) * 100));
 
+  // Mode-aware copy: "Read the emails" → "View what was sent" for auto-send
+  // Loops, "Open the queue" for approve-each Loops. Same helper drives the
+  // pause-reason chip below.
+  const copy = loopCopy(loop.loopMode ?? "people", { autoSendMode: loop.autoSendMode });
+
   const primaryCta =
     loop.status === "done" && loop.pendingDrafts > 0
-      ? LOOP_COPY.card.readEmailsCta
+      ? copy.card.readEmailsCta
       : loop.status === "paused"
       ? LOOP_COPY.card.wakeCta
       : loop.status === "idle"
@@ -123,14 +129,22 @@ export function LoopCard({ loop }: { loop: Loop }) {
     else if (loop.status === "idle") startMut.mutate(loop.id);
   };
 
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!confirm(`Remove "${loop.name}"? Drafts already created stay in your tracker.`)) return;
+    deleteMut.mutate(loop.id);
+  };
+
   const showLifecycleButton = loop.status !== "done";
 
   return (
     <Link
       to={`/agent/${loop.id}`}
-      className="group relative flex flex-col gap-3 rounded-2xl border bg-white p-5 transition-all hover:shadow-md hover:-translate-y-0.5"
+      className="group relative flex flex-col gap-[13px] border bg-white p-5 transition-all hover:shadow-md hover:-translate-y-0.5"
       style={{
         borderColor: "var(--line)",
+        borderRadius: 18,
         minHeight: 200,
       }}
     >
@@ -146,37 +160,55 @@ export function LoopCard({ loop }: { loop: Loop }) {
           <StatusDot status={loop.status} />
           {meta.label}
         </div>
-        {showLifecycleButton && (
+        <div className="flex items-center gap-1.5">
+          {showLifecycleButton && (
+            <button
+              onClick={handleLifecycleClick}
+              disabled={pauseMut.isPending || resumeMut.isPending || startMut.isPending}
+              className="opacity-0 group-hover:opacity-100 transition-opacity rounded-md border px-2 py-1 text-[11px] flex items-center gap-1 bg-white hover:bg-[var(--paper-2)] disabled:opacity-50"
+              style={{ borderColor: "var(--line)", color: "var(--ink-2)" }}
+              aria-label={loop.status === "running" ? "Pause Loop" : "Start Loop"}
+            >
+              {loop.status === "running" ? (
+                <>
+                  <Pause className="h-3 w-3" /> Pause
+                </>
+              ) : (
+                <>
+                  <Play className="h-3 w-3" /> {loop.status === "idle" ? "Start" : "Wake"}
+                </>
+              )}
+            </button>
+          )}
           <button
-            onClick={handleLifecycleClick}
-            disabled={pauseMut.isPending || resumeMut.isPending || startMut.isPending}
-            className="opacity-0 group-hover:opacity-100 transition-opacity rounded-md border px-2 py-1 text-[11px] flex items-center gap-1 bg-white hover:bg-[var(--paper-2)] disabled:opacity-50"
-            style={{ borderColor: "var(--line)", color: "var(--ink-2)" }}
-            aria-label={loop.status === "running" ? "Pause Loop" : "Start Loop"}
+            onClick={handleDeleteClick}
+            disabled={deleteMut.isPending}
+            className="opacity-0 group-hover:opacity-100 transition-opacity rounded-md border p-1.5 bg-white hover:bg-[#fef2f2] hover:border-[#fecaca] hover:text-[#b91c1c] disabled:opacity-50"
+            style={{ borderColor: "var(--line)", color: "var(--ink-3)" }}
+            aria-label={`Remove ${loop.name}`}
+            title="Remove Loop"
           >
-            {loop.status === "running" ? (
-              <>
-                <Pause className="h-3 w-3" /> Pause
-              </>
-            ) : (
-              <>
-                <Play className="h-3 w-3" /> {loop.status === "idle" ? "Start" : "Wake"}
-              </>
-            )}
+            <Trash2 className="h-3 w-3" />
           </button>
-        )}
+        </div>
       </div>
 
-      {/* Title + subtitle */}
+      {/* Title + subtitle — serif title matches Variation D's "editorial" voice. */}
       <div>
         <h3
-          className="text-[17px] font-semibold tracking-[-0.01em] leading-tight"
-          style={{ color: "var(--ink)" }}
+          className="font-serif tracking-[-0.01em] line-clamp-2"
+          style={{
+            fontSize: 22,
+            lineHeight: 1.12,
+            color: "var(--ink)",
+            margin: 0,
+            fontWeight: 400,
+          }}
         >
           {loop.name}
         </h3>
         <p
-          className="mt-1 text-[12.5px] leading-snug line-clamp-2"
+          className="mt-1.5 text-[12.5px] leading-snug line-clamp-2"
           style={{ color: "var(--ink-3)" }}
         >
           {buildSubtitle(loop)}
@@ -215,8 +247,27 @@ export function LoopCard({ loop }: { loop: Loop }) {
             border: "1px solid #fde68a",
           }}
         >
-          {LOOP_COPY.pauseReason[loop.pauseReason] || LOOP_COPY.pauseReason.paused}
+          {copy.pauseReason[loop.pauseReason] || copy.pauseReason.paused}
         </div>
+      )}
+
+      {/* Phase 9 — first-N progress chip. Only renders for Loops in
+          send_for_me mode that have an explicit warmup gate configured
+          (autoSendApprovedAfter > 0). The default is 0 (no warmup), so
+          this is opt-in for power users via PATCH. */}
+      {loop.autoSendMode === "send_for_me" &&
+        (loop.autoSendApprovedAfter ?? 0) > 0 &&
+        (loop.autoSendApprovedCount ?? 0) < (loop.autoSendApprovedAfter ?? 0) && (
+          <div
+            className="text-[11.5px] leading-snug rounded-md px-2 py-1.5"
+            style={{
+              background: "rgba(37,99,235,0.06)",
+              color: "#1D4ED8",
+              border: "1px solid rgba(37,99,235,0.25)",
+            }}
+          >
+            {(loop.autoSendApprovedCount ?? 0)} of {(loop.autoSendApprovedAfter ?? 0)} sends approved · auto-send unlocks after
+          </div>
       )}
 
       {/* Phase 8 — weekly credit budget bar. */}
@@ -224,6 +275,11 @@ export function LoopCard({ loop }: { loop: Loop }) {
         spent={loop.weekCreditsSpent || 0}
         cap={loop.creditBudgetPerWeek || 0}
       />
+
+      {/* Variation D — "Just found"/"X drafts waiting" proof row. Only render
+          when we have a meaningful number to surface so the card stays calm
+          for fresh Loops with no results yet. */}
+      <ProofLine loop={loop} />
 
       {/* Footer: next-action hint + primary CTA */}
       <div className="mt-auto flex items-end justify-between gap-3">
@@ -242,6 +298,84 @@ export function LoopCard({ loop }: { loop: Loop }) {
         </span>
       </div>
     </Link>
+  );
+}
+
+// ── Variation D — per-card proof row ─────────────────────────────────────
+//
+// One subtle pill below the progress block that gives the card a "this Loop
+// is actually doing something" beat. Three sources, in priority order:
+//   1. Running Loop with finds  → "Just found · {N}"
+//   2. Done with drafts waiting → "{N} drafts waiting"
+//   3. Paused with unread       → "{N} ready to review"
+// Anything else gets nothing — keeps fresh Loops calm.
+
+function ProofLine({ loop }: { loop: Loop }) {
+  const running = loop.status === "running";
+  const found = loop.totalContactsFound;
+  const drafts = loop.pendingDrafts;
+
+  let dotColor = "var(--ink-3)";
+  let animate = false;
+  let text: React.ReactNode = null;
+
+  if (running && found > 0) {
+    dotColor = "#22c55e";
+    animate = true;
+    text = (
+      <>
+        <span className="font-semibold" style={{ color: "var(--ink)" }}>
+          Just found
+        </span>{" "}
+        {found} {found === 1 ? "person" : "people"}
+      </>
+    );
+  } else if (drafts > 0) {
+    text = (
+      <>
+        <span className="font-semibold" style={{ color: "var(--ink)" }}>
+          {drafts}
+        </span>{" "}
+        {drafts === 1 ? "draft" : "drafts"} waiting for you
+      </>
+    );
+  } else if (loop.unreadReplies > 0) {
+    text = (
+      <>
+        <span className="font-semibold" style={{ color: "var(--ink)" }}>
+          {loop.unreadReplies}
+        </span>{" "}
+        {loop.unreadReplies === 1 ? "reply" : "replies"} to read
+      </>
+    );
+  }
+
+  if (!text) return null;
+
+  return (
+    <div
+      className="flex items-center gap-2 rounded-md border px-2.5 py-1.5"
+      style={{
+        background: "var(--paper-2)",
+        borderColor: "var(--line-2)",
+      }}
+    >
+      <span className="relative inline-flex" style={{ width: 6, height: 6 }}>
+        <span
+          className="absolute inset-0 rounded-full"
+          style={{
+            background: dotColor,
+            animation: animate ? "om-pulse 1.6s ease-out infinite" : "none",
+          }}
+        />
+      </span>
+      <span
+        className="text-[12px] truncate"
+        style={{ color: "var(--ink-2)" }}
+      >
+        {text}
+      </span>
+    </div>
   );
 }
 

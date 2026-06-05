@@ -36,6 +36,42 @@ scout_admin_bp = Blueprint("scout_admin", __name__)
 _user_context_cache = TTLCache(maxsize=500, ttl=60)
 
 
+def _sse_stream_from_queue(q, heartbeat_interval_s: float = 15.0,
+                            real_timeout_s: float = 120.0):
+    """Yield SSE frames from a thread-safe queue with keepalive heartbeats.
+
+    Browsers and proxies drop SSE connections after ~60s of idle. We poll the
+    queue every heartbeat_interval_s; on timeout we emit `event: heartbeat`
+    instead of bailing out. We only declare a true `Stream timeout` after
+    real_timeout_s of total silence (the LLM is actually stuck, not just slow).
+
+    Stops when the producer puts `None` on the queue, when the client
+    disconnects (GeneratorExit), or on real timeout.
+    """
+    elapsed_silence_s = 0.0
+    try:
+        while True:
+            try:
+                item = q.get(timeout=heartbeat_interval_s)
+            except queue.Empty:
+                elapsed_silence_s += heartbeat_interval_s
+                if elapsed_silence_s >= real_timeout_s:
+                    yield f"event: error\ndata: {json.dumps({'message': 'Stream timeout'})}\n\n"
+                    return
+                yield f"event: heartbeat\ndata: {json.dumps({})}\n\n"
+                continue
+
+            elapsed_silence_s = 0.0
+            if item is None:
+                return
+
+            event = item.get("event", "token")
+            data = item.get("data", {})
+            yield f"event: {event}\ndata: {json.dumps(data)}\n\n"
+    except GeneratorExit:
+        return
+
+
 def _resume_to_text(user_data: dict) -> str:
     """Best resume representation for Scout.
 
@@ -530,28 +566,8 @@ def scout_assistant_chat_stream():
     thread = threading.Thread(target=_run_streaming, daemon=True)
     thread.start()
 
-    def _sse_generator():
-        """Yield SSE events from the thread-safe queue."""
-        try:
-            while True:
-                try:
-                    item = q.get(timeout=60)  # 60s max wait per event
-                except queue.Empty:
-                    yield f"event: error\ndata: {json.dumps({'message': 'Stream timeout'})}\n\n"
-                    return
-
-                if item is None:
-                    return  # End of stream
-
-                event = item.get("event", "token")
-                data = item.get("data", {})
-                yield f"event: {event}\ndata: {json.dumps(data)}\n\n"
-        except GeneratorExit:
-            # Client disconnected - thread will clean up naturally
-            pass
-
     return Response(
-        _sse_generator(),
+        _sse_stream_from_queue(q),
         mimetype="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

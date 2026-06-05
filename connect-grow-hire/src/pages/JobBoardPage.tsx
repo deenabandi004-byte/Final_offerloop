@@ -12,7 +12,6 @@ import {
 } from "@/services/api";
 import { JobBoardSkeleton } from "@/components/JobBoardSkeleton";
 import { FindHumansModal, type FindHumansJob } from "@/components/jobs/FindHumansModal";
-import { ReferralDraftModal } from "@/components/jobs/ReferralDraftModal";
 import { toast } from "@/hooks/use-toast";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
@@ -81,54 +80,6 @@ function whyOneLine(j: FeedJob): string {
   const sig = j.match_signals?.[0];
   if (sig) return sig;
   return j.ranked === false ? "Recently posted" : "Matched to your profile";
-}
-
-// Phase 4: application-deadline countdown.
-// Reads from either job.application_deadline (Perplexity, top-level — usually
-// "rolling" or YYYY-MM-DD for cycle-driven roles) or structured.application_deadline
-// (Firecrawl, posting-explicit — can be any human-readable string).
-// Returns null when there's no useful deadline to surface.
-type DeadlineUrgency = "urgent" | "soon" | "normal" | "rolling";
-function deadlineInfo(j: FeedJob): { label: string; urgency: DeadlineUrgency } | null {
-  const raw =
-    j.application_deadline ??
-    j.structured?.application_deadline ??
-    null;
-  if (!raw || typeof raw !== "string") return null;
-
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  if (trimmed.toLowerCase() === "rolling") {
-    return { label: "Rolling deadline", urgency: "rolling" };
-  }
-
-  // Try strict ISO first (what the Perplexity extractor writes), then a
-  // permissive Date parse for Firecrawl's looser strings ("December 1, 2026").
-  let date: Date | null = null;
-  const isoMatch = /^\d{4}-\d{2}-\d{2}$/.test(trimmed);
-  if (isoMatch) {
-    // Treat as UTC date at midnight so "today" math doesn't drift across timezones.
-    date = new Date(`${trimmed}T00:00:00Z`);
-  } else {
-    const parsed = new Date(trimmed);
-    if (!isNaN(parsed.getTime())) date = parsed;
-  }
-  if (!date || isNaN(date.getTime())) return null;
-
-  const now = new Date();
-  const msPerDay = 1000 * 60 * 60 * 24;
-  const daysLeft = Math.ceil((date.getTime() - now.getTime()) / msPerDay);
-
-  if (daysLeft < 0) return null; // past, don't show
-  if (daysLeft === 0) return { label: "Closes today", urgency: "urgent" };
-  if (daysLeft === 1) return { label: "Closes tomorrow", urgency: "urgent" };
-  if (daysLeft <= 7) return { label: `Closes in ${daysLeft} days`, urgency: "urgent" };
-  if (daysLeft <= 30) return { label: `Closes in ${daysLeft} days`, urgency: "soon" };
-  if (daysLeft <= 90) {
-    const monthDay = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    return { label: `Closes ${monthDay}`, urgency: "normal" };
-  }
-  return null; // >90 days out — too far to be useful
 }
 
 // ─── small components ───────────────────────────────────────────────────────
@@ -216,7 +167,6 @@ function StandoutCard({
   onFindContact,
   onSeeTeam,
   onToggleDream,
-  onReferral,
 }: {
   j: FeedJob;
   isDream: boolean;
@@ -224,7 +174,6 @@ function StandoutCard({
   onFindContact: (j: FeedJob) => void;
   onSeeTeam: (j: FeedJob) => void;
   onToggleDream: (company: string) => Promise<void> | void;
-  onReferral: (j: FeedJob) => void;
 }) {
   const warm = (j.match_score ?? 0) >= 90;
   return (
@@ -267,66 +216,15 @@ function StandoutCard({
           </a>
         )}
       </div>
-      {(() => {
-        const dl = deadlineInfo(j);
-        const badges = j.match_badges ?? [];
-        if (badges.length === 0 && !dl) return null;
-        return (
-          <div className="match-chips">
-            {dl && (
-              <span className={`match-chip deadline ${dl.urgency}`}>
-                {dl.urgency === "urgent" ? "🔥 " : dl.urgency === "soon" ? "⏳ " : "📅 "}
-                {dl.label}
-              </span>
-            )}
-            {badges.includes("dream_company") && (
-              <span className="match-chip dream">★ Dream company</span>
-            )}
-            {badges.includes("target_company") && (
-              <span className="match-chip target">◎ Target company</span>
-            )}
-            {badges.includes("alumni_at_company") && (
-              <span className="match-chip alumni">◉ Alumni you know</span>
-            )}
-            {badges.includes("saved_company_affinity") && (
-              <span className="match-chip saved">⤴ You've saved jobs here</span>
-            )}
-          </div>
-        );
-      })()}
       <div className="why">{whyOneLine(j)}</div>
       <div className="actions">
         <a className="primary" onClick={() => onOpenApply(j)}>Apply →</a>
-        {j.referral_contact ? (
-          <a
-            className="referral"
-            onClick={(e) => {
-              e.stopPropagation();
-              onReferral(j);
-            }}
-          >
-            ↗ Reach out to {firstName(j.referral_contact.name)}
-          </a>
-        ) : (
-          <a onClick={() => onFindContact(j)}>Find contact</a>
-        )}
+        <a onClick={() => onFindContact(j)}>Find contact</a>
         <a onClick={() => onSeeTeam(j)}>{HIRING_TEAM_LABEL}</a>
       </div>
     </div>
   );
 }
-
-function firstName(full: string): string {
-  if (!full) return "";
-  const trimmed = full.trim();
-  if (!trimmed) return "";
-  return trimmed.split(/\s+/)[0];
-}
-
-// Phase 5: the referral CTA now opens an inline preview/edit modal instead of
-// firing off to Gmail directly. The modal handles generation + commit; this
-// file just decides which job opens it (via a top-level state lifted to the
-// page component).
 
 function JobRow({
   j,
@@ -340,7 +238,6 @@ function JobRow({
   onSeeTeam,
   onSave,
   onToggleDream,
-  onReferral,
 }: {
   j: FeedJob;
   isOpen: boolean;
@@ -353,7 +250,6 @@ function JobRow({
   onSeeTeam: (j: FeedJob) => void;
   onSave: (j: FeedJob) => Promise<void> | void;
   onToggleDream: (company: string) => Promise<void> | void;
-  onReferral: (j: FeedJob) => void;
 }) {
   const [dismissing, setDismissing] = useState(false);
   const daysOld = postedDaysFrom(j.posted_at) ?? 0;
@@ -415,46 +311,10 @@ function JobRow({
               </a>
             )}
           </div>
-          {(() => {
-            const dl = deadlineInfo(j);
-            const badges = j.match_badges ?? [];
-            if (badges.length === 0 && !dl) return null;
-            return (
-              <div className="match-chips">
-                {dl && (
-                  <span className={`match-chip deadline ${dl.urgency}`}>
-                    {dl.urgency === "urgent" ? "🔥 " : dl.urgency === "soon" ? "⏳ " : "📅 "}
-                    {dl.label}
-                  </span>
-                )}
-                {badges.includes("dream_company") && (
-                  <span className="match-chip dream">★ Dream company</span>
-                )}
-                {badges.includes("target_company") && (
-                  <span className="match-chip target">◎ Target company</span>
-                )}
-                {badges.includes("alumni_at_company") && (
-                  <span className="match-chip alumni">◉ Alumni you know</span>
-                )}
-                {badges.includes("saved_company_affinity") && (
-                  <span className="match-chip saved">⤴ You've saved jobs here</span>
-                )}
-              </div>
-            );
-          })()}
           <div className="why">{whyOneLine(j)}</div>
           <div className="actions">
             <a className="primary" onClick={(e) => { stop(e); onApply(j); }}>Apply →</a>
-            {j.referral_contact ? (
-              <a
-                className="referral"
-                onClick={(e) => { stop(e); onReferral(j); }}
-              >
-                ↗ Reach out to {firstName(j.referral_contact.name)}
-              </a>
-            ) : (
-              <a onClick={(e) => { stop(e); onFindContact(j); }}>Find contact</a>
-            )}
+            <a onClick={(e) => { stop(e); onFindContact(j); }}>Find contact</a>
             <a onClick={(e) => { stop(e); onSeeTeam(j); }}>
               {HIRING_TEAM_LABEL}<span className="credits"> · 5 cr</span>
             </a>
@@ -574,10 +434,6 @@ export const JobBoardPage: React.FC = () => {
   const [field, setField] = useState("All");
   const [sort, setSort] = useState("Best match");
   const [findHumansJob, setFindHumansJob] = useState<FindHumansJob | null>(null);
-  // Phase 5: which job's referral-email modal is open. The modal handles
-  // generation + edit + commit; the page just owns the lifted state so the
-  // modal can render once at the page level instead of one per row.
-  const [referralDraftJob, setReferralDraftJob] = useState<FeedJob | null>(null);
 
   const loadFeed = useCallback(async (refresh = false, opts?: { ungated?: boolean }) => {
     try {
@@ -1130,7 +986,6 @@ export const JobBoardPage: React.FC = () => {
                               onFindContact={handleFindContact}
                               onSeeTeam={handleSeeTeam}
                               onToggleDream={handleToggleDream}
-                              onReferral={setReferralDraftJob}
                             />
                           ))}
                         </div>
@@ -1157,7 +1012,6 @@ export const JobBoardPage: React.FC = () => {
                               onSeeTeam={handleSeeTeam}
                               onSave={handleSave}
                               onToggleDream={handleToggleDream}
-                              onReferral={setReferralDraftJob}
                             />
                           ))}
                         </div>
@@ -1245,11 +1099,6 @@ export const JobBoardPage: React.FC = () => {
         open={!!findHumansJob}
         onOpenChange={(o) => !o && setFindHumansJob(null)}
         job={findHumansJob}
-      />
-      <ReferralDraftModal
-        open={!!referralDraftJob}
-        onOpenChange={(o) => !o && setReferralDraftJob(null)}
-        job={referralDraftJob}
       />
     </SidebarProvider>
   );

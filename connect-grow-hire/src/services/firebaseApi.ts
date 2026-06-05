@@ -153,6 +153,10 @@ export interface Recruiter {
   gmailMessageId?: string;
   gmailDraftId?: string;
   gmailDraftUrl?: string;
+  // Sent tracking fields (set when an email is sent in send mode)
+  gmailThreadId?: string;
+  pipelineStage?: string;
+  emailSentAt?: string;
 }
 
 // ================================

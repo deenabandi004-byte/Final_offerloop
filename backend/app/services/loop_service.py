@@ -34,6 +34,11 @@ from app.services.agent_service import (
     DEFAULT_AGENT_CONFIG,
     _generate_short_code,
 )
+from app.services.loop_budget import (
+    AUTO_SEND_CREDIT_COST,
+    BUNDLED_BUDGET_BUFFER,
+    BUNDLED_COST_PER_PERSON,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +55,26 @@ MUTABLE_LOOP_FIELDS = {
     "cadence",
     "creditBudgetPerWeek",
     "automationEnabled",
+    # Phase 9 — auto-send. autoSendApprovedCount is server-managed (bumped
+    # by the approve-send endpoint), so it's NOT in this set.
+    "autoSendMode",
+    "autoSendApprovedAfter",
+    "hardDailySendCap",
 }
 
 LOOP_STATUS = {"idle", "running", "paused", "done"}
+
+# Phase 9 — auto-send mode. Picks the point on the autonomy spectrum:
+#   "approve_each" — cycles run on cadence, but each planner action queues as
+#                    pending_approval. No credits spent until user approves.
+#                    (Replaces today's reviewBeforeSend=True semantics, but
+#                    with the bug fixed: the cycle actually runs.)
+#   "draft_only"   — cycles run, AI finds + drafts, Gmail draft created. User
+#                    sends manually from Gmail. (Today's "Autopilot".)
+#   "send_for_me"  — cycles run, AI finds + drafts + verifies + sends from the
+#                    student's own Gmail. Gated by Hunter verification, quiet
+#                    hours, first-N approval, daily cap.
+LOOP_AUTO_SEND_MODES = {"approve_each", "draft_only", "send_for_me"}
 
 # Phase 8 — Loop cadence options. User picks at creation; default in
 # _loop_defaults below is every_other_day.
@@ -123,7 +145,133 @@ def _loop_defaults() -> dict:
         # "people" preserves today's networking behavior. Read-only after
         # creation — see LOOP_MODES comment.
         "loopMode": "people",
+        # Phase 9 — auto-send. Default "draft_only" matches today's
+        # "Autopilot" behavior (cycle runs, Gmail draft created, no send).
+        # Flipping to "send_for_me" activates the send_gate in agent_actions.
+        # autoSendApprovedAfter=0 means no warmup gate — if you picked
+        # "Send for me", the loop sends from cycle 1. Power users can PATCH
+        # to a positive int to require N manual approvals first. The gate
+        # logic in agent_send_gate still honors a non-zero value.
+        # hardDailySendCap=None means "use tier cap".
+        "autoSendMode": "draft_only",
+        "autoSendApprovedCount": 0,
+        "autoSendApprovedAfter": 0,
+        "hardDailySendCap": None,
+        # Phase 9.1 — per-Loop concurrency lock. Prevents two parallel
+        # cycle runs (manual "Run it now" + scheduler tick, double-click,
+        # daemon overlap) from re-doing the same find actions and sending
+        # the same email twice. Held by loop_jobs.run_loop_cycle_job for
+        # the duration of one cycle; released on success and on exception.
+        # Stale recovery in try_claim_cycle_lock catches crashed runs.
+        # Server-managed only — NOT in MUTABLE_LOOP_FIELDS.
+        "cycleRunning": False,
+        "cycleStartedAt": None,
     }
+
+
+# ── Phase 9.1: per-Loop concurrency lock ─────────────────────────────────
+#
+# Why: two parallel run_loop_cycle_job invocations on the same Loop both
+# call the planner, both execute the same find actions (PDL returns the
+# same top-ranked contact for a given company+title+location), and both
+# fire auto_send. End result: same recipient gets 2 nearly-identical
+# emails 10 seconds apart, plus credits charged twice.
+#
+# The lock is a simple `cycleRunning: bool` + `cycleStartedAt: iso str`
+# on the Loop doc, claimed atomically inside a Firestore transaction.
+# Stale recovery: if cycleStartedAt is more than STALE_LOCK_AFTER_MINUTES
+# in the past, the previous holder almost certainly crashed without
+# releasing — we reclaim instead of stalling forever.
+
+STALE_LOCK_AFTER_MINUTES = 30
+
+
+def try_claim_cycle_lock(
+    uid: str,
+    loop_id: str,
+    now: datetime | None = None,
+) -> bool:
+    """Atomically claim the per-Loop cycle lock.
+
+    Returns:
+        True  — caller now holds the lock; must call release_cycle_lock
+                on every exit path (success and exception).
+        False — another cycle is already running (or the Loop was deleted).
+                Caller should return early WITHOUT releasing.
+    """
+    from firebase_admin import firestore as _fs
+
+    db = get_db()
+    now = now or datetime.now(timezone.utc)
+    loop_ref = (
+        db.collection("users").document(uid)
+          .collection("loops").document(loop_id)
+    )
+
+    @_fs.transactional
+    def claim_in_txn(transaction):
+        snap = loop_ref.get(transaction=transaction)
+        if not snap.exists:
+            return False  # Loop deleted between enqueue and run.
+        data = snap.to_dict() or {}
+        currently_running = bool(data.get("cycleRunning"))
+
+        if currently_running:
+            started_at = data.get("cycleStartedAt")
+            if started_at:
+                try:
+                    started = datetime.fromisoformat(
+                        started_at.replace("Z", "+00:00")
+                    )
+                    age = now - started
+                    if age < timedelta(minutes=STALE_LOCK_AFTER_MINUTES):
+                        return False  # Held by a healthy parallel cycle.
+                    logger.warning(
+                        "loop=%s cycle lock stale (%.1f min) — reclaiming",
+                        loop_id, age.total_seconds() / 60,
+                    )
+                    # Fall through to reclaim.
+                except (ValueError, AttributeError):
+                    # Garbled timestamp — treat as stale and reclaim.
+                    logger.warning(
+                        "loop=%s cycleStartedAt unparseable (%r) — reclaiming",
+                        loop_id, started_at,
+                    )
+            # cycleRunning=True but no timestamp at all = also stale.
+
+        transaction.update(loop_ref, {
+            "cycleRunning": True,
+            "cycleStartedAt": now.isoformat(),
+        })
+        return True
+
+    try:
+        return claim_in_txn(db.transaction())
+    except Exception:
+        logger.exception(
+            "try_claim_cycle_lock failed uid=%s loop=%s", uid, loop_id,
+        )
+        return False
+
+
+def release_cycle_lock(uid: str, loop_id: str) -> None:
+    """Release the per-Loop cycle lock. Best-effort — if the Loop was
+    deleted mid-cycle, the write fails silently and is logged at INFO."""
+    db = get_db()
+    loop_ref = (
+        db.collection("users").document(uid)
+          .collection("loops").document(loop_id)
+    )
+    try:
+        loop_ref.update({
+            "cycleRunning": False,
+            "cycleStartedAt": None,
+        })
+    except Exception as e:
+        logger.info(
+            "release_cycle_lock: loop=%s update failed (likely deleted): %s",
+            loop_id, e,
+        )
 
 
 def _max_loops_for_tier(tier: str) -> int:
@@ -215,18 +363,38 @@ def create_loop(uid: str, tier: str, payload: dict) -> dict:
     # Filter to mutable fields, then layer on top of defaults.
     payload_clean = {k: v for k, v in (payload or {}).items() if k in MUTABLE_LOOP_FIELDS}
 
-    # Phase 8: set tier-default weekly budget unless user supplied one.
-    # Enforce the tier max on whatever they did supply.
+    # Phase 8: derive the weekly budget from the user's people/week target
+    # (output-first wizard pattern) unless the client explicitly supplied one.
+    # Always enforce the tier max and a 25-credit floor.
     tier_cfg = TIER_CONFIGS.get(tier) or TIER_CONFIGS["free"]
     default_budget = int(tier_cfg.get("default_credit_budget_per_week_per_loop", 75))
     max_budget = tier_cfg.get("max_credit_budget_per_week_per_loop")  # None = unbounded
+    raw_mode_for_budget = (payload or {}).get("loopMode")
+    loop_mode_for_budget = (
+        raw_mode_for_budget if raw_mode_for_budget in BUNDLED_COST_PER_PERSON else "people"
+    )
+
     if "creditBudgetPerWeek" in payload_clean:
+        # Client supplied an explicit cap (Settings → "Hard weekly credit cap").
+        # Trust it, but still clamp to tier max + 25-credit floor.
         budget = int(payload_clean["creditBudgetPerWeek"])
-        if max_budget is not None:
-            budget = min(budget, max_budget)
-        payload_clean["creditBudgetPerWeek"] = max(budget, 25)  # floor — at least 1 contact
+    elif payload_clean.get("weeklyTarget"):
+        # Wizard path: derive from people/week × bundled per-person cost.
+        weekly = int(payload_clean["weeklyTarget"])
+        bundled = BUNDLED_COST_PER_PERSON[loop_mode_for_budget]
+        budget = int(weekly * bundled * BUNDLED_BUDGET_BUFFER)
+        # Phase 9 — if the Loop is opting into auto-send, the per-person
+        # cost gains a +1 credit overhead (Hunter verify). Add this on
+        # top so the wizard's derived budget covers the new line item.
+        if payload_clean.get("autoSendMode") == "send_for_me":
+            budget += int(weekly * AUTO_SEND_CREDIT_COST * BUNDLED_BUDGET_BUFFER)
     else:
-        payload_clean["creditBudgetPerWeek"] = default_budget
+        # No target either — fall back to the tier default.
+        budget = default_budget
+
+    if max_budget is not None:
+        budget = min(budget, max_budget)
+    payload_clean["creditBudgetPerWeek"] = max(budget, 25)
 
     # Validate cadence
     if payload_clean.get("cadence") and payload_clean["cadence"] not in LOOP_CADENCE:

@@ -23,11 +23,11 @@ export const TIER_CONFIGS = {
     usesResume: true,
   },
   elite: {
-    maxContacts: 15,
+    maxContacts: 30,
     minContacts: 1,
     name: "Search Elite Plan Tier",
     credits: 12000,
-    description: "Full access - up to 15 contacts + All premium features",
+    description: "Full access - up to 30 contacts + All premium features",
     coffeeChat: true,
     timeSavedMinutes: 5000,
     usesResume: true,

@@ -28,8 +28,10 @@ import {
 } from "@/hooks/useLoops";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { LOOP_COPY } from "@/lib/loopCopy";
+import { LOOP_COPY, loopCopy } from "@/lib/loopCopy";
 import type { Loop, LoopActivityItem, LoopActivityType } from "@/services/loops";
+
+type LoopCopy = ReturnType<typeof loopCopy>;
 import { LoopActivityFeed } from "@/components/loop/LoopActivityFeed";
 
 // ── Animations (one-time inject) ─────────────────────────────────────────────
@@ -137,9 +139,16 @@ export default function LoopDetailPage() {
   const companiesCount = partitioned.companies.length;
   const repliesWaiting = loop?.unreadReplies ?? 0;
 
+  // Mode-aware copy. Flips outbound-flavored strings (eyebrows, headlines,
+  // empty states, badges, the Drafts tab label) when the Loop is configured
+  // for auto-send or every-action-approval instead of the default draft mode.
+  const copy = loopCopy(loop?.loopMode ?? "people", {
+    autoSendMode: loop?.autoSendMode,
+  });
+
   const tabs: Array<{ id: TabKey; label: string; count?: number }> = [
     { id: "overview", label: "Overview" },
-    { id: "drafts", label: "Drafts", count: draftsCount || undefined },
+    { id: "drafts", label: copy.overview.tabLabel, count: draftsCount || undefined },
     { id: "replies", label: "Replies", count: repliesWaiting || undefined },
     { id: "jobs", label: "Jobs", count: jobsCount || undefined },
     { id: "pipeline", label: "Pipeline", count: companiesCount || undefined },
@@ -193,6 +202,7 @@ export default function LoopDetailPage() {
                     draftsReady={draftsCount}
                     repliesWaiting={repliesWaiting}
                     tickerItem={tickerItem}
+                    copy={copy}
                     onPause={() =>
                       pauseMut.mutateAsync(loop.id).then(() =>
                         toast({ title: LOOP_COPY.toasts.loopPaused })
@@ -253,7 +263,7 @@ export default function LoopDetailPage() {
                         border: "1px solid #fde68a",
                       }}
                     >
-                      {LOOP_COPY.pauseReason[loop.pauseReason] || LOOP_COPY.pauseReason.paused}
+                      {copy.pauseReason[loop.pauseReason] || copy.pauseReason.paused}
                     </div>
                   )}
 
@@ -300,10 +310,10 @@ export default function LoopDetailPage() {
 
                   {/* ── Tab content ── */}
                   {tab === "overview" && (
-                    <OverviewTab loop={loop} items={items} partitioned={partitioned} />
+                    <OverviewTab loop={loop} items={items} partitioned={partitioned} copy={copy} />
                   )}
                   {tab === "drafts" && (
-                    <DraftsTab items={partitioned.drafts} contactsCount={partitioned.contacts.length} />
+                    <DraftsTab items={partitioned.drafts} contactsCount={partitioned.contacts.length} copy={copy} />
                   )}
                   {tab === "replies" && (
                     <RepliesTab loop={loop} />
@@ -312,7 +322,7 @@ export default function LoopDetailPage() {
                     <JobsTab items={partitioned.jobs} />
                   )}
                   {tab === "pipeline" && (
-                    <PipelineTab partitioned={partitioned} />
+                    <PipelineTab partitioned={partitioned} copy={copy} />
                   )}
                   {tab === "activity" && (
                     <div className="pt-8">
@@ -519,6 +529,7 @@ function Hero({
   onRunNow,
   onRemove,
   busy,
+  copy,
 }: {
   loop: Loop;
   firstName: string;
@@ -531,6 +542,7 @@ function Hero({
   onRunNow: () => void;
   onRemove: () => void;
   busy: { start: boolean; pause: boolean; resume: boolean; runNow: boolean; remove: boolean };
+  copy: LoopCopy;
 }) {
   const isRunning = loop.status === "running";
   const isPaused = loop.status === "paused";
@@ -576,7 +588,7 @@ function Hero({
               <>
                 Good {greetingPart()}, {firstName}. You have{" "}
                 <em className="italic" style={{ fontWeight: 400 }}>
-                  {draftsReady === 1 ? "one draft" : `${draftsReady} drafts`}
+                  {copy.overview.heroOutboundNoun(draftsReady)}
                 </em>
                 {" "}and{" "}
                 <em className="italic" style={{ fontWeight: 400 }}>
@@ -638,7 +650,7 @@ function Hero({
 
         {/* Right: big serif counters + status column */}
         <div className="flex items-start gap-6">
-          <BigCounter n={draftsReady} label="drafts ready" />
+          <BigCounter n={draftsReady} label={copy.overview.heroOutboundLabel} />
           <BigCounter n={repliesWaiting} label="replies waiting" />
           <div
             className="pl-5"
@@ -714,17 +726,31 @@ function Hero({
 
       {/* Action row (Run now / Remove + stat strip) */}
       <div className="flex items-center gap-2 mt-5 flex-wrap">
-        {isRunning && (
-          <button
-            onClick={onRunNow}
-            disabled={busy.runNow}
-            className="inline-flex items-center gap-1.5 rounded-md px-3.5 py-2 text-[13px] font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
-            style={{ background: "var(--ink)", color: "white" }}
-          >
-            {busy.runNow ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
-            Run it now
-          </button>
-        )}
+        {isRunning && (() => {
+          // Phase 9.1 — concurrency lock. Disable Run-it-now while a
+          // cycle is already in flight so the user can't queue a second
+          // one. Backend would refuse anyway (try_claim_cycle_lock), but
+          // a disabled button with a clear label is better UX than
+          // letting the click 200 and then quietly do nothing.
+          // The detail-page poll (useLoop, 5s while status=running)
+          // automatically re-enables the button when the cycle finishes.
+          const cycleInFlight = !!loop.cycleRunning;
+          const disabled = busy.runNow || cycleInFlight;
+          const label = cycleInFlight ? "Cycle running…" : "Run it now";
+          const showSpinner = busy.runNow || cycleInFlight;
+          return (
+            <button
+              onClick={onRunNow}
+              disabled={disabled}
+              title={cycleInFlight ? "A cycle is already running for this Loop." : undefined}
+              className="inline-flex items-center gap-1.5 rounded-md px-3.5 py-2 text-[13px] font-medium transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ background: "var(--ink)", color: "white" }}
+            >
+              {showSpinner ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
+              {label}
+            </button>
+          );
+        })()}
         <button
           onClick={onRemove}
           disabled={busy.remove}
@@ -815,10 +841,12 @@ function OverviewTab({
   loop,
   items,
   partitioned,
+  copy,
 }: {
   loop: Loop;
   items: LoopActivityItem[];
   partitioned: ReturnType<typeof partitionItems>;
+  copy: LoopCopy;
 }) {
   const recentDrafts = partitioned.drafts.slice(0, 4);
   const recentJobs = partitioned.jobs.slice(0, 4);
@@ -828,12 +856,16 @@ function OverviewTab({
       <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-9">
         {/* Today's mail */}
         <section>
-          <SectionHead kicker="01 · Today's mail" title="Drafts" italic="ready for review." />
+          <SectionHead
+            kicker={copy.overview.mailKicker}
+            title={copy.overview.mailTitle}
+            italic={copy.overview.mailItalic}
+          />
           {recentDrafts.length === 0 ? (
-            <EmptyText>No drafts yet. They appear here as the agent writes outreach.</EmptyText>
+            <EmptyText>{copy.overview.mailEmpty}</EmptyText>
           ) : (
             recentDrafts.map((d, i) => (
-              <NumberedItem key={d.id} item={d} index={i + 1} last={i === recentDrafts.length - 1} />
+              <NumberedItem key={d.id} item={d} index={i + 1} last={i === recentDrafts.length - 1} copy={copy} />
             ))
           )}
         </section>
@@ -900,13 +932,21 @@ function OverviewTab({
   );
 }
 
-function DraftsTab({ items, contactsCount }: { items: LoopActivityItem[]; contactsCount: number }) {
+function DraftsTab({
+  items,
+  contactsCount,
+  copy,
+}: {
+  items: LoopActivityItem[];
+  contactsCount: number;
+  copy: LoopCopy;
+}) {
   return (
     <div className="pt-8">
       <SectionHead
-        kicker="The queue"
-        title="Drafts"
-        italic="awaiting your send."
+        kicker={copy.overview.tabKicker}
+        title={copy.overview.tabTitle}
+        italic={copy.overview.tabItalic}
         right={
           <span
             style={{
@@ -915,17 +955,15 @@ function DraftsTab({ items, contactsCount }: { items: LoopActivityItem[]; contac
               color: "var(--ink-3)",
             }}
           >
-            {items.length} ready · {contactsCount} contacts
+            {items.length} {copy.overview.tabCountWord} · {contactsCount} contacts
           </span>
         }
       />
       {items.length === 0 ? (
-        <EmptyText>
-          No drafts yet. The Loop writes outreach as it finds contacts — give it a moment.
-        </EmptyText>
+        <EmptyText>{copy.overview.tabEmpty}</EmptyText>
       ) : (
         items.map((d, i) => (
-          <NumberedItem key={d.id} item={d} index={i + 1} last={i === items.length - 1} />
+          <NumberedItem key={d.id} item={d} index={i + 1} last={i === items.length - 1} copy={copy} />
         ))
       )}
     </div>
@@ -1053,8 +1091,10 @@ function JobsTab({ items }: { items: LoopActivityItem[] }) {
 
 function PipelineTab({
   partitioned,
+  copy,
 }: {
   partitioned: ReturnType<typeof partitionItems>;
+  copy: LoopCopy;
 }) {
   // Derive a per-company stage from what the Loop has actually found.
   // Replied isn't in the per-Loop activity feed (only counts on the Loop itself),
@@ -1086,19 +1126,20 @@ function PipelineTab({
   }
 
   const cards = Array.from(byCompany.values());
-  const cols = {
+  const draftedColLabel = copy.overview.pipelineColumn;
+  const cols: Record<string, Card[]> = {
     Researching: cards.filter((c) => c.contacts > 0 && c.drafts === 0),
-    Drafted: cards.filter((c) => c.drafts > 0),
+    [draftedColLabel]: cards.filter((c) => c.drafts > 0),
     "HM identified": cards.filter((c) => c.hms > 0 && c.drafts === 0),
     Discovered: cards.filter((c) => c.contacts === 0 && c.drafts === 0 && c.hms === 0),
   };
-  const order: Array<keyof typeof cols> = ["Researching", "Drafted", "HM identified", "Discovered"];
+  const order: string[] = ["Researching", draftedColLabel, "HM identified", "Discovered"];
 
   if (cards.length === 0) {
     return (
       <div className="pt-8">
         <SectionHead kicker="The long game" title="Pipeline" italic="by stage." />
-        <EmptyText>No pipeline yet. As the Loop finds contacts, drafts appear here grouped by company.</EmptyText>
+        <EmptyText>{copy.overview.pipelineEmpty}</EmptyText>
       </div>
     );
   }
@@ -1163,7 +1204,7 @@ function PipelineTab({
                       {c.contacts > 0 && `${c.contacts} contact${c.contacts !== 1 ? "s" : ""}`}
                       {c.hms > 0 && ` · ${c.hms} HM`}
                       {c.jobs > 0 && ` · ${c.jobs} job${c.jobs !== 1 ? "s" : ""}`}
-                      {c.drafts > 0 && ` · ${c.drafts} draft${c.drafts !== 1 ? "s" : ""}`}
+                      {c.drafts > 0 && ` · ${copy.overview.pipelineCountWord(c.drafts)}`}
                     </div>
                   </Link>
                 ))}
@@ -1241,11 +1282,15 @@ function NumberedItem({
   item,
   index,
   last,
+  copy,
 }: {
   item: LoopActivityItem;
   index: number;
   last: boolean;
+  copy: LoopCopy;
 }) {
+  const badgeLabel =
+    item.type === "draft" ? copy.overview.rowBadge : TYPE_LABEL[item.type];
   const linkProps = item.external
     ? { href: item.linkTo, target: "_blank" as const, rel: "noreferrer" }
     : null;
@@ -1278,7 +1323,7 @@ function NumberedItem({
               color: TYPE_COLOR[item.type],
             }}
           >
-            {TYPE_LABEL[item.type]}
+            {badgeLabel}
           </span>
           <span className="text-[11px]" style={{ color: "var(--ink-3)" }}>
             {relativeTime(item.createdAt)}

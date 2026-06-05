@@ -268,7 +268,7 @@ export const WORKFLOWS = {
       "Connect Gmail in Account Settings (if not done)",
       "Go to Contact Search",
       "Enter job title, company, and location",
-      "Select batch size (1-15 contacts)",
+      "Select batch size (1-30 contacts)",
       "Click Search",
       "Review the contacts and generated emails",
       "Emails are saved to Gmail drafts automatically",
@@ -391,10 +391,10 @@ export const CREDIT_SYSTEM = {
       price: "$34.99/month",
       credits: 3000,
       maxCredits: 3000,
-      maxContactsPerSearch: 15,
+      maxContactsPerSearch: 30,
       features: [
         "3,000 monthly credits",
-        "Up to 15 contacts per search",
+        "Up to 30 contacts per search",
         "All Pro features",
         "Unlimited Coffee Chat Prep",
         "Advanced analytics"

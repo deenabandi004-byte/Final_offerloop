@@ -12,7 +12,6 @@
 
 import React, { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles } from 'lucide-react';
 import useDebounce from '@/hooks/use-debounce';
 import { analyzeQuery } from '@/lib/specificity';
 import { useSchoolHometown } from '@/hooks/use-school-hometown';
@@ -84,13 +83,6 @@ const SubRail: React.FC<{
         paddingLeft: 6,
       }}
     >
-      <Sparkles
-        style={{
-          width: 10,
-          height: 10,
-          color: 'var(--brand-blue, #3B82F6)',
-        }}
-      />
       {heading}
     </span>
     {items.map((item) => (
@@ -100,7 +92,7 @@ const SubRail: React.FC<{
         onMouseDown={(e) => e.preventDefault()}
         onMouseEnter={(e) => {
           onItemHover?.(item);
-          (e.currentTarget as HTMLButtonElement).style.background = 'rgba(59,130,246,0.10)';
+          (e.currentTarget as HTMLButtonElement).style.background = 'rgba(74,96,168,0.10)';
         }}
         onMouseLeave={(e) => {
           onItemLeave?.();
@@ -112,7 +104,7 @@ const SubRail: React.FC<{
           border: 'none',
           padding: '5px 8px',
           cursor: 'pointer',
-          color: 'var(--brand-blue, #3B82F6)',
+          color: 'var(--accent, #4A60A8)',
           fontFamily: 'inherit',
           fontSize: 12,
           fontWeight: 500,

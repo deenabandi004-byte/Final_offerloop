@@ -9,8 +9,11 @@ import {
   createLoop,
   deleteLoop,
   estimateCycleCost,
+  getFleetFeed,
+  getFleetWeeklySummary,
   getLoop,
   getLoopActivity,
+  getSuggestedLoops,
   getUsageBreakdown,
   listLoops,
   markLoopReviewed,
@@ -20,10 +23,13 @@ import {
   startLoop,
   updateLoop,
   type CycleCostEstimate,
+  type FleetFeedItem,
+  type FleetWeeklySummary,
   type Loop,
   type LoopActivityItem,
   type LoopCadence,
   type LoopLimits,
+  type SuggestedLoop,
   type UsageBreakdown,
 } from "@/services/loops";
 import type { ParsedBrief } from "@/services/agent";
@@ -177,5 +183,40 @@ export function useResumeLoop() {
       qc.invalidateQueries({ queryKey: LIST_KEY });
       qc.setQueryData(detailKey(loop.id), loop);
     },
+  });
+}
+
+// ── Fleet rollups (LoopsCommandBar) ─────────────────────────────────────
+
+// Drives the three proof tiles in the command bar (found-this-week,
+// drafts waiting, weekly-goal ring). Polled at the same cadence as the
+// fleet list so the bar stays in sync with the grid below it.
+export function useFleetWeeklySummary() {
+  return useQuery<FleetWeeklySummary>({
+    queryKey: ["loops", "fleet", "weekly-summary"],
+    queryFn: getFleetWeeklySummary,
+    staleTime: 15_000,
+    refetchInterval: 20_000,
+  });
+}
+
+// Powers the live activity ticker at the bottom of the command bar.
+// The component rotates locally through these items every few seconds —
+// 30s server-side cadence is enough to keep new finds appearing.
+export function useFleetFeed(limit: number = 20) {
+  return useQuery<{ items: FleetFeedItem[] }>({
+    queryKey: ["loops", "fleet", "feed", limit],
+    queryFn: () => getFleetFeed(limit),
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+  });
+}
+
+// Quickstart Loop templates shown inside the NewLoopTile.
+export function useSuggestedLoops() {
+  return useQuery<{ items: SuggestedLoop[] }>({
+    queryKey: ["loops", "fleet", "suggested"],
+    queryFn: getSuggestedLoops,
+    staleTime: 5 * 60_000, // curated set; doesn't change often
   });
 }

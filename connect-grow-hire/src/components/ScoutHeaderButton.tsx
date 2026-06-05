@@ -1,6 +1,6 @@
 import React from "react";
 import { useScout } from "@/contexts/ScoutContext";
-import ScoutIconImage from "@/assets/Scout_icon.png";
+import ScoutIconImage from "@/assets/scouts/scout-yeti-head.png";
 
 interface ScoutHeaderButtonProps {
   onJobTitleSuggestion?: (title: string, company?: string, location?: string) => void;
@@ -42,10 +42,7 @@ const ScoutHeaderButton: React.FC<ScoutHeaderButtonProps> = () => {
           <img
             src={ScoutIconImage}
             alt=""
-            className="w-4 h-4 object-contain"
-            style={{
-              filter: 'brightness(0) saturate(100%) invert(22%) sepia(60%) saturate(900%) hue-rotate(340deg) brightness(85%) contrast(95%)',
-            }}
+            className="w-5 h-5 object-contain"
           />
         </div>
 

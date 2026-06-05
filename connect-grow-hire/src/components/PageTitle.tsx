@@ -14,11 +14,13 @@ interface PageTitleProps {
   align?: "left" | "center";
   /** Suppress the scribble underline beneath the accent. */
   noScribble?: boolean;
+  /** Heading size. "lg" = 44px (default), "md" = 36px. */
+  size?: "lg" | "md";
 }
 
-export const PageTitle = ({ children, accent, subtitle, lead, align = "left", noScribble = false }: PageTitleProps) => (
+export const PageTitle = ({ children, accent, subtitle, lead, align = "left", noScribble = false, size = "lg" }: PageTitleProps) => (
   <div style={align === "center" ? { textAlign: "center" } : undefined}>
-    <h1 className="font-serif text-[44px] leading-[1.05] text-ink tracking-[-0.015em]">
+    <h1 className={`font-serif ${size === "md" ? "text-[36px]" : "text-[44px]"} leading-[1.05] text-ink tracking-[-0.015em]`}>
       {lead ?? children}{' '}
       {accent && (
         <em className="font-serif relative inline-block" style={{ fontStyle: 'italic', fontWeight: 400 }}>

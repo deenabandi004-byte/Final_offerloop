@@ -220,6 +220,9 @@ TIER_CONFIGS = {
         # Per-Loop weekly credit budget (Phase 8 — automation/pricing)
         'default_credit_budget_per_week_per_loop': 75,
         'max_credit_budget_per_week_per_loop': 150,
+        # Phase 9 — Loop auto-send. Free never auto-sends; the wizard's
+        # "Send for me" mode is gated off entirely for Free.
+        'max_auto_sends_per_day': 0,
     },
     'pro': {
         'max_contacts': 8,   # Maximum contacts returned per search
@@ -249,6 +252,10 @@ TIER_CONFIGS = {
         # Per-Loop weekly credit budget (Phase 8 — automation/pricing)
         'default_credit_budget_per_week_per_loop': 200,
         'max_credit_budget_per_week_per_loop': 600,
+        # Phase 9 — Loop auto-send. Conservative ceiling; Gmail's free-account
+        # soft throttle is ~500/day but 25 cold sends/day from a personal
+        # student inbox is already aggressive.
+        'max_auto_sends_per_day': 25,
     },
     'elite': {
         'max_contacts': 15,  # Maximum contacts returned per search
@@ -281,6 +288,9 @@ TIER_CONFIGS = {
         # the monthly pool, so a power user can dial individual Loops up.
         'default_credit_budget_per_week_per_loop': 400,
         'max_credit_budget_per_week_per_loop': None,
+        # Phase 9 — Loop auto-send. Power-user ceiling. Per-Loop override
+        # available via hardDailySendCap.
+        'max_auto_sends_per_day': 75,
     }
 }
 

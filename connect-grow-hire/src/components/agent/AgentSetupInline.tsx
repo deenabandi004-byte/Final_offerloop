@@ -6,7 +6,7 @@
 // stay editable so the parser is a starting point, not a black box.
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, ChevronDown, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -17,10 +17,9 @@ import { updateAgentConfig, deployAgent, parseBrief, type ParsedBrief } from "@/
 import { firebaseApi } from "@/services/firebaseApi";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useCreateLoop } from "@/hooks/useLoops";
-import { listLoops } from "@/services/loops";
 import useDebounce from "@/hooks/use-debounce";
 import { loopCopy, type LoopModeForCopy } from "@/lib/loopCopy";
-import { ModeIndicator } from "@/components/loop/ModeIndicator";
+import offerloopIcon from "@/assets/offerloopiconlogo.png";
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -82,29 +81,18 @@ function buildSyntheticBrief(form: {
 // Derive a human-readable Loop name from the wizard form. Mirrors how the
 // design's LoopCard subtitle reads ("Stripe · Linear · Vercel · Product
 // Designer") so the new card slots right in next to existing ones.
-//
-// Mode branch (plan §"Loop Fleet View"): roles Loops append "openings" so
-// the auto-name reads as a job search at a glance ("Stripe · Linear · SWE
-// openings"); both-mode and people-mode keep the existing pattern. Fallback
-// names diverge so an empty roles-mode Loop reads "Job search loop" rather
-// than "Outreach loop".
 function deriveLoopName(form: {
   companies: string[];
   industries: string[];
   roles: string[];
-  loopMode?: LoopModeForCopy;
 }): string {
   const role = form.roles[0]?.trim();
   const cos = form.companies.filter(Boolean).slice(0, 2).join(" · ");
   const inds = form.industries.filter(Boolean).slice(0, 2).join(" · ");
   const target = cos || inds;
-  const isRoles = form.loopMode === "roles";
-  const isBoth = form.loopMode === "both";
-  if (target && role) return isRoles ? `${target} · ${role} openings` : `${target} · ${role}`;
+  if (target && role) return `${target} · ${role}`;
   if (target) return target;
-  if (role) return isRoles ? `${role} openings` : `${role} loop`;
-  if (isRoles) return "Job search loop";
-  if (isBoth) return "Networking + jobs loop";
+  if (role) return `${role} loop`;
   return "Outreach loop";
 }
 
@@ -129,10 +117,18 @@ function buildPreviewTraces(form: {
 // ── Primitives ─────────────────────────────────────────────────────────
 
 function MonoTag({ children, color }: { children: React.ReactNode; color?: string }) {
+  // Originally a mono-uppercase label. Restyled to the site's quieter Inter
+  // small-caps recipe: still distinguishes meta from body, but doesn't read
+  // like a terminal.
   return (
     <span
-      className="font-mono uppercase"
-      style={{ fontSize: 10, letterSpacing: 0.6, fontWeight: 500, color: color || "var(--ink-3)" }}
+      style={{
+        fontFamily: "'Inter', sans-serif",
+        fontSize: 11,
+        fontWeight: 500,
+        letterSpacing: "0.04em",
+        color: color || "var(--ink-3)",
+      }}
     >
       {children}
     </span>
@@ -174,7 +170,6 @@ function ActivityBars() {
 
 function TagChip({
   label,
-  index,
   onRemove,
 }: {
   label: string;
@@ -187,19 +182,25 @@ function TagChip({
       onClick={onRemove}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      className="inline-flex items-baseline gap-1.5 px-2.5 py-1 rounded border font-mono text-[12.5px] cursor-pointer transition-all duration-100"
       style={{
-        background: hover ? "transparent" : "var(--paper)",
-        borderColor: hover ? "var(--ink-3)" : "var(--line)",
-        color: hover ? "var(--ink-3)" : "var(--ink)",
-        textDecoration: hover ? "line-through" : "none",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "4px 10px",
+        borderRadius: 3,
+        border: `1px solid ${hover ? "#4A60A8" : "var(--line)"}`,
+        background: hover ? "rgba(74, 96, 168, 0.06)" : "#FFFFFF",
+        color: hover ? "#4A60A8" : "var(--ink)",
+        fontFamily: "'Inter', sans-serif",
+        fontSize: 13,
+        fontWeight: 500,
+        cursor: "pointer",
+        transition: "all 0.12s ease",
       }}
       title="Click to remove"
     >
-      <span className="text-[9.5px] tracking-wide" style={{ color: "var(--ink-3)" }}>
-        {String(index + 1).padStart(2, "0")}
-      </span>
       {label}
+      <span style={{ fontSize: 11, opacity: hover ? 1 : 0.5, lineHeight: 1 }}>×</span>
     </span>
   );
 }
@@ -208,8 +209,28 @@ function SuggestionChip({ label, onClick }: { label: string; onClick: () => void
   return (
     <button
       onClick={onClick}
-      className="font-mono text-[12px] px-2.5 py-1 rounded border border-dashed transition-colors duration-100 hover:border-solid hover:bg-paper-2"
-      style={{ borderColor: "var(--ink-3)", color: "var(--ink-3)" }}
+      style={{
+        fontFamily: "'Inter', sans-serif",
+        fontSize: 13,
+        fontWeight: 500,
+        padding: "4px 10px",
+        borderRadius: 3,
+        border: "1px solid var(--line)",
+        background: "#FFFFFF",
+        color: "var(--ink-2)",
+        cursor: "pointer",
+        transition: "border-color 0.12s, color 0.12s, background 0.12s",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = "#4A60A8";
+        e.currentTarget.style.color = "#4A60A8";
+        e.currentTarget.style.background = "rgba(74, 96, 168, 0.06)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = "var(--line)";
+        e.currentTarget.style.color = "var(--ink-2)";
+        e.currentTarget.style.background = "#FFFFFF";
+      }}
     >
       + {label}
     </button>
@@ -247,11 +268,13 @@ function TagInput({
   return (
     <div>
       <div
-        className="rounded-[var(--radius)] border bg-elev transition-all duration-100"
         style={{
-          borderColor: focused ? "var(--ink)" : "var(--line)",
-          boxShadow: focused ? "0 0 0 3px rgba(17,19,24,.06)" : "none",
-          padding: list.length > 0 ? "10px 10px 4px 12px" : "4px 12px",
+          borderRadius: 3,
+          border: `1px solid ${focused ? "#4A60A8" : "var(--line)"}`,
+          background: focused ? "#FFFFFF" : "var(--paper-2)",
+          boxShadow: focused ? "0 0 0 3px rgba(74, 96, 168, 0.15)" : "none",
+          padding: list.length > 0 ? "10px 12px 6px 12px" : "6px 12px",
+          transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
         }}
       >
         {list.length > 0 && (
@@ -276,12 +299,25 @@ function TagInput({
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             placeholder={list.length === 0 ? placeholder : "and one more\u2026"}
-            className="flex-1 border-none p-2 text-sm bg-transparent focus:outline-none placeholder:text-ink-3"
-            style={{ color: "var(--ink)" }}
+            className="flex-1 border-none focus:outline-none placeholder:text-ink-3"
+            style={{
+              padding: 6,
+              background: "transparent",
+              color: "var(--ink)",
+              fontFamily: "'Inter', sans-serif",
+              fontSize: 14,
+            }}
           />
           <span
-            className="font-mono text-[9.5px] uppercase tracking-wide shrink-0 transition-opacity"
-            style={{ color: "var(--ink-3)", opacity: val ? 1 : 0.5 }}
+            style={{
+              fontFamily: "'Inter', sans-serif",
+              fontSize: 11,
+              fontWeight: 500,
+              color: "var(--ink-3)",
+              opacity: val ? 1 : 0.6,
+              flexShrink: 0,
+              transition: "opacity 0.12s",
+            }}
           >
             {val ? "press \u21b5" : `${list.length} added`}
           </span>
@@ -290,7 +326,7 @@ function TagInput({
 
       {remaining.length > 0 && (
         <div className="mt-2.5 flex flex-wrap gap-1.5 items-center">
-          <MonoTag>suggested</MonoTag>
+          <MonoTag>Suggested</MonoTag>
           {remaining.slice(0, 6).map((s) => (
             <SuggestionChip key={s} label={s} onClick={() => add(s)} />
           ))}
@@ -313,13 +349,26 @@ function Field({
 }) {
   return (
     <div className="mb-7">
-      <div className="flex items-baseline gap-2.5 mb-2">
-        <Label className="font-mono text-[10px] font-medium tracking-wider uppercase" style={{ color: "var(--ink-3)" }}>
+      <div className="flex items-baseline gap-2 mb-2">
+        <Label
+          style={{
+            fontFamily: "'Inter', sans-serif",
+            fontSize: 13,
+            fontWeight: 600,
+            color: "var(--ink)",
+          }}
+        >
           {label}
         </Label>
         {hint && (
-          <span className="text-xs italic" style={{ color: "var(--ink-3)" }}>
-            &mdash; {hint}
+          <span
+            style={{
+              fontFamily: "'Inter', sans-serif",
+              fontSize: 12,
+              color: "var(--ink-3)",
+            }}
+          >
+            · {hint}
           </span>
         )}
       </div>
@@ -336,31 +385,82 @@ function Field({
 function EditorialField({
   label,
   hint,
+  badgeCount = 0,
   children,
 }: {
   label: string;
   hint?: string;
+  /** Items count shown as a small pill on the chevron row. Does NOT
+   *  auto-expand — these rows stay collapsed until the user opens them.
+   *  Their purpose is for inspecting what the parser extracted, not for
+   *  surfacing chip-by-chip. */
+  badgeCount?: number;
   children: React.ReactNode;
 }) {
+  const [open, setOpen] = useState(false);
+
   return (
-    <div
-      className="mb-6 pl-4"
-      style={{ borderLeft: "1px solid var(--line-2)" }}
-    >
-      <div className="flex items-baseline gap-2 mb-1.5 -ml-[1px]">
-        <span
-          className="font-serif italic text-[14px]"
-          style={{ color: "var(--ink-2)", fontWeight: 400 }}
-        >
-          {label}
-        </span>
-        {hint && (
-          <span className="text-[11.5px]" style={{ color: "var(--ink-3)" }}>
-            &middot; {hint}
+    <div className="mb-3">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "10px 12px",
+          background: open ? "var(--paper-2)" : "#FFFFFF",
+          border: "1px solid var(--line)",
+          borderRadius: 3,
+          cursor: "pointer",
+          textAlign: "left",
+          fontFamily: "'Inter', sans-serif",
+          transition: "background 0.12s ease",
+        }}
+        aria-expanded={open}
+      >
+        {open ? (
+          <ChevronDown style={{ width: 14, height: 14, color: "var(--ink-3)", flexShrink: 0 }} />
+        ) : (
+          <ChevronRight style={{ width: 14, height: 14, color: "var(--ink-3)", flexShrink: 0 }} />
+        )}
+        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>{label}</span>
+        {badgeCount > 0 && (
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: "#4A60A8",
+              background: "rgba(74, 96, 168, 0.10)",
+              padding: "1px 7px",
+              borderRadius: 100,
+            }}
+          >
+            {badgeCount}
           </span>
         )}
-      </div>
-      {children}
+        {hint && !open && (
+          <span style={{ fontSize: 12, color: "var(--ink-3)", marginLeft: "auto" }}>{hint}</span>
+        )}
+      </button>
+      {open && (
+        <div style={{ paddingTop: 10 }}>
+          {hint && (
+            <div
+              style={{
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 12,
+                color: "var(--ink-3)",
+                marginBottom: 8,
+              }}
+            >
+              {hint}
+            </div>
+          )}
+          {children}
+        </div>
+      )}
     </div>
   );
 }
@@ -383,27 +483,44 @@ function ModeCard({
   return (
     <button
       onClick={onClick}
-      className="text-left p-3.5 rounded-lg border transition-colors cursor-pointer"
+      className="text-left transition-all cursor-pointer"
       style={{
-        borderColor: active ? "var(--brand)" : "var(--line)",
-        background: active ? "var(--paper-2)" : "var(--paper)",
+        padding: 14,
+        borderRadius: 3,
+        border: `1px solid ${active ? "#4A60A8" : "var(--line)"}`,
+        background: active ? "rgba(74, 96, 168, 0.06)" : "#FFFFFF",
+        boxShadow: active ? "0 0 0 3px rgba(74, 96, 168, 0.10)" : "none",
+        fontFamily: "'Inter', sans-serif",
       }}
     >
       <div className="flex items-center gap-2 mb-1">
         <span
-          className="w-2.5 h-2.5 rounded-full border-2"
+          className="w-2.5 h-2.5 rounded-full"
           style={{
-            borderColor: active ? "var(--brand)" : "var(--ink-3)",
-            borderWidth: active ? 3 : 1.5,
-            background: active ? "var(--paper)" : "transparent",
+            border: `${active ? 3 : 1.5}px solid ${active ? "#4A60A8" : "var(--ink-3)"}`,
+            background: active ? "#FFFFFF" : "transparent",
           }}
         />
-        <span className="text-[13px] font-semibold" style={{ color: "var(--ink)" }}>
+        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--ink)" }}>
           {title}
         </span>
         {tag && (
           <span className="ml-auto">
-            <MonoTag>{tag}</MonoTag>
+            <span
+              style={{
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 10.5,
+                fontWeight: 600,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+                color: "#4A60A8",
+                background: "rgba(74, 96, 168, 0.10)",
+                padding: "2px 8px",
+                borderRadius: 100,
+              }}
+            >
+              {tag}
+            </span>
           </span>
         )}
       </div>
@@ -424,7 +541,16 @@ function StepRail({
   onJump: (i: number) => void;
 }) {
   return (
-    <div className="grid grid-cols-3 border-y border-line" style={{ background: "var(--paper-2)" }}>
+    <div
+      className="grid grid-cols-3"
+      style={{
+        background: "var(--paper-2)",
+        border: "1px solid var(--line)",
+        borderRadius: 3,
+        overflow: "hidden",
+        fontFamily: "'Inter', sans-serif",
+      }}
+    >
       {STEPS.map((s, i) => {
         const active = i === index;
         const done = i < index;
@@ -434,33 +560,36 @@ function StepRail({
             onClick={() => onJump(i)}
             className="relative text-left py-3.5 px-4 cursor-pointer border-0"
             style={{
-              background: active ? "var(--paper)" : "transparent",
+              background: active ? "#FFFFFF" : "transparent",
               borderRight: i < STEPS.length - 1 ? "1px solid var(--line)" : "none",
             }}
           >
             {active && (
-              <span className="absolute left-0 top-0 bottom-0 w-[2px]" style={{ background: "var(--brand)" }} />
+              <span className="absolute left-0 top-0 bottom-0 w-[2px]" style={{ background: "#4A60A8" }} />
             )}
             <div className="flex items-center gap-2.5">
               <span
-                className="font-mono text-[11px] font-medium tracking-wide"
                 style={{
-                  color: done ? "var(--signal-pos)" : active ? "var(--ink)" : "var(--ink-3)",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  letterSpacing: "0.04em",
+                  color: done ? "var(--signal-pos)" : active ? "#4A60A8" : "var(--ink-3)",
+                  minWidth: 18,
                 }}
               >
                 {done ? "\u2713" : s.num}
               </span>
               <div>
                 <div
-                  className="text-[13px]"
                   style={{
+                    fontSize: 13,
                     fontWeight: active ? 600 : 500,
                     color: active ? "var(--ink)" : done ? "var(--ink-2)" : "var(--ink-3)",
                   }}
                 >
                   {s.label}
                 </div>
-                <div className="text-[11px] mt-0.5" style={{ color: "var(--ink-3)" }}>
+                <div style={{ fontSize: 11, marginTop: 2, color: "var(--ink-3)" }}>
                   {s.sub}
                 </div>
               </div>
@@ -479,33 +608,78 @@ function PreviewRail({ form, litTo }: { form: FormState; litTo: number }) {
 
   return (
     <aside
-      className="w-[300px] shrink-0 border-l border-line flex-col gap-4 hidden lg:flex"
-      style={{ background: "var(--paper-2)", padding: "28px 20px" }}
+      className="w-[300px] shrink-0 flex-col gap-4 hidden lg:flex"
+      style={{
+        borderLeft: "1px solid var(--line)",
+        background: "var(--paper-2)",
+        // Top padding pushes content below the floating "Ask Scout" pill that
+        // anchors to the top-right of the app shell. Side/bottom kept tighter.
+        padding: "84px 22px 28px 22px",
+        fontFamily: "'Inter', sans-serif",
+      }}
     >
       <div>
-        <div className="flex items-center gap-2 mb-1.5">
-          <PulseDot color="#d4a017" />
-          <MonoTag color="var(--signal-wait)">preview &middot; not running</MonoTag>
+        <div className="flex items-center gap-2 mb-2">
+          <PulseDot color="#4A60A8" />
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              color: "#4A60A8",
+            }}
+          >
+            Preview · not running
+          </span>
         </div>
         <p
-          className="font-medium leading-[1.25]"
-          style={{ color: "var(--ink)", fontSize: 17 }}
+          style={{
+            fontFamily: "'Libre Baskerville', Georgia, serif",
+            fontSize: 20,
+            fontWeight: 700,
+            letterSpacing: "-0.01em",
+            lineHeight: 1.25,
+            color: "var(--heading, var(--ink))",
+          }}
         >
-          What your loop{" "}
-          <em className="italic" style={{ fontWeight: 500 }}>will do</em> once deployed.
+          What your loop will do once deployed.
         </p>
       </div>
 
-      <div className="border border-line rounded-[10px] bg-paper relative overflow-hidden">
+      <div
+        className="relative overflow-hidden"
+        style={{
+          border: "1px solid var(--line)",
+          borderRadius: 3,
+          background: "#FFFFFF",
+        }}
+      >
         <span
           className="absolute left-0 right-0 top-0 h-[1.5px]"
           style={{
-            background: "linear-gradient(90deg, transparent, var(--brand), transparent)",
+            background: "linear-gradient(90deg, transparent, #4A60A8, transparent)",
             animation: "om-scan 2.4s ease-in-out infinite",
           }}
         />
-        <div className="px-3.5 py-2.5 border-b border-line-2 flex items-center justify-between">
-          <MonoTag>simulated trace</MonoTag>
+        <div
+          className="flex items-center justify-between"
+          style={{
+            padding: "10px 14px",
+            borderBottom: "1px solid var(--line-2)",
+          }}
+        >
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              color: "var(--ink-3)",
+            }}
+          >
+            Simulated trace
+          </span>
           <ActivityBars />
         </div>
         {traces.map((t, i) => {
@@ -514,20 +688,38 @@ function PreviewRail({ form, litTo }: { form: FormState; litTo: number }) {
           return (
             <div
               key={i}
-              className="px-3.5 py-2.5 transition-opacity duration-300"
+              className="transition-opacity duration-300"
               style={{
+                padding: "10px 14px",
                 borderBottom: i < traces.length - 1 ? "1px solid var(--line-2)" : "none",
-                opacity: on ? 1 : 0.4,
+                opacity: on ? 1 : 0.45,
               }}
             >
               <div className="flex items-center gap-2 mb-1">
                 <span
-                  className="w-[5px] h-[5px] rounded-full"
+                  className="w-[6px] h-[6px] rounded-full"
                   style={{ background: meta.color }}
                 />
-                <MonoTag color={meta.color}>{meta.label}</MonoTag>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    letterSpacing: "0.04em",
+                    textTransform: "capitalize",
+                    color: meta.color,
+                  }}
+                >
+                  {meta.label}
+                </span>
               </div>
-              <div className="text-xs leading-relaxed pl-[13px]" style={{ color: "var(--ink-2)" }}>
+              <div
+                style={{
+                  paddingLeft: 14,
+                  fontSize: 12.5,
+                  lineHeight: 1.5,
+                  color: "var(--ink-2)",
+                }}
+              >
                 {t.text}
               </div>
             </div>
@@ -535,7 +727,16 @@ function PreviewRail({ form, litTo }: { form: FormState; litTo: number }) {
         })}
       </div>
 
-      <div className="border-t border-line pt-3.5 mt-auto text-[11.5px] leading-[1.5]" style={{ color: "var(--ink-3)" }}>
+      <div
+        className="mt-auto"
+        style={{
+          borderTop: "1px solid var(--line)",
+          paddingTop: 14,
+          fontSize: 12,
+          lineHeight: 1.5,
+          color: "var(--ink-3)",
+        }}
+      >
         Nothing sends without your approval. Pause the loop any time.
       </div>
     </aside>
@@ -567,17 +768,23 @@ function ParseStatusLine({
   phase: ParsePhase;
   detectedMode: LoopModeForCopy | null;
 }) {
+  const baseStyle: React.CSSProperties = {
+    fontFamily: "'Inter', sans-serif",
+    fontSize: 12,
+    color: "var(--ink-3)",
+    marginTop: 8,
+  };
   if (phase === "parsing") {
     return (
-      <div className="flex items-center gap-2 mt-2 text-[11.5px]" style={{ color: "var(--ink-3)" }}>
-        <PulseDot color="var(--ink-3)" />
-        <span className="font-mono uppercase tracking-wide">reading your goal…</span>
+      <div className="flex items-center gap-2" style={baseStyle}>
+        <PulseDot color="#4A60A8" />
+        <span>Reading your goal…</span>
       </div>
     );
   }
   if (phase === "failed") {
     return (
-      <div className="mt-2 text-[11.5px]" style={{ color: "#b91c1c" }}>
+      <div style={{ ...baseStyle, color: "#b91c1c" }}>
         Couldn't read that — chips left blank. You can add them by hand or rephrase.
       </div>
     );
@@ -585,21 +792,21 @@ function ParseStatusLine({
   if (phase === "ok" && detectedMode) {
     const summary = loopCopy(detectedMode).modeSummary;
     return (
-      <div className="mt-2 text-[11.5px]" style={{ color: "var(--ink-3)" }}>
-        Read as <span className="font-mono uppercase tracking-wide" style={{ color: "var(--ink-2)" }}>{summary}</span> &middot; chips below are the parsed targets.
+      <div style={baseStyle}>
+        Read as <span style={{ color: "var(--ink-2)", fontWeight: 600 }}>{summary}</span> · chips below are the parsed targets.
       </div>
     );
   }
   if (phase === "ok") {
     return (
-      <div className="mt-2 text-[11.5px]" style={{ color: "var(--ink-3)" }}>
+      <div style={baseStyle}>
         Mode looks ambiguous — pick one below, or add more detail above.
       </div>
     );
   }
   if (phase === "empty" || phase === "idle") {
     return (
-      <div className="mt-2 text-[11.5px]" style={{ color: "var(--ink-3)" }}>
+      <div style={baseStyle}>
         Type a sentence or two above — parser fills in the chips. Or skip and edit chips directly.
       </div>
     );
@@ -607,8 +814,80 @@ function ParseStatusLine({
   return null;
 }
 
-// ModeIndicator moved to @/components/loop/ModeIndicator so StartLoopHero
-// can reuse the exact shape (H carve-out, eng D5).
+// ── Mode indicator with manual override ────────────────────────────────
+// Foundation showed mode as a two-card radio. PR1 makes mode a parser
+// outcome with a small inline override link so the chip rows stay the
+// star of Step 01.
+
+function ModeIndicator({
+  mode,
+  onChange,
+}: {
+  mode: LoopModeForCopy;
+  onChange: (m: LoopModeForCopy) => void;
+}) {
+  const opts: { key: LoopModeForCopy; label: string }[] = [
+    { key: "people", label: "people" },
+    { key: "roles", label: "roles" },
+    { key: "both", label: "both" },
+  ];
+  return (
+    <div className="mb-6">
+      <div className="flex items-baseline gap-2 mb-2">
+        <span
+          style={{
+            fontFamily: "'Inter', sans-serif",
+            fontSize: 13,
+            fontWeight: 600,
+            color: "var(--ink)",
+          }}
+        >
+          Mode
+        </span>
+        <span
+          style={{
+            fontFamily: "'Inter', sans-serif",
+            fontSize: 12,
+            color: "var(--ink-3)",
+          }}
+        >
+          · what's this Loop chasing?
+        </span>
+      </div>
+      <div
+        role="radiogroup"
+        aria-label="Loop mode"
+        className="inline-flex overflow-hidden"
+        style={{ border: "1px solid var(--line)", borderRadius: 3, background: "#FFFFFF" }}
+      >
+        {opts.map((o, i) => {
+          const active = mode === o.key;
+          return (
+            <button
+              key={o.key}
+              role="radio"
+              aria-checked={active}
+              onClick={() => onChange(o.key)}
+              className="transition-colors"
+              style={{
+                padding: "6px 14px",
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 13,
+                fontWeight: 500,
+                textTransform: "capitalize",
+                background: active ? "#4A60A8" : "transparent",
+                color: active ? "#FFFFFF" : "var(--ink-2)",
+                borderLeft: i > 0 ? "1px solid var(--line)" : "none",
+              }}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function StepGoals({
   form,
@@ -618,6 +897,7 @@ function StepGoals({
   parsePhase,
   hasUniversity,
   university,
+  profileFacts,
 }: {
   form: FormState;
   set: (patch: Partial<FormState>) => void;
@@ -626,88 +906,220 @@ function StepGoals({
   parsePhase: ParsePhase;
   hasUniversity: boolean;
   university: string;
+  profileFacts: {
+    targetFirms: string[];
+    targetIndustries: string[];
+    preferredLocations: string[];
+    extractedRoles: string[];
+  };
 }) {
   const copy = loopCopy(form.loopMode, { school: university });
   const overLimit = briefText.length > MAX_BRIEF_CHARS;
+  const [focused, setFocused] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Goal-oriented prompts — Loops are persistent, so the textarea reads more
+  // like "what am I trying to accomplish?" than a single-shot search query.
+  // Profile facts (university, target industry/firm) fill in when present so
+  // the rotating examples sound like the user's own goals.
+  const typewriterExamples = useMemo(() => {
+    const uni = university && university.length <= 10 ? university : "USC";
+    const firm = profileFacts.targetFirms[0] || "Stripe";
+    const ind = profileFacts.targetIndustries[0] || "fintech";
+    const role = profileFacts.extractedRoles[0] || "growth analyst";
+    return [
+      `I want a ${role} role.`,
+      `I want people to chat with about breaking into ${ind}.`,
+      `I want a summer internship at a ${ind} startup.`,
+      `I want ${uni} alumni at ${firm} to network with.`,
+      `I want to talk to product managers about their career path.`,
+    ];
+  }, [university, profileFacts]);
+
+  const [typedPlaceholder, setTypedPlaceholder] = useState("");
+  useEffect(() => {
+    if (briefText || focused) {
+      setTypedPlaceholder("");
+      return;
+    }
+    if (typewriterExamples.length === 0) return;
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let idx = 0;
+    let charIdx = 0;
+    let mode: "typing" | "hold" | "erasing" | "pause" = "typing";
+
+    const tick = () => {
+      if (cancelled) return;
+      const target = typewriterExamples[idx];
+      if (mode === "typing") {
+        if (charIdx < target.length) {
+          charIdx++;
+          setTypedPlaceholder(target.slice(0, charIdx));
+          timeoutId = setTimeout(tick, 38 + Math.random() * 32);
+        } else {
+          mode = "hold";
+          timeoutId = setTimeout(tick, 1900);
+        }
+      } else if (mode === "hold") {
+        mode = "erasing";
+        timeoutId = setTimeout(tick, 30);
+      } else if (mode === "erasing") {
+        if (charIdx > 0) {
+          charIdx--;
+          setTypedPlaceholder(target.slice(0, charIdx));
+          timeoutId = setTimeout(tick, 16);
+        } else {
+          mode = "pause";
+          idx = (idx + 1) % typewriterExamples.length;
+          timeoutId = setTimeout(tick, 380);
+        }
+      } else if (mode === "pause") {
+        mode = "typing";
+        tick();
+      }
+    };
+    timeoutId = setTimeout(tick, 400);
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [briefText, focused, typewriterExamples]);
 
   return (
     <div>
-      {/* D10 — Textarea on top, the primary input */}
+      {/* Brief textarea — Find-page-style hero prompt with typewriter
+          placeholder and profile-aware QuickStarters underneath. */}
       <div className="mb-5">
-        <Textarea
-          value={briefText}
-          onChange={(e) => setBriefText(e.target.value)}
-          placeholder="e.g. I want summer SWE internships at fintech startups in NYC plus people to coffee chat with."
-          rows={5}
-          aria-label="Your goal in your own words"
-          className="font-serif italic text-[16px] leading-[1.45] resize-none"
+        <div
           style={{
-            color: "var(--ink)",
-            background: "var(--paper)",
-            borderColor: overLimit ? "#b91c1c" : "var(--line)",
-            padding: "14px 16px",
+            position: "relative",
+            background: "#FFFFFF",
+            borderRadius: 12,
+            border: `1.5px solid ${overLimit ? "#b91c1c" : focused ? "#4A60A8" : "rgba(15, 37, 69, 0.08)"}`,
+            boxShadow: focused
+              ? "0 0 0 6px rgba(74, 96, 168, 0.12), 0 16px 48px rgba(74, 96, 168, 0.10)"
+              : "0 2px 10px rgba(15, 37, 69, 0.04), 0 22px 52px rgba(15, 37, 69, 0.06)",
+            transition: "all 0.18s ease",
+            padding: "18px 18px 14px 18px",
           }}
-        />
-        <div className="flex items-center justify-between mt-1">
-          <ParseStatusLine
-            phase={parsePhase}
-            detectedMode={parsePhase === "ok" ? form.loopMode : null}
+        >
+          <Textarea
+            ref={textareaRef}
+            value={briefText}
+            onChange={(e) => setBriefText(e.target.value)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            placeholder={typedPlaceholder || (focused ? "Describe the Loop you want to deploy…" : "")}
+            rows={4}
+            aria-label="Your goal in your own words"
+            className="resize-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
+            style={{
+              color: "var(--ink)",
+              background: "transparent",
+              padding: 0,
+              fontFamily: "'Inter', sans-serif",
+              fontSize: 16,
+              lineHeight: 1.5,
+              minHeight: 96,
+              outline: "none",
+            }}
           />
-          <span
-            className="font-mono text-[10px] tracking-wide ml-3 shrink-0"
-            style={{ color: overLimit ? "#b91c1c" : "var(--ink-3)" }}
-          >
-            {briefText.length} / {MAX_BRIEF_CHARS}
-          </span>
+          <div className="flex items-center justify-between" style={{ marginTop: 12 }}>
+            <ParseStatusLine
+              phase={parsePhase}
+              detectedMode={parsePhase === "ok" ? form.loopMode : null}
+            />
+            <span
+              className="ml-3 shrink-0"
+              style={{
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 11,
+                fontWeight: 500,
+                color: overLimit ? "#b91c1c" : "var(--ink-3)",
+              }}
+            >
+              {briefText.length} / {MAX_BRIEF_CHARS}
+            </span>
+          </div>
         </div>
+
       </div>
 
       {/* Mode (parser outcome with manual override) */}
       <ModeIndicator mode={form.loopMode} onChange={(m) => set({ loopMode: m })} />
 
-      {/* D11 — Per-field italic serif label + hairline left-rail */}
-      <EditorialField label="Companies" hint="Press Enter to add">
-        <TagInput
-          placeholder="e.g. Stripe, Linear, Vercel"
-          list={form.companies}
-          setList={(v) => set({ companies: v })}
-          suggestions={COMPANY_SUGGESTIONS}
-        />
-      </EditorialField>
+      {/* Collapsible chip rows. The textarea + parser are the primary input;
+          these rows are advanced/manual overrides. Each row auto-expands when
+          the parser fills it so the user sees what was extracted. */}
+      <div style={{ marginTop: 18, marginBottom: 18 }}>
+        <div
+          style={{
+            fontFamily: "'Inter', sans-serif",
+            fontSize: 12,
+            fontWeight: 600,
+            letterSpacing: "0.04em",
+            textTransform: "uppercase",
+            color: "var(--ink-3)",
+            marginBottom: 10,
+          }}
+        >
+          Manual targeting (optional)
+        </div>
+        <EditorialField label="Companies" hint="Press Enter to add" badgeCount={form.companies.length}>
+          <TagInput
+            placeholder="e.g. Stripe, Linear, Vercel"
+            list={form.companies}
+            setList={(v) => set({ companies: v })}
+            suggestions={COMPANY_SUGGESTIONS}
+          />
+        </EditorialField>
 
-      <EditorialField label="Roles" hint="Press Enter to add">
-        <TagInput
-          placeholder="e.g. Product Designer, Analyst"
-          list={form.roles}
-          setList={(v) => set({ roles: v })}
-          suggestions={ROLE_SUGGESTIONS}
-        />
-      </EditorialField>
+        <EditorialField label="Roles" hint="Press Enter to add" badgeCount={form.roles.length}>
+          <TagInput
+            placeholder="e.g. Product Designer, Analyst"
+            list={form.roles}
+            setList={(v) => set({ roles: v })}
+            suggestions={ROLE_SUGGESTIONS}
+          />
+        </EditorialField>
 
-      <EditorialField label="Industries" hint="Optional — fills in when no company is named">
-        <TagInput
-          placeholder="e.g. Fintech, AI / ML, Consulting"
-          list={form.industries}
-          setList={(v) => set({ industries: v })}
-          suggestions={INDUSTRY_SUGGESTIONS}
-        />
-      </EditorialField>
+        <EditorialField
+          label="Industries"
+          hint="Optional — fills in when no company is named"
+          badgeCount={form.industries.length}
+        >
+          <TagInput
+            placeholder="e.g. Fintech, AI / ML, Consulting"
+            list={form.industries}
+            setList={(v) => set({ industries: v })}
+            suggestions={INDUSTRY_SUGGESTIONS}
+          />
+        </EditorialField>
 
-      <EditorialField label="Locations" hint="Optional">
-        <TagInput
-          placeholder="e.g. NYC, SF Bay Area, Remote"
-          list={form.locations}
-          setList={(v) => set({ locations: v })}
-          suggestions={LOCATION_SUGGESTIONS}
-        />
-      </EditorialField>
+        <EditorialField label="Locations" hint="Optional" badgeCount={form.locations.length}>
+          <TagInput
+            placeholder="e.g. NYC, SF Bay Area, Remote"
+            list={form.locations}
+            setList={(v) => set({ locations: v })}
+            suggestions={LOCATION_SUGGESTIONS}
+          />
+        </EditorialField>
+      </div>
 
-      <div className="flex items-center justify-between pt-4 border-t border-line-2">
+      <div
+        className="flex items-center justify-between"
+        style={{
+          paddingTop: 18,
+          borderTop: "1px solid var(--line-2)",
+          fontFamily: "'Inter', sans-serif",
+        }}
+      >
         <div>
-          <div className="text-[13px] font-semibold" style={{ color: "var(--ink)" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ink)" }}>
             {copy.preferAlumniLabel}
           </div>
-          <div className="text-xs mt-0.5" style={{ color: "var(--ink-3)" }}>
+          <div style={{ fontSize: 12.5, marginTop: 2, color: "var(--ink-3)" }}>
             {hasUniversity
               ? copy.preferAlumniHint
               : "Set your university in Account Settings to use this."}
@@ -744,12 +1156,24 @@ function BigSlider({
     <div>
       <div className="flex items-baseline gap-2 mb-3">
         <span
-          className="text-[28px] leading-none"
-          style={{ color: "var(--ink)", fontWeight: 500 }}
+          style={{
+            fontFamily: "'Instrument Serif', Georgia, serif",
+            fontSize: 32,
+            fontWeight: 700,
+            letterSpacing: "-0.025em",
+            lineHeight: 1,
+            color: "#4A60A8",
+          }}
         >
           {value}
         </span>
-        <span className="text-xs" style={{ color: "var(--ink-3)" }}>
+        <span
+          style={{
+            fontFamily: "'Inter', sans-serif",
+            fontSize: 13,
+            color: "var(--ink-3)",
+          }}
+        >
           {unit}
         </span>
       </div>
@@ -762,8 +1186,13 @@ function BigSlider({
         aria-label={ariaLabel}
       />
       <div
-        className="flex justify-between mt-1.5 font-mono text-[10.5px]"
-        style={{ color: "var(--ink-3)" }}
+        className="flex justify-between mt-2"
+        style={{
+          fontFamily: "'Inter', sans-serif",
+          fontSize: 11,
+          fontWeight: 500,
+          color: "var(--ink-3)",
+        }}
       >
         <span>{min}</span>
         <span>{max}</span>
@@ -854,19 +1283,27 @@ function StepReview({ form, university }: { form: FormState; university: string 
   ];
 
   return (
-    <div>
-      <div className="border border-line rounded-[10px] overflow-hidden bg-paper mb-4">
+    <div style={{ fontFamily: "'Inter', sans-serif" }}>
+      <div
+        className="overflow-hidden mb-4"
+        style={{
+          border: "1px solid var(--line)",
+          borderRadius: 3,
+          background: "#FFFFFF",
+        }}
+      >
         {rows.map((r, i) => (
           <div
             key={r.k}
-            className="grid grid-cols-[150px_1fr] text-[12.5px]"
+            className="grid grid-cols-[150px_1fr]"
             style={{
-              padding: "11px 16px",
+              padding: "12px 18px",
+              fontSize: 13,
               borderBottom: i < rows.length - 1 ? "1px solid var(--line-2)" : "none",
             }}
           >
             <span style={{ color: "var(--ink-3)" }}>{r.k}</span>
-            <span className="font-medium" style={{ color: "var(--ink)" }}>
+            <span style={{ color: "var(--ink)", fontWeight: 500 }}>
               {r.v}
             </span>
           </div>
@@ -874,22 +1311,30 @@ function StepReview({ form, university }: { form: FormState; university: string 
       </div>
 
       <div
-        className="rounded-[10px] border border-line flex gap-3 items-start"
-        style={{ background: "var(--paper-2)", padding: 14 }}
+        className="flex gap-3 items-start"
+        style={{
+          border: "1px solid rgba(74, 96, 168, 0.18)",
+          background: "rgba(74, 96, 168, 0.04)",
+          borderRadius: 3,
+          padding: 16,
+        }}
       >
         <span
-          className="w-7 h-7 rounded-[9px] shrink-0 inline-flex items-center justify-center text-white text-[13px] font-semibold"
-          style={{ background: "linear-gradient(135deg, #f5b945, #e08a2a)" }}
+          className="w-7 h-7 shrink-0 inline-flex items-center justify-center"
+          style={{ background: "transparent" }}
         >
-          S
+          <img
+            src={offerloopIcon}
+            alt="Offerloop"
+            className="w-full h-full object-contain"
+          />
         </span>
         <div>
-          <div className="text-[13px] font-semibold mb-0.5" style={{ color: "var(--ink)" }}>
-            Scout will find contacts, watch for replies, and draft outreach.
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2, color: "var(--ink)" }}>
+            Loop will find contacts, watch for replies, and draft outreach.
           </div>
-          <div className="text-xs leading-relaxed" style={{ color: "var(--ink-2)" }}>
-            New drafts show up here for review. Pause or reconfigure any time &mdash; settings save
-            automatically.
+          <div style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--ink-2)" }}>
+            New drafts show up here for review. Pause or reconfigure any time — settings save automatically.
           </div>
         </div>
       </div>
@@ -908,12 +1353,28 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
   // null = still loading, "" = onboarded but no school, "USC" = set.
   const [university, setUniversity] = useState<string | null>(null);
   const hasUniversity = !!(university && university.trim());
+  // Profile facts powering the QuickStarters chips under the brief textarea —
+  // mirrors what ContactSearchPage feeds the Find prompt.
+  const [profileFacts, setProfileFacts] = useState<{
+    targetFirms: string[];
+    targetIndustries: string[];
+    preferredLocations: string[];
+    extractedRoles: string[];
+  }>({ targetFirms: [], targetIndustries: [], preferredLocations: [], extractedRoles: [] });
 
   useEffect(() => {
     if (!user?.uid) return;
     firebaseApi
       .getUserOnboardingData(user.uid)
-      .then((d) => setUniversity(d.university || ""))
+      .then((d) => {
+        setUniversity(d.university || "");
+        setProfileFacts({
+          targetFirms: d.targetFirms || [],
+          targetIndustries: d.targetIndustries || [],
+          preferredLocations: d.preferredLocations || [],
+          extractedRoles: d.extractedRoles || [],
+        });
+      })
       .catch(() => setUniversity(""));
   }, [user?.uid]);
 
@@ -926,34 +1387,12 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
     weeklyTarget: 5,
     creditBudget: 100,
     approvalMode: "review_first",
-    // Default to "people" (today's networking behavior). For returning users,
-    // the effect below queries their most recent Loop and re-defaults to that
-    // Loop's mode — so a student whose last Loop was "roles" doesn't have to
-    // re-pick every time. The parser still wins once the brief is typed.
+    // Default to "people" (today's networking behavior) for new users. When
+    // we later derive the default from the user's most recent Loop, swap this
+    // initializer for an effect that fetches the latest Loop's mode.
     loopMode: "people",
   });
   const set = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }));
-
-  // Default loopMode to the user's most recent Loop's mode. Fires once on
-  // mount. If the user has no past Loops, the listLoops promise resolves
-  // empty and the "people" default stands. Network or auth failures are
-  // silently swallowed — better to keep the default than block the wizard.
-  useEffect(() => {
-    let cancelled = false;
-    listLoops()
-      .then(({ loops }) => {
-        if (cancelled || !loops?.length) return;
-        const mostRecent = [...loops].sort(
-          (a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""),
-        )[0];
-        const m = mostRecent?.loopMode;
-        if (m === "people" || m === "roles" || m === "both") {
-          setForm((f) => ({ ...f, loopMode: m }));
-        }
-      })
-      .catch(() => { /* keep "people" default */ });
-    return () => { cancelled = true; };
-  }, []);
 
   // ── Prompt-first brief state ─────────────────────────────────────────
   // The textarea is the primary input on Step 01. Its value debounces into
@@ -1133,30 +1572,63 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
       {/* Main form column */}
       <div className="flex-1 min-w-0">
         <div className="max-w-[640px] mx-auto px-4 sm:px-8 py-8 pb-20">
-          {/* Hero */}
-          <div className="mb-7">
-            <MonoTag>&middot; step {step.num}</MonoTag>
+          {/* Hero — mirrors the Find page's serif headline treatment:
+              parallel phrases, italic emphasis, navy ink. */}
+          <div className="mb-8" style={{ paddingTop: 32 }}>
+            <div
+              style={{
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: "0.10em",
+                textTransform: "uppercase",
+                color: "#4A60A8",
+                marginBottom: 16,
+              }}
+            >
+              Step {step.num} · {step.label}
+            </div>
             <h1
-              className="font-serif mt-2.5 mb-2 text-[28px] sm:text-[32px] leading-[1.1] tracking-[-0.02em]"
-              style={{ color: "var(--ink)", fontWeight: 400 }}
+              style={{
+                fontFamily: "'Instrument Serif', Georgia, serif",
+                fontSize: 48,
+                fontWeight: 400,
+                lineHeight: 1.05,
+                letterSpacing: "-0.02em",
+                color: "#0f2545",
+                marginBottom: 16,
+              }}
             >
               {stepIdx === 0 && (
                 <>
-                  Tell your Loop <em className="italic" style={{ fontWeight: 400 }}>{goalsCopy.goalsTitleAccent}</em> to chase.
+                  Tell your Loop{" "}
+                  <span style={{ fontStyle: "italic", color: "#4A60A8" }}>
+                    {goalsCopy.goalsTitleAccent}
+                  </span>{" "}
+                  to chase.
                 </>
               )}
               {stepIdx === 1 && (
                 <>
-                  Set the <em className="italic" style={{ fontWeight: 400 }}>pace</em> and the rules.
+                  Set the <span style={{ fontStyle: "italic", color: "#4A60A8" }}>pace</span> and the rules.
                 </>
               )}
               {stepIdx === 2 && (
                 <>
-                  Look it over, then <em className="italic" style={{ fontWeight: 400 }}>deploy.</em>
+                  Look it over, then{" "}
+                  <span style={{ fontStyle: "italic", color: "#4A60A8" }}>deploy.</span>
                 </>
               )}
             </h1>
-            <p className="text-[13.5px] max-w-[470px]" style={{ color: "var(--ink-2)" }}>
+            <p
+              style={{
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 17,
+                lineHeight: 1.55,
+                color: "#475569",
+                maxWidth: 560,
+              }}
+            >
               {stepIdx === 0 && goalsCopy.goalsSubtitle}
               {stepIdx === 1 &&
                 "Caps the loop so it doesn't over-reach. We recommend Review First to start."}
@@ -1178,6 +1650,7 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
                 parsePhase={parsePhase}
                 hasUniversity={hasUniversity}
                 university={university || ""}
+                profileFacts={profileFacts}
               />
             )}
             {stepIdx === 1 && <StepCadence form={form} set={set} />}
@@ -1185,25 +1658,71 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
           </div>
 
           {/* Navigation */}
-          <div className="flex justify-between items-center mt-7 pt-5 border-t border-line-2">
-            <Button
-              variant="outline"
+          <div
+            className="flex justify-between items-center mt-7 pt-5"
+            style={{ borderTop: "1px solid var(--line-2)" }}
+          >
+            <button
+              type="button"
               onClick={() => stepIdx > 0 && setStepIdx(stepIdx - 1)}
               disabled={stepIdx === 0}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "10px 16px",
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 14,
+                fontWeight: 500,
+                color: stepIdx === 0 ? "var(--ink-3)" : "var(--ink-2)",
+                background: "#FFFFFF",
+                border: "1px solid var(--line)",
+                borderRadius: 3,
+                cursor: stepIdx === 0 ? "not-allowed" : "pointer",
+                opacity: stepIdx === 0 ? 0.6 : 1,
+              }}
             >
-              <ChevronLeft className="h-4 w-4 mr-1" />
+              <ChevronLeft className="h-4 w-4" />
               Back
-            </Button>
+            </button>
 
-            <div className="flex items-center gap-2.5">
-              <span className="font-mono text-[11px] tracking-wide" style={{ color: "var(--ink-3)" }}>
+            <div className="flex items-center gap-3">
+              <span
+                style={{
+                  fontFamily: "'Inter', sans-serif",
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: "var(--ink-3)",
+                }}
+              >
                 {stepIdx + 1} / {STEPS.length}
               </span>
               {isLast ? (
-                <Button
+                <button
+                  type="button"
                   onClick={handleDeploy}
                   disabled={!canDeploy || deploying}
-                  className="bg-brand hover:bg-brand-2"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "10px 20px",
+                    fontFamily: "'Inter', sans-serif",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: "#FFFFFF",
+                    background: (!canDeploy || deploying) ? "var(--ink-3)" : "#4A60A8",
+                    border: "none",
+                    borderRadius: 3,
+                    cursor: (!canDeploy || deploying) ? "not-allowed" : "pointer",
+                    transition: "background 0.15s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (canDeploy && !deploying) e.currentTarget.style.background = "#3A4F8E";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (canDeploy && !deploying) e.currentTarget.style.background = "#4A60A8";
+                  }}
                 >
                   {deploying ? (
                     <>
@@ -1211,16 +1730,36 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
                         className="w-1.5 h-1.5 rounded-full bg-white"
                         style={{ animation: "om-blink 1s ease-in-out infinite" }}
                       />
-                      Deploying...
+                      Deploying…
                     </>
                   ) : (
-                    <>Deploy agent &rarr;</>
+                    <>Deploy agent →</>
                   )}
-                </Button>
+                </button>
               ) : (
-                <Button onClick={() => setStepIdx(stepIdx + 1)} className="bg-brand hover:bg-brand-2">
-                  Continue &rarr;
-                </Button>
+                <button
+                  type="button"
+                  onClick={() => setStepIdx(stepIdx + 1)}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "10px 20px",
+                    fontFamily: "'Inter', sans-serif",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: "#FFFFFF",
+                    background: "#4A60A8",
+                    border: "none",
+                    borderRadius: 3,
+                    cursor: "pointer",
+                    transition: "background 0.15s ease",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "#3A4F8E")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "#4A60A8")}
+                >
+                  Continue →
+                </button>
               )}
             </div>
           </div>

@@ -872,14 +872,22 @@ def find_recruiters(
     }
     
     try:
-        # Use existing execute_pdl_search function for consistency
+        # CREDIT-EFFICIENCY FIX (2026-06): PDL Person Search bills 1 credit
+        # PER RECORD returned in `data`. The old desired_limit=20 burned 20
+        # credits for a 3-recruiter card (85% waste). We need SOME buffer
+        # because the post-fetch filter drops ex-employees (IsCurrentlyAtTarget)
+        # — without buffer a single historical contaminated batch returns 0
+        # current employees. max_results + 3 covers the typical historical
+        # rate (~30-50%) without over-fetching. For max_results=3 this is 6
+        # credits/call instead of 20.
+        recruiter_fetch_limit = max(max_results + 3, 6)
         raw_recruiters, _ = execute_pdl_search(
             headers=headers,
             url=PDL_URL,
             query_obj=query_obj,
-            desired_limit=20,  # Fetch more, then rank and filter
+            desired_limit=recruiter_fetch_limit,
             search_type="recruiter_search",
-            page_size=20,
+            page_size=recruiter_fetch_limit,
             verbose=False,
             target_company=cleaned_company  # Pass target company for correct domain extraction
         )

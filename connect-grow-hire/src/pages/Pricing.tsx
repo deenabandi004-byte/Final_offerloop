@@ -794,7 +794,7 @@ const Pricing = () => {
               {/* Features */}
               <div className="flex-1 space-y-4">
                 <FeatureItem highlight>3,000 credits / month (~200 contacts)</FeatureItem>
-                <FeatureItem>Up to 15 contacts per search</FeatureItem>
+                <FeatureItem>Up to 30 contacts per search</FeatureItem>
                 <FeatureItem><span className="font-semibold">Everything in Free, plus:</span></FeatureItem>
                 <FeatureItem>Single agent use</FeatureItem>
                 <FeatureItem>Find Hiring Managers</FeatureItem>
