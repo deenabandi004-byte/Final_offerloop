@@ -616,9 +616,12 @@ def scout_assistant_briefing_stream():
                                 "content": (
                                     "Produce my briefing now. Follow the "
                                     "output shape rules in the system prompt: "
-                                    "3-5 numbered steps, each with 2-4 "
+                                    "5-7 numbered steps, each with 3-5 "
                                     "rationale bullets that cite specific "
-                                    "facts about me, and a clear next move."
+                                    "facts about me. Lead with Loop "
+                                    "recommendations - that's how I get value "
+                                    "from Offerloop. Name Loops by name and "
+                                    "tell me what each Loop will do for me."
                                 ),
                             },
                         ],

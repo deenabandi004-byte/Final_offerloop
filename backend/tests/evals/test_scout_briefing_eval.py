@@ -279,11 +279,11 @@ def _build_briefing_prompt_for(profile: Dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 JUDGE_SYSTEM = """You are evaluating a recruiting strategist briefing produced \
-by an AI assistant for a specific student. Score it 0-10 on each of five \
+by an AI assistant for a specific student. Score it 0-10 on each of six \
 dimensions and return STRICT JSON.
 
 Dimensions:
-  rationale_presence: every step has 2-4 specific bullets anchored in user \
+  rationale_presence: every step has 3-5 specific bullets anchored in user \
     facts (school, role, target firm, recent activity). 10 = every step has \
     rich rationale; 5 = some steps have it; 0 = none.
   tier_respect: cites the right contact-per-search cap (Free=3, Pro=8, \
@@ -296,11 +296,19 @@ Dimensions:
   tone: direct, low-jargon, no hedging. On returning users with an active \
     strategy: celebrates progress, never shames inaction. 10 = perfect; 5 = \
     flat; 0 = condescending / generic.
+  loops_mentioned_by_name: Loops is Offerloop's flagship feature. The briefing \
+    MUST name "Loop" / "Loops" explicitly when recommending autonomous \
+    outreach to a target cohort. 10 = at least one step says "Start a Loop" / \
+    "Set up a Loop" or similar and briefly explains what the Loop does for \
+    the user; 5 = mentions Loops but doesn't teach; 0 = treats /agent/setup \
+    as generic "outreach setup" without naming Loops. Banned words inside \
+    briefings (auto-fail to <=5 if present): "agent" (the page), "deploy", \
+    "configure", "campaign", "workflow".
 
 Return ONLY JSON with this shape (no prose):
   {"rationale_presence": int, "tier_respect": int, "no_execution_leakage": int, \
-"anchor_in_user_facts": int, "tone": int, "notes": "one short sentence on the \
-weakest dimension or what would make it a 10"}
+"anchor_in_user_facts": int, "tone": int, "loops_mentioned_by_name": int, \
+"notes": "one short sentence on the weakest dimension or what would make it a 10"}
 """
 
 THRESHOLD = 7  # Average across dimensions must be >= 7 for the fixture to pass.
@@ -369,6 +377,7 @@ def test_briefing_meets_rubric_threshold(profile):
         "no_execution_leakage",
         "anchor_in_user_facts",
         "tone",
+        "loops_mentioned_by_name",
     )
     numeric = {d: int(scores.get(d, 0)) for d in dims}
     avg = sum(numeric.values()) / len(numeric)
