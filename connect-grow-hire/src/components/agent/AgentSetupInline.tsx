@@ -19,6 +19,7 @@ import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useCreateLoop } from "@/hooks/useLoops";
 import useDebounce from "@/hooks/use-debounce";
 import { loopCopy, type LoopModeForCopy } from "@/lib/loopCopy";
+import offerloopIcon from "@/assets/offerloopiconlogo.png";
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -634,11 +635,11 @@ function PreviewRail({ form, litTo }: { form: FormState; litTo: number }) {
         </div>
         <p
           style={{
-            fontFamily: "'Instrument Serif', Georgia, serif",
-            fontSize: 22,
+            fontFamily: "'Libre Baskerville', Georgia, serif",
+            fontSize: 20,
             fontWeight: 700,
-            letterSpacing: "-0.02em",
-            lineHeight: 1.2,
+            letterSpacing: "-0.01em",
+            lineHeight: 1.25,
             color: "var(--heading, var(--ink))",
           }}
         >
@@ -1320,19 +1321,17 @@ function StepReview({ form, university }: { form: FormState; university: string 
       >
         <span
           className="w-7 h-7 shrink-0 inline-flex items-center justify-center"
-          style={{
-            background: "#4A60A8",
-            color: "#FFFFFF",
-            borderRadius: 3,
-            fontSize: 13,
-            fontWeight: 700,
-          }}
+          style={{ background: "transparent" }}
         >
-          S
+          <img
+            src={offerloopIcon}
+            alt="Offerloop"
+            className="w-full h-full object-contain"
+          />
         </span>
         <div>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2, color: "var(--ink)" }}>
-            Scout will find contacts, watch for replies, and draft outreach.
+            Loop will find contacts, watch for replies, and draft outreach.
           </div>
           <div style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--ink-2)" }}>
             New drafts show up here for review. Pause or reconfigure any time — settings save automatically.

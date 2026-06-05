@@ -502,6 +502,11 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
                     intent: null,
                   } : m
                 ));
+              } else if (eventType === 'heartbeat') {
+                // Backend keepalive while the LLM is generating. No-op: just
+                // consume the event so the connection stays warm past the 60s
+                // browser/proxy SSE idle cutoff. Real timeout is 120s of true
+                // silence (the backend declares it for us).
               }
             } catch {
               // Ignore malformed JSON
