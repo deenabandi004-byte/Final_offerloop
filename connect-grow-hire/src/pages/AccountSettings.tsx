@@ -1,6 +1,6 @@
-import { ArrowLeft, Upload, Trash2, LogOut, CreditCard, FileText, User, GraduationCap, Briefcase, Rocket, Settings, AlertTriangle, Lock, Eye, RefreshCw, X, CheckCircle, Mail, Target, Star, Bell } from "lucide-react";
+import { ArrowLeft, Upload, Trash2, LogOut, CreditCard, FileText, User, GraduationCap, Briefcase, Rocket, Settings, AlertTriangle, Lock, Eye, RefreshCw, X, CheckCircle, Mail, Target, Star } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -20,8 +20,6 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { apiService, BACKEND_URL } from "@/services/api";
-import { getLoopAlertEmail, updateLoopAlertEmail, type LoopAlertEmailPrefs } from "@/services/loopAlerts";
-import { Switch } from "@/components/ui/switch";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { ACCEPTED_RESUME_TYPES, isValidResumeFile } from "@/utils/resumeFileTypes";
 
@@ -108,7 +106,6 @@ const sections = [
   { id: 'career', label: 'Career Interests', icon: Rocket },
   { id: 'goals', label: 'Career Goals', icon: Target },
   { id: 'gmail', label: 'Gmail Integration', icon: Mail },
-  { id: 'email-alerts', label: 'Email Alerts', icon: Bell },
   { id: 'account', label: 'Account Management', icon: Settings },
   { id: 'danger', label: 'Danger Zone', icon: AlertTriangle },
 ];
@@ -278,18 +275,6 @@ export default function AccountSettings() {
   const [gmailEmail, setGmailEmail] = useState<string | null>(null);
   const [gmailLoading, setGmailLoading] = useState(true);
   const [gmailActionLoading, setGmailActionLoading] = useState(false);
-
-  // Loop alert email prefs (PR2 scaffold; backend send is flag-gated)
-  const [loopAlerts, setLoopAlerts] = useState<LoopAlertEmailPrefs | null>(null);
-  const [loopAlertsLoading, setLoopAlertsLoading] = useState(true);
-  const browserTz = (() => {
-    try {
-      return Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Los_Angeles";
-    } catch {
-      return "America/Los_Angeles";
-    }
-  })();
-  const loopAlertsSaveTimer = useRef<number | null>(null);
 
   // User initials for avatar
   const userInitials = `${personalInfo.firstName.charAt(0) || ''}${personalInfo.lastName.charAt(0) || ''}`.toUpperCase() || 'U';
@@ -861,53 +846,6 @@ export default function AccountSettings() {
     }
   };
 
-  // Load Loop alert email prefs on mount
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const prefs = await getLoopAlertEmail();
-        if (!cancelled) {
-          setLoopAlerts({
-            ...prefs,
-            // If the user has never set a timezone, default to browser TZ.
-            timezone: prefs.timezone || browserTz,
-          });
-        }
-      } catch (e) {
-        // Non-fatal — section will render with skeleton/disabled until retried.
-        console.warn("Could not load loop alert prefs:", e);
-      } finally {
-        if (!cancelled) setLoopAlertsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [browserTz]);
-
-  // Debounced save for loop alert prefs
-  const persistLoopAlerts = (patch: Partial<LoopAlertEmailPrefs>) => {
-    const next = { ...(loopAlerts || {}), ...patch } as LoopAlertEmailPrefs;
-    setLoopAlerts(next);
-    if (loopAlertsSaveTimer.current) {
-      window.clearTimeout(loopAlertsSaveTimer.current);
-    }
-    loopAlertsSaveTimer.current = window.setTimeout(async () => {
-      try {
-        const merged = await updateLoopAlertEmail(patch);
-        setLoopAlerts(merged);
-        toast({ title: "Email alerts updated" });
-      } catch (e: any) {
-        toast({
-          title: "Could not save preferences",
-          description: e?.message || "Try again in a moment.",
-          variant: "destructive",
-        });
-      }
-    }, 500);
-  };
-
   // Scroll spy for sidebar
   useEffect(() => {
     const handleScroll = () => {
@@ -959,12 +897,48 @@ export default function AccountSettings() {
                     fontSize: '16px',
                     color: '#6B7280',
                     textAlign: 'center',
-                    marginBottom: '28px',
+                    marginBottom: '16px',
                     lineHeight: 1.5,
                   }}
                 >
                   Manage your account and preferences
                 </p>
+
+                {/* Cross-link to /profile — these two surfaces are siblings
+                    (profile = personalization, settings = billing / integrations /
+                    admin). Make the relationship visible so users don't get lost. */}
+                <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/profile')}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '8px 16px',
+                      borderRadius: 999,
+                      background: 'transparent',
+                      border: '1px solid #CBD5E1',
+                      color: '#4A60A8',
+                      fontFamily: "'DM Sans', system-ui, sans-serif",
+                      fontSize: 13,
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      transition: 'background .15s, border-color .15s',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(74,96,168,0.06)';
+                      e.currentTarget.style.borderColor = '#4A60A8';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.color = '#4A60A8';
+                      e.currentTarget.style.borderColor = '#CBD5E1';
+                    }}
+                  >
+                    Looking to update your profile? Open your profile →
+                  </button>
+                </div>
 
                 {/* Profile Completeness */}
                 {(() => {
@@ -2412,225 +2386,6 @@ export default function AccountSettings() {
                             )}
                           </>
                         )}
-                      </div>
-                    </div>
-                  </SettingsSection>
-
-                  {/* Email Alerts Section (PR2 scaffold; backend send flag-gated) */}
-                  <SettingsSection
-                    id="email-alerts"
-                    icon={Bell}
-                    title="Email Alerts"
-                    description="Get notified when your loop finds something worth your time"
-                  >
-                    <div className="space-y-4">
-                      {/* Deliverability warning banner */}
-                      {(loopAlerts?.deliveryStatus === "bounce" || loopAlerts?.deliveryStatus === "complaint") && (
-                        <div
-                          role="alert"
-                          style={{
-                            padding: '14px 18px',
-                            borderRadius: '3px',
-                            background: '#FEF3C7',
-                            border: '1px solid #FCD34D',
-                            fontFamily: "'DM Sans', system-ui, sans-serif",
-                            fontSize: '14px',
-                            color: '#78350F',
-                          }}
-                        >
-                          We couldn't deliver your last email. Update your address or check spam.
-                        </div>
-                      )}
-
-                      {/* Toggle: Send digest emails */}
-                      <div
-                        className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
-                        style={{
-                          padding: '20px',
-                          borderRadius: '12px',
-                          background: '#FAFBFF',
-                          border: '1px solid rgba(59, 130, 246, 0.06)',
-                        }}
-                      >
-                        <div>
-                          <h4
-                            style={{
-                              fontFamily: "'DM Sans', system-ui, sans-serif",
-                              fontWeight: 600,
-                              color: '#0F172A',
-                              fontSize: '15px',
-                            }}
-                          >
-                            Send digest emails
-                          </h4>
-                          <p
-                            style={{
-                              fontFamily: "'DM Sans', system-ui, sans-serif",
-                              fontSize: '14px',
-                              color: '#6B7280',
-                              marginTop: '2px',
-                            }}
-                          >
-                            A short daily summary of what your loop found.
-                          </p>
-                        </div>
-                        <Switch
-                          checked={Boolean(loopAlerts?.enabled)}
-                          disabled={loopAlertsLoading}
-                          onCheckedChange={(checked) => persistLoopAlerts({ enabled: checked })}
-                          aria-label="Toggle digest emails"
-                        />
-                      </div>
-
-                      {/* Time + timezone picker */}
-                      <div
-                        style={{
-                          padding: '20px',
-                          borderRadius: '12px',
-                          background: '#FAFBFF',
-                          border: '1px solid rgba(59, 130, 246, 0.06)',
-                        }}
-                      >
-                        <h4
-                          style={{
-                            fontFamily: "'DM Sans', system-ui, sans-serif",
-                            fontWeight: 600,
-                            color: '#0F172A',
-                            fontSize: '15px',
-                            marginBottom: '12px',
-                          }}
-                        >
-                          When to send
-                        </h4>
-                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                          <span
-                            style={{
-                              fontFamily: "'DM Sans', system-ui, sans-serif",
-                              fontSize: '14px',
-                              color: '#475569',
-                            }}
-                          >
-                            Send at
-                          </span>
-                          <Select
-                            value={String(loopAlerts?.quietHours?.end ?? 8)}
-                            disabled={loopAlertsLoading || !loopAlerts?.enabled}
-                            onValueChange={(value) =>
-                              persistLoopAlerts({
-                                quietHours: {
-                                  start: loopAlerts?.quietHours?.start ?? 21,
-                                  end: parseInt(value, 10),
-                                },
-                              })
-                            }
-                          >
-                            <SelectTrigger className="w-[140px]">
-                              <SelectValue placeholder="8 AM" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {Array.from({ length: 24 }, (_, h) => (
-                                <SelectItem key={h} value={String(h)}>
-                                  {h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <span
-                            style={{
-                              fontFamily: "'DM Sans', system-ui, sans-serif",
-                              fontSize: '14px',
-                              color: '#475569',
-                            }}
-                          >
-                            in
-                          </span>
-                          <Select
-                            value={loopAlerts?.timezone || browserTz}
-                            disabled={loopAlertsLoading || !loopAlerts?.enabled}
-                            onValueChange={(value) => persistLoopAlerts({ timezone: value })}
-                          >
-                            <SelectTrigger className="w-[220px]">
-                              <SelectValue placeholder={browserTz} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {Array.from(
-                                new Set([
-                                  browserTz,
-                                  "America/Los_Angeles",
-                                  "America/Denver",
-                                  "America/Chicago",
-                                  "America/New_York",
-                                  "UTC",
-                                  "Europe/London",
-                                  "Europe/Berlin",
-                                  "Asia/Singapore",
-                                  "Asia/Tokyo",
-                                ])
-                              ).map((tz) => (
-                                <SelectItem key={tz} value={tz}>
-                                  {tz}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-
-                      {/* Instant alerts checkbox (mode toggle) */}
-                      <label
-                        htmlFor="loop-alerts-instant"
-                        className="flex items-start gap-3 cursor-pointer"
-                        style={{
-                          padding: '20px',
-                          borderRadius: '12px',
-                          background: '#FAFBFF',
-                          border: '1px solid rgba(59, 130, 246, 0.06)',
-                        }}
-                      >
-                        <input
-                          id="loop-alerts-instant"
-                          type="checkbox"
-                          checked={loopAlerts?.mode === "instant"}
-                          disabled={loopAlertsLoading || !loopAlerts?.enabled}
-                          onChange={(e) =>
-                            persistLoopAlerts({ mode: e.target.checked ? "instant" : "digest" })
-                          }
-                          style={{ marginTop: '3px' }}
-                        />
-                        <div>
-                          <div
-                            style={{
-                              fontFamily: "'DM Sans', system-ui, sans-serif",
-                              fontWeight: 600,
-                              color: '#0F172A',
-                              fontSize: '14px',
-                            }}
-                          >
-                            Also send instant alerts for top-quality matches
-                          </div>
-                          <div
-                            style={{
-                              fontFamily: "'DM Sans', system-ui, sans-serif",
-                              fontSize: '13px',
-                              color: '#6B7280',
-                              marginTop: '2px',
-                            }}
-                          >
-                            We'll only ping you for results scored high enough to warrant interrupting.
-                          </div>
-                        </div>
-                      </label>
-
-                      {/* Read-only email */}
-                      <div
-                        style={{
-                          fontFamily: "'DM Sans', system-ui, sans-serif",
-                          fontSize: '13px',
-                          color: '#6B7280',
-                          padding: '0 4px',
-                        }}
-                      >
-                        Email <span style={{ color: '#0F172A', fontWeight: 500 }}>{user?.email || personalInfo.email || '—'}</span> (change in profile)
                       </div>
                     </div>
                   </SettingsSection>

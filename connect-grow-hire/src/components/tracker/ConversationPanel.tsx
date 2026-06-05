@@ -1,9 +1,6 @@
 import { ExternalLink, Linkedin, Copy, Check, FileText, Loader2 } from "lucide-react";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useToast } from "@/hooks/use-toast";
 import type { OutboxThread, PipelineStage, AutoPrepStatus } from "@/services/api";
-import { approveContactSend, describeAutoSendPause } from "@/services/loops";
 import { ActionBar } from "./ActionBar";
 import { formatTimeAgo, formatDate, decodeHtmlEntities } from "@/lib/formatters";
 
@@ -53,59 +50,6 @@ export function ConversationPanel({
   onViewAutoPrep,
 }: ConversationPanelProps) {
   const [emailCopied, setEmailCopied] = useState(false);
-  const [sendingApproval, setSendingApproval] = useState(false);
-  const navigate = useNavigate();
-  const { toast } = useToast();
-
-  // Phase 9 — pause-pill descriptor + action handler. The pause reason is
-  // written by agent_actions._try_auto_send when a cycle's send gate
-  // denies. CTA action: POST /api/agent/loops/:loopId/contacts/:id/approve-send
-  // which re-runs the full gate (force-passing first-N), sends, and bumps
-  // the Loop's autoSendApprovedCount.
-  const pause = describeAutoSendPause(contact.autoSendPausedReason, {
-    effectiveCap: contact.autoSendDailyCap,
-    verificationStatus: contact.emailVerificationStatus,
-  });
-
-  const handleApproveSend = async () => {
-    if (!contact.loopId) {
-      toast({
-        title: "No loop context",
-        description: "This contact isn't linked to a Loop. Send manually from Gmail.",
-        variant: "destructive",
-      });
-      return;
-    }
-    setSendingApproval(true);
-    try {
-      const result = await approveContactSend(contact.loopId, contact.id);
-      // Only mention warmup progress when the Loop actually has a warmup
-      // gate configured. Default is 0 (no warmup), in which case "Sent" is
-      // the whole story — saying "auto-send is now unlocked" implies it
-      // wasn't before, which isn't true.
-      const hasWarmup = result.autoSendApprovedAfter > 0;
-      toast({
-        title: "Sent",
-        description: hasWarmup
-          ? (result.firstNSatisfied
-              ? "Auto-send is now unlocked for this Loop."
-              : `${result.autoSendApprovedCount} of ${result.autoSendApprovedAfter} approvals so far.`)
-          : undefined,
-      });
-    } catch (e: any) {
-      // The route returns 422 { error: "gate_denied", reason, effective_cap }
-      // on a deeper denial (e.g. daily cap hit before the click landed).
-      const reason = e?.body?.reason || e?.reason || null;
-      const denial = reason ? describeAutoSendPause(reason) : null;
-      toast({
-        title: denial?.label || "Couldn't send",
-        description: denial?.detail || (e instanceof Error ? e.message : "Unknown error"),
-        variant: "destructive",
-      });
-    } finally {
-      setSendingApproval(false);
-    }
-  };
 
   const copyEmail = async () => {
     try {
@@ -179,50 +123,6 @@ export function ConversationPanel({
           <p className="text-xs text-gray-500">
             Sent on {formatDate(contact.emailSentAt)}
           </p>
-        )}
-
-        {/* 1c. Auto-send pause card — Phase 9. Visible whenever the cycle's
-            send gate denied; CTA depends on the reason. The pill in the
-            list view is read-only; the actionable button lives here. */}
-        {pause && (
-          <div
-            className="rounded-[3px] border p-3"
-            style={{
-              background: "rgba(217,119,6,0.06)",
-              borderColor: "rgba(217,119,6,0.25)",
-            }}
-          >
-            <div className="flex items-start gap-3">
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#B45309" }}>
-                  Auto-send paused
-                </p>
-                <p className="text-sm font-medium text-gray-900 mt-0.5">{pause.label}</p>
-                {pause.detail && (
-                  <p className="text-xs text-gray-600 mt-1 leading-relaxed">{pause.detail}</p>
-                )}
-              </div>
-              {pause.cta === "connect_gmail" && (
-                <button
-                  onClick={() => navigate("/account-settings")}
-                  className="flex-shrink-0 text-xs font-medium px-3 py-1.5 rounded-[3px] text-white"
-                  style={{ background: "#B45309" }}
-                >
-                  Connect Gmail
-                </button>
-              )}
-              {(pause.cta === "send_now" || pause.cta === "send_anyway") && (
-                <button
-                  onClick={handleApproveSend}
-                  disabled={sendingApproval}
-                  className="flex-shrink-0 text-xs font-medium px-3 py-1.5 rounded-[3px] text-white disabled:opacity-60"
-                  style={{ background: "#B45309" }}
-                >
-                  {sendingApproval ? "Sending…" : pause.cta === "send_now" ? "Send now" : "Send anyway"}
-                </button>
-              )}
-            </div>
-          </div>
         )}
 
         {/* 2. AI Summary */}

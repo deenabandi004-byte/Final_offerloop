@@ -11,8 +11,6 @@ export const TIER_CONFIGS = {
     coffeeChat: true,
     timeSavedMinutes: 200,
     usesResume: false,
-    // Phase 9 — Loop auto-send. Free never auto-sends.
-    maxAutoSendsPerDay: 0,
   },
   pro: {
     maxContacts: 8,
@@ -23,18 +21,16 @@ export const TIER_CONFIGS = {
     coffeeChat: true,
     timeSavedMinutes: 1200,
     usesResume: true,
-    maxAutoSendsPerDay: 25,
   },
   elite: {
-    maxContacts: 15,
+    maxContacts: 30,
     minContacts: 1,
     name: "Search Elite Plan Tier",
     credits: 12000,
-    description: "Full access - up to 15 contacts + All premium features",
+    description: "Full access - up to 30 contacts + All premium features",
     coffeeChat: true,
     timeSavedMinutes: 5000,
     usesResume: true,
-    maxAutoSendsPerDay: 75,
   },
 } as const;
 

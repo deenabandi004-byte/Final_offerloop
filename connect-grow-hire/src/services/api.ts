@@ -1,5 +1,6 @@
 // src/services/api.ts
 import { auth } from '../lib/firebase';
+import type { OutreachMode } from '../utils/featureAccess';
 
 export const BACKEND_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/api\/?$/, '') ||
@@ -221,6 +222,12 @@ export interface DraftCreated {
   draft_url: string;
 }
 
+export interface SentEmail {
+  recruiter_email: string;
+  message_id?: string;
+  thread_id?: string;
+}
+
 export interface FindRecruiterResponse {
   recruiters: Recruiter[];
   emails?: RecruiterEmail[];
@@ -238,18 +245,14 @@ export interface FindRecruiterResponse {
   creditsNeededForMore?: number;
   message?: string;
   error?: string;
-  // Phase 6 (June 2026): trust-boundary cache id for the unified
-  // referral-draft workflow. The SPA passes this back to
-  // /referral-draft/from-find-recruiter so the server can re-look up the
-  // chosen recruiter from `users/{uid}/recruiter_cache/{searchId}` without
-  // trusting client-sent contact fields. 60-min TTL.
-  searchId?: string;
 }
 
 export interface FindHiringManagerResponse {
   hiringManagers: Recruiter[];  // Reuse Recruiter interface (same structure)
   emails?: RecruiterEmail[];
   draftsCreated?: DraftCreated[];
+  sentEmails?: SentEmail[];  // Present in send mode
+  mode?: OutreachMode;  // Server-resolved outreach mode
   jobTypeDetected: string;
   companyCleaned: string;
   totalFound: number;
@@ -374,14 +377,6 @@ export interface OutboxThread {
   // True when a draft has been in draft_created state > 24h with no matched
   // Gmail thread (webhook silent-drop). UI should nudge the user to Refresh.
   needsManualSync?: boolean;
-  // Phase 9 — auto-send. loopId is stamped by agent_actions; the others
-  // are written by _try_auto_send when the send gate denies. Tracker UI
-  // reads these to render the pause pill + "Send anyway" action.
-  loopId?: string | null;
-  autoSendPausedReason?: string | null;
-  autoSendDailyCap?: number | null;
-  autoSendError?: string | null;
-  emailVerificationStatus?: "valid" | "invalid" | "unknown" | "risky" | string | null;
   // Legacy aliases — used by Outbox.tsx and Dashboard.tsx until migrated
   contactName?: string;
   jobTitle?: string;
@@ -739,28 +734,6 @@ export interface FeedJob {
   match_score: number | null;
   match_reason: string | null;
   match_signals?: string[];
-  // Phase 2: stable badge codes from the backend signal loader. Used to
-  // render dedicated chips (⭐ dream, 🎓 alumni) without parsing prose.
-  match_badges?: Array<
-    | "dream_company"
-    | "target_company"
-    | "alumni_at_company"
-    | "saved_company_affinity"
-  >;
-  // Phase 4: top-level deadline written by the Perplexity extractor for
-  // cycle-driven jobs (consulting/IB/quant). Either an ISO date string
-  // (YYYY-MM-DD), the literal "rolling", or absent. Posting-explicit
-  // deadlines extracted by Firecrawl live on `structured.application_deadline`.
-  application_deadline?: string | null;
-  // Phase 5: best saved contact at this job's company. Set when the user
-  // has at least one alumni at the company in their contacts subcollection.
-  // Drives the "Reach out to {Name}" CTA.
-  referral_contact?: {
-    contact_id: string;
-    name: string;
-    title?: string;
-    has_email?: boolean;
-  } | null;
   ranked: boolean;
   structured?: JobStructured;
 }
@@ -774,6 +747,8 @@ export interface SavedJob {
   match_score?: number;
   status?: string;
   saved_at?: string;
+  applied_at?: string;
+  logo_url?: string;
 }
 
 export interface JobFeedSummary {
@@ -1286,16 +1261,37 @@ class ApiService {
    * Prompt-based contact search (new endpoint). Same response shape as free-run plus parsed_query.
    * Works for all tiers; batchSize is capped by tier on backend.
    */
-  async runPromptSearch(data: { prompt: string; batchSize: number; emailTemplate?: EmailTemplate | null }): Promise<SearchResult> {
+  async runPromptSearch(data: { prompt: string; batchSize: number; emailTemplate?: EmailTemplate | null; mode?: OutreachMode }): Promise<SearchResult> {
     const headers = await this.getAuthHeaders();
     const payload: Record<string, unknown> = { prompt: data.prompt.trim(), batchSize: data.batchSize };
     if (data.emailTemplate && hasEmailTemplateValues(data.emailTemplate)) {
       payload.emailTemplate = data.emailTemplate;
     }
+    if (data.mode) {
+      // Outreach mode: "preview" (contacts only), "draft" (default), "send".
+      // The backend re-validates this against the user tier and is the source
+      // of truth, so a tampered value cannot unlock a higher mode.
+      payload.mode = data.mode;
+    }
     return this.makeRequest<SearchResult>('/prompt-search', {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+    });
+  }
+
+  /**
+   * Send a Gmail draft that was created server-side during a search.
+   * Used by the Find-page draft review row's "Send" button. Returns
+   * { success, messageId, threadId } on success; { success: false,
+   * error: "draft_not_found" } (HTTP 410) if the draft was already sent
+   * or no longer exists — the UI should still flip to "Sent" in that case.
+   */
+  async sendDraft(draftId: string): Promise<{ success: boolean; messageId?: string; threadId?: string; error?: string; message?: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest(`/emails/send-draft/${encodeURIComponent(draftId)}`, {
+      method: 'POST',
+      headers,
     });
   }
 
@@ -1947,6 +1943,34 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
     );
   }
 
+  async listAppliedJobs(): Promise<{ applied: SavedJob[]; count: number }> {
+    return this.makeRequest<{ applied: SavedJob[]; count: number }>('/job-board/applied-jobs', {
+      method: 'GET',
+      headers: await this.getAuthHeaders(),
+    });
+  }
+
+  async markJobApplied(job: SavedJob): Promise<{ success: boolean; job_id: string }> {
+    return this.makeRequest<{ success: boolean; job_id: string }>('/job-board/applied-jobs', {
+      method: 'POST',
+      headers: {
+        ...await this.getAuthHeaders(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(job),
+    });
+  }
+
+  async unmarkJobApplied(jobId: string): Promise<{ success: boolean; job_id: string }> {
+    return this.makeRequest<{ success: boolean; job_id: string }>(
+      `/job-board/applied-jobs/${encodeURIComponent(jobId)}`,
+      {
+        method: 'DELETE',
+        headers: await this.getAuthHeaders(),
+      }
+    );
+  }
+
   /**
    * Update user profile fields that affect job-board personalization.
    * Backend filters BLOCKED_FIELDS and detects intent changes for cache invalidation.
@@ -2097,8 +2121,9 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
     location?: string;
     jobUrl?: string;
     maxResults?: number;
-    generateEmails?: boolean;
-    createDrafts?: boolean;
+    generateEmails?: boolean;  // Legacy: superseded by mode, kept for compat
+    createDrafts?: boolean;    // Legacy: superseded by mode, kept for compat
+    mode?: OutreachMode;       // preview | draft | send (server re-validates vs tier)
   }): Promise<FindHiringManagerResponse> {
     const headers = await this.getAuthHeaders();
     return this.makeRequest<FindHiringManagerResponse>(
@@ -2127,259 +2152,6 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
         }),
       }
     );
-  }
-
-  /**
-   * Phase 5 quality lift — generate a referral outreach draft for a saved
-   * contact at a job's company. The backend pulls coffee-chat prep notes,
-   * recent activity, and JD/resume overlap, then drafts a two-step
-   * conversation-starter email and creates a Gmail draft. Returns the
-   * Gmail URL for the SPA to open in a new tab.
-   *
-   * Falls back to ok:true with gmailUrl:null when Gmail isn't connected —
-   * caller can show subject/body for copy-paste in that case.
-   */
-  async draftReferralEmail(params: {
-    contact_id: string;
-    job: {
-      job_id?: string;
-      title?: string;
-      company: string;
-      location?: string;
-      description?: string;
-      structured?: unknown;
-      apply_url?: string;
-    };
-  }): Promise<{
-    ok: boolean;
-    gmailUrl?: string | null;
-    draftId?: string | null;
-    subject?: string;
-    body?: string;
-    cached?: boolean;
-    context_used?: {
-      has_coffee_chat_prep?: boolean;
-      has_recent_activity?: boolean;
-      has_prior_thread?: boolean;
-      overlap_count?: number;
-      relationship?: "strong" | "moderate" | "weak";
-      quality_issues?: string[];
-    };
-    error?: string;
-  }> {
-    const headers = await this.getAuthHeaders();
-    return this.makeRequest(
-      '/job-board/referral-draft',
-      {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(params),
-      }
-    );
-  }
-
-  /**
-   * Phase 5 step 2 — create the Gmail draft from user-edited text.
-   * Called after the student reviews/edits the LLM output in the preview
-   * modal. Trusts whatever subject/body is submitted (no regeneration).
-   * Returns the Gmail URL for the SPA to open.
-   */
-  async commitReferralDraft(params: {
-    contact_id: string;
-    subject: string;
-    body: string;
-  }): Promise<{
-    ok: boolean;
-    gmailUrl?: string | null;
-    draftId?: string | null;
-    subject?: string;
-    body?: string;
-    error?: string;
-  }> {
-    const headers = await this.getAuthHeaders();
-    return this.makeRequest(
-      '/job-board/referral-draft/commit',
-      {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(params),
-      }
-    );
-  }
-
-  /**
-   * Discover alumni at a company for the referral CTA when the student
-   * has no saved contact at that company. Feature-flagged behind
-   * DISCOVER_ALUMNI_ENABLED on the backend — when off, every call here
-   * returns 404 and the JobBoardPage hides the CTA.
-   *
-   * Charges up to N PDL credits where N is the tier max (Free 3 / Pro 5 /
-   * Elite 8). Cache hits (60-min discovery_cache or PDL pdl_search_cache)
-   * cost 0.
-   */
-  async discoverAlumniForJob(params: {
-    job_id: string;
-    company: string;
-    title?: string;
-    allow_drop_title?: boolean;
-    allow_no_school_fallback?: boolean;
-  }): Promise<{
-    contacts: Array<{
-      pdl_id: string;
-      first_name: string;
-      last_name: string;
-      title: string;
-      company: string;
-      school: string;
-      linkedin_url: string;
-      email: string;
-      email_available: boolean;
-      relationship: 'moderate' | 'weak';
-      match_strength: 'strong' | 'moderate' | 'weak';
-      match_reasons: string[];
-      matched_on: string[];
-    }>;
-    credits_used: number;
-    cache_hit: boolean | 'negative';
-    rung: 'school+company+title' | 'school+company' | 'no-alumni-fallback' | 'empty';
-    tier_max: number;
-    partial: boolean;
-    code?: 'no_school' | 'no_title' | 'no_company' | 'no_job_id' | 'pdl_timeout';
-  }> {
-    const headers = await this.getAuthHeaders();
-    return this.makeRequest(
-      '/job-board/discover-alumni',
-      {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(params),
-      }
-    );
-  }
-
-  /**
-   * Persist a discovered alum into the user's contacts (dedup by identity
-   * key) and produce a referral draft via the same pipeline the saved-
-   * contact CTA uses. Server re-reads the contact from
-   * users/{uid}/discovery_cache/{job_id} — only `pdl_id` is trusted from
-   * the client, so a forged payload can't poison the LLM prompt or save
-   * arbitrary fields.
-   *
-   * 410 with code "discovery_expired" means the 60-min cache expired
-   * mid-flow — the SPA should re-run discovery.
-   */
-  async draftReferralFromDiscovery(params: {
-    job_id: string;
-    pdl_id: string;
-    job: {
-      job_id?: string;
-      title?: string;
-      company: string;
-      location?: string;
-      description?: string;
-      structured?: unknown;
-      apply_url?: string;
-    };
-  }): Promise<{
-    ok: boolean;
-    contact_id?: string;
-    was_new?: boolean;
-    subject?: string;
-    body?: string;
-    cached?: boolean;
-    relationship?: 'strong' | 'moderate' | 'weak';
-    context_used?: {
-      has_coffee_chat_prep?: boolean;
-      has_recent_activity?: boolean;
-      overlap_count?: number;
-      two_step_framing?: boolean;
-    };
-    error?: string;
-    code?: 'discovery_expired' | 'pdl_id_not_in_cache' | 'no_company';
-  }> {
-    const headers = await this.getAuthHeaders();
-    return this.makeRequest(
-      '/job-board/referral-draft/from-discovery',
-      {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(params),
-      }
-    );
-  }
-
-  /**
-   * Batch-load the user's "no alumni at {company}" negative cache. Called
-   * ONCE on JobBoardPage mount so the JobRow CTA can branch into the
-   * disabled "Already checked — no alumni" state without N reads per row.
-   *
-   * 7-day TTL per entry. Empty list when the feature flag is off (404
-   * passthrough) — the SPA treats that as "no flagged companies".
-   */
-  /**
-   * Persist a "Find the Connection" recruiter into the user's contacts
-   * (dedup by identity_key) and produce a referral draft via the same
-   * `build_referral_draft` pipeline the saved-contact and alumni paths
-   * use. Server re-reads the recruiter from
-   * `users/{uid}/recruiter_cache/{searchId}` — only `(search_id,
-   * recruiter_email)` is trusted from the client.
-   *
-   * 410 with code "recruiter_cache_expired" means the 60-min cache rolled
-   * over mid-flow — the SPA should re-run /find-recruiter.
-   */
-  async draftReferralFromFindRecruiter(params: {
-    search_id: string;
-    recruiter_email: string;
-    job: {
-      job_id?: string;
-      title?: string;
-      company: string;
-      location?: string;
-      description?: string;
-      structured?: unknown;
-      apply_url?: string;
-    };
-  }): Promise<{
-    ok: boolean;
-    contact_id?: string;
-    was_new?: boolean;
-    subject?: string;
-    body?: string;
-    cached?: boolean;
-    relationship?: 'strong' | 'moderate' | 'weak';
-    context_used?: {
-      has_coffee_chat_prep?: boolean;
-      has_recent_activity?: boolean;
-      overlap_count?: number;
-      two_step_framing?: boolean;
-    };
-    error?: string;
-    code?: 'recruiter_cache_expired' | 'recruiter_email_not_in_cache' | 'no_company';
-  }> {
-    const headers = await this.getAuthHeaders();
-    return this.makeRequest(
-      '/job-board/referral-draft/from-find-recruiter',
-      {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(params),
-      }
-    );
-  }
-
-  async getDiscoveryNegativeCache(): Promise<{ companies: string[]; enabled: boolean }> {
-    const headers = await this.getAuthHeaders();
-    try {
-      const res = await this.makeRequest<{ companies: string[] }>(
-        '/job-board/discovery-negative-cache',
-        { method: 'GET', headers },
-      );
-      return { companies: res?.companies ?? [], enabled: true };
-    } catch {
-      // 404 when feature flag is off — distinguish from "enabled but no
-      // entries" so JobBoardPage can hide the "Find alumni" CTA entirely.
-      return { companies: [], enabled: false };
-    }
   }
 
   async generateCoverLetter(params: GenerateCoverLetterRequest): Promise<GenerateCoverLetterResponse> {

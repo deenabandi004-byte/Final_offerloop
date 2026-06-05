@@ -34,7 +34,7 @@ import {
   SCOUT_SEARCH_COMPLETED_EVENT,
   type ScoutSearchCompletedDetail,
 } from '@/lib/scoutBridge';
-import ScoutWavingWhite from '@/assets/ScoutWavingWhite.mp4';
+import ScoutYetiHead from '@/assets/scouts/scout-yeti-head.png';
 import { BACKEND_URL } from '@/services/api';
 import {
   listScoutChats,
@@ -585,7 +585,7 @@ export function ScoutSidePanel() {
               {isLoadingSearchHelp ? (
                 <div className="flex flex-col items-center justify-center min-h-[300px]">
                   <div className="w-12 h-12 rounded-full bg-[#FFF7EA] flex items-center justify-center mb-4 overflow-hidden">
-                    <video src={ScoutWavingWhite} autoPlay loop muted playsInline className="w-full h-full object-cover" style={{ transform: 'scale(1.05)' }} />
+                    <img src={ScoutYetiHead} alt="" className="w-full h-full object-contain" />
                   </div>
                   <div className="flex items-center gap-2 text-gray-500">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -596,7 +596,7 @@ export function ScoutSidePanel() {
                 <div className="space-y-4">
                   <div className="flex gap-3">
                     <div className="w-7 h-7 rounded-full bg-[#FFF7EA] flex-shrink-0 flex items-center justify-center overflow-hidden">
-                      <video src={ScoutWavingWhite} autoPlay loop muted playsInline className="w-full h-full object-cover" style={{ transform: 'scale(1.05)' }} />
+                      <img src={ScoutYetiHead} alt="" className="w-full h-full object-contain" />
                     </div>
                     <div className="flex-1 max-w-[85%]">
                       <div className="bg-gray-100 rounded-3xl rounded-bl-md px-4 py-2.5">
@@ -793,12 +793,12 @@ export function ScoutSidePanel() {
                     <div className="flex flex-col">
                       <div className="flex justify-center mb-6 pt-4">
                         <div className="w-14 h-14 rounded-full bg-[#FFF7EA] flex items-center justify-center overflow-hidden">
-                          <video src={ScoutWavingWhite} autoPlay loop muted playsInline className="w-full h-full object-cover" style={{ transform: 'scale(1.05)' }} />
+                          <img src={ScoutYetiHead} alt="" className="w-full h-full object-contain" />
                         </div>
                       </div>
                       <div className="flex gap-3 mb-5">
                         <div className="w-7 h-7 rounded-full bg-[#FFF7EA] flex-shrink-0 flex items-center justify-center overflow-hidden">
-                          <video src={ScoutWavingWhite} autoPlay loop muted playsInline className="w-full h-full object-cover" style={{ transform: 'scale(1.05)' }} />
+                          <img src={ScoutYetiHead} alt="" className="w-full h-full object-contain" />
                         </div>
                         <div className="max-w-[85%]">
                           <div className="bg-gray-100 rounded-3xl rounded-bl-md px-4 py-2.5">
@@ -852,7 +852,7 @@ export function ScoutSidePanel() {
                             {message.role === 'assistant' ? (
                               <div className="flex gap-3 max-w-[85%]">
                                 <div className="w-7 h-7 rounded-full bg-[#FFF7EA] flex-shrink-0 flex items-center justify-center overflow-hidden">
-                                  <video src={ScoutWavingWhite} autoPlay loop muted playsInline className="w-full h-full object-cover" style={{ transform: 'scale(1.05)' }} />
+                                  <img src={ScoutYetiHead} alt="" className="w-full h-full object-contain" />
                                 </div>
                                 <div className="flex flex-col gap-1.5">
                                   {/* Mode receipt pill above the response */}
@@ -933,7 +933,7 @@ export function ScoutSidePanel() {
                       {isLoading && !messages.some((m) => m.isStreaming && (m.content || (m.toolEvents && m.toolEvents.length > 0))) && (
                         <div className="flex gap-3">
                           <div className="w-7 h-7 rounded-full bg-[#FFF7EA] flex-shrink-0 flex items-center justify-center overflow-hidden">
-                            <video src={ScoutWavingWhite} autoPlay loop muted playsInline className="w-full h-full object-cover" style={{ transform: 'scale(1.05)' }} />
+                            <img src={ScoutYetiHead} alt="" className="w-full h-full object-contain" />
                           </div>
                           <div className="inline-flex items-center gap-2 rounded-full border border-[var(--brand-border)] bg-[var(--brand-bg-surface)] px-2.5 py-1 text-xs text-[var(--brand-ink-secondary)]">
                             <Loader2 className="h-3 w-3 animate-spin text-[var(--brand-blue)]" />
