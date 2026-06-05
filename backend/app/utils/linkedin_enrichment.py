@@ -215,9 +215,6 @@ def _try_firecrawl(url):
 def _try_apify(url: str) -> tuple[dict | None, str]:
     """Try Apify HarvestAPI for user LinkedIn enrichment (D9 onboarding path).
 
-    Gated by ENABLE_APIFY_USER_LINKEDIN so we can ship the path off-by-default
-    and ramp gradually. When the flag is off this function is never called.
-
     Returns (raw_data, "apify") on success; (None, "") on any failure so the
     caller's tier loop falls through to PDL.
     """
@@ -246,21 +243,14 @@ def get_enrichment_tiers(prefer_scrape: bool = False):
     Return the ordered list of tier functions for LinkedIn enrichment.
     Each tier function takes a normalized URL and returns (raw_data, source).
     Exposed so callers can loop through and validate the LLM-structured output
-    of each tier, falling through if a tier returns content the LLM can't parse
-    (e.g. a LinkedIn login wall served to Jina).
+    of each tier, falling through if a tier returns content the LLM can't parse.
 
-    When ENABLE_APIFY_USER_LINKEDIN is set, user-LinkedIn onboarding uses an
-    Apify-first chain with PDL as the only fallback (Firecrawl is policy-
-    blocked from LinkedIn, Bright Data was too expensive and broken). The
-    contact-search path (prefer_scrape=False) is unaffected.
+    User-LinkedIn onboarding (prefer_scrape=True) uses Apify -> PDL: Firecrawl
+    is policy-blocked from LinkedIn and Bright Data was both expensive and
+    broken. The contact-search path (prefer_scrape=False) is unaffected.
     """
     if prefer_scrape:
-        if os.getenv("ENABLE_APIFY_USER_LINKEDIN"):
-            return [_try_apify, _try_pdl]
-        chain = [_try_firecrawl, _try_brightdata, _try_pdl]
-        if os.getenv("ENABLE_JINA_FALLBACK"):
-            chain.insert(1, _try_jina)
-        return chain
+        return [_try_apify, _try_pdl]
     return [_try_pdl, _try_brightdata]
 
 

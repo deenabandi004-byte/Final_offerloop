@@ -587,12 +587,15 @@ export function ScoutSidePanel() {
       />
 
       {/* Panel. Chat mode is wider to accommodate the persisted-chat sidebar
-          (Phase 5 Stage 3); search-help mode keeps the legacy width. */}
+          AND briefing prose with deep-link URLs that don't wrap mid-token.
+          Search-help mode keeps the legacy width. */}
       <div
         ref={panelRef}
         className={
           'fixed right-0 top-0 z-50 h-full w-full bg-white shadow-xl flex flex-col transform transition-transform duration-300 ease-out rounded-l-2xl ' +
-          (isSearchHelpMode ? 'sm:w-[420px]' : 'sm:w-[600px]')
+          (isSearchHelpMode
+            ? 'sm:w-[420px]'
+            : 'sm:w-[640px] md:w-[760px] lg:w-[860px]')
         }
         style={{ animation: 'slideIn 0.3s ease-out forwards' }}
         onClick={(e) => e.stopPropagation()}
@@ -940,7 +943,7 @@ export function ScoutSidePanel() {
                                   {message.content && (
                                     <div className="bg-gray-100 rounded-3xl rounded-bl-md px-4 py-2.5">
                                       <div
-                                        className="text-sm text-gray-900 leading-relaxed"
+                                        className="text-sm text-gray-900 leading-relaxed [overflow-wrap:anywhere] break-words"
                                         dangerouslySetInnerHTML={{ __html: formatMessage(message.content) }}
                                       />
                                       {/* Phase 4B (E1): inline coverage gauge
