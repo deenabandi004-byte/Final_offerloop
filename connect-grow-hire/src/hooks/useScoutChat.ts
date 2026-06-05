@@ -136,6 +136,42 @@ export interface ScoutPlan {
   steps: ScoutPlanStep[];
 }
 
+/** Profile coverage report from the strategist briefing's `done` event
+ *  (Phase 3B). Drives the completeness gauge UI and the gap-callout chips. */
+export interface ScoutCoverage {
+  coverage_pct: number;
+  present_groups: string[];
+  gap_groups: string[];
+  has_critical_gap: boolean;
+  should_hide_gauge: boolean;
+  should_pivot_briefing: boolean;
+}
+
+/** One step inside a persisted strategy. Mirrors the D2 stored schema with
+ *  the additive E2 fields (rationale, prefill_payload, completed_at, etc.). */
+export interface ScoutActiveStrategyStep {
+  title: string;
+  detail?: string;
+  rationale?: string;
+  feature?: string;
+  route?: string | null;
+  prefill_payload?: Record<string, string>;
+  done: boolean;
+  completed_at?: string | null;
+  created_artifact_id?: string | null;
+}
+
+/** The user's currently-active multi-step strategy. Carried inside the
+ *  briefing `done` event so the active-strategy card in the panel header
+ *  can render with one round-trip. Null when the user has no strategy yet. */
+export interface ScoutActiveStrategy {
+  id: string;
+  goal: string;
+  steps: ScoutActiveStrategyStep[];
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
 /** Live tool-call pill (Change 1). One entry per helper-tool invocation in
  *  the turn. While running it renders as a pulsing pill with `label`; on
  *  completion it collapses to a chip showing `summary`, expandable to the
@@ -174,6 +210,9 @@ export interface ChatMessage {
   cta?: ScoutCta | null;
   plan?: ScoutPlan | null;
   toolEvents?: ScoutToolEvent[];
+  // Strategist briefing payload (Phase 3B). Set on briefing-* messages only.
+  coverage?: ScoutCoverage | null;
+  activeStrategy?: ScoutActiveStrategy | null;
 }
 
 export interface UseScoutChatReturn {
@@ -182,6 +221,11 @@ export interface UseScoutChatReturn {
   setInput: (value: string) => void;
   isLoading: boolean;
   sendMessage: (messageText?: string) => Promise<void>;
+  /** Trigger a strategist briefing (Phase 3B). Posts to /briefing/stream,
+   *  streams the response into a new assistant message. Returns true when a
+   *  terminal SSE event ('done' or 'error') was received. The "Get my game
+   *  plan" button calls this; auto-fire on first-chat-open does too. */
+  requestBriefing: () => Promise<boolean>;
   clearChat: () => void;
   messagesEndRef: React.RefObject<HTMLDivElement>;
   inputRef: React.RefObject<HTMLInputElement>;
@@ -671,6 +715,150 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
     ]);
   }, []);
 
+  // Strategist briefing (Phase 3B endpoint). Posts to /briefing/stream and
+  // streams the prose back as it generates. Bypasses Haiku and the chat
+  // history entirely - this is a fresh, profile-grounded plan, not a turn
+  // in an ongoing conversation. The UI in Phase 4B wires this to the
+  // "Get my game plan" button and the auto-fire on first-chat-open.
+  const requestBriefing = useCallback(async (): Promise<boolean> => {
+    if (isLoading) return false;
+    setIsLoading(true);
+
+    const token = await getToken();
+    const assistantId = `briefing-${Date.now()}`;
+
+    // Placeholder assistant message with isStreaming=true so the UI can show
+    // a skeleton + "Scout is putting together your plan..." pill. Same
+    // shape as the chat-stream placeholder so message rendering is shared.
+    setMessages(prev => [...prev, {
+      id: assistantId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date(),
+      isStreaming: true,
+      intent: 'briefing',
+    }]);
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/scout-assistant/briefing/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+        // Briefing payload is intentionally minimal: the backend reads user
+        // context from Firestore. Tier is the only thing we forward so the
+        // strategist prompt can cite the right contact-per-search cap
+        // without an extra Firestore round-trip on the backend.
+        body: JSON.stringify({
+          user_info: {
+            tier: user?.tier || 'free',
+            subscriptionTier: user?.tier || 'free',
+          },
+          current_page: currentPage,
+        }),
+      });
+
+      if (!response.ok || !response.body) {
+        setMessages(prev => prev.map(m => m.id === assistantId ? {
+          ...m,
+          content: "I couldn't put together your plan right now. Try again in a moment.",
+          isStreaming: false,
+          intent: null,
+        } : m));
+        return false;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let accumulatedText = '';
+      let receivedTerminal = false;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        let eventType = '';
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7).trim();
+          } else if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (eventType === 'token') {
+                accumulatedText += data.text || '';
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, content: accumulatedText, isStreaming: true }
+                    : m
+                ));
+              } else if (eventType === 'done') {
+                receivedTerminal = true;
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId ? {
+                    ...m,
+                    content: data.message || accumulatedText,
+                    isStreaming: false,
+                    intent: null,
+                    // Briefing payload extras (Phase 3B): gauge + strategy
+                    // card render straight off the message object so the UI
+                    // doesn't need a separate context fetch.
+                    coverage: (data.coverage as ScoutCoverage) || null,
+                    activeStrategy: (data.active_strategy as ScoutActiveStrategy) || null,
+                  } : m
+                ));
+              } else if (eventType === 'error') {
+                receivedTerminal = true;
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId ? {
+                    ...m,
+                    content: data.message || 'Briefing failed - try again.',
+                    isStreaming: false,
+                    intent: null,
+                  } : m
+                ));
+              } else if (eventType === 'heartbeat') {
+                // No-op: keeps the SSE connection warm past the 60s idle cap.
+              }
+            } catch {
+              // Skip malformed frames.
+            }
+            eventType = '';
+          }
+        }
+      }
+
+      if (!receivedTerminal) {
+        // Stream closed without a terminal event: most likely a transport
+        // hiccup. Show an explicit error rather than an empty bubble.
+        setMessages(prev => prev.map(m => m.id === assistantId ? {
+          ...m,
+          content: accumulatedText || "I couldn't finish your plan. Try again.",
+          isStreaming: false,
+          intent: null,
+        } : m));
+        return false;
+      }
+      return true;
+    } catch (error) {
+      console.error('[Scout] requestBriefing error:', error);
+      setMessages(prev => prev.map(m => m.id === assistantId ? {
+        ...m,
+        content: "I couldn't reach the briefing service. Check your connection and try again.",
+        isStreaming: false,
+        intent: null,
+      } : m));
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isLoading, user, currentPage]);
+
   return {
     messages,
     input,
@@ -685,6 +873,7 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
     loadChat,
     isLoadingChat,
     appendSyntheticAssistant,
+    requestBriefing,
   };
 }
 

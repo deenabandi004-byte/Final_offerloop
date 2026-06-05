@@ -16,6 +16,7 @@ import {
 } from "firebase/auth";
 import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
+import { BACKEND_URL } from "@/services/api";
 import posthog from "../lib/posthog";
 
 const getMonthKey = () => new Date().toISOString().slice(0, 7);
@@ -96,6 +97,24 @@ export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ childr
             console.log("[AUTH CONTEXT] Loading user data");
             await loadUserData(firebaseUser);
             console.log("🔐 [AUTH CONTEXT] User data loaded");
+            // D11 lazy backfill: fire-and-forget call to the sync endpoint.
+            // Backend gates on ENABLE_APIFY_USER_LINKEDIN + per-user flag +
+            // cooldown so a misfire here is just a no-op. Wrapped so a
+            // network error here does NOT block auth resolution.
+            void (async () => {
+              try {
+                const token = await firebaseUser.getIdToken();
+                await fetch(`${BACKEND_URL}/api/users/me/sync-linkedin`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                  },
+                });
+              } catch (e) {
+                console.log("[Apify Backfill] sync call failed (non-fatal):", e);
+              }
+            })();
           } else {
             console.log("🔐 [AUTH CONTEXT] No Firebase user, setting user state to null");
             setUser(null);

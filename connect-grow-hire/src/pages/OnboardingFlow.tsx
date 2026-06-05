@@ -85,6 +85,20 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
         } else {
           setLinkedinAcademics(null);
         }
+        // D9: same fallback toast as OnboardingProfile - the flow page can
+        // also be the entry point for users who skipped the standalone
+        // Profile step. Lazy-imported so it never appears in normal happy-path
+        // onboarding bundles.
+        if (result?.fallback_used) {
+          try {
+            const { toast } = await import("@/hooks/use-toast");
+            toast({
+              title: "LinkedIn enrichment using fallback",
+              description: "We'll refresh your profile data shortly.",
+              duration: 5000,
+            });
+          } catch {}
+        }
       } catch {
         setLinkedinAcademics(null);
       } finally {

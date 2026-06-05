@@ -16,7 +16,10 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { X, Send, Loader2, Trash2, MessageSquarePlus, History, Lock } from 'lucide-react';
 import { useScout, SearchHelpResponse } from '@/contexts/ScoutContext';
-import { useScoutChat, formatMessage, type ScoutNavigate, type ScoutMode, type ScoutCta, type ScoutPlanStep } from '@/hooks/useScoutChat';
+import { useScoutChat, formatMessage, type ScoutNavigate, type ScoutMode, type ScoutCta, type ScoutPlanStep, type ScoutActiveStrategy } from '@/hooks/useScoutChat';
+import { BriefingButton } from '@/components/scout/BriefingButton';
+import { CompletenessGauge } from '@/components/scout/CompletenessGauge';
+import { ActiveStrategyCard } from '@/components/scout/ActiveStrategyCard';
 import { SUGGESTED_QUESTIONS, SCOUT_CHIPS_BY_PAGE } from '@/data/scout-knowledge';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
 import { toast } from '@/hooks/use-toast';
@@ -145,7 +148,54 @@ export function ScoutSidePanel() {
     loadChat,
     isLoadingChat,
     appendSyntheticAssistant,
+    requestBriefing,
   } = useScoutChat(location.pathname);
+
+  // Phase 4B auto-fire: when the user opens Scout for the very first time
+  // (no prior briefing flagged in localStorage AND a fresh chat with zero
+  // messages), kick off the strategist briefing once so they land on a
+  // profile-grounded plan, not an empty state. Manual button always works
+  // regardless of the flag and never resets it. Per-uid key so two users on
+  // the same machine each get their own first-time experience.
+  const briefingShownKey = user?.uid
+    ? `scout_briefing_shown_${user.uid}`
+    : null;
+  const briefingAutoFiredRef = useRef(false);
+  useEffect(() => {
+    if (!isPanelOpen) return;
+    if (!briefingShownKey) return;
+    if (isLoading || isLoadingChat) return;
+    if (messages.length > 0) return;
+    if (briefingAutoFiredRef.current) return;
+    try {
+      if (localStorage.getItem(briefingShownKey) === '1') return;
+    } catch {
+      // Storage disabled; fall back to once-per-session.
+    }
+    briefingAutoFiredRef.current = true;
+    void (async () => {
+      const ok = await requestBriefing();
+      if (ok) {
+        try {
+          localStorage.setItem(briefingShownKey, '1');
+        } catch {
+          // Best-effort; not worth surfacing.
+        }
+      }
+    })();
+  }, [isPanelOpen, briefingShownKey, isLoading, isLoadingChat, messages.length, requestBriefing]);
+
+  // The most-recent message carrying an active_strategy payload becomes the
+  // source for the header card. Looking at messages in reverse so a fresh
+  // briefing supersedes an older one without us tracking strategy state
+  // separately.
+  const activeStrategy: ScoutActiveStrategy | null = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const s = messages[i]?.activeStrategy;
+      if (s) return s;
+    }
+    return null;
+  })();
 
   // -------------------------------------------------------------------------
   // Sidebar (Phase 5 Stage 3): persisted chat history
@@ -786,6 +836,13 @@ export function ScoutSidePanel() {
 
               {/* Chat column */}
               <div className="flex-1 flex flex-col overflow-hidden">
+              {/* Phase 4B (D2-A): persistent active-strategy card lives in
+                  the chat column header so step progress is always-on context
+                  while the user scrolls older messages. Hidden when there is
+                  no strategy yet, so the empty-state hero is uncluttered. */}
+              {activeStrategy && (
+                <ActiveStrategyCard strategy={activeStrategy} />
+              )}
               <div className="flex-1 overflow-y-auto">
                 <div className="px-5 py-4">
                   {/* Empty state */}
@@ -807,6 +864,15 @@ export function ScoutSidePanel() {
                             </p>
                           </div>
                         </div>
+                      </div>
+                      {/* Phase 4B: primary briefing CTA above the suggested
+                          chips. Auto-fires once for new users via the effect
+                          above; this button is the manual re-fire path. */}
+                      <div className="ml-10 mb-3">
+                        <BriefingButton
+                          onClick={() => void requestBriefing()}
+                          isLoading={isLoading}
+                        />
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 ml-10">
                         {(SCOUT_CHIPS_BY_PAGE[location.pathname] ?? SUGGESTED_QUESTIONS).map((question, idx) => (
@@ -877,6 +943,13 @@ export function ScoutSidePanel() {
                                         className="text-sm text-gray-900 leading-relaxed"
                                         dangerouslySetInnerHTML={{ __html: formatMessage(message.content) }}
                                       />
+                                      {/* Phase 4B (E1): inline coverage gauge
+                                          on briefing messages. The component
+                                          self-hides above 90% so finished
+                                          profiles don't see ambient noise. */}
+                                      {message.coverage && !message.isStreaming && (
+                                        <CompletenessGauge coverage={message.coverage} />
+                                      )}
                                     </div>
                                   )}
                                   {/* Live tool pills (still running) - shown
