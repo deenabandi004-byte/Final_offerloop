@@ -17,6 +17,7 @@ interface ProtoDetailHeaderProps {
   isBookmarked: boolean;
   onToggleBookmark: () => void;
   onArchive: () => void;
+  onUnarchive?: () => void;
 }
 
 export function ProtoDetailHeader({
@@ -24,7 +25,9 @@ export function ProtoDetailHeader({
   isBookmarked,
   onToggleBookmark,
   onArchive,
+  onUnarchive,
 }: ProtoDetailHeaderProps) {
+  const isArchived = !!contact.archivedAt;
   const linkedinHref = contact.linkedinUrl
     ? (contact.linkedinUrl.startsWith("http") ? contact.linkedinUrl : `https://${contact.linkedinUrl}`)
     : null;
@@ -71,11 +74,27 @@ export function ProtoDetailHeader({
             <path d="M12.8333 14.5L8.16667 11.8333L3.5 14.5V3.83333C3.5 3.47971 3.64048 3.14057 3.89052 2.89052C4.14057 2.64048 4.47971 2.5 4.83333 2.5H11.5C11.8536 2.5 12.1928 2.64048 12.4428 2.89052C12.6929 3.14057 12.8333 3.47971 12.8333 3.83333V14.5Z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
-        <button type="button" className="icon-btn" aria-label="Archive" onClick={onArchive}>
-          <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M2.83333 5.83333V13.1667C2.83333 13.5203 2.97381 13.8594 3.22386 14.1095C3.47391 14.3595 3.81304 14.5 4.16667 14.5H12.1667C12.5203 14.5 12.8594 14.3595 13.1095 14.1095C13.3595 13.8594 13.5 13.5203 13.5 13.1667V5.83333M6.83333 8.5H9.5M2.16667 2.5H14.1667C14.5349 2.5 14.8333 2.79848 14.8333 3.16667V5.16667C14.8333 5.53486 14.5349 5.83333 14.1667 5.83333H2.16667C1.79848 5.83333 1.5 5.53486 1.5 5.16667V3.16667C1.5 2.79848 1.79848 2.5 2.16667 2.5Z" stroke="#767676" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
+        {isArchived ? (
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="Unarchive"
+            title="Restore to active list"
+            onClick={onUnarchive}
+          >
+            {/* Up-arrow-out-of-box: visually distinct from the down-into-box archive icon */}
+            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M2.83333 5.83333V13.1667C2.83333 13.5203 2.97381 13.8594 3.22386 14.1095C3.47391 14.3595 3.81304 14.5 4.16667 14.5H12.1667C12.5203 14.5 12.8594 14.3595 13.1095 14.1095C13.3595 13.8594 13.5 13.5203 13.5 13.1667V5.83333M2.16667 2.5H14.1667C14.5349 2.5 14.8333 2.79848 14.8333 3.16667V5.16667C14.8333 5.53486 14.5349 5.83333 14.1667 5.83333H2.16667C1.79848 5.83333 1.5 5.53486 1.5 5.16667V3.16667C1.5 2.79848 1.79848 2.5 2.16667 2.5Z" stroke="#3B7A57" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M8.16 11.5V8M8.16 8L6.5 9.5M8.16 8L9.83 9.5" stroke="#3B7A57" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        ) : (
+          <button type="button" className="icon-btn" aria-label="Archive" onClick={onArchive}>
+            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M2.83333 5.83333V13.1667C2.83333 13.5203 2.97381 13.8594 3.22386 14.1095C3.47391 14.3595 3.81304 14.5 4.16667 14.5H12.1667C12.5203 14.5 12.8594 14.3595 13.1095 14.1095C13.3595 13.8594 13.5 13.5203 13.5 13.1667V5.83333M6.83333 8.5H9.5M2.16667 2.5H14.1667C14.5349 2.5 14.8333 2.79848 14.8333 3.16667V5.16667C14.8333 5.53486 14.5349 5.83333 14.1667 5.83333H2.16667C1.79848 5.83333 1.5 5.53486 1.5 5.16667V3.16667C1.5 2.79848 1.79848 2.5 2.16667 2.5Z" stroke="#767676" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        )}
       </div>
     </div>
   );

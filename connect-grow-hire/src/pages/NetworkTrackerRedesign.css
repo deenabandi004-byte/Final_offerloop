@@ -437,27 +437,8 @@
    to the page rather than reading as grey placeholders. The CompanyLogo
    component swaps the background to white inline while an img is showing
    so logos with light-on-light artwork stay legible. */
-.tracker-redesign .company-logo-tile {
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  background: var(--primary-100);
-  color: var(--primary);
-  font-size: 13px;
-  font-weight: 600;
-  flex-shrink: 0;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-}
-.tracker-redesign .company-logo-tile img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  display: block;
-}
+/* Company-logo styling lives on the canonical <CompanyLogo size={32} rounded={6} />
+   component (src/components/CompanyLogo.tsx) — no tracker-local override needed. */
 
 /* Contact card */
 .tracker-redesign .contact-card {
@@ -517,26 +498,11 @@
   white-space: nowrap;
   min-width: 0;
 }
-/* Inline 16x16 logo tile in the people-card role line. hideWhenMonogram is
-   set on the people-card use of CompanyLogo, so a chain miss renders null
-   rather than a letter tile sitting next to the company name text. */
+/* Small breathing room between the inline 16px <CompanyLogo /> and the
+   company name text beside it in the people-card role line. */
 .tracker-redesign .contact-role-logo {
-  width: 16px;
-  height: 16px;
-  border-radius: 3px;
-  flex-shrink: 0;
-  overflow: hidden;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   margin-right: 4px;
-  padding: 2px;
-}
-.tracker-redesign .contact-role-logo img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  display: block;
+  vertical-align: -3px;
 }
 .tracker-redesign .contact-time { font-size: 12px; color: var(--ink-tertiary); }
 

@@ -38,6 +38,10 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
 
     from app.extensions import get_db
     from app.services.agent_service import DEFAULT_AGENT_CONFIG, _run_cycle
+    from app.services.loop_service import (
+        release_cycle_lock,
+        try_claim_cycle_lock,
+    )
 
     db = get_db()
     loop_ref = (
@@ -48,6 +52,16 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
     if not loop_doc.exists:
         logger.info("run_loop_cycle_job: loop=%s already deleted, skipping", loop_id)
         return {"status": "skipped", "reason": "loop_deleted"}
+
+    # Phase 9.1 — per-Loop concurrency lock. Refuses to start a second
+    # cycle when one is already running. Stale recovery handled inside
+    # try_claim_cycle_lock — a crashed prior run won't strand the Loop.
+    if not try_claim_cycle_lock(uid, loop_id):
+        logger.info(
+            "run_loop_cycle_job: loop=%s cycle already running — skipping",
+            loop_id,
+        )
+        return {"status": "skipped", "reason": "cycle_already_running"}
 
     loop = loop_doc.to_dict() or {}
     bp = loop.get("briefParsed") or {}
@@ -71,6 +85,15 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
         "approvalMode": "autopilot",
         "reviewBeforeSend": loop.get("reviewBeforeSend", True),
         "status": "active",
+        # Phase 9 — auto-send state. agent_actions._try_auto_send reads
+        # these per-contact to drive can_auto_send. Pre-Phase-9 Loops
+        # default to draft_only (today's behavior).
+        "autoSendMode": loop.get("autoSendMode", "draft_only"),
+        "autoSendApprovedCount": loop.get("autoSendApprovedCount", 0),
+        # 0 = no warmup gate (shipping default). See note in
+        # agent_actions._try_auto_send loop_view block.
+        "autoSendApprovedAfter": loop.get("autoSendApprovedAfter", 0),
+        "hardDailySendCap": loop.get("hardDailySendCap"),
     }
 
     if not cycle_id:
@@ -84,6 +107,10 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
             loop_ref.update({"status": "idle"})
         except Exception:
             pass
+        # Release the concurrency lock so the next scheduler tick can
+        # actually run this Loop — without this, a crashed cycle would
+        # leave cycleRunning=True until STALE_LOCK_AFTER_MINUTES elapsed.
+        release_cycle_lock(uid, loop_id)
         raise
 
     # Stamp the cycle so the activity feed can join cycles → actions by loopId.
@@ -118,7 +145,34 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
         **deltas,
         "lastRunAt": now_iso,
         "status": "running" if loop.get("reviewBeforeSend", True) else "done",
+        # Phase 9.1 — release the concurrency lock in the same atomic
+        # write that records counters. Cheaper than a separate
+        # release_cycle_lock call and guarantees the lock can't outlive
+        # the cycle if the final update lands.
+        "cycleRunning": False,
+        "cycleStartedAt": None,
     }
+
+    # Rate-limit 3-strike: if THIS cycle hit a rate limit anywhere, bump the
+    # streak; otherwise reset to 0. After the threshold we pause the Loop with
+    # pauseReason="rate_limited". loop_budget.can_run_now also gates on the
+    # field independently, so a stuck Loop can't keep rescheduling.
+    from app.services.loop_budget import RATE_LIMIT_STRIKE_THRESHOLD
+    if result.get("rateLimited"):
+        prior = int(loop.get("consecutiveRateLimitCycles", 0) or 0)
+        new_streak = prior + 1
+        updates["consecutiveRateLimitCycles"] = new_streak
+        if new_streak >= RATE_LIMIT_STRIKE_THRESHOLD:
+            updates["status"] = "paused"
+            updates["pauseReason"] = "rate_limited"
+            logger.warning(
+                "loop=%s paused after %d consecutive rate-limited cycles",
+                loop_id, new_streak,
+            )
+    elif loop.get("consecutiveRateLimitCycles"):
+        # Clean cycle resets the streak.
+        updates["consecutiveRateLimitCycles"] = 0
+
     try:
         loop_ref.update(updates)
     except Exception as e:

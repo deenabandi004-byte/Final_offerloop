@@ -26,6 +26,7 @@ import {
   FolderOpen,
   List as ListIcon,
   LayoutGrid,
+  Info,
 } from "lucide-react";
 import { UpgradeBanner } from "@/components/UpgradeBanner";
 import { VideoDemo } from "@/components/VideoDemo";
@@ -44,6 +45,7 @@ import { IS_DEV_PREVIEW } from "@/lib/devPreview";
 import { useSubscription } from "@/hooks/useSubscription";
 import { canUseFeature, getFeatureLimit } from "@/utils/featureAccess";
 import { trackFeatureActionCompleted, trackContentViewed, trackError } from "../lib/analytics";
+import meetingPrepBg from "@/assets/meeting-prep-watercolor.png";
 
 const CoffeeChatPrepPage: React.FC = () => {
   const { user: firebaseUser, checkCredits } = useFirebaseAuth();
@@ -147,15 +149,35 @@ const CoffeeChatPrepPage: React.FC = () => {
     }
   }, [libraryLoading, preps.length]);
 
+  // Safety: if the Prepare tab gets removed (e.g. a new returning user just
+  // generated their first prep), don't leave activeTab pointing at a tab that
+  // no longer exists.
+  useEffect(() => {
+    if (preps.length > 0 && activeTab === 'coffee-chat-prep') {
+      setActiveTab('coffee-library');
+    }
+  }, [preps.length, activeTab]);
+
   // LinkedIn URL validation
   const isValidLinkedInUrl = (url: string) => {
     return url.match(/^https?:\/\/(www\.)?linkedin\.com\/in\/[\w-]+\/?$/);
   };
 
-  const coffeeChatTabs = [
-    { id: 'coffee-chat-prep', label: 'Prepare', icon: MessageSquare },
-    { id: 'coffee-library', label: 'Library', icon: FolderOpen },
-  ];
+  // Hide the Prepare tab once the user has used the function at least once.
+  // Returning users only see Library; they make new preps via the always-visible
+  // LinkedIn input above, and access the explainer cards via the (i) popover.
+  const coffeeChatTabs = preps.length === 0
+    ? [
+        { id: 'coffee-chat-prep', label: 'Prepare', icon: MessageSquare },
+        { id: 'coffee-library', label: 'Library', icon: FolderOpen },
+      ]
+    : [
+        { id: 'coffee-library', label: 'Library', icon: FolderOpen },
+      ];
+
+  // (i) info popover next to the LinkedIn input — only useful for returning
+  // users since new users already see the cards inline in the Prepare tab.
+  const [showInfoCards, setShowInfoCards] = useState(false);
 
   useLayoutEffect(() => {
     const activeIndex = coffeeChatTabs.findIndex(t => t.id === activeTab);
@@ -174,6 +196,40 @@ const CoffeeChatPrepPage: React.FC = () => {
       }
     };
   }, []);
+
+  // The 3 explainer cards — rendered inline for new users (no preps yet) and
+  // inside the (i) popover for returning users. Same content, two surfaces.
+  const prepExplainerCards = (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }} className="max-sm:!grid-cols-1">
+      {[
+        { icon: Newspaper, title: 'Company Intel', desc: 'Know what they care about right now: news, deals, and shifts in their world' },
+        { icon: MessageSquare, title: 'Talking Points', desc: 'Find the overlap between your story and theirs so the conversation flows naturally' },
+        { icon: FileText, title: 'PDF Prep Sheet', desc: 'A one-pager with smart questions and their career arc. Glance at it before you hop on.' },
+      ].map((item) => (
+        <div
+          key={item.title}
+          style={{
+            background: '#FFFFFF',
+            border: '1px solid var(--line)',
+            borderTop: '3px solid var(--brand-blue, #3B82F6)',
+            borderRadius: 3,
+            padding: '18px 18px 20px',
+          }}
+        >
+          <div style={{
+            width: 30, height: 30, borderRadius: 3,
+            background: 'rgba(59,130,246,0.08)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            marginBottom: 12,
+          }}>
+            <item.icon style={{ width: 15, height: 15, color: 'var(--brand-blue, #3B82F6)' }} />
+          </div>
+          <p style={{ fontSize: 18, fontWeight: 400, color: 'var(--ink)', marginBottom: 6, lineHeight: '20px' }}>{item.title}</p>
+          <p style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>{item.desc}</p>
+        </div>
+      ))}
+    </div>
+  );
 
   // Load library preps
   useEffect(() => {
@@ -732,43 +788,59 @@ const CoffeeChatPrepPage: React.FC = () => {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full font-sans" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
+      <div
+        className="flex min-h-screen w-full font-sans"
+        style={{
+          background: `linear-gradient(rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0.65)), url(${meetingPrepBg}) center bottom / cover no-repeat fixed`,
+          color: 'var(--ink)',
+        }}
+      >
         <AppSidebar />
 
         <MainContentWrapper>
           <AppHeader />
 
           <ProGate title="Coffee Chat Prep" description="Get AI-generated talking points, background research, and conversation starters for any professional — just paste their LinkedIn." videoId="D1--4aVisho" bypass={IS_DEV_PREVIEW}>
-          <main data-tour="tour-coffee-chat-prep" style={{ background: 'var(--paper)', flex: 1, overflowY: 'auto' }}>
+          <main
+            data-tour="tour-coffee-chat-prep"
+            style={{
+              background: `linear-gradient(rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0.65)), url(${meetingPrepBg}) center bottom / cover no-repeat fixed`,
+              flex: 1,
+              overflowY: 'auto',
+            }}
+          >
 
             <div style={{ maxWidth: 800, margin: '0 auto', padding: '0 40px' }}>
 
-              {/* ── Page header ── */}
-              <div style={{ marginBottom: 20, paddingTop: 20 }}>
-                <div style={{ textAlign: 'center', maxWidth: 480, margin: '0 auto' }}>
+              {/* ── Page header ── always visible. Sized to match
+                  ProtoHeader's "Your Outbox" treatment (28px serif 700,
+                  16px subtitle) for visual consistency across pages. Pushed
+                  down ~140px so the prepare flow sits centered. */}
+              <div style={{ marginBottom: 36, paddingTop: 140 }}>
+                <div style={{ textAlign: 'center', maxWidth: 560, margin: '0 auto' }}>
                   <h1 style={{
-                    fontSize: 20,
+                    fontSize: 28,
                     fontWeight: 700,
-                    color: 'var(--ink)',
-                    lineHeight: 1.2,
-                    marginBottom: 6,
+                    color: 'var(--heading, var(--ink))',
+                    lineHeight: 1.1,
+                    marginBottom: 12,
                     fontFamily: "'Instrument Serif', Georgia, serif",
                     letterSpacing: '-0.025em',
                   }}>
                     Meeting Prep
                   </h1>
                   <p style={{
-                    fontSize: 13,
+                    fontSize: 16,
                     color: 'var(--ink-2)',
-                    lineHeight: 1.6,
+                    lineHeight: '24px',
                   }}>
                     We research your contacts so you walk into every meeting prepared.
                   </p>
                 </div>
               </div>
 
-              {/* ── Search area (no card wrapper) ── */}
-              <div style={{ marginBottom: 32 }}>
+              {/* ── Search area (LinkedIn input + Generate button + meta) ── */}
+              <div style={{ marginBottom: 44 }}>
                 {!hasAccess && (
                   <div style={{ marginBottom: 16 }}>
                     <UpgradeBanner
@@ -790,13 +862,13 @@ const CoffeeChatPrepPage: React.FC = () => {
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 10,
-                  padding: '18px 18px',
+                  gap: 12,
+                  padding: '20px 20px',
                   border: '1px solid var(--line)',
                   borderRadius: 3,
                   background: 'var(--paper-2)',
                   transition: 'all .15s',
-                  marginBottom: 10,
+                  marginBottom: 18,
                 }}
                 className="focus-within:border-[#3B82F6] focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(59,130,246,0.15)]"
                 >
@@ -855,6 +927,65 @@ const CoffeeChatPrepPage: React.FC = () => {
                       Valid
                     </div>
                   )}
+                  {preps.length > 0 && (
+                    <div style={{ position: 'relative', flexShrink: 0 }}>
+                      <button
+                        type="button"
+                        onClick={() => setShowInfoCards((o) => !o)}
+                        aria-label="What's in each prep?"
+                        style={{
+                          width: 24, height: 24,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          border: 'none', background: 'transparent',
+                          color: showInfoCards ? 'var(--brand-blue, #3B82F6)' : 'var(--ink-3)',
+                          borderRadius: 999, cursor: 'pointer',
+                          transition: 'color .15s, background .15s',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'rgba(59,130,246,0.08)';
+                          e.currentTarget.style.color = 'var(--brand-blue, #3B82F6)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                          e.currentTarget.style.color = showInfoCards ? 'var(--brand-blue, #3B82F6)' : 'var(--ink-3)';
+                        }}
+                      >
+                        <Info style={{ width: 16, height: 16 }} />
+                      </button>
+                      {showInfoCards && (
+                        <>
+                          {/* Click-outside catcher */}
+                          <div
+                            onClick={() => setShowInfoCards(false)}
+                            style={{ position: 'fixed', inset: 0, zIndex: 49 }}
+                          />
+                          <div
+                            style={{
+                              position: 'absolute',
+                              top: 'calc(100% + 10px)',
+                              right: -4,
+                              width: 520,
+                              maxWidth: 'calc(100vw - 80px)',
+                              background: '#FFFFFF',
+                              border: '1px solid var(--line)',
+                              borderRadius: 6,
+                              boxShadow: '0 12px 32px rgba(15,23,42,0.18), 0 2px 6px rgba(15,23,42,0.08)',
+                              padding: 16,
+                              zIndex: 50,
+                            }}
+                          >
+                            <p style={{
+                              fontSize: 11, fontWeight: 600, letterSpacing: '0.08em',
+                              textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 12,
+                            }}>
+                              What's in each prep
+                            </p>
+                            {prepExplainerCards}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {linkedinUrl && !isValidLinkedInUrl(linkedinUrl) && linkedinUrl.length > 10 && (
@@ -863,15 +994,22 @@ const CoffeeChatPrepPage: React.FC = () => {
                   </p>
                 )}
 
-                {/* CTA */}
+                {/* CTA — slate-blue (matches the navy/--accent scheme used by
+                    the other tabs) until the user types a valid LinkedIn URL,
+                    at which point it flips to the vibrant --brand-blue to
+                    signal "ready to go". */}
                 <button
                   onClick={handleCoffeeChatSubmit}
                   disabled={!linkedinUrl.trim() || coffeeChatLoading || !hasAccess || (effectiveUser.credits ?? 0) < COFFEE_CHAT_CREDITS}
                   style={{
                     width: '100%',
-                    height: 44,
+                    height: 52,
                     borderRadius: 3,
-                    background: (coffeeChatLoading || !hasAccess) ? 'var(--line)' : 'var(--brand-blue, #3B82F6)',
+                    background: (coffeeChatLoading || !hasAccess)
+                      ? 'var(--line)'
+                      : isValidLinkedInUrl(linkedinUrl)
+                        ? 'var(--brand-blue, #3B82F6)'
+                        : 'var(--accent, #4A60A8)',
                     color: (coffeeChatLoading || !hasAccess) ? 'var(--ink-3)' : '#fff',
                     border: 'none',
                     fontSize: 14,
@@ -881,7 +1019,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: 8,
-                    transition: 'all .15s',
+                    transition: 'background .2s ease, color .2s ease',
                     fontFamily: 'inherit',
                   }}
                 >
@@ -896,30 +1034,32 @@ const CoffeeChatPrepPage: React.FC = () => {
                 </button>
 
                 {/* Meta row */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 10, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{COFFEE_CHAT_CREDITS} credits · PDF auto-saved</span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginTop: 16, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 13, color: 'var(--ink-3)', textShadow: '0 1px 2px rgba(255,255,255,0.9), 0 0 12px rgba(255,255,255,0.5)' }}>{COFFEE_CHAT_CREDITS} credits · PDF auto-saved</span>
                   {subscription?.resumeFileName ? (
                     <button
                       onClick={() => navigate('/settings')}
                       style={{
-                        fontSize: 11, color: 'var(--signal-pos, #16a34a)', fontWeight: 500,
-                        display: 'flex', alignItems: 'center', gap: 3,
+                        fontSize: 13, color: 'var(--signal-pos, #16a34a)', fontWeight: 500,
+                        display: 'flex', alignItems: 'center', gap: 4,
                         background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                        textShadow: '0 1px 2px rgba(255,255,255,0.9), 0 0 12px rgba(255,255,255,0.5)',
                       }}
                     >
-                      <CheckCircle className="w-3 h-3" />
+                      <CheckCircle className="w-3.5 h-3.5" />
                       {subscription.resumeFileName}
                     </button>
                   ) : (
                     <button
                       onClick={() => navigate('/settings')}
                       style={{
-                        fontSize: 11, color: 'var(--brand-blue, #3B82F6)', fontWeight: 500,
-                        display: 'flex', alignItems: 'center', gap: 3,
+                        fontSize: 13, color: 'var(--brand-blue, #3B82F6)', fontWeight: 500,
+                        display: 'flex', alignItems: 'center', gap: 4,
                         background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                        textShadow: '0 1px 2px rgba(255,255,255,0.9), 0 0 12px rgba(255,255,255,0.5)',
                       }}
                     >
-                      <Upload className="w-3 h-3" />
+                      <Upload className="w-3.5 h-3.5" />
                       Add resume for personalized questions
                     </button>
                   )}
@@ -927,9 +1067,11 @@ const CoffeeChatPrepPage: React.FC = () => {
 
                 <p style={{
                   textAlign: 'center',
-                  fontSize: 12,
+                  fontSize: 14,
                   color: 'var(--ink-3)',
-                  marginTop: 8,
+                  marginTop: 16,
+                  lineHeight: 1.5,
+                  textShadow: '0 1px 2px rgba(255,255,255,0.9), 0 0 12px rgba(255,255,255,0.5)',
                 }}>
                   Each prep: company news, talking points, and a printable one-pager PDF.
                 </p>
@@ -1029,56 +1171,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                       {/* First-time-user explainer: what each prep contains */}
                       {coffeeChatStatus !== 'completed' && preps.length === 0 && (
                         <div style={{ marginTop: 20, marginBottom: 24 }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }} className="max-sm:!grid-cols-1">
-                            {[
-                              {
-                                icon: Newspaper,
-                                title: 'Company Intel',
-                                desc: 'Know what they care about right now: news, deals, and shifts in their world',
-                              },
-                              {
-                                icon: MessageSquare,
-                                title: 'Talking Points',
-                                desc: 'Find the overlap between your story and theirs so the conversation flows naturally',
-                              },
-                              {
-                                icon: FileText,
-                                title: 'PDF Prep Sheet',
-                                desc: 'A one-pager with smart questions and their career arc. Glance at it before you hop on.',
-                              },
-                            ].map((item) => (
-                              <div
-                                key={item.title}
-                                style={{
-                                  background: '#FFFFFF',
-                                  border: '1px solid var(--line)',
-                                  borderTop: '3px solid var(--brand-blue, #3B82F6)',
-                                  borderRadius: 3,
-                                  padding: '18px 18px 20px',
-                                  transition: 'transform 0.15s, box-shadow 0.15s',
-                                }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.transform = 'translateY(-2px)';
-                                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(59,130,246,0.12)';
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.transform = 'translateY(0)';
-                                  e.currentTarget.style.boxShadow = 'none';
-                                }}
-                              >
-                                <div style={{
-                                  width: 30, height: 30, borderRadius: 3,
-                                  background: 'rgba(59,130,246,0.08)',
-                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                  marginBottom: 12,
-                                }}>
-                                  <item.icon style={{ width: 15, height: 15, color: 'var(--brand-blue, #3B82F6)' }} />
-                                </div>
-                                <p style={{ fontSize: 18, fontWeight: 400, color: 'var(--ink)', marginBottom: 6, lineHeight: '20px' }}>{item.title}</p>
-                                <p style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>{item.desc}</p>
-                              </div>
-                            ))}
-                          </div>
+                          {prepExplainerCards}
                         </div>
                       )}
 

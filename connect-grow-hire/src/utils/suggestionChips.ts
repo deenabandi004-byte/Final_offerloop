@@ -425,7 +425,12 @@ export function isContextEmpty(ctx: UserContext): boolean {
 // ── Recommendation engine ──────────────────────────────────────────
 
 export interface CompanyReasoning {
-  primary: { number: number; label: string };
+  /**
+   * Primary reasoning. `number` is optional — the recommendation engine no
+   * longer fabricates alumni counts. A real number can be set here once a
+   * trustworthy data source (PDL, Firestore, etc.) is wired in.
+   */
+  primary: { number?: number; label: string };
   qualifier?: string;
 }
 
@@ -574,16 +579,14 @@ export function getCompanyLogoUrl(company: string): string | null {
   return domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=128` : null;
 }
 
-// Ordered list of logo URLs to try, best quality first: Clearbit's full-color
-// logo, then the Google favicon. Clearbit returns a real 404 for unknown
-// domains (so an onError handler can advance to the favicon); the favicon
-// always resolves. Consumers render the first that loads and fall back to a
-// monogram if every candidate fails. See <CompanyLogo />.
+// Logo URL(s) to try. Google's favicon service resolves for nearly every
+// domain; the consumer renders the first that loads and falls back to a
+// monogram if it fails. See <CompanyLogo />. (Clearbit's logo API was
+// discontinued and its host no longer resolves, so it was removed.)
 export function getCompanyLogoCandidates(company: string): string[] {
   const domain = getCompanyDomain(company);
   if (!domain) return [];
   return [
-    `https://logo.clearbit.com/${domain}`,
     `https://www.google.com/s2/favicons?domain=${domain}&sz=128`,
   ];
 }
@@ -971,17 +974,19 @@ export function getRecommendedCompanies(ctx: UserContext): RecommendedCompany[] 
       reason: card.reason,
     };
 
-    // Generate reasoning hints (computed client-side from profile context)
+    // Reasoning hint = the user's university label only. No fabricated
+    // alumni counts — until we wire this to a real PDL/Firestore query we
+    // do not render a number. The qualifier ("hiring in your field now")
+    // is still derived from the user's industry score, which is real
+    // profile data.
     if (uni && card.score >= 3) {
-      const alumniCount = 5 + Math.floor(Math.random() * 15);
       rec.reasoning = {
-        primary: { number: alumniCount, label: `${uni} alumni` },
+        primary: { label: `${uni} alumni` },
         qualifier: card.score >= 4 ? 'hiring in your field now' : undefined,
       };
     } else if (uni && card.score >= 1) {
-      const alumniCount = 3 + Math.floor(Math.random() * 8);
       rec.reasoning = {
-        primary: { number: alumniCount, label: `${uni} alumni` },
+        primary: { label: `${uni} alumni` },
       };
     }
 
@@ -995,11 +1000,11 @@ export function getRecommendedCompanies(ctx: UserContext): RecommendedCompany[] 
     const key = card.company.toLowerCase();
     if (finalSeen.has(key)) continue;
     finalSeen.add(key);
-    // Add school-alumni reasoning hint to target firms too
+    // Add school-alumni reasoning hint to target firms too (label only,
+    // no fabricated count).
     if (uni) {
-      const alumniCount = 6 + Math.floor(Math.random() * 18);
       card.reasoning = {
-        primary: { number: alumniCount, label: `${uni} alumni` },
+        primary: { label: `${uni} alumni` },
       };
     }
     out.push(card);
@@ -1009,9 +1014,8 @@ export function getRecommendedCompanies(ctx: UserContext): RecommendedCompany[] 
     if (finalSeen.has(key)) continue;
     finalSeen.add(key);
     if (uni) {
-      const alumniCount = 5 + Math.floor(Math.random() * 12);
       card.reasoning = {
-        primary: { number: alumniCount, label: `${uni} alumni` },
+        primary: { label: `${uni} alumni` },
       };
     }
     out.push(card);

@@ -897,12 +897,48 @@ export default function AccountSettings() {
                     fontSize: '16px',
                     color: '#6B7280',
                     textAlign: 'center',
-                    marginBottom: '28px',
+                    marginBottom: '16px',
                     lineHeight: 1.5,
                   }}
                 >
                   Manage your account and preferences
                 </p>
+
+                {/* Cross-link to /profile — these two surfaces are siblings
+                    (profile = personalization, settings = billing / integrations /
+                    admin). Make the relationship visible so users don't get lost. */}
+                <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/profile')}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '8px 16px',
+                      borderRadius: 999,
+                      background: 'transparent',
+                      border: '1px solid #CBD5E1',
+                      color: '#4A60A8',
+                      fontFamily: "'DM Sans', system-ui, sans-serif",
+                      fontSize: 13,
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      transition: 'background .15s, border-color .15s',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(74,96,168,0.06)';
+                      e.currentTarget.style.borderColor = '#4A60A8';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.color = '#4A60A8';
+                      e.currentTarget.style.borderColor = '#CBD5E1';
+                    }}
+                  >
+                    Looking to update your profile? Open your profile →
+                  </button>
+                </div>
 
                 {/* Profile Completeness */}
                 {(() => {

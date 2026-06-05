@@ -6,8 +6,8 @@
 // the design.
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, Sparkles, X } from "lucide-react";
-import { LOOP_COPY } from "@/lib/loopCopy";
+import { Loader2, Plus, X } from "lucide-react";
+import { LOOP_COPY, loopCopy, type LoopModeForCopy } from "@/lib/loopCopy";
 import {
   useCreateLoop,
   useEstimateCycleCost,
@@ -16,8 +16,9 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 import { parseBrief } from "@/services/agent";
-import type { LoopCadence } from "@/services/loops";
+import type { LoopCadence, LoopMode } from "@/services/loops";
 import type { ParsedBrief } from "@/services/agent";
+import { ModeIndicator } from "@/components/loop/ModeIndicator";
 
 const CADENCE_ORDER: LoopCadence[] = [
   "every_other_day",
@@ -68,6 +69,12 @@ export function StartLoopHero({
   // User edits to the parsed brief (adds/removes from chips). Resets whenever
   // a fresh parse lands. Sent to the backend so it skips a duplicate parse.
   const [briefOverride, setBriefOverride] = useState<ParsedBrief | null>(null);
+  // Mode override (H carve-out, D9). The parser classifies each brief as
+  // people / roles / both / null (ambiguous). Student can override by
+  // clicking a pill in the ModeIndicator. Race semantics mirror briefOverride:
+  // a fresh parse drops prior overrides — re-typing the brief wins over an
+  // earlier manual pick.
+  const [modeOverride, setModeOverride] = useState<LoopMode | null>(null);
   const create = useCreateLoop();
   const start = useStartLoop();
   const navigate = useNavigate();
@@ -83,6 +90,7 @@ export function StartLoopHero({
     if (trimmed.length < 20) {
       setParsedPreview(null);
       setBriefOverride(null);
+      setModeOverride(null);
       setParseFailed(false);
       return;
     }
@@ -92,18 +100,21 @@ export function StartLoopHero({
         if (result.parseStatus === "failed") {
           setParsedPreview(null);
           setBriefOverride(null);
+          setModeOverride(null);
           setParseFailed(true);
         } else {
           setParsedPreview(result.briefParsed);
-          // Fresh parse → drop prior user edits; the chip UI restarts from
-          // what the parser just returned.
+          // Fresh parse → drop prior user edits (chips AND mode pill).
+          // Re-typing the brief wins over manual override.
           setBriefOverride(null);
+          setModeOverride(null);
           setParseFailed(false);
         }
       } catch {
         // Network-level failure (offline, 401, etc.) — surface to user too.
         setParsedPreview(null);
         setBriefOverride(null);
+        setModeOverride(null);
         setParseFailed(true);
       }
     }, 600);
@@ -117,6 +128,21 @@ export function StartLoopHero({
     () => briefOverride ?? parsedPreview,
     [briefOverride, parsedPreview],
   );
+
+  // Effective mode shown in the indicator. User override wins, else the
+  // parser's classification, else default to "people" so the indicator has
+  // a sensible initial selection if the student clicks before the first
+  // parse lands. The "isParsing" flag below shows "thinking…" while the
+  // textarea is past the 20-char floor but the debounce hasn't fired yet.
+  const parsedMode: LoopMode | null = useMemo(() => {
+    const m = parsedPreview?.mode ?? null;
+    if (m === "people" || m === "roles" || m === "both") return m;
+    return null;
+  }, [parsedPreview]);
+  const effectiveMode: LoopMode = modeOverride ?? parsedMode ?? "people";
+  const isParsing =
+    trimmed.length >= 20 && parsedPreview === null && !parseFailed;
+  const heroCopy = loopCopy(effectiveMode as LoopModeForCopy);
 
   // Mutate a single axis of the parsed brief. Seeds the override from the
   // current effective parse on first edit, so we don't lose what was there.
@@ -157,6 +183,11 @@ export function StartLoopHero({
         // is null (brief too short to parse), backend will parse on its own.
         briefParsed: effectiveParsed,
         cadence,
+        // Send the (user-pickable) effective mode so the planner uses the
+        // right rules from cycle 1. Backend rejects PATCH attempts to change
+        // this later (services/loops.py), so getting it right at creation
+        // matters.
+        loopMode: effectiveMode,
       });
       // The button says "Start the Loop" — actually start it. If start fails
       // (e.g. brief_required), the Loop still got created, so the user can
@@ -199,7 +230,7 @@ export function StartLoopHero({
       {/* ── Hero ── */}
       <div className="text-center">
         <h1
-          className="font-serif text-[44px] sm:text-[56px] leading-[1.05] tracking-[-0.02em]"
+          className="font-serif text-[44px] sm:text-[56px] leading-[1.05] tracking-[-0.01em]"
           style={{ color: "var(--ink, #0F172A)" }}
         >
           Start a{" "}
@@ -358,6 +389,34 @@ export function StartLoopHero({
           </div>
         )}
 
+        {/* H carve-out (D9): mode indicator under the chip panel. Same
+            pill shape as the wizard so the student doesn't relearn it.
+            Clicking a pill is an explicit override; re-typing the brief
+            re-parses and drops the override. */}
+        {trimmed.length >= 20 && (
+          <div className="mt-5">
+            <ModeIndicator
+              mode={effectiveMode as LoopModeForCopy}
+              onChange={(m) => setModeOverride(m as LoopMode)}
+            />
+            {/* "thinking…" while the debounce hasn't fired yet OR the parser
+                returned but classified the brief as null (ambiguous). Lets
+                the student know the indicator isn't sitting on a stale guess. */}
+            {(isParsing || (parsedPreview !== null && parsedMode === null && !modeOverride)) && (
+              <div
+                className="font-mono lowercase -mt-4"
+                style={{
+                  fontSize: 11,
+                  color: "var(--ink-3)",
+                  letterSpacing: "0.04em",
+                }}
+              >
+                {heroCopy.composer.modeThinking}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── Cadence picker (Phase 8) ── */}
         <div className="mt-6">
           <div
@@ -421,7 +480,6 @@ export function StartLoopHero({
             className="mt-4 inline-flex items-center gap-2 text-[12px] mx-auto"
             style={{ color: "var(--ink-2)" }}
           >
-            <Sparkles className="h-3.5 w-3.5" style={{ color: "var(--ink-3)" }} />
             {estimateQuery.isLoading || !estimateQuery.data ? (
               <span style={{ color: "var(--ink-3)" }}>
                 {LOOP_COPY.estimate.loading}

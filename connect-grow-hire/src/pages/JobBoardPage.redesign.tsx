@@ -27,6 +27,7 @@ import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import {
   apiService,
   type JobFeedResponse,
+  type SavedJob,
 } from "@/services/api";
 import { JobBoardSkeleton } from "@/components/JobBoardSkeleton";
 import {
@@ -94,6 +95,61 @@ export const JobBoardPage: React.FC = () => {
   const [showAddDropdown, setShowAddDropdown] = useState(false);
   const [findHumansJob, setFindHumansJob] = useState<FindHumansJob | null>(null);
 
+  // Saved snapshots (full job data, not just IDs). Drive the Saved
+  // top-level tab. Storing the full snapshot means a bookmarked job stays
+  // viewable even if the original posting expires upstream and rotates out
+  // of the live feed.
+  //
+  // The Applied tab was deliberately removed: clicking the Apply URL only
+  // proves the user opened the link, not that they actually submitted an
+  // application. Auto-tracking it created false memory ("oh, I already
+  // applied"). If we ever want apply tracking, it should be an explicit
+  // action — not a side-effect of opening a tab.
+  const [savedJobs, setSavedJobs] = useState<SavedJob[]>([]);
+
+  // Top-level tab. "discover" = the existing Recent + Recommended view.
+  // "saved" swaps the entire job list for the bookmarked bin, mirroring
+  // the Outbox tab pattern (always-visible at the top of the page).
+  const [activeJobTab, setActiveJobTab] = useState<"discover" | "saved">("discover");
+
+  // Collapsible section state. Default: Recent collapsed, Recommended open
+  // so the better-matching list is visible without scrolling. User's choice
+  // is persisted to localStorage so it survives reload and tab switches.
+  const [collapsedSections, setCollapsedSections] = useState<{
+    recent: boolean;
+    recommended: boolean;
+    saved: boolean;
+    applied: boolean;
+  }>(() => {
+    try {
+      const raw = localStorage.getItem("jb_collapsed_sections");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return {
+          recent: typeof parsed.recent === "boolean" ? parsed.recent : true,
+          recommended: typeof parsed.recommended === "boolean" ? parsed.recommended : false,
+          saved: typeof parsed.saved === "boolean" ? parsed.saved : true,
+          applied: typeof parsed.applied === "boolean" ? parsed.applied : true,
+        };
+      }
+    } catch {
+      /* localStorage may be unavailable; fall through to defaults */
+    }
+    return { recent: true, recommended: false, saved: true, applied: true };
+  });
+
+  const toggleSection = useCallback((key: "recent" | "recommended" | "saved" | "applied") => {
+    setCollapsedSections((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      try {
+        localStorage.setItem("jb_collapsed_sections", JSON.stringify(next));
+      } catch {
+        /* ignore storage failures */
+      }
+      return next;
+    });
+  }, []);
+
   const addDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -131,6 +187,7 @@ export const JobBoardPage: React.FC = () => {
   const loadSaved = useCallback(async () => {
     try {
       const r = await apiService.listSavedJobs();
+      setSavedJobs(r.saved);
       setSavedIds(new Set(r.saved.map((s) => s.job_id)));
     } catch (err) {
       console.warn("saved jobs fetch failed", err);
@@ -210,6 +267,9 @@ export const JobBoardPage: React.FC = () => {
   };
 
   // ---- Action handlers ----------------------------------------------------
+  // Apply just opens the URL — no auto-tracking. Opening a tab doesn't
+  // mean the user submitted an application, so tracking it would create
+  // false memory.
   const handleApply = (j: ProtoJob) => {
     if (j.applyUrl) window.open(j.applyUrl, "_blank", "noopener,noreferrer");
   };
@@ -225,26 +285,67 @@ export const JobBoardPage: React.FC = () => {
 
   const openFindHumans = (j: ProtoJob) => setFindHumansJob(toFindHumansJob(j));
 
+  // Minimal converter for rendering Saved / Applied snapshots in JobCard.
+  // Live feed enrichment (tags, match signals, salary, description) isn't
+  // preserved in the snapshot — those fields default to empty / null.
+  const snapshotToProto = (s: SavedJob): ProtoJob => ({
+    id: s.job_id,
+    section: "recommended",
+    title: s.title ?? "",
+    company: s.company ?? "",
+    logoUrl: s.logo_url ?? null,
+    logoMonogram: (s.company ?? "?").charAt(0).toUpperCase(),
+    posted: "",
+    postedISO: null,
+    location: s.location ?? "",
+    jobType: "",
+    category: "",
+    match: s.match_score ?? null,
+    matchSignals: [],
+    whyLine: "",
+    ranked: true,
+    salary: null,
+    salaryAnnual: null,
+    tags: [],
+    applyUrl: s.apply_url ?? "",
+    isNew: false,
+    isStale: false,
+    detailPosted: "",
+    detailMatch: s.match_score ?? null,
+    detailLocation: s.location ?? "",
+    description: null,
+    structured: undefined,
+  });
+
+  const savedProtoJobs = useMemo(
+    () => applySearch(savedJobs.map(snapshotToProto), search),
+    [savedJobs, search]
+  );
+
   const handleSave = async (j: ProtoJob) => {
     const already = savedIds.has(j.id);
     try {
       if (already) {
         await apiService.unsaveJob(j.id);
-        const next = new Set(savedIds);
-        next.delete(j.id);
-        setSavedIds(next);
+        setSavedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(j.id);
+          return next;
+        });
+        setSavedJobs((prev) => prev.filter((p) => p.job_id !== j.id));
       } else {
-        await apiService.saveJob({
+        const snap: SavedJob = {
           job_id: j.id,
           title: j.title,
           company: j.company,
           location: j.location,
           apply_url: j.applyUrl,
           match_score: j.match ?? undefined,
-        });
-        const next = new Set(savedIds);
-        next.add(j.id);
-        setSavedIds(next);
+          logo_url: j.logoUrl ?? undefined,
+        };
+        await apiService.saveJob(snap);
+        setSavedIds((prev) => new Set(prev).add(j.id));
+        setSavedJobs((prev) => [snap, ...prev.filter((p) => p.job_id !== j.id)]);
       }
     } catch (err) {
       console.error("save toggle failed", err);
@@ -292,9 +393,74 @@ export const JobBoardPage: React.FC = () => {
                   <div>
                     <h1 className="jb-fb-title">Discover Opportunities</h1>
                     <p className="jb-fb-subtitle">
-                      {newCount} new jobs · {savedCount} currently saved jobs
+                      {newCount} new jobs · {savedCount} saved
                     </p>
                   </div>
+                </div>
+
+                {/* Top-level tabs — Outbox-style segmented control */}
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 4,
+                    marginTop: 12,
+                    marginBottom: 4,
+                    borderBottom: "1px solid var(--line, #E5E5E5)",
+                  }}
+                >
+                  {([
+                    { id: "discover", label: "Discover", count: sections.recent.length + sections.recommended.length },
+                    { id: "saved", label: "Saved", count: savedJobs.length },
+                  ] as const).map((t) => {
+                    const isActive = activeJobTab === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setActiveJobTab(t.id)}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          padding: "10px 16px",
+                          fontSize: 13,
+                          fontWeight: isActive ? 600 : 500,
+                          color: isActive ? "var(--brand-blue, #3B82F6)" : "var(--ink-3, #94A3B8)",
+                          background: "transparent",
+                          border: "none",
+                          borderBottom: isActive
+                            ? "2px solid var(--brand-blue, #3B82F6)"
+                            : "2px solid transparent",
+                          marginBottom: -1,
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                          transition: "color .15s, border-color .15s",
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isActive) (e.currentTarget as HTMLButtonElement).style.color = "var(--ink-2, #475569)";
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isActive) (e.currentTarget as HTMLButtonElement).style.color = "var(--ink-3, #94A3B8)";
+                        }}
+                      >
+                        {t.label}
+                        {t.count > 0 && (
+                          <span
+                            style={{
+                              fontFamily: "'JetBrains Mono', monospace",
+                              fontSize: 10,
+                              padding: "1px 6px",
+                              borderRadius: 4,
+                              background: isActive ? "var(--primary-50, #EEF1F9)" : "var(--paper-2, #FAFBFF)",
+                              color: isActive ? "var(--accent, #4A60A8)" : "var(--ink-3, #94A3B8)",
+                            }}
+                          >
+                            {t.count}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
 
                 <div className="jb-fb-actions">
@@ -452,10 +618,24 @@ export const JobBoardPage: React.FC = () => {
                     </div>
                   )}
 
-                  {!feedLoading && searchedRecent.length > 0 && (
+                  {activeJobTab === "discover" && !feedLoading && searchedRecent.length > 0 && (
                     <>
-                      <h2 className="jb-section-heading">Recent job postings</h2>
-                      {searchedRecent.map((j) => (
+                      <button
+                        type="button"
+                        className="jb-section-heading jb-section-toggle"
+                        onClick={() => toggleSection("recent")}
+                        aria-expanded={!collapsedSections.recent}
+                      >
+                        <span
+                          className={`jb-section-chevron ${collapsedSections.recent ? "collapsed" : "expanded"}`}
+                          aria-hidden="true"
+                        >
+                          ▾
+                        </span>
+                        Recent job postings
+                        <span className="jb-section-count">{searchedRecent.length}</span>
+                      </button>
+                      {!collapsedSections.recent && searchedRecent.map((j) => (
                         <JobCard
                           key={j.id}
                           job={j}
@@ -469,10 +649,24 @@ export const JobBoardPage: React.FC = () => {
                     </>
                   )}
 
-                  {!feedLoading && searchedRecommended.length > 0 && (
+                  {activeJobTab === "discover" && !feedLoading && searchedRecommended.length > 0 && (
                     <>
-                      <h2 className="jb-section-heading">Recommended for you</h2>
-                      {searchedRecommended.map((j) => (
+                      <button
+                        type="button"
+                        className="jb-section-heading jb-section-toggle"
+                        onClick={() => toggleSection("recommended")}
+                        aria-expanded={!collapsedSections.recommended}
+                      >
+                        <span
+                          className={`jb-section-chevron ${collapsedSections.recommended ? "collapsed" : "expanded"}`}
+                          aria-hidden="true"
+                        >
+                          ▾
+                        </span>
+                        Recommended for you
+                        <span className="jb-section-count">{searchedRecommended.length}</span>
+                      </button>
+                      {!collapsedSections.recommended && searchedRecommended.map((j) => (
                         <JobCard
                           key={j.id}
                           job={j}
@@ -484,6 +678,30 @@ export const JobBoardPage: React.FC = () => {
                         />
                       ))}
                     </>
+                  )}
+
+                  {/* Saved tab: list of bookmarked jobs */}
+                  {activeJobTab === "saved" && (
+                    savedProtoJobs.length > 0 ? (
+                      savedProtoJobs.map((j) => (
+                        <JobCard
+                          key={`saved-${j.id}`}
+                          job={j}
+                          selected={selectedId === j.id}
+                          dismissed={false}
+                          onClick={() => setSelectedId(j.id)}
+                          onDismiss={() => {}}
+                          onUndo={() => {}}
+                        />
+                      ))
+                    ) : (
+                      <div style={{ padding: "40px 16px", textAlign: "center", color: "var(--ink-3, #94A3B8)", fontSize: 13 }}>
+                        <div style={{ fontSize: 14, fontWeight: 500, color: "var(--ink-2, #475569)", marginBottom: 6 }}>
+                          No saved jobs yet
+                        </div>
+                        Click the bookmark icon on any job to save it here.
+                      </div>
+                    )
                   )}
                 </div>
 

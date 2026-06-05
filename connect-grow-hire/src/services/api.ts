@@ -1,5 +1,6 @@
 // src/services/api.ts
 import { auth } from '../lib/firebase';
+import type { OutreachMode } from '../utils/featureAccess';
 
 export const BACKEND_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/api\/?$/, '') ||
@@ -221,6 +222,12 @@ export interface DraftCreated {
   draft_url: string;
 }
 
+export interface SentEmail {
+  recruiter_email: string;
+  message_id?: string;
+  thread_id?: string;
+}
+
 export interface FindRecruiterResponse {
   recruiters: Recruiter[];
   emails?: RecruiterEmail[];
@@ -244,6 +251,8 @@ export interface FindHiringManagerResponse {
   hiringManagers: Recruiter[];  // Reuse Recruiter interface (same structure)
   emails?: RecruiterEmail[];
   draftsCreated?: DraftCreated[];
+  sentEmails?: SentEmail[];  // Present in send mode
+  mode?: OutreachMode;  // Server-resolved outreach mode
   jobTypeDetected: string;
   companyCleaned: string;
   totalFound: number;
@@ -727,19 +736,6 @@ export interface FeedJob {
   match_signals?: string[];
   ranked: boolean;
   structured?: JobStructured;
-  // Phase 1: per-axis signals + natural bucket tag, both optional and
-  // additive. The composite stays on match_score for backward compat;
-  // signals carries the four component scores so callers that want the
-  // breakdown can render it. bucket is the natural REACH/STRONG/HIDDEN
-  // tag emitted by the backend; under render_mode "legacy" it is for
-  // observability only.
-  signals?: {
-    relevance: number | null;
-    landability: number | null;
-    pipeline: number | null;
-    discovery: number | null;
-  } | null;
-  bucket?: "strong" | "reach" | "hidden" | null;
 }
 
 export interface SavedJob {
@@ -751,6 +747,8 @@ export interface SavedJob {
   match_score?: number;
   status?: string;
   saved_at?: string;
+  applied_at?: string;
+  logo_url?: string;
 }
 
 export interface JobFeedSummary {
@@ -1263,16 +1261,37 @@ class ApiService {
    * Prompt-based contact search (new endpoint). Same response shape as free-run plus parsed_query.
    * Works for all tiers; batchSize is capped by tier on backend.
    */
-  async runPromptSearch(data: { prompt: string; batchSize: number; emailTemplate?: EmailTemplate | null }): Promise<SearchResult> {
+  async runPromptSearch(data: { prompt: string; batchSize: number; emailTemplate?: EmailTemplate | null; mode?: OutreachMode }): Promise<SearchResult> {
     const headers = await this.getAuthHeaders();
     const payload: Record<string, unknown> = { prompt: data.prompt.trim(), batchSize: data.batchSize };
     if (data.emailTemplate && hasEmailTemplateValues(data.emailTemplate)) {
       payload.emailTemplate = data.emailTemplate;
     }
+    if (data.mode) {
+      // Outreach mode: "preview" (contacts only), "draft" (default), "send".
+      // The backend re-validates this against the user tier and is the source
+      // of truth, so a tampered value cannot unlock a higher mode.
+      payload.mode = data.mode;
+    }
     return this.makeRequest<SearchResult>('/prompt-search', {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+    });
+  }
+
+  /**
+   * Send a Gmail draft that was created server-side during a search.
+   * Used by the Find-page draft review row's "Send" button. Returns
+   * { success, messageId, threadId } on success; { success: false,
+   * error: "draft_not_found" } (HTTP 410) if the draft was already sent
+   * or no longer exists — the UI should still flip to "Sent" in that case.
+   */
+  async sendDraft(draftId: string): Promise<{ success: boolean; messageId?: string; threadId?: string; error?: string; message?: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest(`/emails/send-draft/${encodeURIComponent(draftId)}`, {
+      method: 'POST',
+      headers,
     });
   }
 
@@ -1924,6 +1943,34 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
     );
   }
 
+  async listAppliedJobs(): Promise<{ applied: SavedJob[]; count: number }> {
+    return this.makeRequest<{ applied: SavedJob[]; count: number }>('/job-board/applied-jobs', {
+      method: 'GET',
+      headers: await this.getAuthHeaders(),
+    });
+  }
+
+  async markJobApplied(job: SavedJob): Promise<{ success: boolean; job_id: string }> {
+    return this.makeRequest<{ success: boolean; job_id: string }>('/job-board/applied-jobs', {
+      method: 'POST',
+      headers: {
+        ...await this.getAuthHeaders(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(job),
+    });
+  }
+
+  async unmarkJobApplied(jobId: string): Promise<{ success: boolean; job_id: string }> {
+    return this.makeRequest<{ success: boolean; job_id: string }>(
+      `/job-board/applied-jobs/${encodeURIComponent(jobId)}`,
+      {
+        method: 'DELETE',
+        headers: await this.getAuthHeaders(),
+      }
+    );
+  }
+
   /**
    * Update user profile fields that affect job-board personalization.
    * Backend filters BLOCKED_FIELDS and detects intent changes for cache invalidation.
@@ -2074,8 +2121,9 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
     location?: string;
     jobUrl?: string;
     maxResults?: number;
-    generateEmails?: boolean;
-    createDrafts?: boolean;
+    generateEmails?: boolean;  // Legacy: superseded by mode, kept for compat
+    createDrafts?: boolean;    // Legacy: superseded by mode, kept for compat
+    mode?: OutreachMode;       // preview | draft | send (server re-validates vs tier)
   }): Promise<FindHiringManagerResponse> {
     const headers = await this.getAuthHeaders();
     return this.makeRequest<FindHiringManagerResponse>(

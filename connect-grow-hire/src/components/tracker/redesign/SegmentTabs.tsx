@@ -1,14 +1,17 @@
 import { type ProtoSegment } from "@/pages/trackerAdapter";
 
-// People / Companies / Hiring Managers. Hiring Managers is disabled in PR1
-// per the scope cut, but rendered for visual fidelity with the prototype.
+// People / Companies / Hiring Managers / Archived. Hiring Managers is
+// disabled per the PR1 scope cut, but rendered for visual fidelity. Archived
+// is its own segment — a flat list of every contact whose archivedAt is set,
+// so users have a known location to find and restore archived rows.
 
 interface SegmentTabsProps {
   activeSegment: ProtoSegment;
   onSelectSegment: (segment: ProtoSegment) => void;
+  archivedCount?: number;
 }
 
-export function SegmentTabs({ activeSegment, onSelectSegment }: SegmentTabsProps) {
+export function SegmentTabs({ activeSegment, onSelectSegment, archivedCount }: SegmentTabsProps) {
   return (
     <div className="segment-tabs-wrap">
       <div className="segment-tabs">
@@ -34,6 +37,13 @@ export function SegmentTabs({ activeSegment, onSelectSegment }: SegmentTabsProps
           title="Coming in a later PR"
         >
           Hiring Managers
+        </button>
+        <button
+          type="button"
+          className={`segment-btn${activeSegment === "archived" ? " active" : ""}`}
+          onClick={() => onSelectSegment("archived")}
+        >
+          Archived{archivedCount != null && archivedCount > 0 ? ` (${archivedCount})` : ""}
         </button>
       </div>
     </div>

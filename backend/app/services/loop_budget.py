@@ -32,6 +32,35 @@ CREDIT_COSTS = {
     "company": 1,          # execute_discover_companies (per saved company)  (was 2)
 }
 
+# Bundled per-person cost shown in the Loop wizard. Reflects the typical
+# cycle mix calibrated against estimate_cycle_cost() — contact (9) plus
+# the amortized share of HM (13), job (1×~5), and company (1×~3) lookups
+# that fire per cycle. Used by loop_service.create_loop() to derive
+# creditBudgetPerWeek from the user's weeklyTarget so the wizard can be
+# output-first ("how many people / week") instead of asking the user to
+# pick credits directly.
+# Mirrored in connect-grow-hire/src/components/agent/AgentSetupInline.tsx —
+# keep in sync.
+BUNDLED_COST_PER_PERSON = {
+    "people": 12,  # 9 contact + ~3 amortized HM/job/company per outreach
+    "roles":  6,   # job-driven; fewer per-person contact spends
+    "both":   10,  # half-and-half blend
+}
+
+# Safety buffer applied to the derived weekly budget so cycle-to-cycle
+# variance (an extra HM, a few more jobs) doesn't trip budget_capped on a
+# user who picked the recommended setting.
+BUNDLED_BUDGET_BUFFER = 1.15
+
+# Phase 9 — per-send overhead when a Loop is in autoSendMode="send_for_me".
+# Covers the Hunter email verification call (~$0.005). The Gmail send itself
+# is free. Charged in agent_actions._try_auto_send only on successful send;
+# Hunter overhead on rejected sends is absorbed.
+# loop_service.create_loop adds weeklyTarget × this × BUNDLED_BUDGET_BUFFER
+# to the derived creditBudgetPerWeek when the Loop is send_for_me. Surface
+# in the wizard as "+1 credit per send".
+AUTO_SEND_CREDIT_COST = 1
+
 # Hours per cycle by cadence. None = manual, never auto-fires.
 CADENCE_HOURS = {
     "daily": 24,
@@ -46,6 +75,7 @@ PauseReason = Literal[
     "inactivity",       # user hasn't reviewed drafts in N days
     "quiet_hours",      # outside 8am-10pm in user timezone
     "paused",           # explicitly paused by user
+    "rate_limited",     # 3+ consecutive cycles hit upstream rate limits
 ]
 
 # Phase 8 — quiet-hours window (user-local).
@@ -58,6 +88,11 @@ INACTIVITY_DAYS = 5
 # Hard floor — keep enough credits for at least one coffee chat prep (15) +
 # a small buffer. Mirrors MIN_CREDIT_BALANCE in agent_service.py.
 MIN_RESERVE = 25
+
+# After this many consecutive rate-limited cycles, pause the Loop so we stop
+# burning planner calls + Firestore writes against an upstream that's saying
+# "back off." User can resume manually once the upstream recovers.
+RATE_LIMIT_STRIKE_THRESHOLD = 3
 
 
 # ── Estimation ─────────────────────────────────────────────────────────────
@@ -205,6 +240,15 @@ def can_run_now(
     spent = int(loop.get("weekCreditsSpent", 0) or 0)
     if spent >= budget:
         return False, "budget_capped"
+
+    # 4b. Upstream rate-limit strike. After threshold the Loop should stop
+    # trying — loop_jobs flips status to "paused" when it bumps past the
+    # threshold, but we also gate here so a Loop manually flipped back to
+    # "running" while the upstream is still saying "back off" doesn't
+    # immediately re-fire and re-strike.
+    strikes = int(loop.get("consecutiveRateLimitCycles", 0) or 0)
+    if strikes >= RATE_LIMIT_STRIKE_THRESHOLD:
+        return False, "rate_limited"
 
     # 5. Inactivity — only pause if there's pending work the user is ignoring
     last_reviewed = loop.get("lastReviewedAt")

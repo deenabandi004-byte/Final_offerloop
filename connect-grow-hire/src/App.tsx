@@ -13,6 +13,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DynamicGradientBackground } from "./components/background/DynamicGradientBackground";
 import { LoadingSkeleton } from "./components/LoadingSkeleton";
 import { ScoutSidePanel } from "./components/ScoutSidePanel";
+import FloatingAskScoutButton from "./components/AskScoutButton";
 import { LoadingContainer } from "./components/ui/LoadingBar";
 import { IS_DEV_PREVIEW } from "./lib/devPreview";
 import { useAgentGlobalNotifier } from "./hooks/useAgent";
@@ -250,6 +251,20 @@ const AppRoutes: React.FC = () => {
       />
       <Route path="/onboarding/*" element={<Navigate to="/onboarding" replace />} />
 
+      {/* Profile (Phase 2) — the dedicated free-flow profile page. Same
+          component as the dev preview, just protected and routed at /profile.
+          The home page "what we know about you" widget links here. */}
+      <Route
+        path="/profile"
+        element={
+          <ProtectedRoute>
+            <Suspense fallback={<PageLoader />}>
+              <ProfilePreview />
+            </Suspense>
+          </ProtectedRoute>
+        }
+      />
+
       {/* Dev preview routes — no auth, no protection. For visual iteration only.
           See docs/PROFILE_ONBOARDING_SPEC.md. */}
       <Route
@@ -449,6 +464,7 @@ const App: React.FC = () => {
                     <AgentNotifierMount />
                     <AppRoutes />
                     <ScoutSidePanel />
+                    <FloatingAskScoutButton />
                   </TourProvider>
                 </ScoutProvider>
               </ConditionalBackground>

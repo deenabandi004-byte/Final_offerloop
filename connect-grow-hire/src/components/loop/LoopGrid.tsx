@@ -14,6 +14,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { LOOP_COPY } from "@/lib/loopCopy";
 import type { Loop, LoopLimits } from "@/services/loops";
 import { LoopCard } from "./LoopCard";
+import { LoopsCommandBar } from "./LoopsCommandBar";
 import { NewLoopTile } from "./NewLoopTile";
 
 const VISIBLE_LIMIT = 4;
@@ -61,14 +62,14 @@ export function LoopGrid({
   return (
     <div className="max-w-[1100px] mx-auto px-4 sm:px-6 py-8">
       {/* ── Header strip ── */}
-      <div className="flex items-baseline justify-between mb-6 flex-wrap gap-3">
+      <div className="flex items-end justify-between mb-5 flex-wrap gap-3">
         <div>
           <h1
-            className="font-serif text-[34px] leading-tight tracking-[-0.02em]"
+            className="font-serif text-[38px] leading-[1.05] tracking-[-0.01em]"
             style={{ color: "var(--ink)" }}
           >
             Your{" "}
-            <em className="font-serif" style={{ fontWeight: 400 }}>
+            <em className="font-serif italic" style={{ fontWeight: 400 }}>
               Loops.
             </em>
           </h1>
@@ -79,9 +80,9 @@ export function LoopGrid({
             {LOOP_COPY.fleetSubtitle}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3.5">
           <span
-            className="text-[12.5px] tabular-nums"
+            className="text-[12.5px] font-mono tabular-nums"
             style={{ color: "var(--ink-3)" }}
           >
             {limits.used} of {limits.cap}
@@ -89,10 +90,10 @@ export function LoopGrid({
           {!newTileInGrid && limits.canCreate && (
             <button
               onClick={onCreate}
-              className="rounded-md px-3.5 py-2 text-[13px] font-medium transition-opacity hover:opacity-90"
-              style={{ background: "var(--ink)", color: "white" }}
+              className="inline-flex items-center gap-1.5 rounded-[10px] px-4 py-2.5 text-[13.5px] font-medium transition-opacity hover:opacity-90"
+              style={{ background: "var(--accent)", color: "white" }}
             >
-              + Start another Loop
+              <span className="text-[15px] leading-none">+</span> Start another Loop
             </button>
           )}
           {!newTileInGrid && !limits.canCreate && (
@@ -106,6 +107,9 @@ export function LoopGrid({
           )}
         </div>
       </div>
+
+      {/* ── Fleet command bar (proof + ticker) ── */}
+      <LoopsCommandBar />
 
       {/* ── Grid (top 4) ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">

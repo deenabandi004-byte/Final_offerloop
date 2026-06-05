@@ -163,17 +163,142 @@ export const LOOP_COPY = {
 // the generic "Push people from my school to the top".
 
 export type LoopModeForCopy = "people" | "roles" | "both";
+export type LoopCadenceForCopy = "daily" | "every_other_day" | "weekly" | "manual";
+// Mirror of services/loops.ts LoopAutoSendMode. Duplicated locally to keep
+// lib/ free of service imports.
+export type LoopAutoSendModeForCopy = "approve_each" | "draft_only" | "send_for_me";
 
 export function loopCopy(
   mode: LoopModeForCopy,
-  opts: { school?: string } = {}
+  opts: {
+    school?: string;
+    cadence?: LoopCadenceForCopy;
+    autoSendMode?: LoopAutoSendModeForCopy;
+  } = {}
 ) {
   const school = opts.school?.trim();
   const isRoles = mode === "roles";
   const isBoth = mode === "both";
+  const cadence = opts.cadence;
+  const autoSend: LoopAutoSendModeForCopy = opts.autoSendMode ?? "draft_only";
+  const isSend = autoSend === "send_for_me";
+  const isApprove = autoSend === "approve_each";
+
+  // Cadence phrasing used in the activity-feed empty-state body so the
+  // student knows when the next batch will land.
+  const cadenceLine =
+    cadence === "daily"
+      ? "Cadence: daily."
+      : cadence === "weekly"
+        ? "Cadence: weekly."
+        : cadence === "manual"
+          ? "Run it when you're ready."
+          : cadence === "every_other_day"
+            ? "Cadence: every other day."
+            : "";
 
   return {
     ...LOOP_COPY,
+
+    // ── autoSendMode-aware overrides on shared keys ───────────────────
+    // The base LOOP_COPY assumes draft mode. When the student picked
+    // send_for_me or approve_each, these keys swap to copy that matches
+    // what actually happens with their outbox.
+    card: {
+      ...LOOP_COPY.card,
+      readEmailsCta: isSend
+        ? "View what was sent"
+        : isApprove
+          ? "Open the queue"
+          : LOOP_COPY.card.readEmailsCta,
+    },
+    pauseReason: {
+      ...LOOP_COPY.pauseReason,
+      inactivity: isSend
+        ? "Paused — daily cap hit. Picks back up tomorrow."
+        : isApprove
+          ? "Paused — approvals waiting. Open them to keep it moving."
+          : LOOP_COPY.pauseReason.inactivity,
+    },
+
+    // ── LoopDetailPage / per-Loop Overview copy ──────────────────────
+    // The screenshot is the editorial masthead in LoopDetailPage:
+    //   {kicker} → {title} {italic accent}
+    //
+    // The first section ("Today's mail" / "Drafts ready for review.")
+    // is the only one that's outbound-flavored, so it's the only one
+    // that flips on autoSendMode. Replies/jobs/companies headlines
+    // describe inbound signal and discovery — same in every mode.
+    overview: {
+      // Hero headline word: "You have {N drafts} and {N replies}." flips
+      // the noun based on what's actually sitting in the student's
+      // outbox. Singular and plural variants because n=1 reads weird.
+      heroOutboundNoun: (n: number): string =>
+        isSend
+          ? n === 1 ? "one sent email" : `${n} sent emails`
+          : isApprove
+            ? n === 1 ? "one approval" : `${n} approvals`
+            : n === 1 ? "one draft" : `${n} drafts`,
+      // BigCounter label under the hero number.
+      heroOutboundLabel: isSend
+        ? "sent this week"
+        : isApprove
+          ? "waiting on you"
+          : "drafts ready",
+      // Section #1 — "Today's mail / Drafts ready for review."
+      mailKicker: isSend
+        ? "01 · Already out"
+        : isApprove
+          ? "01 · Needs your okay"
+          : "01 · Today's mail",
+      mailTitle: isSend ? "Emails" : isApprove ? "Holds" : "Drafts",
+      mailItalic: isSend
+        ? "out the door."
+        : isApprove
+          ? "waiting your call."
+          : "ready for review.",
+      mailEmpty: isSend
+        ? "Nothing sent yet. Emails appear here as the Loop drafts and sends them."
+        : isApprove
+          ? "Nothing waiting yet. Items appear here as the Loop finds them."
+          : "No drafts yet. They appear here as the agent writes outreach.",
+      // Tab label for the "Drafts" tab.
+      tabLabel: isSend ? "Sent" : isApprove ? "Queue" : "Drafts",
+      // DraftsTab kicker / title / italic + counts line + empty.
+      tabKicker: isSend
+        ? "The trail"
+        : isApprove
+          ? "The queue"
+          : "The queue",
+      tabTitle: isSend ? "Sent" : isApprove ? "Approvals" : "Drafts",
+      tabItalic: isSend
+        ? "this week."
+        : isApprove
+          ? "needing your okay."
+          : "awaiting your send.",
+      tabCountWord: isSend ? "sent" : isApprove ? "pending" : "ready",
+      tabEmpty: isSend
+        ? "Nothing sent yet. The Loop writes and sends outreach as it finds contacts."
+        : isApprove
+          ? "Nothing to approve yet. The Loop queues items here for you to review."
+          : "No drafts yet. The Loop writes outreach as it finds contacts — give it a moment.",
+      // Per-row badge on NumberedItem for type="draft".
+      rowBadge: isSend ? "Email sent" : isApprove ? "Needs approval" : "Email draft",
+      // Pipeline column name for the "drafted" stage + the per-card
+      // count suffix ({N} drafts | sent | pending).
+      pipelineColumn: isSend ? "Sent" : isApprove ? "Queued" : "Drafted",
+      pipelineCountWord: (n: number): string =>
+        isSend
+          ? `${n} sent`
+          : isApprove
+            ? `${n} pending`
+            : `${n} draft${n !== 1 ? "s" : ""}`,
+      pipelineEmpty: isSend
+        ? "No pipeline yet. As the Loop sends outreach, companies appear here grouped by stage."
+        : isApprove
+          ? "No pipeline yet. As the Loop queues items, companies appear here grouped by stage."
+          : "No pipeline yet. As the Loop finds contacts, drafts appear here grouped by company.",
+    },
 
     // ── Wizard headlines and mode picker ─────────────────────────────
     // The prompt-first wizard uses ONE headline regardless of mode (the
@@ -219,5 +344,38 @@ export function loopCopy(
       : (school
           ? `Push ${school} alumni to the top.`
           : "Push people from my school to the top."),
+
+    // ── H carve-out: LoopActivityFeed interaction-state copy ──────────
+    //
+    // Mode shapes what the student is here to see — postings (roles),
+    // people (people), or both. Empty + loading copy follows.
+    // Per eng D11: PARTIAL eyebrow ("still finding more…") dropped from
+    // H scope — activity endpoint has no cycle-status field and the
+    // state is rarely watched.
+    feed: {
+      empty: isBoth
+        ? `Hunting roles and people. First batch in 5–15 min.${cadenceLine ? ` ${cadenceLine}` : ""}`
+        : isRoles
+          ? `Hunting open postings. First batch in 5–15 min.${cadenceLine ? ` ${cadenceLine}` : ""}`
+          : `Looking for people. First drafts in 5–15 min.${cadenceLine ? ` ${cadenceLine}` : ""}`,
+      loading: {
+        eyebrow: isBoth ? "WORKING…" : isRoles ? "HUNTING POSTINGS" : "SCOUTING PEOPLE",
+      },
+      error: "Couldn't reach the feed. Retry in a minute or refresh.",
+      // Return-visit eyebrow. Singular vs plural matters at n=1 so we
+      // don't say "1 NEW THINGS SINCE…" — small detail but the eyebrow
+      // is the felt moment on each visit.
+      newSinceLastVisit: (n: number): string =>
+        n === 1
+          ? "1 NEW SINCE YOU LAST CHECKED"
+          : `${n} NEW SINCE YOU LAST CHECKED`,
+    },
+
+    // ── H carve-out: StartLoopHero composer states ────────────────────
+    composer: {
+      // Shown next to the ModeIndicator while the parser is still
+      // working out the brief. Mono, lowercase per the wizard pattern.
+      modeThinking: "thinking…",
+    },
   };
 }

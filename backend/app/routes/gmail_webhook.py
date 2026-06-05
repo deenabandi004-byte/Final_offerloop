@@ -23,6 +23,7 @@ from app.services.gmail_client import (
     get_gmail_service_for_user,
     start_gmail_watch,
 )
+from app.utils.bounce_detection import is_bounce_message
 
 gmail_webhook_bp = Blueprint("gmail_webhook", __name__, url_prefix="/api/gmail")
 
@@ -411,6 +412,46 @@ def _process_gmail_notification(email_address, history_id):
                 except Exception:
                     pass
 
+                continue
+
+            # Bounce / DSN detection: Mailer-Daemon and similar postmaster
+            # messages share the original thread_id, so without this gate we
+            # mis-label them as "{contact} responded to you!" and surface a
+            # notification.
+            subject_header = next((h.get("value", "") for h in headers if h.get("name", "").lower() == "subject"), "")
+            raw_snippet = msg_resp.get("snippet") or ""
+            if is_bounce_message(from_email, subject_header, raw_snippet):
+                logger.info(
+                    f"[gmail_webhook] uid={uid} msg_id={msg_id} detected BOUNCE "
+                    f"from={from_email!r} subject={subject_header[:80]!r}"
+                )
+                try:
+                    bounce_matches = contacts_ref.where("gmailThreadId", "==", thread_id).limit(1).get()
+                    if bounce_matches:
+                        bounced_doc = bounce_matches[0]
+                        bounced_doc.reference.update({
+                            "pipelineStage": "bounced",
+                            "inOutbox": False,
+                            "hasUnreadReply": False,
+                            "threadStatus": "bounced",
+                            "bouncedAt": now_iso,
+                            "lastActivityAt": now_iso,
+                            "updatedAt": now_iso,
+                        })
+                        logger.info(
+                            f"[gmail_webhook] uid={uid} contact={bounced_doc.id} "
+                            f"marked bounced and removed from outbox"
+                        )
+                    else:
+                        logger.info(
+                            f"[gmail_webhook] uid={uid} bounce for thread={thread_id} "
+                            f"had no matching contact — dropping silently"
+                        )
+                except Exception as bounce_err:
+                    logger.warning(
+                        f"[gmail_webhook] uid={uid} bounce contact update failed for "
+                        f"thread={thread_id}: {bounce_err}"
+                    )
                 continue
 
             # Find contact with this thread (reply from contact)

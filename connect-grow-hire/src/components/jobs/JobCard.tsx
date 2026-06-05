@@ -130,11 +130,18 @@ export function JobCard({
 
       <div className="jb-card-tags">
         {job.isNew && <span className="jb-tag new">New!</span>}
-        {job.match != null && (
-          <span className={`jb-tag match ${job.match < 70 ? "match-cool" : ""}`}>
-            {job.match}% Match
-            <IconInfoGreen />
-          </span>
+        {/* Wording-based fit label. The internal match score still drives the
+            tier, but the user sees a phrase, not a number — the algorithm's
+            precision is noisy, and a "47% Match" feels worse than the
+            underlying signal warrants. Three tiers:
+              60+   green  "Strong fit"
+              30-59 orange "Similar to you"
+              <30   hidden (no label) */}
+        {job.match != null && job.match >= 60 && (
+          <span className="jb-tag match">Strong fit</span>
+        )}
+        {job.match != null && job.match >= 30 && job.match < 60 && (
+          <span className="jb-tag match-cool">Similar to you</span>
         )}
         {job.tags.map((t, i) => (
           <span key={`tag-${i}`} className="jb-tag">{t}</span>

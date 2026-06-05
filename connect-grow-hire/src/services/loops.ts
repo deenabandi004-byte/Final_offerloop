@@ -77,6 +77,19 @@ export interface BriefVersionEntry {
   editedAt: string;
 }
 
+// Phase 9 — Loop auto-send mode. Three points on the autonomy spectrum:
+//   "approve_each" — cycles auto-run; every action queues for approval
+//                    before any credits spend. Replaces today's confusing
+//                    reviewBeforeSend=true / automationEnabled=false combo
+//                    (which silently broke auto-cycling).
+//   "draft_only"   — cycles auto-run; AI drafts to the student's Gmail
+//                    drafts folder; student sends manually. This is what
+//                    today's "Autopilot" actually does.
+//   "send_for_me"  — cycles auto-run; AI drafts AND sends from the
+//                    student's own Gmail. Gated by Hunter verification,
+//                    quiet hours, first-N approval, daily cap.
+export type LoopAutoSendMode = "approve_each" | "draft_only" | "send_for_me";
+
 export interface Loop {
   id: string;
   name: string;
@@ -109,6 +122,20 @@ export interface Loop {
   pauseReason: LoopPauseReason;
   loopMode?: LoopMode;
   briefVersionHistory?: BriefVersionEntry[];
+  // Phase 9 — auto-send. Default "draft_only" preserves today's behavior
+  // for existing Loops. autoSendApprovedCount is server-managed (bumped
+  // only by POST /:loopId/contacts/:contactId/approve-send).
+  autoSendMode?: LoopAutoSendMode;
+  autoSendApprovedCount?: number;
+  autoSendApprovedAfter?: number;
+  hardDailySendCap?: number | null;
+  // Phase 9.1 — per-Loop concurrency lock. True while
+  // loop_jobs.run_loop_cycle_job is mid-cycle. Server-managed; the UI
+  // reads this to disable Run-it-now and the like so the user can't
+  // fire a parallel cycle (which the backend would correctly refuse,
+  // but with no visual cue).
+  cycleRunning?: boolean;
+  cycleStartedAt?: string | null;
 }
 
 export interface CycleCostEstimate {
@@ -147,6 +174,43 @@ export interface LoopLimits {
 
 export type LoopActivityType = "contact" | "draft" | "hm" | "job" | "company";
 
+// Fleet command bar — weekly aggregate across every Loop. The ring's
+// denominator is the sum of every Loop's weeklyTarget (see the
+// LOOPS_FLEET_REDESIGN_PLAN doc for the rationale).
+export interface FleetWeeklySummary {
+  foundThisWeek: number;
+  weeklySparkline: number[]; // 7 entries, oldest first
+  draftsWaiting: number;
+  weeklyGoal: number;
+  weeklyProgressPct: number;
+  activeLoopsCount: number;
+  weekStartedAt: string;
+}
+
+// Fleet activity ticker row. Powers the live ticker at the bottom of the
+// LoopsCommandBar. `kind` decides the dot color in the ticker.
+export type FleetFeedKind = "found" | "draft" | "job" | "company";
+
+export interface FleetFeedItem {
+  kind: FleetFeedKind;
+  who: string;
+  role: string;
+  when: string;
+  loopId: string;
+  createdAt: string;
+}
+
+// Quickstart Loop template surfaced in the NewLoopTile's two one-tap chips.
+// `brief` is the pre-seeded text the /agent/setup composer reads from
+// location.state when the user lands on the setup page.
+export interface SuggestedLoop {
+  id: string;
+  title: string;
+  tag: string;
+  brief: string;
+  loopMode: LoopMode;
+}
+
 export interface LoopActivityItem {
   id: string;
   type: LoopActivityType;
@@ -157,6 +221,13 @@ export interface LoopActivityItem {
    *  The feed opens these in a new tab with target=_blank. */
   external?: boolean;
   createdAt: string;
+  /** Pairs a job posting with its founder-draft sub-card in the activity
+   *  feed. Items that share a groupKey render as a hierarchy (job primary,
+   *  draft secondary) in roles mode. Absent on:
+   *   - unpaired large-co postings (Apply-only)
+   *   - people-mode networking contacts (today's flat row layout)
+   *   - legacy items written before H shipped. */
+  groupKey?: string;
 }
 
 // ── CRUD ────────────────────────────────────────────────────────────────
@@ -182,11 +253,126 @@ export async function createLoop(input: {
   creditBudgetPerWeek?: number;
   automationEnabled?: boolean;
   loopMode?: LoopMode;
+  // Phase 9 — auto-send. autoSendApprovedCount is intentionally absent
+  // (server-managed, rejected by the route validator). hardDailySendCap
+  // omitted means "use tier cap"; pass an int 0-200 to override down.
+  autoSendMode?: LoopAutoSendMode;
+  autoSendApprovedAfter?: number;
+  hardDailySendCap?: number | null;
 }): Promise<Loop> {
   return loopFetch("", {
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+// Phase 9 — manually approve auto-send for one contact. Bumps the Loop's
+// autoSendApprovedCount and (if all gate checks pass) sends the previously
+// drafted email from the student's own Gmail. The Loop's default is no
+// warmup (autoSendApprovedAfter = 0) — this endpoint is then just a
+// per-contact override after a different gate (Hunter, daily cap, etc.)
+// denied. Power users who PATCH autoSendApprovedAfter > 0 get the first-N
+// warmup behavior described originally.
+export interface ApproveSendResponse {
+  ok: true;
+  messageId: string;
+  autoSendApprovedCount: number;
+  autoSendApprovedAfter: number;
+  firstNSatisfied: boolean;
+}
+
+export interface ApproveSendDenied {
+  error: "gate_denied";
+  reason: string;        // GateReason — see backend agent_send_gate.GateReason
+  effective_cap?: number;
+}
+
+export async function approveContactSend(
+  loopId: string,
+  contactId: string,
+): Promise<ApproveSendResponse> {
+  return loopFetch(`/${loopId}/contacts/${contactId}/approve-send`, {
+    method: "POST",
+  });
+}
+
+// ── Pause-pill copy ─────────────────────────────────────────────────────
+//
+// Human-readable label + per-reason action affordance for the tracker
+// pause pill. Mirrors GateReason in backend/app/services/agent_send_gate.py.
+// The CTA tells the user what would unstick this contact:
+//   - first_n_pending → "Send now" (counts toward the first-N gate)
+//   - gmail_not_connected / email_unverified → "Send anyway" (overrides)
+//   - daily_cap / quiet_hours → no action (the wait IS the answer)
+//   - mode_not_send / tier_no_autosend / no_email → ambient pill, no action
+
+export type AutoSendPauseCta = "send_now" | "send_anyway" | "connect_gmail" | null;
+
+export interface PausePillDescriptor {
+  label: string;     // pill copy
+  detail?: string;   // optional second-line / tooltip
+  cta: AutoSendPauseCta;
+}
+
+export function describeAutoSendPause(
+  reason: string | null | undefined,
+  ctx: { effectiveCap?: number | null; verificationStatus?: string | null } = {},
+): PausePillDescriptor | null {
+  if (!reason) return null;
+  switch (reason) {
+    case "first_n_pending":
+      return {
+        label: "Awaiting your approval",
+        detail: "Approve to teach the loop how to send for you.",
+        cta: "send_now",
+      };
+    case "gmail_not_connected":
+      return {
+        label: "Connect Gmail",
+        detail: "Auto-send needs Gmail access to send from your address.",
+        cta: "connect_gmail",
+      };
+    case "email_unverified":
+      return {
+        label: "Email failed verification",
+        detail:
+          ctx.verificationStatus === "invalid"
+            ? "Hunter marked this address as invalid. Sending may bounce."
+            : "Hunter couldn't confirm this address. Sending may bounce.",
+        cta: "send_anyway",
+      };
+    case "daily_cap":
+      return {
+        label: ctx.effectiveCap
+          ? `Daily cap hit (${ctx.effectiveCap}/day)`
+          : "Daily cap hit",
+        detail: "Resumes tomorrow your time.",
+        cta: null,
+      };
+    case "quiet_hours":
+      return {
+        label: "Outside quiet hours",
+        detail: "Will resume at 8 AM your time.",
+        cta: null,
+      };
+    case "send_error":
+      return {
+        label: "Send failed",
+        detail: "Gmail returned an error. You can try again manually.",
+        cta: "send_anyway",
+      };
+    case "mode_not_send":
+    case "tier_no_autosend":
+    case "no_email":
+      // Ambient — the user didn't ask us to auto-send, or can't.
+      return null;
+    default:
+      return {
+        label: "Auto-send paused",
+        detail: reason,
+        cta: "send_anyway",
+      };
+  }
 }
 
 export async function updateLoop(
@@ -245,4 +431,20 @@ export async function pauseLoop(loopId: string): Promise<Loop> {
 
 export async function resumeLoop(loopId: string): Promise<Loop> {
   return loopFetch(`/${loopId}/resume`, { method: "POST" });
+}
+
+// ── Fleet rollups (LoopsCommandBar) ─────────────────────────────────────
+
+export async function getFleetWeeklySummary(): Promise<FleetWeeklySummary> {
+  return loopFetch("/weekly-summary");
+}
+
+export async function getFleetFeed(
+  limit: number = 20
+): Promise<{ items: FleetFeedItem[] }> {
+  return loopFetch(`/feed?limit=${limit}`);
+}
+
+export async function getSuggestedLoops(): Promise<{ items: SuggestedLoop[] }> {
+  return loopFetch("/suggested");
 }

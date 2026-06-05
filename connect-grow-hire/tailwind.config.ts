@@ -18,8 +18,8 @@ export default {
 		},
 		fontFamily: {
 			sans: ['Inter', 'system-ui', 'sans-serif'],
-			serif: ['"Instrument Serif"', 'Georgia', 'serif'],
-			display: ['"Instrument Serif"', 'Georgia', 'serif'],
+			serif: ['"Libre Baskerville"', 'Georgia', 'serif'],
+			display: ['"Libre Baskerville"', 'Georgia', 'serif'],
 			mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
 		},
 		extend: {
@@ -31,7 +31,11 @@ export default {
 				foreground: 'hsl(var(--foreground))',
 				primary: {
 					DEFAULT: 'hsl(var(--primary))',
-					foreground: 'hsl(var(--primary-foreground))'
+					foreground: 'hsl(var(--primary-foreground))',
+					50: 'var(--primary-50)',
+					100: 'var(--primary-100)',
+					200: 'var(--primary-200)',
+					600: 'var(--primary-600)'
 				},
 				secondary: {
 					DEFAULT: 'hsl(var(--secondary))',
@@ -75,6 +79,9 @@ export default {
 				line:      { DEFAULT: 'var(--line)', 2: 'var(--line-2)' },
 				brand:     { DEFAULT: 'var(--brand)', 2: 'var(--brand-2)' },
 				'st-accent': 'var(--accent)',
+				surface:   'var(--surface)',
+				heading:   'var(--heading)',
+				action:    { bg: 'var(--action-bg)', fg: 'var(--action-fg)' },
 				signal:    {
 					pos:  'var(--signal-pos)',
 					neg:  'var(--signal-neg)',
@@ -101,6 +108,9 @@ export default {
 				'st-lg':  '8px',
 				'st-xl':  '10px',
 				'st-2xl': '14px',
+				'st-3xl': '16px',
+				'st-4xl': '24px',
+				'st-5xl': '32px',
 			},
 			keyframes: {
 				'accordion-down': {

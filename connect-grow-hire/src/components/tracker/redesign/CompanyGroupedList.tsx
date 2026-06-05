@@ -1,16 +1,12 @@
 import { ProtoContactCard } from "./ProtoContactCard";
 import { GroupSection } from "./GroupSection";
-import { CompanyLogo } from "./CompanyLogo";
+import { CompanyLogo } from "@/components/CompanyLogo";
 import { type CompanyGroup } from "@/pages/trackerAdapter";
 
 // Companies view: alphabetised company groups, each containing the people
 // affiliated with that company. The group-header tile renders a real logo
-// via CompanyLogo when available, falling through to a brand-tinted monogram
-// for companies where no logo source resolves.
-
-function firstLetter(name: string): string {
-  return (name.trim()[0] || "?").toUpperCase();
-}
+// via the canonical CompanyLogo (same one My Network uses) so the chain,
+// sizing and monogram fallback match across the app.
 
 interface CompanyGroupedListProps {
   groups: CompanyGroup[];
@@ -34,9 +30,6 @@ export function CompanyGroupedList({
       {groups.map((g, idx) => {
         // First company defaults to open if the page hasn't recorded a state.
         const isOpen = openCompanies[g.company] ?? idx === 0;
-        const fallbackUrl = g.domain
-          ? `https://logo.clearbit.com/${g.domain}`
-          : null;
         return (
           <GroupSection
             key={g.company}
@@ -45,12 +38,7 @@ export function CompanyGroupedList({
             isOpen={isOpen}
             onToggle={() => onToggleCompany(g.company, isOpen)}
             leading={
-              <CompanyLogo
-                company={g.company}
-                monogram={firstLetter(g.company)}
-                fallbackUrl={fallbackUrl}
-                className="company-logo-tile"
-              />
+              <CompanyLogo company={g.company} size={32} rounded={6} />
             }
           >
             {g.contacts.map((c) => (

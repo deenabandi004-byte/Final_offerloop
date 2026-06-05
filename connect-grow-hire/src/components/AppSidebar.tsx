@@ -14,16 +14,22 @@ import {
   Users,
   Home,
   Repeat,
+  Search,
+  Coffee,
+  Inbox,
+  Briefcase,
+  BookOpen,
+  Bell,
+  User,
 } from "lucide-react";
-import CupIcon from "@/assets/sidebaricons/icons8-cup-48.png";
-import MailIcon from "@/assets/sidebaricons/icons8-important-mail-48.png";
-import MagnifyingGlassIcon from "@/assets/sidebaricons/icons8-magnifying-glass-50.png";
-import BriefcaseIcon from "@/assets/sidebaricons/icons8-briefcase-48.png";
 
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { trackNavClick, trackUpgradeClick } from "../lib/analytics";
 import { useAgentSidebarStatus } from "@/hooks/useAgent";
+import { useTour } from "@/contexts/TourContext";
+import { useNotifications } from "@/hooks/useNotifications";
+import { TIER_CONFIGS } from "@/lib/constants";
 
 import {
   Sidebar,
@@ -40,83 +46,59 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-// ── Icon helpers ────────────────────────────────────────────────────────────
-
-const IMG_FILTER_ACTIVE =
-  "brightness(0) saturate(100%) invert(20%) sepia(99%) saturate(2400%) hue-rotate(222deg) brightness(96%) contrast(95%)";
-const IMG_FILTER_INACTIVE =
-  "brightness(0) saturate(100%) invert(44%) sepia(12%) saturate(560%) hue-rotate(176deg) brightness(94%) contrast(88%)";
+// Design tokens — deep-navy rail per AppSidebar.reference.jsx
+const T = {
+  rail:        "#0F172A",
+  wordmark:    "#FFFFFF",
+  accent:      "#7B8FC9",                  // periwinkle
+  activeBg:    "rgba(123,143,201,0.20)",
+  activeText:  "#9CA8CD",
+  hoverBg:     "rgba(255,255,255,0.05)",
+  idleText:    "#94A3B8",
+  hoverText:   "#E8EAF0",
+  sectionText: "#5B677E",
+  hairline:    "rgba(255,255,255,0.07)",
+  popoverBg:   "#1A2438",
+  action:      "var(--action, #E07A3E)",
+  actionHover: "var(--action-dark, #C9652C)",
+  upgradeBg:   "#4C62A8",                   // proto slate-blue for Upgrade Plan button
+  upgradeIcon: "#FACC15",                   // proto yellow for the lightning bolt
+  fontDisplay: "var(--font-display, 'Lora', Georgia, serif)",
+  fontBody:    "var(--font-body, 'Inter', system-ui, sans-serif)",
+};
 
 type NavItemDef = {
   title: string;
   url: string;
+  LucideIcon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   dataTour?: string;
-  newTab?: boolean;
-  iconColor?: string; // per-item color for inactive state
-  activeColor?: string; // per-item override for active icon/text color
-  activeFilter?: string; // per-item override for active img filter
-  activeBg?: string; // per-item override for active background
-} & (
-  | { iconSrc: string; LucideIcon?: never }
-  | { LucideIcon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; iconSrc?: never }
-);
-
-// CSS filter generators - mid-tone hues tuned for the light sidebar background
-const ICON_FILTERS: Record<string, string> = {
-  blue:      "brightness(0) saturate(100%) invert(30%) sepia(94%) saturate(1700%) hue-rotate(213deg) brightness(95%) contrast(94%)",
-  sky:       "brightness(0) saturate(100%) invert(40%) sepia(70%) saturate(1200%) hue-rotate(180deg) brightness(95%) contrast(92%)",
-  indigo:    "brightness(0) saturate(100%) invert(28%) sepia(70%) saturate(1900%) hue-rotate(225deg) brightness(95%) contrast(95%)",
-  slate:     "brightness(0) saturate(100%) invert(44%) sepia(12%) saturate(560%) hue-rotate(176deg) brightness(94%) contrast(88%)",
-  brown:     "brightness(0) saturate(100%) invert(33%) sepia(40%) saturate(900%) hue-rotate(350deg) brightness(92%) contrast(92%)",
-  amber:     "brightness(0) saturate(100%) invert(50%) sepia(92%) saturate(1100%) hue-rotate(2deg) brightness(94%) contrast(94%)",
-  emerald:   "brightness(0) saturate(100%) invert(40%) sepia(64%) saturate(1100%) hue-rotate(118deg) brightness(92%) contrast(92%)",
-  rose:      "brightness(0) saturate(100%) invert(24%) sepia(82%) saturate(3000%) hue-rotate(331deg) brightness(94%) contrast(95%)",
-  violet:    "brightness(0) saturate(100%) invert(28%) sepia(82%) saturate(2200%) hue-rotate(245deg) brightness(95%) contrast(95%)",
-  teal:      "brightness(0) saturate(100%) invert(42%) sepia(58%) saturate(900%) hue-rotate(128deg) brightness(92%) contrast(92%)",
 };
 
-// Group 1 - main nav (base items, Agent added dynamically for Elite)
 const baseNavItems: NavItemDef[] = [
-  { title: "Find", url: "/find", iconSrc: MagnifyingGlassIcon, iconColor: "blue" },
-  { title: "My Network", url: "/my-network", LucideIcon: Users, iconColor: "#7C3AED" },
-  { title: "Meeting Prep", url: "/coffee-chat-prep", iconSrc: CupIcon, iconColor: "amber", dataTour: "tour-coffee-chat-prep" },
-  { title: "Outbox", url: "/outbox", iconSrc: MailIcon, iconColor: "rose", dataTour: "tour-track-email" },
-  { title: "Job Board", url: "/job-board", iconSrc: BriefcaseIcon, iconColor: "emerald" },
+  { title: "Job Board",    url: "/job-board",        LucideIcon: Briefcase },
+  { title: "Outbox",       url: "/outbox",           LucideIcon: Inbox,  dataTour: "tour-track-email" },
+  { title: "Meeting Prep", url: "/coffee-chat-prep", LucideIcon: Coffee, dataTour: "tour-coffee-chat-prep" },
+  { title: "My Network",   url: "/my-network",       LucideIcon: Users },
 ];
 
-// Utility nav - bottom of sidebar
 const utilityNavItems: NavItemDef[] = [
-  { title: "Pricing", url: "/pricing", LucideIcon: Tag, iconColor: "#D97706" },
-  { title: "Documentation", url: "/documentation", LucideIcon: FileText, iconColor: "#0D9488" },
+  { title: "Pricing",       url: "/pricing",       LucideIcon: Tag },
 ];
 
-
-// User dropdown menu items
 const userMenuItems = [
-  { title: "Account Settings", url: "/account-settings", icon: Settings },
-  { title: "About Us", url: "/about", icon: Info },
-  { title: "Contact Us", url: "/contact-us", icon: MessageSquare },
-  { title: "Privacy Policy", url: "/privacy", icon: Shield },
-  { title: "Terms of Service", url: "/terms-of-service", icon: ScrollText },
+  { title: "Profile",           url: "/profile",            icon: User },
+  { title: "Account Settings",  url: "/account-settings",   icon: Settings },
+  { title: "Documentation",     url: "/documentation",      icon: FileText },
+  { title: "About Us",          url: "/about",              icon: Info },
+  { title: "Contact Us",        url: "/contact-us",         icon: MessageSquare },
+  { title: "Privacy Policy",    url: "/privacy",            icon: Shield },
+  { title: "Terms of Service",  url: "/terms-of-service",   icon: ScrollText },
 ];
 
-// ── Shared nav-item style constants ─────────────────────────────────────────
-
-const NAV_FONT_SIZE = "14px";
+const NAV_FONT_SIZE = "13.5px";
 const NAV_PY = "11px";
-const NAV_GAP = "10px";
+const NAV_GAP = "11px";
 const NAV_RADIUS = "8px";
-
-// White sidebar palette
-const ACTIVE_BG = "#EFF6FF";
-const ACTIVE_SHADOW = "inset 3px 0 0 #2563EB";
-const ACTIVE_COLOR = "#1D4ED8";
-const INACTIVE_ICON = "#64748B";
-const INACTIVE_LABEL = "#475569";
-const HOVER_BG = "#F1F5F9";
-const HOVER_LABEL = "#0F172A";
-
-// ── Component ───────────────────────────────────────────────────────────────
 
 export function AppSidebar() {
   const { state, toggleSidebar } = useSidebar();
@@ -124,7 +106,6 @@ export function AppSidebar() {
   const navigate = useNavigate();
   const currentPath = location.pathname;
   const { user, signOut } = useFirebaseAuth();
-
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
 
   const isActive = (url: string) => {
@@ -141,126 +122,98 @@ export function AppSidebar() {
     }
   };
 
+  // Derive credit cap from the user's actual subscription tier rather than
+  // trusting user.maxCredits in Firestore, which can drift stale (e.g. plan
+  // upgraded but maxCredits field wasn't updated). Single source of truth =
+  // TIER_CONFIGS in @/lib/constants. Falls back to free-tier cap.
+  const rawTier = ((user as { subscriptionTier?: string; tier?: string } | null)?.subscriptionTier
+    || (user as { tier?: string } | null)?.tier
+    || "free").toLowerCase();
+  const tierKey = (rawTier in TIER_CONFIGS ? rawTier : "free") as keyof typeof TIER_CONFIGS;
   const credits = user?.credits ?? 0;
-  const maxCredits = user?.maxCredits ?? 300;
+  const maxCredits = TIER_CONFIGS[tierKey].credits;
   const creditPercentage = Math.min((credits / maxCredits) * 100, 100);
   const isCollapsed = state === "collapsed";
 
-  // Launchpad (home) + Loops nav available to all users
+  const { startTour } = useTour();
+  const { notifications } = useNotifications();
+  const unreadCount = notifications.unreadReplyCount;
+
   const agentStatus = useAgentSidebarStatus();
   const mainNavItems: NavItemDef[] = [
-    { title: "Home", url: "/dashboard", LucideIcon: Home, iconColor: "#2563EB" },
-    { title: "Loops", url: "/agent", LucideIcon: Repeat, iconColor: "#4F46E5" },
+    { title: "Home",  url: "/dashboard", LucideIcon: Home },
+    { title: "Find",  url: "/find",      LucideIcon: Search },
+    { title: "Loops", url: "/agent",     LucideIcon: Repeat },
     ...baseNavItems,
   ];
 
-  // ── Render a single nav item (works for both image-icon and lucide-icon) ──
+  const initials =
+    user?.name
+      ?.split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2) ||
+    user?.email?.[0]?.toUpperCase() ||
+    "U";
+
+  const sectionLabel = (text: string) => (
+    <div
+      style={{
+        fontFamily: T.fontBody,
+        fontSize: "10.5px",
+        fontWeight: 600,
+        letterSpacing: "0.08em",
+        textTransform: "uppercase",
+        color: T.sectionText,
+        padding: "4px 12px 8px",
+      }}
+    >
+      {text}
+    </div>
+  );
 
   const renderNavItem = (item: NavItemDef) => {
     const active = isActive(item.url);
+    const Icon = item.LucideIcon;
 
-    const inactiveFilter = item.iconColor && ICON_FILTERS[item.iconColor]
-      ? ICON_FILTERS[item.iconColor]
-      : IMG_FILTER_INACTIVE;
-
-    const icon = item.iconSrc ? (
-      <img
-        src={item.iconSrc}
-        alt=""
+    const iconEl = (
+      <Icon
         className="h-4 w-4 flex-shrink-0"
         style={{
-          filter: active ? (item.activeFilter || IMG_FILTER_ACTIVE) : inactiveFilter,
-          opacity: 1,
+          color: active ? T.activeText : T.idleText,
+          opacity: active ? 1 : 0.85,
         }}
       />
-    ) : item.LucideIcon ? (
-      <item.LucideIcon
-        className="h-4 w-4 flex-shrink-0"
-        style={{ color: active ? (item.activeColor || ACTIVE_COLOR) : (item.iconColor && !ICON_FILTERS[item.iconColor] ? item.iconColor : INACTIVE_ICON) }}
-      />
-    ) : null;
-
-    const linkProps = item.newTab
-      ? { target: "_blank" as const, rel: "noopener noreferrer" }
-      : {};
+    );
 
     if (isCollapsed) {
       return (
         <Tooltip key={item.title}>
           <TooltipTrigger asChild>
-            {item.newTab ? (
-              <a
-                href={item.url}
-                {...linkProps}
-                data-tour={item.dataTour}
-                onClick={() => trackNavClick(item.title, "sidebar")}
-                className="flex items-center justify-center rounded-[8px] transition-all"
-                style={{
-                  padding: NAV_PY,
-                  background: "transparent",
-                  borderRadius: NAV_RADIUS,
-                  textDecoration: "none",
-                }}
-              >
-                {icon}
-              </a>
-            ) : (
-              <NavLink
-                to={item.url}
-                data-tour={item.dataTour}
-                onClick={() => trackNavClick(item.title, "sidebar")}
-                className="flex items-center justify-center rounded-[8px] transition-all"
-                style={{
-                  padding: NAV_PY,
-                  background: active ? (item.activeBg || ACTIVE_BG) : "transparent",
-                  boxShadow: active ? ACTIVE_SHADOW : "none",
-                  borderRadius: NAV_RADIUS,
-                }}
-              >
-                {icon}
-              </NavLink>
-            )}
+            <NavLink
+              to={item.url}
+              data-tour={item.dataTour}
+              onClick={() => trackNavClick(item.title, "sidebar")}
+              className="flex items-center justify-center transition-colors"
+              style={{
+                padding: NAV_PY,
+                background: active ? T.activeBg : "transparent",
+                borderRadius: NAV_RADIUS,
+                textDecoration: "none",
+              }}
+              onMouseEnter={(e) => {
+                if (!active) e.currentTarget.style.background = T.hoverBg;
+              }}
+              onMouseLeave={(e) => {
+                if (!active) e.currentTarget.style.background = "transparent";
+              }}
+            >
+              {iconEl}
+            </NavLink>
           </TooltipTrigger>
           <TooltipContent side="right">{item.title}</TooltipContent>
         </Tooltip>
-      );
-    }
-
-    if (item.newTab) {
-      return (
-        <a
-          key={item.title}
-          href={item.url}
-          {...linkProps}
-          data-tour={item.dataTour}
-          onClick={() => trackNavClick(item.title, "sidebar")}
-          className="flex items-center transition-all"
-          style={{
-            gap: NAV_GAP,
-            paddingTop: NAV_PY,
-            paddingBottom: NAV_PY,
-            paddingLeft: "10px",
-            paddingRight: "10px",
-            borderRadius: NAV_RADIUS,
-            fontSize: NAV_FONT_SIZE,
-            fontWeight: 400,
-            fontFamily: "var(--font-body)",
-            background: "transparent",
-            color: INACTIVE_LABEL,
-            textDecoration: "none",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = HOVER_BG;
-            e.currentTarget.style.color = HOVER_LABEL;
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "transparent";
-            e.currentTarget.style.color = INACTIVE_LABEL;
-          }}
-        >
-          {icon}
-          <span>{item.title}</span>
-        </a>
       );
     }
 
@@ -270,36 +223,36 @@ export function AppSidebar() {
         to={item.url}
         data-tour={item.dataTour}
         onClick={() => trackNavClick(item.title, "sidebar")}
-        className="flex items-center transition-all"
+        className="flex items-center transition-colors"
         style={{
           gap: NAV_GAP,
           paddingTop: NAV_PY,
           paddingBottom: NAV_PY,
-          paddingLeft: "10px",
-          paddingRight: "10px",
+          paddingLeft: "12px",
+          paddingRight: "12px",
           borderRadius: NAV_RADIUS,
           fontSize: NAV_FONT_SIZE,
-          fontWeight: active ? 600 : 400,
-          fontFamily: "var(--font-body)",
-          background: active ? (item.activeBg || ACTIVE_BG) : "transparent",
-          boxShadow: active ? ACTIVE_SHADOW : "none",
-          color: active ? (item.activeColor || ACTIVE_COLOR) : INACTIVE_LABEL,
+          fontWeight: active ? 600 : 500,
+          fontFamily: T.fontBody,
+          background: active ? T.activeBg : "transparent",
+          color: active ? T.activeText : T.idleText,
+          textDecoration: "none",
         }}
         onMouseEnter={(e) => {
           if (!active) {
-            e.currentTarget.style.background = HOVER_BG;
-            e.currentTarget.style.color = HOVER_LABEL;
+            e.currentTarget.style.background = T.hoverBg;
+            e.currentTarget.style.color = T.hoverText;
           }
         }}
         onMouseLeave={(e) => {
           if (!active) {
             e.currentTarget.style.background = "transparent";
-            e.currentTarget.style.color = INACTIVE_LABEL;
+            e.currentTarget.style.color = T.idleText;
           }
         }}
       >
         <span className="relative">
-          {icon}
+          {iconEl}
           {item.title === "Loops" && agentStatus.status === "active" && (
             <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-green-500" />
           )}
@@ -309,7 +262,13 @@ export function AppSidebar() {
         </span>
         <span className="flex-1">{item.title}</span>
         {item.title === "Loops" && agentStatus.pendingCount > 0 && (
-          <span className="ml-auto bg-amber-100 text-amber-700 text-[10px] font-medium rounded-full px-1.5 py-0.5 leading-none">
+          <span
+            className="ml-auto text-[10px] font-medium rounded-full px-1.5 py-0.5 leading-none"
+            style={{
+              background: "rgba(252,211,77,0.15)",
+              color: "#FCD34D",
+            }}
+          >
             {agentStatus.pendingCount}
           </span>
         )}
@@ -317,20 +276,26 @@ export function AppSidebar() {
     );
   };
 
-  // ── JSX ───────────────────────────────────────────────────────────────────
-
   return (
     <TooltipProvider>
-      <Sidebar className={isCollapsed ? "w-16" : "w-64"} collapsible="icon">
+      <Sidebar
+        className={isCollapsed ? "w-16" : "w-[232px]"}
+        collapsible="icon"
+      >
         <SidebarContent
           className="flex flex-col h-full overflow-hidden"
           style={{
-            background: "#FFFFFF",
-            borderRight: "1px solid #E2E8F0",
+            background: T.rail,
+            borderRight: `1px solid ${T.hairline}`,
           }}
         >
-          {/* User profile / toggle */}
-          <div className="px-3 pt-3 pb-1 flex-shrink-0">
+          {/* User row + collapse toggle (dropdown opens downward) */}
+          <div
+            style={{
+              padding: isCollapsed ? "16px 8px" : "14px 12px 10px",
+              position: "relative",
+            }}
+          >
             {isCollapsed ? (
               <div className="flex justify-center">
                 <Tooltip>
@@ -338,14 +303,14 @@ export function AppSidebar() {
                     <button
                       onClick={toggleSidebar}
                       className="p-2 rounded-lg transition-colors"
-                      style={{ color: "#64748B" }}
+                      style={{ color: T.idleText, background: "transparent", border: "none", cursor: "pointer" }}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.background = "rgba(15,23,42,.05)";
-                        e.currentTarget.style.color = "#0F172A";
+                        e.currentTarget.style.background = T.hoverBg;
+                        e.currentTarget.style.color = T.hoverText;
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.background = "transparent";
-                        e.currentTarget.style.color = "#64748B";
+                        e.currentTarget.style.color = T.idleText;
                       }}
                       aria-label="Expand sidebar"
                     >
@@ -356,258 +321,414 @@ export function AppSidebar() {
                 </Tooltip>
               </div>
             ) : (
-              <>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-                    className="flex-1 flex items-center gap-3 px-2 py-2 rounded-lg transition-all"
+              <div className="flex items-center" style={{ gap: 4 }}>
+                <button
+                  onClick={() => setUserDropdownOpen(!userDropdownOpen)}
+                  className="flex items-center transition-colors rounded-lg flex-1"
+                  style={{
+                    gap: 10,
+                    padding: "4px 6px",
+                    background: userDropdownOpen ? T.hoverBg : "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    minWidth: 0,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!userDropdownOpen) e.currentTarget.style.background = T.hoverBg;
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!userDropdownOpen) e.currentTarget.style.background = "transparent";
+                  }}
+                >
+                  <Avatar
+                    className="h-8 w-8 flex-shrink-0"
                     style={{
-                      background: userDropdownOpen ? "rgba(15,23,42,.05)" : "transparent",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = "rgba(15,23,42,.05)";
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!userDropdownOpen) {
-                        e.currentTarget.style.background = "transparent";
-                      }
+                      background: "rgba(123,143,201,0.22)",
+                      boxShadow: "0 0 0 2px rgba(123,143,201,0.35)",
                     }}
                   >
-                    <Avatar className="h-8 w-8 flex-shrink-0 ring-2 ring-[#3B82F6]/15">
-                      {user?.picture && <AvatarImage src={user.picture} alt={user.name} />}
-                      <AvatarFallback
-                        className="text-xs font-medium"
-                        style={{ background: "#DBEAFE", color: "#1D4ED8" }}
-                      >
-                        {user?.name
-                          ?.split(" ")
-                          .map((n) => n[0])
-                          .join("")
-                          .toUpperCase()
-                          .slice(0, 2) ||
-                          user?.email?.[0]?.toUpperCase() ||
-                          "U"}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0 text-left">
-                      <p
-                        className="text-sm font-medium truncate"
-                        style={{ color: "#0F172A", fontFamily: "var(--font-body)" }}
-                      >
-                        {user?.name || "User"}
-                      </p>
-                    </div>
-                    <ChevronDown
-                      className={cn(
-                        "h-3.5 w-3.5 transition-transform flex-shrink-0",
-                        userDropdownOpen && "rotate-180"
-                      )}
-                      style={{ color: "#94A3B8" }}
-                    />
-                  </button>
-
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={toggleSidebar}
-                        className="p-2 rounded-lg transition-colors flex-shrink-0"
-                        style={{ color: "#64748B" }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = "rgba(15,23,42,.05)";
-                          e.currentTarget.style.color = "#0F172A";
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = "transparent";
-                          e.currentTarget.style.color = "#64748B";
-                        }}
-                        aria-label="Collapse sidebar"
-                      >
-                        <PanelLeft className="h-4 w-4" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="right">Collapse sidebar</TooltipContent>
-                  </Tooltip>
-                </div>
-
-                {/* Dropdown Menu */}
-                {userDropdownOpen && (
-                  <div className="mt-1 py-1 bg-white rounded-lg shadow-lg">
-                    {userMenuItems.map((item) => (
-                      <NavLink
-                        key={item.title}
-                        to={item.url}
-                        onClick={() => {
-                          setUserDropdownOpen(false);
-                          trackNavClick(item.title, "sidebar_dropdown");
-                        }}
-                        className={({ isActive }) =>
-                          cn(
-                            "flex items-center gap-3 px-3 py-2 text-sm transition-colors",
-                            isActive
-                              ? "text-[#1E293B] bg-[rgba(30, 41, 59,0.1)]"
-                              : "text-[#475569] hover:text-[#0F172A] hover:bg-[rgba(30, 41, 59,0.06)]"
-                          )
-                        }
-                      >
-                        <item.icon className="h-4 w-4" />
-                        <span>{item.title}</span>
-                      </NavLink>
-                    ))}
-                    <div className="my-1 border-t border-[#E2E8F0]" />
-                    <button
-                      onClick={handleSignOut}
-                      className="w-full flex items-center gap-3 px-3 py-2 text-sm text-[#475569] hover:text-[#0F172A] hover:bg-[#EFF6FF] transition-colors"
+                    {user?.picture && <AvatarImage src={user.picture} alt={user.name} />}
+                    <AvatarFallback
+                      style={{
+                        background: "rgba(123,143,201,0.22)",
+                        color: T.activeText,
+                        fontFamily: T.fontBody,
+                        fontWeight: 700,
+                        fontSize: 12,
+                      }}
                     >
-                      <LogOut className="h-4 w-4" />
-                      <span>Sign out</span>
+                      {initials}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span
+                    className="truncate flex-1"
+                    style={{
+                      fontFamily: T.fontBody,
+                      fontSize: 13.5,
+                      fontWeight: 500,
+                      color: T.hoverText,
+                      position: "relative",
+                    }}
+                  >
+                    {user?.name || "User"}
+                    {unreadCount > 0 && (
+                      <span
+                        style={{
+                          position: "absolute",
+                          top: -4,
+                          right: 18,
+                          minWidth: 8,
+                          height: 8,
+                          borderRadius: 999,
+                          background: T.action as string,
+                        }}
+                      />
+                    )}
+                  </span>
+                  <ChevronDown
+                    className={cn(
+                      "h-3.5 w-3.5 transition-transform flex-shrink-0",
+                      userDropdownOpen && "rotate-180"
+                    )}
+                    style={{ color: T.sectionText }}
+                  />
+                </button>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={toggleSidebar}
+                      className="p-1.5 rounded-lg transition-colors flex-shrink-0"
+                      style={{ color: T.idleText, background: "transparent", border: "none", cursor: "pointer" }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = T.hoverBg;
+                        e.currentTarget.style.color = T.hoverText;
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "transparent";
+                        e.currentTarget.style.color = T.idleText;
+                      }}
+                      aria-label="Collapse sidebar"
+                    >
+                      <PanelLeft className="h-4 w-4" />
                     </button>
-                  </div>
-                )}
-              </>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">Collapse sidebar</TooltipContent>
+                </Tooltip>
+              </div>
+            )}
+
+            {/* Dropdown — opens downward, contains Tour + Notifications + existing menu + Sign out */}
+            {!isCollapsed && userDropdownOpen && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% - 2px)",
+                  left: 12,
+                  right: 12,
+                  background: T.popoverBg,
+                  border: `1px solid ${T.hairline}`,
+                  borderRadius: 10,
+                  padding: 6,
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                  zIndex: 50,
+                }}
+              >
+                <button
+                  onClick={() => {
+                    setUserDropdownOpen(false);
+                    startTour();
+                  }}
+                  className="flex items-center gap-3 transition-colors w-full"
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 6,
+                    fontFamily: T.fontBody,
+                    fontSize: 13,
+                    color: T.idleText,
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = T.hoverBg;
+                    e.currentTarget.style.color = T.hoverText;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "transparent";
+                    e.currentTarget.style.color = T.idleText;
+                  }}
+                >
+                  <BookOpen className="h-4 w-4" />
+                  <span>Take the tour</span>
+                </button>
+                <NavLink
+                  to="/tracker"
+                  onClick={() => {
+                    setUserDropdownOpen(false);
+                    trackNavClick("Notifications", "sidebar_dropdown");
+                  }}
+                  className="flex items-center gap-3 transition-colors"
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 6,
+                    fontFamily: T.fontBody,
+                    fontSize: 13,
+                    color: T.idleText,
+                    textDecoration: "none",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = T.hoverBg;
+                    e.currentTarget.style.color = T.hoverText;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "transparent";
+                    e.currentTarget.style.color = T.idleText;
+                  }}
+                >
+                  <Bell className="h-4 w-4" />
+                  <span className="flex-1">Notifications</span>
+                  {unreadCount > 0 && (
+                    <span
+                      style={{
+                        minWidth: 18,
+                        height: 16,
+                        padding: "0 5px",
+                        borderRadius: 999,
+                        background: T.action as string,
+                        color: "#fff",
+                        fontSize: 10,
+                        fontWeight: 700,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        lineHeight: 1,
+                      }}
+                    >
+                      {unreadCount > 9 ? "9+" : unreadCount}
+                    </span>
+                  )}
+                </NavLink>
+                <div style={{ margin: "4px 0", borderTop: `1px solid ${T.hairline}` }} />
+                {userMenuItems.map((item) => (
+                  <NavLink
+                    key={item.title}
+                    to={item.url}
+                    onClick={() => {
+                      setUserDropdownOpen(false);
+                      trackNavClick(item.title, "sidebar_dropdown");
+                    }}
+                    className="flex items-center gap-3 transition-colors"
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: 6,
+                      fontFamily: T.fontBody,
+                      fontSize: 13,
+                      color: T.idleText,
+                      textDecoration: "none",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = T.hoverBg;
+                      e.currentTarget.style.color = T.hoverText;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "transparent";
+                      e.currentTarget.style.color = T.idleText;
+                    }}
+                  >
+                    <item.icon className="h-4 w-4" />
+                    <span>{item.title}</span>
+                  </NavLink>
+                ))}
+                <div style={{ margin: "4px 0", borderTop: `1px solid ${T.hairline}` }} />
+                <button
+                  onClick={handleSignOut}
+                  className="flex items-center gap-3 transition-colors w-full"
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 6,
+                    fontFamily: T.fontBody,
+                    fontSize: 13,
+                    color: T.idleText,
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = T.hoverBg;
+                    e.currentTarget.style.color = T.hoverText;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "transparent";
+                    e.currentTarget.style.color = T.idleText;
+                  }}
+                >
+                  <LogOut className="h-4 w-4" />
+                  <span>Sign out</span>
+                </button>
+              </div>
             )}
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 overflow-y-auto px-3 pt-2 pb-3 flex flex-col">
-            {/* Group 1 - main */}
-            <div className="space-y-0.5">
+          <nav
+            className="flex-1 overflow-y-auto flex flex-col"
+            style={{
+              padding: isCollapsed ? "0 8px" : "0 14px",
+            }}
+          >
+            {!isCollapsed && sectionLabel("Workspace")}
+            <div className="flex flex-col" style={{ gap: 3 }}>
               {mainNavItems.map(renderNavItem)}
             </div>
-
-            {/* Spacer pushes utility to bottom */}
             <div className="flex-1" />
-
-            {/* Utility nav - bottom */}
-            <div className="space-y-0.5">
+            {!isCollapsed && sectionLabel("Resources")}
+            <div className="flex flex-col" style={{ gap: 3, paddingBottom: 8 }}>
               {utilityNavItems.map(renderNavItem)}
             </div>
           </nav>
         </SidebarContent>
 
-        {/* Footer - Credits + Upgrade */}
+        {/* Footer — credits + upgrade + user row */}
         <SidebarFooter
-          className="p-3"
           style={{
-            borderTop: "1px solid #E2E8F0",
-            background: "#FFFFFF",
+            background: T.rail,
+            borderTop: `1px solid ${T.hairline}`,
+            padding: 14,
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
           }}
         >
           {!isCollapsed ? (
-            <div className="space-y-2.5">
+            <>
               {/* Credits */}
-              <div
-                style={{
-                  background: "#FFFFFF",
-                  border: "1px solid rgba(15,23,42,0.07)",
-                  borderRadius: "10px",
-                  padding: "10px 12px",
-                  boxShadow: "0 1px 2px rgba(15,23,42,0.05)",
-                }}
-              >
-                <div className="flex items-center justify-between mb-2">
+              <div>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 8,
+                  }}
+                >
                   <span
                     style={{
-                      fontSize: "11px",
-                      fontWeight: 700,
-                      letterSpacing: "0.05em",
-                      color: "#64748B",
-                      fontFamily: "var(--font-body)",
-                      textTransform: "uppercase" as const,
+                      fontFamily: T.fontBody,
+                      fontSize: 10.5,
+                      fontWeight: 600,
+                      letterSpacing: "0.06em",
+                      color: T.sectionText,
+                      textTransform: "uppercase",
                     }}
                   >
                     Credits
                   </span>
-                  <span style={{ fontFamily: "var(--font-body)", lineHeight: 1 }}>
-                    <span style={{ fontSize: "14px", fontWeight: 700, color: "#1D4ED8" }}>
+                  <span style={{ fontFamily: T.fontBody, lineHeight: 1 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: T.activeText }}>
                       {credits}
                     </span>
-                    <span style={{ fontSize: "12px", fontWeight: 500, color: "#94A3B8" }}>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: T.sectionText }}>
                       {" "}
-                      / {maxCredits}
+                      / {maxCredits.toLocaleString()}
                     </span>
                   </span>
                 </div>
                 <div
-                  className="h-1.5 rounded-full overflow-hidden"
-                  style={{ background: "#E6EDF9" }}
+                  style={{
+                    height: 5,
+                    borderRadius: 999,
+                    background: "rgba(255,255,255,0.08)",
+                    overflow: "hidden",
+                  }}
                 >
                   <div
-                    className="h-full rounded-full transition-all duration-300"
                     style={{
+                      height: "100%",
                       width: `${creditPercentage}%`,
-                      background: "#3B82F6",
+                      borderRadius: 999,
+                      background: T.accent,
+                      transition: "width .3s",
                     }}
                   />
                 </div>
               </div>
 
-              {/* Upgrade button */}
+              {/* Upgrade */}
               <button
                 onClick={() => {
                   trackUpgradeClick("sidebar", { from_location: "sidebar" });
                   navigate("/pricing");
                 }}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-[8px] transition-all"
                 style={{
-                  background: "#2563EB",
-                  color: "#FFFFFF",
-                  fontFamily: "var(--font-body)",
-                  fontSize: "14px",
-                  fontWeight: 600,
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  padding: "11px 16px",
+                  borderRadius: 3,
                   border: "none",
-                  boxShadow:
-                    "0 6px 16px -3px rgba(37,99,235,0.45), inset 0 1px 0 rgba(255,255,255,0.22)",
+                  cursor: "pointer",
+                  background: T.upgradeBg,
+                  color: "#fff",
+                  fontFamily: T.fontBody,
+                  fontSize: 14,
+                  fontWeight: 500,
+                  transition: "filter .15s",
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "#1D4ED8";
-                  e.currentTarget.style.boxShadow =
-                    "0 8px 20px -3px rgba(37,99,235,0.55), inset 0 1px 0 rgba(255,255,255,0.22)";
+                  e.currentTarget.style.filter = "brightness(1.05)";
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "#2563EB";
-                  e.currentTarget.style.boxShadow =
-                    "0 6px 16px -3px rgba(37,99,235,0.45), inset 0 1px 0 rgba(255,255,255,0.22)";
+                  e.currentTarget.style.filter = "none";
                 }}
               >
-                <Zap className="h-4 w-4" style={{ color: "#FCD34D", fill: "#FCD34D" }} />
+                <Zap className="h-4 w-4" style={{ color: T.upgradeIcon, fill: T.upgradeIcon }} />
                 <span>Upgrade Plan</span>
               </button>
-            </div>
+            </>
           ) : (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => {
-                    trackUpgradeClick("sidebar", { from_location: "sidebar" });
-                    navigate("/pricing");
-                  }}
-                  className="w-full flex items-center justify-center p-2.5 rounded-[8px] transition-all"
-                  style={{
-                    background: "#2563EB",
-                    color: "#FFFFFF",
-                    border: "none",
-                    boxShadow:
-                      "0 6px 16px -3px rgba(37,99,235,0.45), inset 0 1px 0 rgba(255,255,255,0.22)",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "#1D4ED8";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "#2563EB";
-                  }}
-                >
-                  <Zap className="h-5 w-5" style={{ color: "#FCD34D", fill: "#FCD34D" }} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                <div className="text-xs">
-                  <p className="font-medium">
-                    Credits: {credits}/{maxCredits}
-                  </p>
-                  <p className="text-gray-400 mt-0.5">Click to upgrade</p>
-                </div>
-              </TooltipContent>
-            </Tooltip>
+            <>
+              {/* Collapsed footer: upgrade + avatar */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => {
+                      trackUpgradeClick("sidebar", { from_location: "sidebar" });
+                      navigate("/pricing");
+                    }}
+                    className="w-full flex items-center justify-center p-2.5 transition-all"
+                    style={{
+                      background: T.upgradeBg,
+                      color: "#FFFFFF",
+                      borderRadius: 3,
+                      border: "none",
+                      cursor: "pointer",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.filter = "brightness(1.05)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.filter = "none";
+                    }}
+                  >
+                    <Zap className="h-5 w-5" style={{ color: T.upgradeIcon, fill: T.upgradeIcon }} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <div className="text-xs">
+                    <p className="font-medium">
+                      Credits: {credits}/{maxCredits}
+                    </p>
+                    <p className="text-gray-400 mt-0.5">Click to upgrade</p>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </>
           )}
         </SidebarFooter>
       </Sidebar>

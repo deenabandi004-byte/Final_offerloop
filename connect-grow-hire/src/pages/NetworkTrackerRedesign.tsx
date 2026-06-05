@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
@@ -10,6 +10,7 @@ import {
   outboxThreadToProto,
   groupedByStage,
   groupedByCompany,
+  protoStageToBackend,
   type ProtoStage,
   type ProtoSegment,
   type ProtoContact,
@@ -19,6 +20,7 @@ import { ProtoToolbar } from "@/components/tracker/redesign/ProtoToolbar";
 import { SegmentTabs } from "@/components/tracker/redesign/SegmentTabs";
 import { ContactListAccordion } from "@/components/tracker/redesign/ContactListAccordion";
 import { CompanyGroupedList } from "@/components/tracker/redesign/CompanyGroupedList";
+import { ProtoContactCard } from "@/components/tracker/redesign/ProtoContactCard";
 import { ProtoDetailHeader } from "@/components/tracker/redesign/ProtoDetailHeader";
 import { ProtoPipelineDots } from "@/components/tracker/redesign/ProtoPipelineDots";
 import { ProtoEmailBlock, type TemplateKey } from "@/components/tracker/redesign/ProtoEmailBlock";
@@ -26,20 +28,21 @@ import { ProtoSpreadsheet, type SpreadsheetSort, type SpreadsheetSortKey } from 
 import { FILTER_LABELS, type SortKey } from "@/components/tracker/redesign/MoreFiltersDropdown";
 import "./NetworkTrackerRedesign.css";
 
-// PR1 is visual-only. Three write paths only:
-//   1. stubAction(label) — toasts "${label} wired in a later PR"
-//   2. toggleBookmark(id) — flips an in-memory Set, lost on refresh
-//   3. toggleRow(id) — same for spreadsheet row checkboxes
-// No apiService.patch / archive / snooze / markRead / sync / mutation
-// imports anywhere in this file. No second query, no mount-time
-// mark-read / sync / check-replies side effects.
+// Write paths live here:
+//   - archiveMutation / stageMutation (real backend writes — see below)
+//   - toggleBookmark(id) — flips an in-memory Set, lost on refresh
+//   - toggleRow(id) — same for spreadsheet row checkboxes
+//   - stubAction(label) — remaining placeholders (Save Draft / Send via Gmail
+//     / Import CSV / Export / Edit Template / Draft email) that aren't wired
+//     yet; surface a "${label} wired in a later PR" toast.
 
 export default function NetworkTrackerRedesign() {
   const { user } = useFirebaseAuth();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  // The only data query. Same key as the production /tracker page so they
-  // share the React Query cache. 30s refetch matches existing behavior.
+  // The active-list data query. Same key as the production /tracker page so
+  // they share the React Query cache. 30s refetch matches existing behavior.
   const { data: threadsData, isLoading, isError } = useQuery({
     queryKey: ["trackerContacts"],
     queryFn: async () => {
@@ -49,6 +52,24 @@ export default function NetworkTrackerRedesign() {
     },
     enabled: !!user,
     refetchInterval: 30_000,
+  });
+
+  // Separate query for the Archived segment. Lazy: only runs when the user
+  // navigates to the Archived tab, so the active workflow doesn't pay for
+  // archived rows on every refetch. include_archived returns BOTH active and
+  // archived from the backend; we filter to archivedAt-set on the client.
+  const { data: archivedRaw, isLoading: archivedLoading, isError: archivedError } = useQuery({
+    queryKey: ["trackerContacts", "archived"],
+    queryFn: async () => {
+      const res = await apiService.getOutboxThreads({ include_archived: true });
+      if ("error" in res) throw new Error(res.error);
+      return res.threads.filter((t) => !!t.archivedAt);
+    },
+    // segment-gating happens below, but we always enable when authed so the
+    // count badge in the tab can render correctly. 60s refetch — archived
+    // changes much less often than the active list.
+    enabled: !!user,
+    refetchInterval: 60_000,
   });
 
   // ── Local UI state ──────────────────────────────────────────────────────
@@ -81,6 +102,67 @@ export default function NetworkTrackerRedesign() {
     [toast]
   );
 
+  // Archive: POST /outbox/threads/<id>/archive. On success, drop the contact
+  // from the visible list by invalidating the trackerContacts query and clear
+  // the selection if the archived row was open in the detail pane.
+  const archiveMutation = useMutation({
+    mutationFn: async (contactId: string) => {
+      const res = await apiService.archiveOutboxThread(contactId);
+      if ("error" in res) throw new Error(res.error);
+      return { contactId, thread: res.thread };
+    },
+    onSuccess: ({ contactId }) => {
+      // Invalidate both lists: row leaves active, joins archived.
+      queryClient.invalidateQueries({ queryKey: ["trackerContacts"] });
+      setSelectedContactId((curr) => (curr === contactId ? null : curr));
+      toast({ title: "Archived" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Couldn't archive", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // Unarchive: POST /outbox/threads/<id>/unarchive. Mirrors archive on
+  // success, clearing the selection if the now-restored contact was open
+  // (it'll re-resolve from the active query on the next render).
+  const unarchiveMutation = useMutation({
+    mutationFn: async (contactId: string) => {
+      const res = await apiService.unarchiveOutboxThread(contactId);
+      if ("error" in res) throw new Error(res.error);
+      return { contactId, thread: res.thread };
+    },
+    onSuccess: ({ contactId }) => {
+      queryClient.invalidateQueries({ queryKey: ["trackerContacts"] });
+      setSelectedContactId((curr) => (curr === contactId ? null : curr));
+      toast({ title: "Restored" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Couldn't restore", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // Pipeline-stage click: most stages → PUT /outbox/threads/<id>/stage with
+  // the inverse-mapped backend stage. "offer" goes through markOutboxThreadWon
+  // because the adapter recognises Offer via resolution=meeting_booked, not
+  // a pipelineStage value.
+  const stageMutation = useMutation({
+    mutationFn: async ({ contactId, stage }: { contactId: string; stage: ProtoStage }) => {
+      const res =
+        stage === "offer"
+          ? await apiService.markOutboxThreadWon(contactId)
+          : await apiService.patchOutboxStage(contactId, protoStageToBackend(stage));
+      if ("error" in res) throw new Error(res.error);
+      return res.thread;
+    },
+    onSuccess: (_thread, { stage }) => {
+      queryClient.invalidateQueries({ queryKey: ["trackerContacts"] });
+      toast({ title: `Moved to ${stage.charAt(0).toUpperCase()}${stage.slice(1)}` });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Couldn't update stage", description: err.message, variant: "destructive" });
+    },
+  });
+
   const toggleBookmark = useCallback((id: string) => {
     setBookmarkedIds((prev) => {
       const next = new Set(prev);
@@ -103,6 +185,20 @@ export default function NetworkTrackerRedesign() {
   const protoContacts = useMemo<ProtoContact[]>(
     () => (threadsData ?? []).map(outboxThreadToProto),
     [threadsData]
+  );
+
+  // Archived contacts as ProtoContacts, newest-archived first. The Archived
+  // segment renders this as a flat list — no accordion grouping, no stage
+  // filters, since the dimension that matters here is "when was this put
+  // away."
+  const archivedContacts = useMemo<ProtoContact[]>(
+    () =>
+      (archivedRaw ?? [])
+        .map(outboxThreadToProto)
+        .sort((a, b) =>
+          (b.archivedAt ?? "").localeCompare(a.archivedAt ?? "")
+        ),
+    [archivedRaw]
   );
 
   // Counts for the active-filter pills, computed off the unfiltered list.
@@ -177,10 +273,29 @@ export default function NetworkTrackerRedesign() {
 
   // Lookup against the FULL list so a selected contact does not disappear
   // when the user adds a filter that would exclude it from the visible list.
+  // Lookup against BOTH the active and archived lists so the detail pane
+  // keeps working when the user selects an archived contact.
   const selectedContact = useMemo(
-    () => protoContacts.find((c) => c.id === selectedContactId) ?? null,
-    [protoContacts, selectedContactId]
+    () =>
+      protoContacts.find((c) => c.id === selectedContactId) ??
+      archivedContacts.find((c) => c.id === selectedContactId) ??
+      null,
+    [protoContacts, archivedContacts, selectedContactId]
   );
+
+  // Search-filtered archived list. Stage filters and the bookmark-only
+  // pill don't apply to archived (different mental model — these are off
+  // the active board entirely).
+  const filteredArchived = useMemo(() => {
+    if (!searchQuery.trim()) return archivedContacts;
+    const q = searchQuery.toLowerCase();
+    return archivedContacts.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.company.toLowerCase().includes(q) ||
+        c.email.toLowerCase().includes(q)
+    );
+  }, [archivedContacts, searchQuery]);
 
   // ── Local UI handlers (no writes) ───────────────────────────────────────
   const toggleFilter = useCallback((id: string) => {
@@ -236,7 +351,7 @@ export default function NetworkTrackerRedesign() {
           <AppHeader />
           <main className="tracker-redesign">
             <div className="filter-bar">
-              <ProtoHeader onAskScout={stubAction("Ask Scout")} />
+              <ProtoHeader />
               <ProtoToolbar
                 view={view}
                 onChangeView={setView}
@@ -289,10 +404,14 @@ export default function NetworkTrackerRedesign() {
               <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#dc2626", fontSize: 14 }}>
                 Failed to load contacts.
               </div>
-            ) : view === "default" ? (
+            ) : view === "default" || segment === "archived" ? (
               <div className="content-area">
                 <div className="list-col">
-                  <SegmentTabs activeSegment={segment} onSelectSegment={setSegment} />
+                  <SegmentTabs
+                    activeSegment={segment}
+                    onSelectSegment={setSegment}
+                    archivedCount={archivedContacts.length}
+                  />
                   <div className="list-col-inner">
                     {segment === "people" && (
                       <ContactListAccordion
@@ -312,6 +431,30 @@ export default function NetworkTrackerRedesign() {
                         onSelectContact={setSelectedContactId}
                       />
                     )}
+                    {segment === "archived" && (
+                      archivedLoading ? (
+                        <div style={{ padding: 16, color: "#94a3b8", fontSize: 13 }}>Loading archived…</div>
+                      ) : archivedError ? (
+                        <div style={{ padding: 16, color: "#dc2626", fontSize: 13 }}>Couldn't load archived contacts.</div>
+                      ) : filteredArchived.length === 0 ? (
+                        <div style={{ padding: 16, color: "#94a3b8", fontSize: 13 }}>
+                          {searchQuery.trim()
+                            ? "No archived contacts match your search."
+                            : "Nothing archived yet. Archived contacts land here so you can restore them later."}
+                        </div>
+                      ) : (
+                        <div className="archived-list" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          {filteredArchived.map((c) => (
+                            <ProtoContactCard
+                              key={c.id}
+                              contact={c}
+                              isSelected={c.id === selectedContactId}
+                              onSelect={() => setSelectedContactId(c.id)}
+                            />
+                          ))}
+                        </div>
+                      )
+                    )}
                   </div>
                 </div>
 
@@ -323,7 +466,8 @@ export default function NetworkTrackerRedesign() {
                           contact={selectedContact}
                           isBookmarked={bookmarkedIds.has(selectedContact.id)}
                           onToggleBookmark={() => toggleBookmark(selectedContact.id)}
-                          onArchive={stubAction("Archive")}
+                          onArchive={() => archiveMutation.mutate(selectedContact.id)}
+                          onUnarchive={() => unarchiveMutation.mutate(selectedContact.id)}
                         />
                         <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
                           <div className="section-heading">
@@ -332,7 +476,9 @@ export default function NetworkTrackerRedesign() {
                           </div>
                           <ProtoPipelineDots
                             activeStage={selectedContact.stage}
-                            onStageClick={stubAction("Stage update")}
+                            onStageClick={(stage) =>
+                              stageMutation.mutate({ contactId: selectedContact.id, stage })
+                            }
                           />
                         </div>
                         <ProtoEmailBlock
@@ -387,7 +533,7 @@ export default function NetworkTrackerRedesign() {
                 bookmarkedIds={bookmarkedIds}
                 onToggleBookmark={toggleBookmark}
                 onDraft={stubAction("Draft email")}
-                onArchive={stubAction("Archive")}
+                onArchive={(id) => archiveMutation.mutate(id)}
               />
             )}
           </main>

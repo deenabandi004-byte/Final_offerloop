@@ -12,13 +12,14 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.extensions import get_db
 from app.services.pdl_client import search_contacts_from_prompt, get_contact_identity
 from app.services.reply_generation import batch_generate_emails
 from app.services.auth import deduct_credits_atomic
 from app.services.loop_budget import CREDIT_COSTS
+from app.utils.exceptions import RateLimitError
 from app.utils.warmth_scoring import score_contacts_for_email
 from email_templates import get_template_instructions, roles_mode_template_instructions
 
@@ -34,6 +35,153 @@ def _perplexity_only(uid: str) -> bool:
         return is_enabled("AGENT_MODE_PERPLEXITY_ONLY", uid=uid, default=False)
     except Exception:
         return False
+
+
+def _try_auto_send(
+    uid: str,
+    config: dict,
+    user_data: dict,
+    contact_doc: dict,
+    email: str,
+    email_subject: str,
+    email_body: str,
+    now_iso: str,
+) -> int:
+    """Phase 9 — run the send gate, and if allowed, actually send the email
+    from the student's Gmail. Mutates `contact_doc` in place to stamp either
+    successful-send fields (gmailMessageId, gmailThreadId, emailSentAt,
+    pipelineStage="email_sent") or the autoSendPausedReason / autoSendError
+    that drives the /tracker pause pill.
+
+    Args:
+        config: synthetic_config built by loop_jobs.run_loop_cycle_job;
+            carries autoSendMode + first-N counters + hardDailySendCap.
+        contact_doc: the contact doc being assembled before Firestore .add().
+            Verification cache fields (emailVerifiedAt + emailVerificationStatus)
+            are read from here and written back on every gate call so the
+            30-day cache window is always refreshed.
+
+    Returns:
+        Credit cost to bill for this contact. AUTO_SEND_CREDIT_COST when a
+        real send fired; 0 when the gate denied, the atomic reservation lost
+        a race, or Gmail returned an error.
+    """
+    if not email.strip() or not email_body.strip():
+        logger.info(
+            "auto_send_skipped uid=%s reason=blank_email_or_body has_email=%s has_body=%s",
+            uid, bool(email.strip()), bool(email_body.strip()),
+        )
+        return 0  # No email to send — nothing to gate.
+
+    from app.services.agent_send_gate import can_auto_send
+    from app.services.auth import increment_sends_today_atomic
+    from app.services.gmail_client import send_email_for_user
+    from app.services.loop_budget import AUTO_SEND_CREDIT_COST
+
+    tier = (
+        user_data.get("subscriptionTier")
+        or user_data.get("tier")
+        or "free"
+    )
+    user_tz = user_data.get("timezone") or user_data.get("tz")
+
+    # Build minimal loop + contact views from config / the in-flight doc.
+    # config carries the auto-send state via loop_jobs.synthetic_config.
+    loop_view = {
+        "autoSendMode": config.get("autoSendMode", "draft_only"),
+        "autoSendApprovedCount": config.get("autoSendApprovedCount", 0),
+        # 0 = no warmup gate (the shipping default). Legacy "5" here was a
+        # latent regression-trap: when the user actually had 0 in Firestore,
+        # `loop.get(k, 5)` returned 0 correctly, but downstream `or 5`
+        # patterns silently turned it back into 5. We now default to the
+        # same value the schema does.
+        "autoSendApprovedAfter": config.get("autoSendApprovedAfter", 0),
+        "hardDailySendCap": config.get("hardDailySendCap"),
+    }
+    contact_view = {
+        "email": email,
+        "emailVerifiedAt": contact_doc.get("emailVerifiedAt"),
+        "emailVerificationStatus": contact_doc.get("emailVerificationStatus"),
+    }
+
+    logger.info(
+        "auto_send_gate_start uid=%s tier=%s autoSendMode=%s approvedCount=%s approvedAfter=%s hardCap=%s",
+        uid, tier, loop_view["autoSendMode"], loop_view["autoSendApprovedCount"],
+        loop_view["autoSendApprovedAfter"], loop_view["hardDailySendCap"],
+    )
+
+    gate = can_auto_send(
+        uid=uid,
+        tier=tier,
+        loop=loop_view,
+        contact=contact_view,
+        user_timezone=user_tz,
+    )
+
+    # Persist Hunter's verdict whenever it was consulted (fresh or cached)
+    # so the next cycle's gate hits the cache instead of paying again.
+    verification = gate.get("verification")
+    if verification:
+        contact_doc["emailVerifiedAt"] = verification.get("verifiedAt")
+        contact_doc["emailVerificationStatus"] = verification.get("status")
+
+    if not gate["allowed"]:
+        contact_doc["autoSendPausedReason"] = gate.get("reason") or "unknown"
+        if gate.get("effective_cap") is not None:
+            contact_doc["autoSendDailyCap"] = gate["effective_cap"]
+        logger.info(
+            "auto_send_denied uid=%s reason=%s effective_cap=%s verification_status=%s",
+            uid, gate.get("reason"), gate.get("effective_cap"),
+            (verification or {}).get("status"),
+        )
+        return 0
+
+    # Atomic per-user daily-cap reservation. The pre-flight read in the
+    # gate is non-atomic; this is the race-safe commit. A simultaneous
+    # send may pass the gate but lose this race — in which case we don't
+    # send and stamp daily_cap.
+    reserved, _new_count, effective_cap = increment_sends_today_atomic(
+        uid,
+        tier,
+        hard_cap=loop_view.get("hardDailySendCap"),
+    )
+    if not reserved:
+        contact_doc["autoSendPausedReason"] = "daily_cap"
+        contact_doc["autoSendDailyCap"] = effective_cap
+        logger.info(
+            "auto_send_denied uid=%s reason=daily_cap_race effective_cap=%s",
+            uid, effective_cap,
+        )
+        return 0
+
+    try:
+        send_result = send_email_for_user(
+            uid,
+            to=email,
+            subject=email_subject,
+            body_html=email_body,
+        )
+    except Exception as e:
+        # Gmail flapped (quota / auth / network). Don't refund the daily-cap
+        # slot — if Gmail is unhappy, we don't want to immediately retry.
+        logger.warning(
+            "auto_send_failed uid=%s contact_email=%s err=%s",
+            uid, email, e,
+        )
+        contact_doc["autoSendError"] = str(e)
+        contact_doc["autoSendPausedReason"] = "send_error"
+        return 0
+
+    contact_doc["gmailMessageId"] = send_result.get("id", "")
+    contact_doc["gmailThreadId"] = send_result.get("threadId", "")
+    contact_doc["emailSentAt"] = now_iso
+    contact_doc["pipelineStage"] = "email_sent"
+    contact_doc["inOutbox"] = True
+    logger.info(
+        "auto_send_ok uid=%s contact_email=%s message_id=%s",
+        uid, email, send_result.get("id", ""),
+    )
+    return AUTO_SEND_CREDIT_COST
 
 # ── Common domain mapping for Clearbit logos ──────────────────────────────
 
@@ -71,6 +219,103 @@ _COMPANY_DOMAINS = {
     "two sigma": "twosigma.com",
     "jane street": "janestreet.com",
 }
+
+
+# ── Cost-aware caching for roles mode ─────────────────────────────────────
+#
+# Each cache check is a Firestore subcollection scan, scoped by loopId, with a
+# TTL chosen per the data's volatility (per the Slice 2 plan):
+#   - companies: 7 days (slow-moving discovery list)
+#   - jobs:      3 days (postings rotate fast)
+#   - HMs:      30 days (a founder identified once stays valid for a month)
+#
+# Misses are silent — when loopId is absent (e.g. legacy callers without the
+# new synthetic_config plumbing) the check returns False and the action runs
+# its full external-API path, preserving today's behavior.
+
+_CACHE_TTL_COMPANIES = timedelta(days=7)
+_CACHE_TTL_JOBS = timedelta(days=3)
+_CACHE_TTL_HMS = timedelta(days=30)
+# A cache "hit" needs at least one fresh row. We don't try to refill partial
+# caches — the planner re-emits the action next cycle if results are thin.
+_CACHE_MIN_ROWS = 1
+
+
+def _is_cache_fresh(created_at, ttl: timedelta) -> bool:
+    """Treat any non-empty ISO/datetime field within TTL as fresh."""
+    if not created_at:
+        return False
+    try:
+        if isinstance(created_at, str):
+            dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        else:
+            dt = created_at
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - dt) < ttl
+    except Exception:
+        return False
+
+
+def _has_fresh_cached_rows(
+    db, uid: str, subcollection: str, loop_id: str, ttl: timedelta,
+    company: str | None = None,
+) -> bool:
+    """Returns True if `users/{uid}/{subcollection}/` has at least one row
+    matching loop_id (+ optional company) created within TTL. False on any
+    Firestore error so the action falls back to the live API path."""
+    if not loop_id:
+        return False
+    try:
+        ref = db.collection("users").document(uid).collection(subcollection) \
+                .where("loopId", "==", loop_id)
+        if company:
+            ref = ref.where("company", "==", company)
+        fresh = 0
+        for doc in ref.stream():
+            data = doc.to_dict() or {}
+            if _is_cache_fresh(data.get("createdAt"), ttl):
+                fresh += 1
+                if fresh >= _CACHE_MIN_ROWS:
+                    return True
+        return False
+    except Exception:
+        logger.warning(
+            "cache lookup failed: subcollection=%s loop=%s company=%s",
+            subcollection, loop_id, company, exc_info=True,
+        )
+        return False
+
+
+# Brief-dependent caches. agent_companies and agent_jobs are derived from
+# briefParsed.companies / briefParsed.roles, so a brief edit invalidates them.
+# HM cache (contacts/) stays — once a founder is identified at a small company,
+# their identity doesn't change with a brief edit.
+_BRIEF_DEPENDENT_CACHE_SUBCOLLECTIONS = ("agent_companies", "agent_jobs")
+
+
+def purge_brief_dependent_caches(db, uid: str, loop_id: str) -> int:
+    """Delete cached company + job rows scoped to this Loop. Called when the
+    Loop's brief changes so the next cycle re-discovers against the new brief
+    instead of serving stale cache. Returns the number of docs deleted."""
+    if not loop_id:
+        return 0
+    deleted = 0
+    for subcollection in _BRIEF_DEPENDENT_CACHE_SUBCOLLECTIONS:
+        try:
+            ref = (
+                db.collection("users").document(uid).collection(subcollection)
+                  .where("loopId", "==", loop_id)
+            )
+            for doc in ref.stream():
+                doc.reference.delete()
+                deleted += 1
+        except Exception:
+            logger.warning(
+                "cache purge failed: subcollection=%s loop=%s",
+                subcollection, loop_id, exc_info=True,
+            )
+    return deleted
 
 
 def _company_to_domain(company_name: str) -> str | None:
@@ -367,6 +612,9 @@ def execute_find_and_draft(
     now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     today = datetime.now().strftime("%m/%d/%Y")
     saved_contacts = []
+    # Phase 9 — accumulates AUTO_SEND_CREDIT_COST per contact whose send
+    # actually fired. Added to credits_spent at the bottom.
+    auto_send_credits = 0
 
     for idx, contact in enumerate(filtered):
         email = (contact.get("Email") or contact.get("WorkEmail") or contact.get("email") or "").strip()
@@ -393,6 +641,10 @@ def execute_find_and_draft(
             "pdlId": contact.get("pdlId") or "",
             "source": "agent",
             "agentCycleId": action.get("cycleId"),
+            # Phase 9 — loopId lets the approve-send endpoint verify a
+            # contact belongs to the Loop being approved. HM contacts
+            # already had this; backfill here for parity.
+            "loopId": config.get("loopId", ""),
             "inOutbox": True,
             "draftCreatedAt": now_iso,
             "emailGeneratedAt": now_iso,
@@ -457,6 +709,21 @@ def execute_find_and_draft(
             except Exception as e:
                 logger.warning("Gmail draft creation failed: %s", e)
 
+        # Phase 9 — auto-send gate. No-op unless the Loop is in
+        # autoSendMode="send_for_me" and all six gate checks pass. Mutates
+        # contact_doc in place to stamp either successful-send fields or
+        # autoSendPausedReason. Returns credits to charge (0 or 1).
+        auto_send_credits += _try_auto_send(
+            uid=uid,
+            config=config,
+            user_data=user_data,
+            contact_doc=contact_doc,
+            email=email,
+            email_subject=email_data.get("subject", "") if email_data else "",
+            email_body=email_data.get("body", "") if email_data else "",
+            now_iso=now_iso,
+        )
+
         doc_ref = contacts_ref.add(contact_doc)
         contact_id = doc_ref[1].id if isinstance(doc_ref, tuple) else ""
         saved_contacts.append({
@@ -473,7 +740,9 @@ def execute_find_and_draft(
         })
 
     # Per-contact credit cost — see CREDIT_COSTS in loop_budget.py.
-    credits_spent = len(saved_contacts) * CREDIT_COSTS["contact"]
+    # auto_send_credits is the Phase 9 per-send overhead (+1 per actually
+    # sent email; 0 for draft-only and for denied/failed sends).
+    credits_spent = len(saved_contacts) * CREDIT_COSTS["contact"] + auto_send_credits
     try:
         deduct_credits_atomic(uid, credits_spent, "agent_find")
     except Exception:
@@ -507,12 +776,28 @@ def execute_find_jobs(
     location = config.get("targetLocations", ["United States"])
     location = location[0] if location else "United States"
 
+    db = get_db()
+    loop_id = config.get("loopId") or ""
+
+    # Cost-aware cache: postings change faster than companies (3-day TTL).
+    # Scoped per loop + company so a different company in the same Loop still
+    # hits the API.
+    if company and _has_fresh_cached_rows(
+        db, uid, "agent_jobs", loop_id, _CACHE_TTL_JOBS, company=company,
+    ):
+        logger.info(
+            "Agent find_jobs: uid=%s loop=%s company=%s cache hit, skipping Perplexity",
+            uid, loop_id, company,
+        )
+        return {"jobsFound": 0, "jobs": [], "creditsSpent": 0, "cacheHit": True}
+
     query = f"{role} at {company}" if company else role
     if not query:
         query = "internship"
 
     jobs = []
     source = "serpapi"
+    rate_limited = False
 
     # PRIMARY: Perplexity job search + structured enrichment (Perplexity or Firecrawl per flag)
     try:
@@ -555,6 +840,11 @@ def execute_find_jobs(
             enriched_jobs.extend(raw_jobs[5:count])
             jobs = enriched_jobs
             source = "perplexity"
+    except RateLimitError:
+        # Surface rate-limit signal so loop_jobs can bump the 3-strike streak.
+        # Don't crash the cycle — partial results from other actions still ship.
+        rate_limited = True
+        logger.warning("Perplexity job search rate-limited for uid=%s", uid)
     except Exception:
         logger.warning("Perplexity job search failed; SerpAPI fallback gated by ENABLE_SERPAPI_FALLBACK", exc_info=True)
 
@@ -570,13 +860,37 @@ def execute_find_jobs(
             return {"jobsFound": 0, "jobs": [], "creditsSpent": 0, "error": str(e)}
 
     if not jobs:
-        return {"jobsFound": 0, "jobs": [], "creditsSpent": 0}
+        result = {"jobsFound": 0, "jobs": [], "creditsSpent": 0}
+        if rate_limited:
+            result["rateLimited"] = True
+        return result
 
     # Generate match reasons via LLM
     scored_jobs = _generate_job_reasons(jobs[:count], user_data)
 
-    # Save to Firestore
-    db = get_db()
+    # Visa-aware + profile-aware ranking. The ranker hard-filters obvious
+    # mismatches (e.g. F-1 students vs companies that don't sponsor, undergrads
+    # vs senior-only roles) and diversifies across companies so the saved set
+    # isn't 8 postings at one employer. Falls back to LLM-scored order if the
+    # ranker hard-filters every job — better to surface noisy results than
+    # zero results.
+    try:
+        from app.services.student_job_ranker import rank_for_student
+        from app.utils.student_profile import build_student_dict
+        student = build_student_dict(user_data or {})
+        ranked = rank_for_student(student, scored_jobs, top_k=count)
+        if ranked:
+            scored_jobs = [
+                {**job, "_rankerScore": score, "_rankerReasons": reasons}
+                for (job, score, reasons) in ranked
+            ]
+    except Exception:
+        logger.warning(
+            "student_job_ranker failed for uid=%s loop=%s — falling back to LLM order",
+            uid, loop_id, exc_info=True,
+        )
+
+    # Save to Firestore (db already loaded for the cache check above)
     jobs_ref = db.collection("users").document(uid).collection("agent_jobs")
     now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     saved = []
@@ -584,6 +898,7 @@ def execute_find_jobs(
     for job in scored_jobs:
         doc = {
             "cycleId": action.get("cycleId"),
+            "loopId": loop_id,
             "title": job.get("title", ""),
             "company": job.get("company_name", job.get("company", company)),
             "location": job.get("location", ""),
@@ -621,7 +936,10 @@ def execute_find_jobs(
             logger.warning("Credit deduction failed for agent_find_jobs uid=%s", uid)
 
     logger.info("Agent find_jobs: uid=%s found %d jobs for %s", uid, len(saved), query)
-    return {"jobsFound": len(saved), "jobs": saved, "creditsSpent": credits}
+    result = {"jobsFound": len(saved), "jobs": saved, "creditsSpent": credits}
+    if rate_limited:
+        result["rateLimited"] = True
+    return result
 
 
 # ── DISCOVER_COMPANIES executor ───────────────────────────────────────────
@@ -638,7 +956,21 @@ def execute_discover_companies(
     Primary: Perplexity discovers + Firecrawl enriches.
     Fallback: static recommendation engine.
     """
+    db = get_db()
+    loop_id = config.get("loopId") or ""
+
+    # Cost-aware cache: roles cycles run discover_companies frequently — skip
+    # the Perplexity + Firecrawl spend if we already have fresh rows for this
+    # Loop. People-mode Loops also benefit; the cache key is loopId only.
+    if _has_fresh_cached_rows(db, uid, "agent_companies", loop_id, _CACHE_TTL_COMPANIES):
+        logger.info(
+            "Agent discover_companies: uid=%s loop=%s cache hit, skipping Perplexity",
+            uid, loop_id,
+        )
+        return {"companiesDiscovered": 0, "companies": [], "creditsSpent": 0, "cacheHit": True}
+
     companies = []
+    rate_limited = False
 
     # PRIMARY: Perplexity-powered discovery (enrich via Perplexity or Firecrawl per flag)
     try:
@@ -678,6 +1010,9 @@ def execute_discover_companies(
 
         if perplexity_companies:
             companies = perplexity_companies
+    except RateLimitError:
+        rate_limited = True
+        logger.warning("Perplexity company discovery rate-limited for uid=%s", uid)
     except Exception:
         logger.warning("Perplexity company discovery failed, falling back to recommendations", exc_info=True)
 
@@ -695,7 +1030,6 @@ def execute_discover_companies(
     target_set = {c.lower() for c in config.get("targetCompanies", [])}
     new_companies = [c for c in companies if c.get("name", "").lower() not in target_set]
 
-    db = get_db()
     cos_ref = db.collection("users").document(uid).collection("agent_companies")
     now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     saved = []
@@ -716,6 +1050,7 @@ def execute_discover_companies(
 
         doc = {
             "cycleId": action.get("cycleId"),
+            "loopId": loop_id,
             "name": co.get("name", ""),
             "industry": industry,
             "reason": reason,
@@ -750,7 +1085,10 @@ def execute_discover_companies(
             logger.warning("Credit deduction failed for agent_discover_companies uid=%s", uid)
 
     logger.info("Agent discover_companies: uid=%s found %d companies", uid, len(saved))
-    return {"companiesDiscovered": len(saved), "companies": saved, "creditsSpent": credits}
+    result = {"companiesDiscovered": len(saved), "companies": saved, "creditsSpent": credits}
+    if rate_limited:
+        result["rateLimited"] = True
+    return result
 
 
 # ── FIND_HIRING_MANAGERS executor ─────────────────────────────────────────
@@ -778,7 +1116,21 @@ def execute_find_hiring_managers(
     #       My Network filters) can show the user WHY this person showed up.
     discovered_via = _resolve_hm_provenance(loop_mode, action)
 
-    template_instructions = _resolve_agent_template(config, user_data, get_db(), uid)
+    db = get_db()
+    loop_id = config.get("loopId") or ""
+
+    # Cost-aware cache: once a Loop has identified a founder/HM at a small
+    # company, we don't re-identify for a month. 30-day TTL per the plan.
+    if company and _has_fresh_cached_rows(
+        db, uid, "contacts", loop_id, _CACHE_TTL_HMS, company=company,
+    ):
+        logger.info(
+            "Agent find_hiring_managers: uid=%s loop=%s company=%s cache hit, skipping recruiter_finder",
+            uid, loop_id, company,
+        )
+        return {"hmsFound": 0, "contacts": [], "creditsSpent": 0, "cacheHit": True}
+
+    template_instructions = _resolve_agent_template(config, user_data, db, uid)
 
     # If this HM was surfaced by the roles pipeline, prepend the posting-
     # specific founder outreach instructions so the draft references the
@@ -836,12 +1188,13 @@ def execute_find_hiring_managers(
     except Exception:
         logger.warning("HM verification failed, using all candidates", exc_info=True)
 
-    db = get_db()
     contacts_ref = db.collection("users").document(uid).collection("contacts")
     now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     today = datetime.now().strftime("%m/%d/%Y")
     user_email = user_data.get("email", "")
     saved = []
+    # Phase 9 — see execute_find_and_draft for rationale.
+    auto_send_credits = 0
 
     for idx, hm in enumerate(hms):
         # Get email data from the emails list if available
@@ -867,6 +1220,13 @@ def execute_find_hiring_managers(
             # roles-mode HMs default to "role_search", both-mode HMs read
             # the planner-supplied tag with "networking" fallback.
             "discoveredVia": discovered_via,
+            # Foreign key into the find_jobs activity item this HM was paired
+            # with — only set for role_search HMs. The activity feed groups
+            # by this key so the founder-draft sub-card renders inline below
+            # its source posting. Networking-mode HMs leave it empty so they
+            # render as standalone rows (today's people-mode behavior).
+            "sourceJobId": action.get("sourceJobId", "") if discovered_via == "role_search" else "",
+            "loopId": loop_id,
             "pipelineStage": "draft_created" if email_body else "not_contacted",
             "emailSubject": email_subject,
             "emailBody": email_body,
@@ -903,6 +1263,18 @@ def execute_find_hiring_managers(
             except Exception as e:
                 logger.warning("Gmail draft creation for HM failed: %s", e)
 
+        # Phase 9 — auto-send gate. Same pattern as execute_find_and_draft.
+        auto_send_credits += _try_auto_send(
+            uid=uid,
+            config=config,
+            user_data=user_data,
+            contact_doc=contact_doc,
+            email=hm_email,
+            email_subject=email_subject,
+            email_body=email_body,
+            now_iso=now_iso,
+        )
+
         ref = contacts_ref.add(contact_doc)
         contact_id = ref[1].id
         saved.append({
@@ -920,7 +1292,9 @@ def execute_find_hiring_managers(
         })
 
     # Per-HM credit cost — see CREDIT_COSTS in loop_budget.py.
-    credits = len(saved) * CREDIT_COSTS["hiring_manager"]
+    # auto_send_credits is the Phase 9 per-send overhead (+1 per actually
+    # sent HM email; 0 for draft-only and for denied/failed sends).
+    credits = len(saved) * CREDIT_COSTS["hiring_manager"] + auto_send_credits
     if credits > 0:
         try:
             deduct_credits_atomic(uid, credits, "agent_find_hm")

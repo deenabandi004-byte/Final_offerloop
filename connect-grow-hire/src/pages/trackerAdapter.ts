@@ -19,7 +19,7 @@ export const PROTO_STAGE_LABELS: Record<ProtoStage, string> = {
   offer: "Offer",
 };
 
-export type ProtoSegment = "people" | "companies" | "hiringManagers";
+export type ProtoSegment = "people" | "companies" | "hiringManagers" | "archived";
 
 // Display-only chip rendered on each card. Derived from real state but does
 // not drive any behavior in PR1.
@@ -48,6 +48,10 @@ export interface ProtoContact {
   // is non-personal. Consumed by the people-card inline logo. Null when the
   // contact uses gmail / yahoo / etc. — the inline logo hides in that case.
   companyLogoFallbackUrl: string | null;
+  // ISO timestamp from the contact's `archivedAt` field, or null when not
+  // archived. Drives Archive ↔ Unarchive in the detail header and gates which
+  // segment a contact appears under.
+  archivedAt: string | null;
 }
 
 // ── 11-stage backend → 5-stage prototype (read-side bucketing only) ──────────
@@ -55,6 +59,31 @@ export interface ProtoContact {
 // "Interviewing" and "Offer" are job-search vocabulary borrowed by the
 // prototype — for a networking product, a booked meeting is often the win.
 // Kept as-is for prototype fidelity.
+
+// Inverse of stageOnlyMap for write-back. The forward map is many-to-one
+// (multiple backend stages collapse into one proto bucket), so the inverse
+// picks the canonical backend stage that best matches a user's intent when
+// they click a dot in the pipeline UI.
+//
+// Special case: "offer" is recognised by the adapter via resolution=
+// meeting_booked, not via a pipelineStage value. Callers should route
+// "offer" clicks through markOutboxThreadWon() instead of this map, and
+// treat the meeting_scheduled stage returned here as a safe fallback if
+// the won-call ever fails.
+export function protoStageToBackend(stage: ProtoStage): PipelineStage {
+  switch (stage) {
+    case "saved":
+      return "new";
+    case "contacted":
+      return "email_sent";
+    case "connected":
+      return "connected";
+    case "interviewing":
+      return "meeting_scheduled";
+    case "offer":
+      return "meeting_scheduled";
+  }
+}
 
 function stageOnlyMap(s: PipelineStage | null | undefined): ProtoStage | null {
   switch (s) {
@@ -154,6 +183,7 @@ export function outboxThreadToProto(t: OutboxThread): ProtoContact {
       ? PROTO_STAGE_LABELS[stage]
       : TERMINAL_LABELS[t.pipelineStage ?? ""] ?? "—",
     companyLogoFallbackUrl: buildContactLogoFallbackUrl(t.email || ""),
+    archivedAt: t.archivedAt ?? null,
   };
 }
 

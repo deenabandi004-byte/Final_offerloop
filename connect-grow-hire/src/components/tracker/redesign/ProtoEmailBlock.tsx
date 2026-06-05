@@ -135,10 +135,6 @@ export function ProtoEmailBlock({
       <div className="email-header-row">
         <span className="email-label">Email Template</span>
         <span className="email-pick">- pick one</span>
-        <div className="ai-draft-badge">
-          <div className="ai-draft-dot" />
-          <span className="ai-draft-text">AI Draft</span>
-        </div>
       </div>
 
       <div className="template-tiles">

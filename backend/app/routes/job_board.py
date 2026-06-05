@@ -7597,6 +7597,28 @@ def _check_find_humans_hourly_cap(user_id: str) -> bool:
         return True
 
 
+def _check_user_rate_limit(user_id: str, scope: str, limit_str: str) -> bool:
+    """Generic per-user rate-limit check backed by the Flask-Limiter storage.
+
+    Used by alumni_discovery_routes for /discover-alumni and the referral-draft
+    endpoints. Returns True if allowed, False if it should be rejected with
+    HTTP 429. Fail-open on storage errors so a Firestore outage doesn't block
+    users.
+    """
+    try:
+        lim = get_limiter()
+        if not lim or not getattr(lim, "_storage", None):
+            return True
+        from limits import parse
+        from limits.strategies import FixedWindowRateLimiter
+        item = parse(limit_str)
+        strategy = FixedWindowRateLimiter(lim._storage)
+        return strategy.hit(item, scope, user_id or "anon")
+    except Exception as e:
+        logger.error(f"[RateLimit] {scope} check failed: {e}")
+        return True
+
+
 @job_board_bp.route("/find-recruiter", methods=["POST"])
 @require_firebase_auth
 @require_tier(['pro', 'elite'])

@@ -1,5 +1,5 @@
 import { type ProtoContact } from "@/pages/trackerAdapter";
-import { CompanyLogo } from "./CompanyLogo";
+import { CompanyLogo } from "@/components/CompanyLogo";
 
 // Helpers ported from network-tracker.html.
 
@@ -17,10 +17,6 @@ function timeAgo(days: number): string {
     return `${w} week${w === 1 ? "" : "s"} ago`;
   }
   return `${days} day${days === 1 ? "" : "s"} ago`;
-}
-
-function firstLetter(s: string): string {
-  return (s.trim()[0] || "?").toUpperCase();
 }
 
 // Split the proto role string into title and company parts so we can drop
@@ -65,10 +61,11 @@ export function ProtoContactCard({ contact, isSelected, onSelect }: ProtoContact
               <>
                 <CompanyLogo
                   company={company}
-                  monogram={firstLetter(company)}
-                  fallbackUrl={contact.companyLogoFallbackUrl}
-                  className="contact-role-logo"
+                  size={16}
+                  rounded={3}
+                  bordered={false}
                   hideWhenMonogram
+                  className="contact-role-logo"
                 />
                 <span className="contact-role-company">{company}</span>
               </>

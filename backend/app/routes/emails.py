@@ -668,3 +668,63 @@ def generate_and_draft():
         "drafts": created,
         **({"skipped_count": skipped_count} if skipped_count > 0 else {}),
     }), 200
+
+@emails_bp.post("/send-draft/<draft_id>")
+@require_firebase_auth
+def send_draft(draft_id):
+    """Send an existing Gmail draft by its draft_id.
+
+    Used by the Find-page draft review row's "Send" button: the draft was
+    created server-side during the original search (mode=send fell back to
+    draft because of a quality-gate block), the user reviewed it, and now
+    wants to send without leaving the app. Equivalent to clicking Send
+    inside Gmail's compose window.
+    """
+    uid = request.firebase_user["uid"]
+    db = get_db()
+
+    if not draft_id or not isinstance(draft_id, str):
+        return jsonify({"error": "draft_id required"}), 400
+
+    try:
+        user_doc = db.collection("users").document(uid).get()
+        user_data = user_doc.to_dict() or {}
+        user_email = user_data.get("email")
+        if not user_email:
+            return jsonify({"error": "User email not found"}), 400
+
+        gmail_service = get_gmail_service_for_user(user_email, user_id=uid)
+        if not gmail_service:
+            return jsonify({"error": "Gmail not connected"}), 401
+
+        result = gmail_service.users().drafts().send(
+            userId="me",
+            body={"id": draft_id},
+        ).execute()
+
+        sent_message_id = result.get("id")
+        thread_id = result.get("threadId")
+        print(f"[SendDraft] uid={uid} draft={draft_id} -> message={sent_message_id} thread={thread_id}")
+
+        return jsonify({
+            "success": True,
+            "messageId": sent_message_id,
+            "threadId": thread_id,
+        }), 200
+
+    except Exception as e:
+        # Gmail returns 404 if the draft was already sent or doesn't exist.
+        # Surface that clearly so the UI can flip to "Sent" without alarming
+        # the user.
+        err_str = str(e)
+        if "404" in err_str or "notFound" in err_str.lower():
+            print(f"[SendDraft] uid={uid} draft={draft_id} already-sent-or-missing: {e}")
+            return jsonify({
+                "success": False,
+                "error": "draft_not_found",
+                "message": "This draft was already sent or no longer exists.",
+            }), 410
+        print(f"[SendDraft] uid={uid} draft={draft_id} FAILED: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": "send_failed", "message": str(e)}), 500

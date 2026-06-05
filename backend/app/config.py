@@ -73,6 +73,13 @@ def get_frontend_redirect_uri():
 
 OAUTH_REDIRECT_URI = get_oauth_redirect_uri()
 
+# Industry-aware semantic expansion for PDL prompts. When ON, prompts with
+# industries but no specific company get their industry list broadened to
+# PDL-canonical taxonomy siblings (and aligned title_variations added) via an
+# LLM call (cached per parsed-prompt). Default OFF — flip to "true" once
+# dogfooded; cost is ~$0.0001 per unique parse, free on cache hit.
+ENABLE_INDUSTRY_EXPANSION = os.getenv('ENABLE_INDUSTRY_EXPANSION', 'false').lower() == 'true'
+
 # ========================================
 # Constants
 # ========================================
@@ -228,8 +235,8 @@ TIER_CONFIGS = {
         'max_credit_budget_per_week_per_loop': 600,
     },
     'elite': {
-        'max_contacts': 15,  # Maximum contacts returned per search
-        'batch_size': 15,     # Maximum batch operations allowed (per audit spec)
+        'max_contacts': 30,  # Maximum contacts returned per search
+        'batch_size': 30,     # Maximum batch operations allowed (per audit spec)
         'min_contacts': 1,
         'fields': ['FirstName', 'LastName', 'LinkedIn', 'Email', 'Title', 'Company', 'City', 'State', 'College',
                   'Phone', 'PersonalEmail', 'WorkEmail', 'SocialProfiles', 'EducationTop', 'VolunteerHistory',
