@@ -37,7 +37,7 @@ import {
 import { toast } from "@/hooks/use-toast";
 
 import { JobCard } from "@/components/jobs/JobCard";
-import { JobDetail } from "@/components/jobs/JobDetail";
+import { JobDetail, type JobDescriptionState } from "@/components/jobs/JobDetail";
 import { SaveSearchModal } from "@/components/jobs/SaveSearchModal";
 import {
   MoreFiltersPanel,
@@ -71,12 +71,27 @@ const QUICK_FILTERS: Array<{ key: string; label: string }> = [
   { key: "Quick Apply", label: "Quick Apply" },
 ];
 
+// Cards rendered on the first synchronous paint after a feed loads. The rest
+// are revealed on the next idle tick (see revealAll). Keeps first paint cheap
+// without dropping any job from the final list.
+const INITIAL_RENDER = 30;
+
+// Session cache of fetched job descriptions, keyed by job id. Lives at module
+// scope so it survives navigating away from and back to the board within the
+// SPA session. Loaded and empty results are cached; errors are not, so a
+// transient failure can be retried.
+const descriptionCache = new Map<string, JobDescriptionState>();
+
 export const JobBoardPage: React.FC = () => {
   const { user, isLoading: authLoading } = useFirebaseAuth();
 
   // ---- Server data --------------------------------------------------------
   const [feed, setFeed] = useState<JobFeedResponse | null>(null);
   const [feedLoading, setFeedLoading] = useState(true);
+  // Progressive render gate. False on each fresh load so the first paint is
+  // capped to INITIAL_RENDER cards; flipped true on the next idle tick to
+  // render the remainder.
+  const [revealAll, setRevealAll] = useState(false);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
 
   // ---- Local UI state -----------------------------------------------------
@@ -170,6 +185,7 @@ export const JobBoardPage: React.FC = () => {
   const loadFeed = useCallback(async (refresh = false) => {
     try {
       setFeedLoading(true);
+      setRevealAll(false);
       const data = await apiService.getJobFeed({ refresh });
       setFeed(data);
     } catch (err) {
@@ -216,6 +232,52 @@ export const JobBoardPage: React.FC = () => {
     [sections.recommended, search]
   );
 
+  // Once the feed is loaded, reveal the full list on the next idle tick. The
+  // first synchronous paint renders at most INITIAL_RENDER cards (see the
+  // capped slices below); this unblocks that paint and then fills in the rest.
+  useEffect(() => {
+    if (feedLoading || revealAll) return;
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let idleId: number | undefined;
+    if (w.requestIdleCallback) {
+      idleId = w.requestIdleCallback(() => setRevealAll(true));
+    } else {
+      timeoutId = setTimeout(() => setRevealAll(true), 0);
+    }
+    return () => {
+      if (idleId !== undefined && w.cancelIdleCallback) w.cancelIdleCallback(idleId);
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    };
+  }, [feedLoading, revealAll]);
+
+  // Cap the rendered cards on first paint by depleting a shared budget across
+  // the expanded, searched sections in render order (Recent then Recommended).
+  // Collapsed sections render nothing regardless, so they consume no budget.
+  // Section counts still use the full searched lengths, so the badges stay
+  // honest while only the DOM is trimmed until revealAll flips true.
+  const { recentToRender, recommendedToRender } = useMemo(() => {
+    if (revealAll) {
+      return { recentToRender: searchedRecent, recommendedToRender: searchedRecommended };
+    }
+    let budget = INITIAL_RENDER;
+    const recentSlice = collapsedSections.recent ? [] : searchedRecent.slice(0, budget);
+    budget -= recentSlice.length;
+    const recommendedSlice = collapsedSections.recommended
+      ? []
+      : searchedRecommended.slice(0, budget);
+    return { recentToRender: recentSlice, recommendedToRender: recommendedSlice };
+  }, [
+    revealAll,
+    collapsedSections.recent,
+    collapsedSections.recommended,
+    searchedRecent,
+    searchedRecommended,
+  ]);
+
   // Default-select first Recent on first load; reselect when current selection
   // drops out of the visible list (e.g. dismissed or filtered away).
   useEffect(() => {
@@ -235,6 +297,46 @@ export const JobBoardPage: React.FC = () => {
     () => allProtoJobs.find((j) => j.id === selectedId) ?? null,
     [allProtoJobs, selectedId]
   );
+
+  // Lazy-load the description for the open job. The feed omits descriptions to
+  // stay lean, so we fetch the single job's prose when its detail is shown.
+  const [descRetryTick, setDescRetryTick] = useState(0);
+  const [, setDescVersion] = useState(0);
+  const bumpDesc = () => setDescVersion((v) => v + 1);
+
+  useEffect(() => {
+    const id = selectedId;
+    if (!id) return;
+    const cached = descriptionCache.get(id);
+    if (cached && cached.status !== "error") return;
+    let cancelled = false;
+    descriptionCache.set(id, { status: "loading" });
+    bumpDesc();
+    apiService
+      .getJobDescription(id)
+      .then((res) => {
+        const text = (res.description ?? "").trim();
+        descriptionCache.set(id, text ? { status: "loaded", text } : { status: "empty" });
+      })
+      .catch(() => {
+        descriptionCache.set(id, { status: "error" });
+      })
+      .finally(() => {
+        if (!cancelled) bumpDesc();
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, descRetryTick]);
+
+  const displayedDesc: JobDescriptionState =
+    (selectedId ? descriptionCache.get(selectedId) : undefined) ?? { status: "loading" };
+
+  const retryDescription = () => {
+    if (!selectedId) return;
+    descriptionCache.delete(selectedId);
+    setDescRetryTick((t) => t + 1);
+  };
 
   // ---- Chip operations (visual only) --------------------------------------
   const removeFilter = (k: string) => {
@@ -274,14 +376,19 @@ export const JobBoardPage: React.FC = () => {
     if (j.applyUrl) window.open(j.applyUrl, "_blank", "noopener,noreferrer");
   };
 
-  const toFindHumansJob = (j: ProtoJob): FindHumansJob => ({
-    id: j.id,
-    title: j.title,
-    company: j.company,
-    location: j.location,
-    description: j.description ?? undefined,
-    url: j.applyUrl,
-  });
+  const toFindHumansJob = (j: ProtoJob): FindHumansJob => {
+    // Reuse the lazily fetched description when it is already loaded; never
+    // refetch here and never fall back to filler.
+    const cached = descriptionCache.get(j.id);
+    return {
+      id: j.id,
+      title: j.title,
+      company: j.company,
+      location: j.location,
+      description: cached && cached.status === "loaded" ? cached.text : undefined,
+      url: j.applyUrl,
+    };
+  };
 
   const openFindHumans = (j: ProtoJob) => setFindHumansJob(toFindHumansJob(j));
 
@@ -313,7 +420,6 @@ export const JobBoardPage: React.FC = () => {
     detailPosted: "",
     detailMatch: s.match_score ?? null,
     detailLocation: s.location ?? "",
-    description: null,
     structured: undefined,
   });
 
@@ -604,9 +710,29 @@ export const JobBoardPage: React.FC = () => {
               {/* ---- Two-pane body (independent scroll) ---- */}
               <div className="jb-twopane">
                 <div className="jb-list">
-                  {feedLoading && (
-                    <div className="jb-loading">Loading roles...</div>
-                  )}
+                  {!feedLoading &&
+                    feed?.summary?.freshness_label &&
+                    feed.summary.freshness_label !== "Unknown" && (
+                      <div
+                        style={{
+                          padding: "12px 12px 0",
+                          fontSize: 11,
+                          color: "var(--ink-3, #94A3B8)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                      >
+                        <span>Updated {feed.summary.freshness_label}</span>
+                        {feed.cached && (
+                          <span style={{ color: "var(--ink-3, #94A3B8)", opacity: 0.7 }}>
+                            · cached
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                  {feedLoading && <ListSkeleton />}
 
                   {!feedLoading && searchedRecent.length === 0 && searchedRecommended.length === 0 && (
                     <div className="jb-empty" style={{ margin: "16px 8px" }}>
@@ -635,7 +761,7 @@ export const JobBoardPage: React.FC = () => {
                         Recent job postings
                         <span className="jb-section-count">{searchedRecent.length}</span>
                       </button>
-                      {!collapsedSections.recent && searchedRecent.map((j) => (
+                      {!collapsedSections.recent && recentToRender.map((j) => (
                         <JobCard
                           key={j.id}
                           job={j}
@@ -666,7 +792,7 @@ export const JobBoardPage: React.FC = () => {
                         Recommended for you
                         <span className="jb-section-count">{searchedRecommended.length}</span>
                       </button>
-                      {!collapsedSections.recommended && searchedRecommended.map((j) => (
+                      {!collapsedSections.recommended && recommendedToRender.map((j) => (
                         <JobCard
                           key={j.id}
                           job={j}
@@ -709,6 +835,8 @@ export const JobBoardPage: React.FC = () => {
                   {selectedJob ? (
                     <JobDetail
                       job={selectedJob}
+                      description={displayedDesc}
+                      onRetryDescription={retryDescription}
                       isSaved={savedIds.has(selectedJob.id)}
                       onApply={() => handleApply(selectedJob)}
                       onSave={() => handleSave(selectedJob)}
@@ -757,6 +885,72 @@ export default JobBoardPage;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// In-pane loading state for the 479px list column. The exported
+// JobBoardSkeleton is a 3-col grid built for the old full-width page and
+// overflows this narrow pane, so we render lightweight per-card shimmer rows
+// shaped like a JobCard instead. Keyframe is injected inline so this stays
+// self-contained, mirroring how JobBoardSkeleton ships its own animation.
+const ListSkeleton: React.FC<{ rows?: number }> = ({ rows = 6 }) => (
+  <div style={{ padding: "24px 4px 8px" }} aria-busy="true" aria-label="Loading roles">
+    <style>{`
+      @keyframes jbSkelShimmer {
+        0% { background-position: -360px 0; }
+        100% { background-position: 360px 0; }
+      }
+    `}</style>
+    {[...Array(rows)].map((_, i) => (
+      <ListSkeletonRow key={i} index={i} />
+    ))}
+  </div>
+);
+
+const SkelBlock: React.FC<{
+  w?: number | string;
+  h?: number;
+  r?: number;
+  delay?: number;
+  style?: React.CSSProperties;
+}> = ({ w = "100%", h = 12, r = 4, delay = 0, style }) => (
+  <div
+    style={{
+      width: w,
+      height: h,
+      borderRadius: r,
+      background:
+        "linear-gradient(90deg, hsl(217 20% 93%) 25%, hsl(217 20% 97%) 50%, hsl(217 20% 93%) 75%)",
+      backgroundSize: "720px 100%",
+      animation: "jbSkelShimmer 1.6s ease-in-out infinite",
+      animationDelay: `${delay}ms`,
+      ...style,
+    }}
+  />
+);
+
+const ListSkeletonRow: React.FC<{ index: number }> = ({ index }) => {
+  const d = index * 120;
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 12,
+        padding: "16px 12px",
+        borderBottom: "1px solid var(--line, #E5E5E5)",
+      }}
+    >
+      <SkelBlock w={41} h={41} r={8} delay={d} />
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+        <SkelBlock w="70%" h={14} delay={d + 40} />
+        <SkelBlock w="45%" h={12} delay={d + 80} />
+        <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+          <SkelBlock w={64} h={18} r={9} delay={d + 120} />
+          <SkelBlock w={48} h={18} r={9} delay={d + 160} />
+        </div>
+        <SkelBlock w="30%" h={10} delay={d + 200} />
+      </div>
+    </div>
+  );
+};
 
 function applySearch(list: ProtoJob[], search: string): ProtoJob[] {
   if (!search.trim()) return list;

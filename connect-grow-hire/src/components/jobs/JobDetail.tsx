@@ -19,8 +19,18 @@ import { FindPeoplePanel } from "./FindPeoplePanel";
 // - Job Description section
 // - FindPeoplePanel embedded at the bottom
 
+// Loading / loaded / empty / error are distinct so the panel never shows
+// placeholder filler in place of a real description.
+export type JobDescriptionState =
+  | { status: "loading" }
+  | { status: "loaded"; text: string }
+  | { status: "empty" }
+  | { status: "error" };
+
 interface JobDetailProps {
   job: ProtoJob;
+  description: JobDescriptionState;
+  onRetryDescription?: () => void;
   isSaved: boolean;
   onApply: () => void;
   onSave: () => void;
@@ -30,13 +40,10 @@ interface JobDetailProps {
   currentCredits?: number;
 }
 
-const FALLBACK_DESCRIPTION_PARAGRAPHS = [
-  "We're building the collaborative AI workspace where knowledge, projects, meetings, and AI tools live side by side, so work feels faster, clearer, and less fragmented. Our team believes the best products are born from deep empathy with users, and we're looking for a designer who shares that conviction.",
-  "In this role you'll shape end-to-end experiences across our core product surface, partnering closely with product, engineering, and research to define what \"collaborative and intelligent\" looks like at every touchpoint. You'll own the design language for new feature areas, run rapid concept sprints, and raise the bar for craft across the entire design team.",
-];
-
 export function JobDetail({
   job,
+  description,
+  onRetryDescription,
   isSaved,
   onApply,
   onSave,
@@ -45,13 +52,6 @@ export function JobDetail({
   userPlan,
   currentCredits,
 }: JobDetailProps) {
-  // Prefer real job description; fall back to prototype filler so the
-  // panel never looks empty on jobs that lack a description string.
-  const description = job.description?.trim();
-  const paragraphs = description
-    ? splitParagraphs(description)
-    : FALLBACK_DESCRIPTION_PARAGRAPHS;
-
   return (
     <>
       <div className="jb-banner">
@@ -124,9 +124,39 @@ export function JobDetail({
 
         <div className="jb-detail-section">
           <h3>JOB DESCRIPTION</h3>
-          {paragraphs.map((p, i) => (
-            <p key={`p-${i}`} className="jb-detail-paragraph">{p}</p>
-          ))}
+          {description.status === "loading" && (
+            <p className="jb-detail-paragraph" style={{ color: "var(--ink-3, #94A3B8)" }}>
+              Loading description...
+            </p>
+          )}
+          {description.status === "loaded" &&
+            splitParagraphs(description.text).map((p, i) => (
+              <p key={`p-${i}`} className="jb-detail-paragraph">{p}</p>
+            ))}
+          {description.status === "empty" && (
+            <p className="jb-detail-paragraph" style={{ color: "var(--ink-3, #94A3B8)" }}>
+              No description provided for this role.
+            </p>
+          )}
+          {description.status === "error" && (
+            <p className="jb-detail-paragraph" style={{ color: "var(--ink-3, #94A3B8)" }}>
+              Couldn't load the description.{" "}
+              <button
+                type="button"
+                onClick={onRetryDescription}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  color: "var(--brand, #3B82F6)",
+                  cursor: "pointer",
+                  font: "inherit",
+                }}
+              >
+                Try again
+              </button>
+            </p>
+          )}
         </div>
 
         <div className="jb-divider" />
