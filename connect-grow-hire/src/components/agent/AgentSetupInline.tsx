@@ -1241,8 +1241,15 @@ function StepGoals({
 
       </div>
 
-      {/* Mode (parser outcome with manual override) */}
-      <ModeIndicator mode={form.loopMode} onChange={(m) => set({ loopMode: m })} />
+      {/* Mode (parser outcome with manual override) — V1 only. V2
+          decision: every Loop pursues both pipelines (jobs + networking)
+          against one budget. Students don't naturally distinguish the
+          two and Offerloop's value prop is the integrated motion. The
+          loopMode field still exists for the Advanced settings escape
+          valve. */}
+      {!v2Enabled && (
+        <ModeIndicator mode={form.loopMode} onChange={(m) => set({ loopMode: m })} />
+      )}
 
       {/* Collapsible chip rows. The textarea + parser are the primary input;
           these rows are advanced/manual overrides. Each row auto-expands when
@@ -1783,6 +1790,16 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
       credits < estimatedWeeklyCreditsPeople(v2WeeklyTarget)
     );
   })();
+  // V2 product decision: every Loop pursues both pipelines (jobs +
+  // networking) against one budget. Locks the mode field as soon as the
+  // cohort assignment resolves so the rest of the wizard (preview,
+  // deploy payload, syntheticBrief) sees a consistent value.
+  useEffect(() => {
+    if (loopsSetupV2 && form.loopMode !== "both") {
+      set({ loopMode: "both" });
+    }
+  }, [loopsSetupV2, form.loopMode]);
+
   // Cohort-aware step list. Computed every render so the rail and progress
   // chrome stay in sync with the flag without a remount.
   const steps: ReadonlyArray<StepDescriptor> = loopsSetupV2 ? STEPS_V2 : STEPS;
@@ -1800,7 +1817,7 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
         emailPurpose: null,
         constraints: [],
         targetCount: null,
-        mode: form.loopMode,
+        mode: "both",
       }
     : null;
   const previewState = usePreviewTargets({
@@ -1896,7 +1913,12 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
           };
           // Mode only auto-updates when the parser actually committed to one.
           // null = ambiguous → leave the user's current pick (or default).
-          if (parsed?.mode === "people" || parsed?.mode === "roles" || parsed?.mode === "both") {
+          // V2 locks the mode to "both" — see the loopsSetupV2 effect below;
+          // skip the parser's mode update so it doesn't fight that decision.
+          if (
+            !loopsSetupV2 &&
+            (parsed?.mode === "people" || parsed?.mode === "roles" || parsed?.mode === "both")
+          ) {
             next.loopMode = parsed.mode;
           }
           return { ...f, ...next };
@@ -1998,6 +2020,10 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
 
       // briefParsed reflects the user's CURRENT chip state (post-edits), not
       // the parser's raw output — chips are the source of truth at deploy.
+      // V2 always sends mode="both" regardless of what form.loopMode landed
+      // on — defense in depth around the lock effect above so a race
+      // between cohort fetch and Start CTA can't smuggle a stale mode in.
+      const finalLoopMode = loopsSetupV2 ? "both" : form.loopMode;
       const finalBriefParsed: ParsedBrief = {
         companies: form.companies,
         industries: form.industries,
@@ -2006,7 +2032,7 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
         emailPurpose: null,
         constraints: [],
         targetCount: loopsSetupV2 ? v2WeeklyTarget : form.weeklyTarget,
-        mode: form.loopMode,
+        mode: finalLoopMode,
       };
 
       // V2 hides credit math — derive weeklyTarget from tier and let the
@@ -2053,13 +2079,13 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
           ? {}
           : { creditBudgetPerWeek: form.creditBudget }),
         automationEnabled: form.approvalMode === "autopilot",
-        loopMode: form.loopMode,
+        loopMode: finalLoopMode,
       });
 
       toast({
         title: "Loop deployed!",
         description:
-          form.loopMode === "both"
+          finalLoopMode === "both"
             ? "Your loop is chasing roles AND networking together."
             : form.loopMode === "roles"
               ? "Your job-search loop is now active."
