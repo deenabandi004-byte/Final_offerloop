@@ -901,6 +901,10 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
   const hasBrief = briefText.trim().length >= MIN_BRIEF_CHARS_TO_PARSE;
   const hasChipTargets = form.companies.length > 0 || form.industries.length > 0;
   const canDeploy = hasBrief || hasChipTargets;
+  // Gate the Continue button while the parser is actively reading the
+  // brief. Without this, a fast click after typing lands the user on
+  // Step 02 with empty extraction fields and a stale preview.
+  const parseInFlight = stepIdx === 0 && parsePhase === "parsing";
 
   const handleDeploy = async () => {
     if (!hasBrief && !hasChipTargets) {
@@ -1171,7 +1175,8 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
               ) : (
                 <button
                   type="button"
-                  onClick={() => setStepIdx(stepIdx + 1)}
+                  onClick={() => !parseInFlight && setStepIdx(stepIdx + 1)}
+                  disabled={parseInFlight}
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
@@ -1181,16 +1186,20 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
                     fontSize: 14,
                     fontWeight: 600,
                     color: "#FFFFFF",
-                    background: "#4A60A8",
+                    background: parseInFlight ? "var(--ink-3)" : "#4A60A8",
                     border: "none",
                     borderRadius: 3,
-                    cursor: "pointer",
+                    cursor: parseInFlight ? "not-allowed" : "pointer",
                     transition: "background 0.15s ease",
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = "#3A4F8E")}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = "#4A60A8")}
+                  onMouseEnter={(e) => {
+                    if (!parseInFlight) e.currentTarget.style.background = "#3A4F8E";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!parseInFlight) e.currentTarget.style.background = "#4A60A8";
+                  }}
                 >
-                  Continue →
+                  {parseInFlight ? "Reading…" : "Continue →"}
                 </button>
               )}
             </div>

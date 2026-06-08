@@ -186,6 +186,25 @@ def create_user_loop():
                 "limits": limits,
             }), 402
         return jsonify({"error": msg}), 400
+
+    # Auto-start the Loop immediately. Idle-on-create was a vestige of
+    # the old "review before deploy" wizard; the V2 wizard collects the
+    # brief, the cadence (from tier default), and the approval mode in
+    # one shot, so there's nothing left for the student to confirm. If
+    # start fails (e.g. brief_required, though we just wrote one), the
+    # creation still succeeds — the Loop sits idle and the fleet view's
+    # Start button is the recovery path.
+    try:
+        started = start_loop(
+            uid, loop["id"], app=current_app._get_current_object(),
+        )
+        if started:
+            loop = started
+    except Exception:
+        logger.exception(
+            "POST /loops: auto-start failed for uid=%s loop=%s",
+            uid, loop.get("id"),
+        )
     return jsonify(loop), 201
 
 
