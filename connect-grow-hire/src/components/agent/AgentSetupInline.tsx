@@ -23,6 +23,7 @@ import { useProposedBrief, type UseProposedBriefState } from "@/hooks/usePropose
 import { usePreviewTargets } from "@/hooks/usePreviewTargets";
 import { useSubscription } from "@/hooks/useSubscription";
 import { InlinePreview } from "@/components/agent/InlinePreview";
+import { IndustryBrowse } from "@/components/agent/IndustryBrowse";
 import {
   estimatedWeeklyCreditsPeople,
   weeklyTargetForTier,
@@ -1016,6 +1017,25 @@ function StepGoals({
     set({ [cat]: next } as Partial<FormState>);
     if (v2Enabled) onManualChipEdit?.(cat);
   };
+
+  // V2 "Browse by industry" escape valve — modal open state. Bulk add
+  // routes through editChips so both Companies AND Industries become
+  // sticky against subsequent textarea parses.
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const handleIndustryBrowseAdd = ({
+    companies,
+    industries,
+  }: {
+    companies: string[];
+    industries: string[];
+  }) => {
+    if (companies.length > 0) {
+      editChips("companies", [...form.companies, ...companies]);
+    }
+    if (industries.length > 0) {
+      editChips("industries", [...form.industries, ...industries]);
+    }
+  };
   const copy = loopCopy(form.loopMode, { school: university });
   const overLimit = briefText.length > MAX_BRIEF_CHARS;
   const [focused, setFocused] = useState(false);
@@ -1280,7 +1300,39 @@ function StepGoals({
             suggestions={LOCATION_SUGGESTIONS}
           />
         </EditorialField>
+
+        {/* V2 escape valve for students with no target list (freshmen,
+            switchers). Opens a modal with industries → company picker. */}
+        {v2Enabled && (
+          <button
+            type="button"
+            onClick={() => setBrowseOpen(true)}
+            style={{
+              marginTop: 8,
+              fontFamily: "'Inter', sans-serif",
+              fontSize: 12.5,
+              color: "var(--ink-3)",
+              background: "transparent",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              textDecoration: "underline",
+            }}
+          >
+            Not sure yet? Browse by industry →
+          </button>
+        )}
       </div>
+
+      {v2Enabled && (
+        <IndustryBrowse
+          open={browseOpen}
+          onOpenChange={setBrowseOpen}
+          existingCompanies={form.companies}
+          existingIndustries={form.industries}
+          onAdd={handleIndustryBrowseAdd}
+        />
+      )}
 
       <div
         className="flex items-center justify-between"
