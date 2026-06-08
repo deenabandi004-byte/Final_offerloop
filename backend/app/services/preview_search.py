@@ -119,43 +119,122 @@ def preview_targets(
 
     # search_contacts_from_prompt returns (contacts, retry_level, adjacency, metadata)
     contacts_raw = result[0] if isinstance(result, tuple) and result else []
+    if contacts_raw:
+        # One-time debug log so we can see the actual shape of cached/fresh
+        # PDL contacts in dev. Cheap (only first contact, only top-level keys).
+        try:
+            first = contacts_raw[0]
+            if isinstance(first, dict):
+                logger.info(
+                    "preview_search: %d contacts, first keys=%s",
+                    len(contacts_raw), sorted(list(first.keys()))[:30],
+                )
+        except Exception:
+            pass
 
     user_school = ((user_profile or {}).get("university") or "").strip().lower()
     preview: list[PreviewContact] = []
     for c in contacts_raw[:capped]:
         if not isinstance(c, dict):
             continue
-        name = _cap_str(
-            c.get("full_name") or c.get("name") or c.get("first_name") or ""
-        )
-        title = _cap_str(c.get("title") or c.get("job_title") or "")
-        company = _cap_str(
-            c.get("company") or c.get("job_company_name") or c.get("companyName") or ""
-        )
-        school = c.get("school") or c.get("education_school") or c.get("university")
-        if isinstance(school, list):
-            school = (school[0] if school else None)
-        school = _cap_str(school) if school else None
-        linkedin = c.get("linkedin_url") or c.get("linkedinUrl") or c.get("linkedin") or None
-        if linkedin and not isinstance(linkedin, str):
-            linkedin = None
-
-        same_school = bool(
-            user_school
-            and school
-            and (school.lower() == user_school or user_school in school.lower())
-        )
-        if not (name or title or company):
-            continue
-        preview.append({
-            "name": name or "—",
-            "title": title or "—",
-            "company": company or "",
-            "school": school or None,
-            "linkedinUrl": linkedin,
-            "sameSchool": same_school,
-        })
+        preview_row = _to_preview_contact(c, user_school)
+        if preview_row is not None:
+            preview.append(preview_row)
 
     if session_cache is not None:
         session_cache[key] = preview
     return preview
+
+
+# ── Contact-shape normalizer (PDL raw OR pre-normalized) ────────────────
+
+
+def _first_experience(c: dict) -> dict:
+    """PDL raw nests current-role data under experience[0]. Pull it out."""
+    exp = c.get("experience")
+    if isinstance(exp, list) and exp and isinstance(exp[0], dict):
+        return exp[0]
+    return {}
+
+
+def _first_education(c: dict) -> dict:
+    edu = c.get("education")
+    if isinstance(edu, list) and edu and isinstance(edu[0], dict):
+        return edu[0]
+    return {}
+
+
+def _to_preview_contact(c: dict, user_school: str) -> PreviewContact | None:
+    """Coerce a contact dict into the PreviewContact shape.
+
+    Tolerates three shapes that may live side-by-side in cached results:
+      1. PDL raw — first_name/last_name + experience[0].{title,company}.name
+      2. PDL flat — full_name + job_title + job_company_name
+      3. Pre-normalized — firstName/lastName + jobTitle + company
+    """
+    exp = _first_experience(c)
+    exp_company = exp.get("company") if isinstance(exp.get("company"), dict) else {}
+    exp_title = exp.get("title") if isinstance(exp.get("title"), dict) else {}
+
+    name = _cap_str(
+        c.get("full_name")
+        or c.get("fullName")
+        or " ".join(
+            x for x in (c.get("first_name"), c.get("last_name")) if isinstance(x, str)
+        ).strip()
+        or " ".join(
+            x for x in (c.get("firstName"), c.get("lastName")) if isinstance(x, str)
+        ).strip()
+        or c.get("name")
+        or ""
+    )
+    title = _cap_str(
+        c.get("job_title")
+        or c.get("jobTitle")
+        or c.get("title")
+        or exp_title.get("name")
+        or ""
+    )
+    company = _cap_str(
+        c.get("job_company_name")
+        or c.get("company")
+        or c.get("companyName")
+        or exp_company.get("name")
+        or ""
+    )
+
+    edu = _first_education(c)
+    edu_school = edu.get("school") if isinstance(edu.get("school"), dict) else {}
+    school_raw = (
+        c.get("school")
+        or c.get("education_school")
+        or c.get("university")
+        or edu_school.get("name")
+    )
+    if isinstance(school_raw, list):
+        school_raw = school_raw[0] if school_raw else None
+    school = _cap_str(school_raw) if school_raw else None
+
+    linkedin = (
+        c.get("linkedin_url")
+        or c.get("linkedinUrl")
+        or c.get("linkedin")
+    )
+    if linkedin and not isinstance(linkedin, str):
+        linkedin = None
+
+    same_school = bool(
+        user_school
+        and school
+        and (school.lower() == user_school or user_school in school.lower())
+    )
+    if not (name or title or company):
+        return None
+    return {
+        "name": name or "—",
+        "title": title or "—",
+        "company": company or "",
+        "school": school or None,
+        "linkedinUrl": linkedin,
+        "sameSchool": same_school,
+    }

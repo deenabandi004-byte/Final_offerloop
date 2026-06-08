@@ -90,6 +90,72 @@ def _pdl_returning(contacts: list[dict]):
     return fake_search
 
 
+def test_preview_targets_handles_pdl_raw_shape_with_experience_array(monkeypatch):
+    """PDL raw nests current title + company under experience[0].title.name
+    and experience[0].company.name. Pre-2026-06-08 a preview cached during
+    a prior session would round-trip into the wizard but show zero contacts
+    because the normalizer only looked for the flat job_title field.
+    Regression guard so it can't drop silently again."""
+    monkeypatch.setattr(
+        preview_search,
+        "search_contacts_from_prompt",
+        _pdl_returning([
+            {
+                "first_name": "Sarah",
+                "last_name": "Chen",
+                "experience": [
+                    {
+                        "title": {"name": "Product Manager"},
+                        "company": {"name": "Stripe"},
+                    },
+                ],
+                "linkedin_url": "https://linkedin.com/in/sarahchen",
+                "education": [
+                    {"school": {"name": "University of Southern California"}},
+                ],
+            },
+        ]),
+    )
+
+    result = preview_targets(
+        parsed_brief={"companies": ["Stripe"]},
+        user_profile={"university": "University of Southern California"},
+    )
+
+    assert len(result) == 1
+    contact = result[0]
+    assert contact["name"] == "Sarah Chen"
+    assert contact["title"] == "Product Manager"
+    assert contact["company"] == "Stripe"
+    assert contact["school"] == "University of Southern California"
+    assert contact["sameSchool"] is True
+    assert contact["linkedinUrl"] == "https://linkedin.com/in/sarahchen"
+
+
+def test_preview_targets_handles_pre_normalized_camelcase_shape(monkeypatch):
+    """Some cache entries from older paths may be in the normalized
+    camelCase shape (firstName/jobTitle). Must still pass through."""
+    monkeypatch.setattr(
+        preview_search,
+        "search_contacts_from_prompt",
+        _pdl_returning([
+            {
+                "firstName": "Alex",
+                "lastName": "Wong",
+                "jobTitle": "Software Engineer",
+                "companyName": "Plaid",
+            },
+        ]),
+    )
+
+    result = preview_targets(parsed_brief={"companies": ["Plaid"]})
+
+    assert len(result) == 1
+    assert result[0]["name"] == "Alex Wong"
+    assert result[0]["title"] == "Software Engineer"
+    assert result[0]["company"] == "Plaid"
+
+
 def test_preview_targets_returns_normalized_lean_shape(monkeypatch):
     """The wizard only needs name + title + company + school + linkedin
     + sameSchool. The full PDL row is hundreds of fields — make sure

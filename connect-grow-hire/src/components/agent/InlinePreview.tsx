@@ -79,8 +79,7 @@ export function InlinePreview({
         <div
           style={{ fontSize: 12.5, color: "var(--ink-3)", lineHeight: 1.5 }}
         >
-          We didn't surface anyone for that brief yet. Try adding another
-          company, role, or industry.
+          Building your preview — your Loop will pull more once it runs.
         </div>
       )}
 
