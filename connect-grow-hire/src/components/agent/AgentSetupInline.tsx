@@ -20,6 +20,11 @@ import { useCreateLoop } from "@/hooks/useLoops";
 import useDebounce from "@/hooks/use-debounce";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useProposedBrief, type UseProposedBriefState } from "@/hooks/useProposedBrief";
+import { useSubscription } from "@/hooks/useSubscription";
+import {
+  estimatedWeeklyCreditsPeople,
+  weeklyTargetForTier,
+} from "@/lib/tierDefaults";
 import { loopCopy, type LoopModeForCopy } from "@/lib/loopCopy";
 import offerloopIcon from "@/assets/offerloopiconlogo.png";
 
@@ -30,6 +35,16 @@ const STEPS = [
   { id: "volume", num: "02", label: "Cadence", sub: "Pace and budget" },
   { id: "review", num: "03", label: "Review", sub: "Deploy" },
 ] as const;
+
+// V2 (LOOPS_SETUP_V2 cohort): drops the cadence step; approval picker and
+// launch live in the new Review & Launch step. Keep both lists declared
+// at module scope so step rail / progress chrome can render either.
+const STEPS_V2 = [
+  { id: "goals", num: "01", label: "Goals", sub: "Who and where" },
+  { id: "launch", num: "02", label: "Review & launch", sub: "Pick approval and start" },
+] as const;
+
+type StepDescriptor = (typeof STEPS)[number] | (typeof STEPS_V2)[number];
 
 const COMPANY_SUGGESTIONS = ["Stripe", "Linear", "Vercel", "Notion", "Ramp", "Arc", "Anthropic"];
 const ROLE_SUGGESTIONS = ["Product Designer", "Design Engineer", "Analyst", "Associate", "Software Engineer"];
@@ -538,14 +553,17 @@ function ModeCard({
 function StepRail({
   index,
   onJump,
+  steps,
 }: {
   index: number;
   onJump: (i: number) => void;
+  steps: ReadonlyArray<StepDescriptor>;
 }) {
   return (
     <div
-      className="grid grid-cols-3"
+      className="grid"
       style={{
+        gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))`,
         background: "var(--paper-2)",
         border: "1px solid var(--line)",
         borderRadius: 3,
@@ -553,7 +571,7 @@ function StepRail({
         fontFamily: "'Inter', sans-serif",
       }}
     >
-      {STEPS.map((s, i) => {
+      {steps.map((s, i) => {
         const active = i === index;
         const done = i < index;
         return (
@@ -563,7 +581,7 @@ function StepRail({
             className="relative text-left py-3.5 px-4 cursor-pointer border-0"
             style={{
               background: active ? "#FFFFFF" : "transparent",
-              borderRight: i < STEPS.length - 1 ? "1px solid var(--line)" : "none",
+              borderRight: i < steps.length - 1 ? "1px solid var(--line)" : "none",
             }}
           >
             {active && (
@@ -1497,6 +1515,145 @@ function StepReview({ form, university }: { form: FormState; university: string 
   );
 }
 
+// ── V2: Review & Launch step ───────────────────────────────────────────
+// Collapses the old Cadence + Review steps. Approval picker is the focus.
+// No credit math except a low-balance soft warning when the user is
+// actually low. Cadence comes from the tier default — no slider, no
+// per-week math surfaced to the user.
+
+function StepReviewV2({
+  form,
+  set,
+  university,
+  weeklyTarget,
+  lowBalance,
+}: {
+  form: FormState;
+  set: (patch: Partial<FormState>) => void;
+  university: string;
+  weeklyTarget: number;
+  lowBalance: boolean;
+}) {
+  const summary: Array<{ k: string; v: string }> = [
+    { k: "Companies", v: form.companies.length ? form.companies.join(", ") : "—" },
+    { k: "Roles", v: form.roles.length ? form.roles.join(", ") : "—" },
+    {
+      k: "Industries",
+      v: form.industries.length ? form.industries.join(", ") : "—",
+    },
+    {
+      k: "Alumni priority",
+      v: form.preferAlumni ? (university ? `On — ${university}` : "On") : "Off",
+    },
+  ];
+
+  const cadenceSentence =
+    form.approvalMode === "autopilot"
+      ? "We'll send your approved templates automatically — manage them in Settings."
+      : `We'll find ~${weeklyTarget} ${weeklyTarget === 1 ? "person" : "people"} per week. You can pause anytime in the fleet view.`;
+
+  return (
+    <div style={{ fontFamily: "'Inter', sans-serif" }}>
+      {/* Compact summary */}
+      <div
+        className="overflow-hidden mb-5"
+        style={{
+          border: "1px solid var(--line)",
+          borderRadius: 3,
+          background: "#FFFFFF",
+        }}
+      >
+        {summary.map((r, i) => (
+          <div
+            key={r.k}
+            className="grid grid-cols-[150px_1fr]"
+            style={{
+              padding: "12px 18px",
+              fontSize: 13,
+              borderBottom: i < summary.length - 1 ? "1px solid var(--line-2)" : "none",
+            }}
+          >
+            <span style={{ color: "var(--ink-3)" }}>{r.k}</span>
+            <span style={{ color: "var(--ink)", fontWeight: 500 }}>{r.v}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Approval mode picker — the focus of V2 step 2 */}
+      <div className="mb-5">
+        <div
+          style={{
+            fontSize: 14,
+            fontWeight: 600,
+            color: "var(--ink)",
+            marginBottom: 4,
+          }}
+        >
+          Should we send drafts automatically once you approve a template?
+        </div>
+        <div
+          style={{
+            fontSize: 12.5,
+            color: "var(--ink-3)",
+            marginBottom: 12,
+          }}
+        >
+          The most important decision in setup — you can change it later in Settings.
+        </div>
+        <div
+          role="radiogroup"
+          aria-label="Approval mode"
+          className="grid grid-cols-1 md:grid-cols-2 gap-2.5"
+        >
+          <ModeCard
+            active={form.approvalMode === "review_first"}
+            title="Review first"
+            tag="recommended"
+            desc="We draft every email — nothing sends until you approve it."
+            onClick={() => set({ approvalMode: "review_first" })}
+          />
+          <ModeCard
+            active={form.approvalMode === "autopilot"}
+            title="Autopilot"
+            desc="We send your approved templates automatically."
+            onClick={() => set({ approvalMode: "autopilot" })}
+          />
+        </div>
+      </div>
+
+      {/* Low-balance warning — only when the user actually is low */}
+      {lowBalance && (
+        <div
+          className="mb-5"
+          style={{
+            border: "1px solid rgba(180, 100, 30, 0.25)",
+            background: "rgba(180, 100, 30, 0.04)",
+            borderRadius: 3,
+            padding: 14,
+            fontSize: 13,
+            color: "var(--ink-2)",
+            lineHeight: 1.5,
+          }}
+        >
+          You're low on credits this month — your Loop may pause early.
+        </div>
+      )}
+
+      {/* Cadence sentence — plain English, no numbers other than the count */}
+      <div
+        style={{
+          fontSize: 12.5,
+          color: "var(--ink-3)",
+          marginBottom: 14,
+          lineHeight: 1.5,
+        }}
+      >
+        {cadenceSentence}
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ─────────────────────────────────────────────────────
 
 export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
@@ -1556,6 +1713,25 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
   const loopsSetupV2 = useFeatureFlag("LOOPS_SETUP_V2");
   const proposedBrief = useProposedBrief({ enabled: loopsSetupV2 });
   const aiDraftAppliedRef = useRef(false);
+
+  // V2 reads the user's tier so the wizard can derive cadence + low-balance
+  // hint without exposing credit math in the UI. Subscription is fetched
+  // lazily; treat null as "free" while it loads — the worst case is a
+  // briefly-shown lower cadence number that updates on hydrate.
+  const { subscription } = useSubscription();
+  const tier: string = subscription?.tier ?? "free";
+  const v2WeeklyTarget = weeklyTargetForTier(tier);
+  const v2LowBalance = (() => {
+    const credits = subscription?.credits ?? 0;
+    return (
+      loopsSetupV2 &&
+      credits > 0 &&
+      credits < estimatedWeeklyCreditsPeople(v2WeeklyTarget)
+    );
+  })();
+  // Cohort-aware step list. Computed every render so the rail and progress
+  // chrome stay in sync with the flag without a remount.
+  const steps: ReadonlyArray<StepDescriptor> = loopsSetupV2 ? STEPS_V2 : STEPS;
 
   // V2 sync rule (carried over from the plan's locked architecture decision):
   // chips are derived from the textarea while typing; once a chip is manually
@@ -1695,10 +1871,12 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
     form.locations.length,
   ]);
 
-  const step = STEPS[stepIdx];
-  const isLast = stepIdx === STEPS.length - 1;
+  const step = steps[stepIdx];
+  const isLast = stepIdx === steps.length - 1;
   const estimatedWeeklyCredits = form.weeklyTarget * CREDIT_COST_PER_CONTACT;
-  const budgetUnderfunded = form.creditBudget < estimatedWeeklyCredits;
+  // V2 hides credit math entirely — only the V1 wizard gates on this.
+  const budgetUnderfunded =
+    !loopsSetupV2 && form.creditBudget < estimatedWeeklyCredits;
   // Mode-aware copy for the Goals headline (and subtitle). Other steps stay
   // shared. school is the user's actual university when known so the alumni
   // toggle shows concrete language.
@@ -1719,7 +1897,7 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
       });
       return;
     }
-    if (budgetUnderfunded) {
+    if (!loopsSetupV2 && budgetUnderfunded) {
       toast({
         title: "Budget too low",
         description: `${form.weeklyTarget} contacts/week needs ~${estimatedWeeklyCredits} credits. Raise the budget or lower the target.`,
@@ -1739,7 +1917,7 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
             companies: form.companies,
             industries: form.industries,
             roles: form.roles,
-            weeklyTarget: form.weeklyTarget,
+            weeklyTarget: loopsSetupV2 ? v2WeeklyTarget : form.weeklyTarget,
             preferAlumni: form.preferAlumni,
           });
 
@@ -1752,9 +1930,20 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
         locations: form.locations,
         emailPurpose: null,
         constraints: [],
-        targetCount: form.weeklyTarget,
+        targetCount: loopsSetupV2 ? v2WeeklyTarget : form.weeklyTarget,
         mode: form.loopMode,
       };
+
+      // V2 hides credit math — derive weeklyTarget from tier and let the
+      // backend's tier_defaults fallback compute creditBudgetPerWeek. The
+      // explicit value we send here mirrors what the backend will derive,
+      // so the agent_config audit doc reads sensibly.
+      const persistedWeeklyTarget = loopsSetupV2
+        ? v2WeeklyTarget
+        : form.weeklyTarget;
+      const persistedCreditBudget = loopsSetupV2
+        ? estimatedWeeklyCreditsPeople(v2WeeklyTarget)
+        : form.creditBudget;
 
       await updateAgentConfig({
         targetCompanies: form.companies,
@@ -1763,8 +1952,8 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
         // Don't send preferAlumni=true if the user has no university on file —
         // it would silently boost nothing. Gate to actual school presence.
         preferAlumni: hasUniversity && form.preferAlumni,
-        weeklyContactTarget: form.weeklyTarget,
-        creditBudgetPerWeek: form.creditBudget,
+        weeklyContactTarget: persistedWeeklyTarget,
+        creditBudgetPerWeek: persistedCreditBudget,
         approvalMode: form.approvalMode,
       });
       await deployAgent();
@@ -1774,14 +1963,20 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
       // (users/{uid}/settings/agent_config). Without this createLoop the
       // wizard "deploys" but no card ever shows up in the fleet view —
       // useCreateLoop invalidates the list query so /agent refetches.
+      //
+      // V2 path: send weeklyTarget but OMIT creditBudgetPerWeek so the
+      // backend's create_loop tier-default derivation runs (step 1 of the
+      // V2 rollout). V1 path keeps the explicit budget from the slider.
       await createLoopMut.mutateAsync({
         briefText: finalBriefText,
         briefParsed: finalBriefParsed,
         name: deriveLoopName(form),
         reviewBeforeSend: form.approvalMode === "review_first",
-        weeklyTarget: form.weeklyTarget,
+        weeklyTarget: persistedWeeklyTarget,
         cadence: "weekly",
-        creditBudgetPerWeek: form.creditBudget,
+        ...(loopsSetupV2
+          ? {}
+          : { creditBudgetPerWeek: form.creditBudget }),
         automationEnabled: form.approvalMode === "autopilot",
         loopMode: form.loopMode,
       });
@@ -1848,9 +2043,15 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
                   to chase.
                 </>
               )}
-              {stepIdx === 1 && (
+              {stepIdx === 1 && !loopsSetupV2 && (
                 <>
                   Set the <span style={{ fontStyle: "italic", color: "#4A60A8" }}>pace</span> and the rules.
+                </>
+              )}
+              {stepIdx === 1 && loopsSetupV2 && (
+                <>
+                  Review and{" "}
+                  <span style={{ fontStyle: "italic", color: "#4A60A8" }}>launch.</span>
                 </>
               )}
               {stepIdx === 2 && (
@@ -1870,14 +2071,16 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
               }}
             >
               {stepIdx === 0 && goalsCopy.goalsSubtitle}
-              {stepIdx === 1 &&
+              {stepIdx === 1 && !loopsSetupV2 &&
                 "Caps the loop so it doesn't over-reach. We recommend Review First to start."}
+              {stepIdx === 1 && loopsSetupV2 &&
+                "Pick how drafts go out, then start the Loop. First batch lands within 24 hours."}
               {stepIdx === 2 && "Deploying starts the first discovery cycle right away."}
             </p>
           </div>
 
           {/* Step rail */}
-          <StepRail index={stepIdx} onJump={setStepIdx} />
+          <StepRail index={stepIdx} onJump={setStepIdx} steps={steps} />
 
           {/* Step body */}
           <div className="pt-7">
@@ -1900,8 +2103,19 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
                 onManualChipEdit={markChipDirty}
               />
             )}
-            {stepIdx === 1 && <StepCadence form={form} set={set} />}
-            {stepIdx === 2 && <StepReview form={form} university={university || ""} />}
+            {stepIdx === 1 && !loopsSetupV2 && <StepCadence form={form} set={set} />}
+            {stepIdx === 1 && loopsSetupV2 && (
+              <StepReviewV2
+                form={form}
+                set={set}
+                university={university || ""}
+                weeklyTarget={v2WeeklyTarget}
+                lowBalance={v2LowBalance}
+              />
+            )}
+            {stepIdx === 2 && !loopsSetupV2 && (
+              <StepReview form={form} university={university || ""} />
+            )}
           </div>
 
           {/* Navigation */}
@@ -1942,7 +2156,7 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
                   color: "var(--ink-3)",
                 }}
               >
-                {stepIdx + 1} / {STEPS.length}
+                {stepIdx + 1} / {steps.length}
               </span>
               {isLast ? (
                 <button
@@ -1977,10 +2191,10 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
                         className="w-1.5 h-1.5 rounded-full bg-white"
                         style={{ animation: "om-blink 1s ease-in-out infinite" }}
                       />
-                      Deploying…
+                      {loopsSetupV2 ? "Starting your Loop…" : "Deploying…"}
                     </>
                   ) : (
-                    <>Deploy agent →</>
+                    <>{loopsSetupV2 ? "Start Loop" : "Deploy agent →"}</>
                   )}
                 </button>
               ) : (
