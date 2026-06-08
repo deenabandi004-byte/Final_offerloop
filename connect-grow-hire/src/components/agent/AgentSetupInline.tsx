@@ -8,9 +8,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronDown, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { updateAgentConfig, deployAgent, parseBrief, type ParsedBrief } from "@/services/agent";
@@ -18,7 +15,6 @@ import { firebaseApi } from "@/services/firebaseApi";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useCreateLoop } from "@/hooks/useLoops";
 import useDebounce from "@/hooks/use-debounce";
-import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useProposedBrief, type UseProposedBriefState } from "@/hooks/useProposedBrief";
 import { usePreviewTargets } from "@/hooks/usePreviewTargets";
 import { useSubscription } from "@/hooks/useSubscription";
@@ -29,25 +25,15 @@ import {
   weeklyTargetForTier,
 } from "@/lib/tierDefaults";
 import { loopCopy, type LoopModeForCopy } from "@/lib/loopCopy";
-import offerloopIcon from "@/assets/offerloopiconlogo.png";
 
 // ── Constants ──────────────────────────────────────────────────────────
 
 const STEPS = [
   { id: "goals", num: "01", label: "Goals", sub: "Who and where" },
-  { id: "volume", num: "02", label: "Cadence", sub: "Pace and budget" },
-  { id: "review", num: "03", label: "Review", sub: "Deploy" },
-] as const;
-
-// V2 (LOOPS_SETUP_V2 cohort): drops the cadence step; approval picker and
-// launch live in the new Review & Launch step. Keep both lists declared
-// at module scope so step rail / progress chrome can render either.
-const STEPS_V2 = [
-  { id: "goals", num: "01", label: "Goals", sub: "Who and where" },
   { id: "launch", num: "02", label: "Review & launch", sub: "Pick approval and start" },
 ] as const;
 
-type StepDescriptor = (typeof STEPS)[number] | (typeof STEPS_V2)[number];
+type StepDescriptor = (typeof STEPS)[number];
 
 const COMPANY_SUGGESTIONS = ["Stripe", "Linear", "Vercel", "Notion", "Ramp", "Arc", "Anthropic"];
 const ROLE_SUGGESTIONS = ["Product Designer", "Design Engineer", "Analyst", "Associate", "Software Engineer"];
@@ -62,19 +48,6 @@ const BRIEF_PARSE_DEBOUNCE_MS = 600;
 // Below this length the textarea is too thin to be worth parsing — saves
 // OpenAI calls on the user's first few keystrokes.
 const MIN_BRIEF_CHARS_TO_PARSE = 8;
-
-// Mirror of backend CREDIT_COSTS.contact in app/services/loop_budget.py
-// (find + draft per contact). Keep in sync with LoopActivityFeed.tsx.
-const CREDIT_COST_PER_CONTACT = 9;
-
-const KIND_META: Record<string, { color: string; label: string }> = {
-  scan:     { color: "#7d8ba6", label: "scan" },
-  research: { color: "#7d8ba6", label: "research" },
-  match:    { color: "#16a34a", label: "match" },
-  draft:    { color: "#d4a017", label: "draft" },
-  verify:   { color: "#16a34a", label: "verify" },
-  queue:    { color: "#7d8ba6", label: "queue" },
-};
 
 // Compose a one-paragraph brief from the chip wizard so the same backend
 // pipeline (POST /api/agent/brief → briefText + briefParsed) is the single
@@ -116,24 +89,6 @@ function deriveLoopName(form: {
   return "Outreach loop";
 }
 
-function buildPreviewTraces(form: {
-  companies: string[];
-  industries: string[];
-  roles: string[];
-  weeklyTarget: number;
-}) {
-  const co = form.companies[0] || form.industries[0] || "your targets";
-  const role = form.roles[0] || "matching roles";
-  return [
-    { kind: "scan", text: `Scanning the web for ${role} at ${co}` },
-    { kind: "research", text: "Reading recent posts to find talking points" },
-    { kind: "match", text: `Re-ranking candidates \u00b7 target ${form.weeklyTarget}/week` },
-    { kind: "draft", text: "Drafting personalized opener" },
-    { kind: "verify", text: "Verifying email deliverability" },
-    { kind: "queue", text: "Queuing for your review" },
-  ];
-}
-
 // ── Primitives ─────────────────────────────────────────────────────────
 
 function MonoTag({ children, color }: { children: React.ReactNode; color?: string }) {
@@ -166,23 +121,6 @@ function PulseDot({ color = "#22c55e" }: { color?: string }) {
   );
 }
 
-function ActivityBars() {
-  return (
-    <span className="inline-flex items-end gap-[2px] h-[10px]">
-      {[0, 1, 2, 3, 4].map((i) => (
-        <span
-          key={i}
-          className="w-[2px] h-[10px] rounded-[1px]"
-          style={{
-            background: "var(--ink-3)",
-            animation: `om-bars ${1.2 + i * 0.1}s ease-in-out ${i * 0.13}s infinite`,
-            transformOrigin: "bottom",
-          }}
-        />
-      ))}
-    </span>
-  );
-}
 
 // ── Tag Input ──────────────────────────────────────────────────────────
 // Chips live inside the input box with numbered mono labels.
@@ -352,47 +290,6 @@ function TagInput({
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-// ── Field wrapper ──────────────────────────────────────────────────────
-
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="mb-7">
-      <div className="flex items-baseline gap-2 mb-2">
-        <Label
-          style={{
-            fontFamily: "'Inter', sans-serif",
-            fontSize: 13,
-            fontWeight: 600,
-            color: "var(--ink)",
-          }}
-        >
-          {label}
-        </Label>
-        {hint && (
-          <span
-            style={{
-              fontFamily: "'Inter', sans-serif",
-              fontSize: 12,
-              color: "var(--ink-3)",
-            }}
-          >
-            · {hint}
-          </span>
-        )}
-      </div>
-      {children}
     </div>
   );
 }
@@ -624,148 +521,6 @@ function StepRail({
   );
 }
 
-// ── Preview rail (right sidebar) ───────────────────────────────────────
-
-function PreviewRail({ form, litTo }: { form: FormState; litTo: number }) {
-  const traces = useMemo(() => buildPreviewTraces(form), [form]);
-
-  return (
-    <aside
-      className="w-[300px] shrink-0 flex-col gap-4 hidden lg:flex"
-      style={{
-        borderLeft: "1px solid var(--line)",
-        background: "var(--paper-2)",
-        // Top padding pushes content below the floating "Ask Scout" pill that
-        // anchors to the top-right of the app shell. Side/bottom kept tighter.
-        padding: "84px 22px 28px 22px",
-        fontFamily: "'Inter', sans-serif",
-      }}
-    >
-      <div>
-        <div className="flex items-center gap-2 mb-2">
-          <PulseDot color="#4A60A8" />
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              color: "#4A60A8",
-            }}
-          >
-            Preview · not running
-          </span>
-        </div>
-        <p
-          style={{
-            fontFamily: "'Libre Baskerville', Georgia, serif",
-            fontSize: 20,
-            fontWeight: 700,
-            letterSpacing: "-0.01em",
-            lineHeight: 1.25,
-            color: "var(--heading, var(--ink))",
-          }}
-        >
-          What your loop will do once deployed.
-        </p>
-      </div>
-
-      <div
-        className="relative overflow-hidden"
-        style={{
-          border: "1px solid var(--line)",
-          borderRadius: 3,
-          background: "#FFFFFF",
-        }}
-      >
-        <span
-          className="absolute left-0 right-0 top-0 h-[1.5px]"
-          style={{
-            background: "linear-gradient(90deg, transparent, #4A60A8, transparent)",
-            animation: "om-scan 2.4s ease-in-out infinite",
-          }}
-        />
-        <div
-          className="flex items-center justify-between"
-          style={{
-            padding: "10px 14px",
-            borderBottom: "1px solid var(--line-2)",
-          }}
-        >
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
-              color: "var(--ink-3)",
-            }}
-          >
-            Simulated trace
-          </span>
-          <ActivityBars />
-        </div>
-        {traces.map((t, i) => {
-          const meta = KIND_META[t.kind];
-          const on = i < litTo;
-          return (
-            <div
-              key={i}
-              className="transition-opacity duration-300"
-              style={{
-                padding: "10px 14px",
-                borderBottom: i < traces.length - 1 ? "1px solid var(--line-2)" : "none",
-                opacity: on ? 1 : 0.45,
-              }}
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <span
-                  className="w-[6px] h-[6px] rounded-full"
-                  style={{ background: meta.color }}
-                />
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    letterSpacing: "0.04em",
-                    textTransform: "capitalize",
-                    color: meta.color,
-                  }}
-                >
-                  {meta.label}
-                </span>
-              </div>
-              <div
-                style={{
-                  paddingLeft: 14,
-                  fontSize: 12.5,
-                  lineHeight: 1.5,
-                  color: "var(--ink-2)",
-                }}
-              >
-                {t.text}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div
-        className="mt-auto"
-        style={{
-          borderTop: "1px solid var(--line)",
-          paddingTop: 14,
-          fontSize: 12,
-          lineHeight: 1.5,
-          color: "var(--ink-3)",
-        }}
-      >
-        Nothing sends without your approval. Pause the loop any time.
-      </div>
-    </aside>
-  );
-}
-
 // ── Step bodies ────────────────────────────────────────────────────────
 
 interface FormState {
@@ -774,8 +529,6 @@ interface FormState {
   roles: string[];
   locations: string[];
   preferAlumni: boolean;
-  weeklyTarget: number;
-  creditBudget: number;
   approvalMode: "review_first" | "autopilot";
   loopMode: LoopModeForCopy;
 }
@@ -786,16 +539,12 @@ type ParsePhase = "idle" | "parsing" | "ok" | "empty" | "failed";
 
 function ParseStatusLine({
   phase,
-  detectedMode,
-  v2Enabled = false,
-  briefLen = 0,
+  briefLen,
   extractCounts,
 }: {
   phase: ParsePhase;
-  detectedMode: LoopModeForCopy | null;
-  v2Enabled?: boolean;
-  briefLen?: number;
-  extractCounts?: {
+  briefLen: number;
+  extractCounts: {
     companies: number;
     roles: number;
     industries: number;
@@ -808,170 +557,52 @@ function ParseStatusLine({
     color: "var(--ink-3)",
     marginTop: 8,
   };
-  // V2 status badge — design spec calls for an explicit "Found: X · Y · Z"
-  // readout when the parse lands. Falls back to the V1 line when the flag
-  // is off so existing tests + behavior don't shift on the control cohort.
-  if (v2Enabled) {
-    // Hide entirely below 10 chars — design spec: don't shame users who
-    // just opened the page.
-    if (briefLen < 10 && phase !== "parsing") {
-      return null;
-    }
-    if (phase === "parsing") {
-      return (
-        <div className="flex items-center gap-2" style={baseStyle}>
-          <PulseDot color="#4A60A8" />
-          <span>Reading…</span>
-        </div>
-      );
-    }
-    const totalEntities = extractCounts
-      ? extractCounts.companies +
-        extractCounts.roles +
-        extractCounts.industries +
-        extractCounts.locations
-      : 0;
-    if ((phase === "ok" || phase === "empty") && totalEntities === 0) {
-      return (
-        <div style={{ ...baseStyle, color: "#b91c1c" }}>
-          We didn't catch specific targets — try naming a company, role, or industry.
-        </div>
-      );
-    }
-    if (phase === "ok" && extractCounts) {
-      return (
-        <div style={baseStyle}>
-          Found: {extractCounts.companies}{" "}
-          {extractCounts.companies === 1 ? "company" : "companies"} ·{" "}
-          {extractCounts.roles} {extractCounts.roles === 1 ? "role" : "roles"} ·{" "}
-          {extractCounts.industries}{" "}
-          {extractCounts.industries === 1 ? "industry" : "industries"}
-        </div>
-      );
-    }
-    if (phase === "failed") {
-      return (
-        <div style={{ ...baseStyle, color: "#b91c1c" }}>
-          Couldn't read that — chips left as-is. Edit them by hand or rephrase.
-        </div>
-      );
-    }
-    return null;
-  }
+  // Hide entirely below 10 chars — don't shame users who just opened the
+  // page. Once they've typed enough to be meaningful, show the parser's
+  // readout so they can see what was extracted.
+  if (briefLen < 10 && phase !== "parsing") return null;
+
   if (phase === "parsing") {
     return (
       <div className="flex items-center gap-2" style={baseStyle}>
         <PulseDot color="#4A60A8" />
-        <span>Reading your goal…</span>
+        <span>Reading…</span>
       </div>
     );
   }
-  if (phase === "failed") {
+  const totalEntities =
+    extractCounts.companies +
+    extractCounts.roles +
+    extractCounts.industries +
+    extractCounts.locations;
+  if ((phase === "ok" || phase === "empty") && totalEntities === 0) {
     return (
       <div style={{ ...baseStyle, color: "#b91c1c" }}>
-        Couldn't read that — chips left blank. You can add them by hand or rephrase.
-      </div>
-    );
-  }
-  if (phase === "ok" && detectedMode) {
-    const summary = loopCopy(detectedMode).modeSummary;
-    return (
-      <div style={baseStyle}>
-        Read as <span style={{ color: "var(--ink-2)", fontWeight: 600 }}>{summary}</span> · chips below are the parsed targets.
+        We didn't catch specific targets — try naming a company, role, or industry.
       </div>
     );
   }
   if (phase === "ok") {
     return (
       <div style={baseStyle}>
-        Mode looks ambiguous — pick one below, or add more detail above.
+        Found: {extractCounts.companies}{" "}
+        {extractCounts.companies === 1 ? "company" : "companies"} ·{" "}
+        {extractCounts.roles} {extractCounts.roles === 1 ? "role" : "roles"} ·{" "}
+        {extractCounts.industries}{" "}
+        {extractCounts.industries === 1 ? "industry" : "industries"}
       </div>
     );
   }
-  if (phase === "empty" || phase === "idle") {
+  if (phase === "failed") {
     return (
-      <div style={baseStyle}>
-        Type a sentence or two above — parser fills in the chips. Or skip and edit chips directly.
+      <div style={{ ...baseStyle, color: "#b91c1c" }}>
+        Couldn't read that — chips left as-is. Edit them by hand or rephrase.
       </div>
     );
   }
   return null;
 }
 
-// ── Mode indicator with manual override ────────────────────────────────
-// Foundation showed mode as a two-card radio. PR1 makes mode a parser
-// outcome with a small inline override link so the chip rows stay the
-// star of Step 01.
-
-function ModeIndicator({
-  mode,
-  onChange,
-}: {
-  mode: LoopModeForCopy;
-  onChange: (m: LoopModeForCopy) => void;
-}) {
-  const opts: { key: LoopModeForCopy; label: string }[] = [
-    { key: "people", label: "people" },
-    { key: "roles", label: "roles" },
-    { key: "both", label: "both" },
-  ];
-  return (
-    <div className="mb-6">
-      <div className="flex items-baseline gap-2 mb-2">
-        <span
-          style={{
-            fontFamily: "'Inter', sans-serif",
-            fontSize: 13,
-            fontWeight: 600,
-            color: "var(--ink)",
-          }}
-        >
-          Mode
-        </span>
-        <span
-          style={{
-            fontFamily: "'Inter', sans-serif",
-            fontSize: 12,
-            color: "var(--ink-3)",
-          }}
-        >
-          · what's this Loop chasing?
-        </span>
-      </div>
-      <div
-        role="radiogroup"
-        aria-label="Loop mode"
-        className="inline-flex overflow-hidden"
-        style={{ border: "1px solid var(--line)", borderRadius: 3, background: "#FFFFFF" }}
-      >
-        {opts.map((o, i) => {
-          const active = mode === o.key;
-          return (
-            <button
-              key={o.key}
-              role="radio"
-              aria-checked={active}
-              onClick={() => onChange(o.key)}
-              className="transition-colors"
-              style={{
-                padding: "6px 14px",
-                fontFamily: "'Inter', sans-serif",
-                fontSize: 13,
-                fontWeight: 500,
-                textTransform: "capitalize",
-                background: active ? "#4A60A8" : "transparent",
-                color: active ? "#FFFFFF" : "var(--ink-2)",
-                borderLeft: i > 0 ? "1px solid var(--line)" : "none",
-              }}
-            >
-              {o.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 function StepGoals({
   form,
@@ -982,9 +613,8 @@ function StepGoals({
   hasUniversity,
   university,
   profileFacts,
-  v2Enabled = false,
   proposedBrief,
-  showAiDraftLabel = false,
+  showAiDraftLabel,
   onManualChipEdit,
 }: {
   form: FormState;
@@ -1000,25 +630,23 @@ function StepGoals({
     preferredLocations: string[];
     extractedRoles: string[];
   };
-  v2Enabled?: boolean;
-  proposedBrief?: UseProposedBriefState;
-  showAiDraftLabel?: boolean;
-  onManualChipEdit?: (
+  proposedBrief: UseProposedBriefState;
+  showAiDraftLabel: boolean;
+  onManualChipEdit: (
     cat: "companies" | "roles" | "industries" | "locations",
   ) => void;
 }) {
-  // V2 sync rule: explicit edits to a chip row mark that category dirty so
-  // subsequent textarea parses don't clobber the user's choice. No-op when
-  // the flag is off (the prop is undefined on V1 cohort).
+  // Sync rule: explicit edits to a chip row mark that category dirty so
+  // subsequent textarea parses don't clobber the user's choice.
   const editChips = (
     cat: "companies" | "roles" | "industries" | "locations",
     next: string[],
   ) => {
     set({ [cat]: next } as Partial<FormState>);
-    if (v2Enabled) onManualChipEdit?.(cat);
+    onManualChipEdit(cat);
   };
 
-  // V2 "Browse by industry" escape valve — modal open state. Bulk add
+  // "Browse by industry" escape valve — modal open state. Bulk add
   // routes through editChips so both Companies AND Industries become
   // sticky against subsequent textarea parses.
   const [browseOpen, setBrowseOpen] = useState(false);
@@ -1109,59 +737,57 @@ function StepGoals({
     };
   }, [briefText, focused, typewriterExamples]);
 
-  // V2: "Suggest from my profile" header row (above the textarea card).
-  // Only renders when LOOPS_SETUP_V2 is on AND the user has either a
-  // landed proposal or a pending fetch. Falls back gracefully when the
-  // proposer returns "failed" — the button text becomes a retry.
-  const v2HasProposal = !!proposedBrief?.data && proposedBrief.data.status === "ok";
-  const v2ProposalLoading = !!proposedBrief?.loading;
-  const v2ProposalFailed = !!proposedBrief?.error
-    || proposedBrief?.data?.status === "failed";
-  const v2SuggestLabel = v2ProposalLoading
+  // "Suggest from my profile" button label varies with the proposal's
+  // current state — loading, failed, fresh-data, or never-fetched.
+  const proposalHasData =
+    !!proposedBrief.data && proposedBrief.data.status === "ok";
+  const proposalLoading = proposedBrief.loading;
+  const proposalFailed =
+    !!proposedBrief.error || proposedBrief.data?.status === "failed";
+  const suggestLabel = proposalLoading
     ? "Suggesting…"
-    : v2ProposalFailed
+    : proposalFailed
       ? "Try again"
-      : v2HasProposal
+      : proposalHasData
         ? "✨ Re-suggest"
         : "✨ Suggest from my profile";
 
   return (
     <div>
-      {/* V2: Suggest-from-profile button — sits above the textarea per the
-          design specs. Hidden entirely when the flag is off. */}
-      {v2Enabled && proposedBrief && (
-        <div
-          className="mb-2 flex items-center justify-end"
-          style={{ fontFamily: "'Inter', sans-serif" }}
+      {/* Suggest-from-profile button — sits above the textarea per the
+          design spec so the AI assist is always visible without taking
+          the textarea's prominence. */}
+      <div
+        className="mb-2 flex items-center justify-end"
+        style={{ fontFamily: "'Inter', sans-serif" }}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            void proposedBrief.refetch();
+          }}
+          disabled={proposalLoading}
+          aria-label="Suggest a brief from my profile"
+          style={{
+            fontSize: 12,
+            fontWeight: 500,
+            color: proposalLoading ? "var(--ink-3)" : "var(--ink-2)",
+            background: "transparent",
+            border: "1px solid var(--line)",
+            borderRadius: 999,
+            padding: "5px 12px",
+            cursor: proposalLoading ? "default" : "pointer",
+            transition: "color 0.15s ease, border-color 0.15s ease",
+          }}
         >
-          <button
-            type="button"
-            onClick={() => {
-              void proposedBrief.refetch();
-            }}
-            disabled={v2ProposalLoading}
-            aria-label="Suggest a brief from my profile"
-            style={{
-              fontSize: 12,
-              fontWeight: 500,
-              color: v2ProposalLoading ? "var(--ink-3)" : "var(--ink-2)",
-              background: "transparent",
-              border: "1px solid var(--line)",
-              borderRadius: 999,
-              padding: "5px 12px",
-              cursor: v2ProposalLoading ? "default" : "pointer",
-              transition: "color 0.15s ease, border-color 0.15s ease",
-            }}
-          >
-            {v2SuggestLabel}
-          </button>
-        </div>
-      )}
+          {suggestLabel}
+        </button>
+      </div>
 
-      {/* V2: small "AI draft" label, visible only while the textarea still
+      {/* Small "AI draft" label, visible only while the textarea still
           holds the AI-proposed sentence (drops to false on first user
           keystroke via the parent's wrapped setBriefText). */}
-      {v2Enabled && showAiDraftLabel && (
+      {showAiDraftLabel && (
         <div
           aria-live="polite"
           style={{
@@ -1215,8 +841,6 @@ function StepGoals({
           <div className="flex items-center justify-between" style={{ marginTop: 12 }}>
             <ParseStatusLine
               phase={parsePhase}
-              detectedMode={parsePhase === "ok" ? form.loopMode : null}
-              v2Enabled={v2Enabled}
               briefLen={briefText.length}
               extractCounts={{
                 companies: form.companies.length,
@@ -1240,16 +864,6 @@ function StepGoals({
         </div>
 
       </div>
-
-      {/* Mode (parser outcome with manual override) — V1 only. V2
-          decision: every Loop pursues both pipelines (jobs + networking)
-          against one budget. Students don't naturally distinguish the
-          two and Offerloop's value prop is the integrated motion. The
-          loopMode field still exists for the Advanced settings escape
-          valve. */}
-      {!v2Enabled && (
-        <ModeIndicator mode={form.loopMode} onChange={(m) => set({ loopMode: m })} />
-      )}
 
       {/* Collapsible chip rows. The textarea + parser are the primary input;
           these rows are advanced/manual overrides. Each row auto-expands when
@@ -1308,38 +922,34 @@ function StepGoals({
           />
         </EditorialField>
 
-        {/* V2 escape valve for students with no target list (freshmen,
+        {/* Escape valve for students with no target list (freshmen,
             switchers). Opens a modal with industries → company picker. */}
-        {v2Enabled && (
-          <button
-            type="button"
-            onClick={() => setBrowseOpen(true)}
-            style={{
-              marginTop: 8,
-              fontFamily: "'Inter', sans-serif",
-              fontSize: 12.5,
-              color: "var(--ink-3)",
-              background: "transparent",
-              border: "none",
-              padding: 0,
-              cursor: "pointer",
-              textDecoration: "underline",
-            }}
-          >
-            Not sure yet? Browse by industry →
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => setBrowseOpen(true)}
+          style={{
+            marginTop: 8,
+            fontFamily: "'Inter', sans-serif",
+            fontSize: 12.5,
+            color: "var(--ink-3)",
+            background: "transparent",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            textDecoration: "underline",
+          }}
+        >
+          Not sure yet? Browse by industry →
+        </button>
       </div>
 
-      {v2Enabled && (
-        <IndustryBrowse
-          open={browseOpen}
-          onOpenChange={setBrowseOpen}
-          existingCompanies={form.companies}
-          existingIndustries={form.industries}
-          onAdd={handleIndustryBrowseAdd}
-        />
-      )}
+      <IndustryBrowse
+        open={browseOpen}
+        onOpenChange={setBrowseOpen}
+        existingCompanies={form.companies}
+        existingIndustries={form.industries}
+        onAdd={handleIndustryBrowseAdd}
+      />
 
       <div
         className="flex items-center justify-between"
@@ -1369,220 +979,8 @@ function StepGoals({
   );
 }
 
-function BigSlider({
-  value,
-  unit,
-  min,
-  max,
-  step,
-  onChange,
-  ariaLabel,
-}: {
-  value: number;
-  unit: string;
-  min: number;
-  max: number;
-  step: number;
-  onChange: (v: number) => void;
-  ariaLabel: string;
-}) {
-  return (
-    <div>
-      <div className="flex items-baseline gap-2 mb-3">
-        <span
-          style={{
-            fontFamily: "'Instrument Serif', Georgia, serif",
-            fontSize: 32,
-            fontWeight: 700,
-            letterSpacing: "-0.025em",
-            lineHeight: 1,
-            color: "#4A60A8",
-          }}
-        >
-          {value}
-        </span>
-        <span
-          style={{
-            fontFamily: "'Inter', sans-serif",
-            fontSize: 13,
-            color: "var(--ink-3)",
-          }}
-        >
-          {unit}
-        </span>
-      </div>
-      <Slider
-        min={min}
-        max={max}
-        step={step}
-        value={[value]}
-        onValueChange={([v]) => onChange(v)}
-        aria-label={ariaLabel}
-      />
-      <div
-        className="flex justify-between mt-2"
-        style={{
-          fontFamily: "'Inter', sans-serif",
-          fontSize: 11,
-          fontWeight: 500,
-          color: "var(--ink-3)",
-        }}
-      >
-        <span>{min}</span>
-        <span>{max}</span>
-      </div>
-    </div>
-  );
-}
 
-function StepCadence({
-  form,
-  set,
-}: {
-  form: FormState;
-  set: (patch: Partial<FormState>) => void;
-}) {
-  return (
-    <div>
-      <Field label="Weekly contact target" hint="New contacts per week">
-        <BigSlider
-          value={form.weeklyTarget}
-          unit="contacts / week"
-          min={1}
-          max={15}
-          step={1}
-          onChange={(v) => set({ weeklyTarget: v })}
-          ariaLabel="Weekly contact target"
-        />
-      </Field>
-
-      <Field label="Credit budget" hint="Max credits per week">
-        <BigSlider
-          value={form.creditBudget}
-          unit="credits / week"
-          min={10}
-          max={150}
-          step={10}
-          onChange={(v) => set({ creditBudget: v })}
-          ariaLabel="Credit budget per week"
-        />
-        {(() => {
-          const estimated = form.weeklyTarget * CREDIT_COST_PER_CONTACT;
-          const underfunded = form.creditBudget < estimated;
-          return (
-            <div
-              className="text-xs mt-2"
-              style={{ color: underfunded ? "#b91c1c" : "var(--ink-3)" }}
-            >
-              {underfunded
-                ? `Budget too low: ${form.weeklyTarget} contacts/week needs ~${estimated} credits. Raise the budget or lower the target.`
-                : `${form.weeklyTarget} contacts/week ≈ ${estimated} credits (each find + draft costs ${CREDIT_COST_PER_CONTACT}).`}
-            </div>
-          );
-        })()}
-      </Field>
-
-      <Field label="Approval mode">
-        <div className="grid grid-cols-2 gap-2.5">
-          <ModeCard
-            active={form.approvalMode === "review_first"}
-            title="Review first"
-            tag="recommended"
-            desc="Agent drafts everything; nothing sends until you approve."
-            onClick={() => set({ approvalMode: "review_first" })}
-          />
-          <ModeCard
-            active={form.approvalMode === "autopilot"}
-            title="Autopilot"
-            desc="Agent sends approved templates automatically within your budget."
-            onClick={() => set({ approvalMode: "autopilot" })}
-          />
-        </div>
-      </Field>
-    </div>
-  );
-}
-
-function StepReview({ form, university }: { form: FormState; university: string }) {
-  const rows: Array<{ k: string; v: string }> = [
-    { k: "Companies", v: form.companies.length ? form.companies.join(", ") : "\u2014" },
-    { k: "Roles", v: form.roles.length ? form.roles.join(", ") : "\u2014" },
-    { k: "Weekly target", v: `${form.weeklyTarget} contacts / week` },
-    { k: "Credit budget", v: `${form.creditBudget} credits / week` },
-    { k: "Approval mode", v: form.approvalMode === "review_first" ? "Review first" : "Autopilot" },
-    {
-      k: "Alumni priority",
-      v: form.preferAlumni ? (university ? `On \u2014 ${university}` : "On") : "Off",
-    },
-  ];
-
-  return (
-    <div style={{ fontFamily: "'Inter', sans-serif" }}>
-      <div
-        className="overflow-hidden mb-4"
-        style={{
-          border: "1px solid var(--line)",
-          borderRadius: 3,
-          background: "#FFFFFF",
-        }}
-      >
-        {rows.map((r, i) => (
-          <div
-            key={r.k}
-            className="grid grid-cols-[150px_1fr]"
-            style={{
-              padding: "12px 18px",
-              fontSize: 13,
-              borderBottom: i < rows.length - 1 ? "1px solid var(--line-2)" : "none",
-            }}
-          >
-            <span style={{ color: "var(--ink-3)" }}>{r.k}</span>
-            <span style={{ color: "var(--ink)", fontWeight: 500 }}>
-              {r.v}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      <div
-        className="flex gap-3 items-start"
-        style={{
-          border: "1px solid rgba(74, 96, 168, 0.18)",
-          background: "rgba(74, 96, 168, 0.04)",
-          borderRadius: 3,
-          padding: 16,
-        }}
-      >
-        <span
-          className="w-7 h-7 shrink-0 inline-flex items-center justify-center"
-          style={{ background: "transparent" }}
-        >
-          <img
-            src={offerloopIcon}
-            alt="Offerloop"
-            className="w-full h-full object-contain"
-          />
-        </span>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2, color: "var(--ink)" }}>
-            Loop will find contacts, watch for replies, and draft outreach.
-          </div>
-          <div style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--ink-2)" }}>
-            New drafts show up here for review. Pause or reconfigure any time — settings save automatically.
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── V2: Review & Launch step ───────────────────────────────────────────
-// Collapses the old Cadence + Review steps. Approval picker is the focus.
-// No credit math except a low-balance soft warning when the user is
-// actually low. Cadence comes from the tier default — no slider, no
-// per-week math surfaced to the user.
-
-function StepReviewV2({
+function StepReview({
   form,
   set,
   university,
@@ -1757,80 +1155,57 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
     roles: [],
     locations: [],
     preferAlumni: true,
-    weeklyTarget: 5,
-    creditBudget: 100,
     approvalMode: "review_first",
-    // Default to "people" (today's networking behavior) for new users. When
-    // we later derive the default from the user's most recent Loop, swap this
-    // initializer for an effect that fetches the latest Loop's mode.
-    loopMode: "people",
+    // Every Loop pursues both networking + job-search against one budget.
+    // The picker is gone from the wizard; loopMode stays on the doc for
+    // AgentSettingsModal's Advanced escape valve.
+    loopMode: "both",
   });
   const set = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }));
 
-  // ── V2 wizard: AI-proposed starting brief (LOOPS_SETUP_V2) ──────────────
-  // Flagged off by default. When on, fetch a Claude-drafted brief on mount
-  // and pre-fill the textarea + chips ONCE so students never face a blank
-  // page. User edits beat AI; we never overwrite anything the user typed.
-  const loopsSetupV2 = useFeatureFlag("LOOPS_SETUP_V2");
-  const proposedBrief = useProposedBrief({ enabled: loopsSetupV2 });
+  // AI-proposed starting brief — Claude drafts a sentence from the user's
+  // resume + profile on mount so students never face a blank page. User
+  // edits beat AI; we never overwrite anything the user typed.
+  const proposedBrief = useProposedBrief({ enabled: true });
   const aiDraftAppliedRef = useRef(false);
 
-  // V2 reads the user's tier so the wizard can derive cadence + low-balance
+  // Read the user's tier so the wizard can derive cadence + low-balance
   // hint without exposing credit math in the UI. Subscription is fetched
   // lazily; treat null as "free" while it loads — the worst case is a
   // briefly-shown lower cadence number that updates on hydrate.
   const { subscription } = useSubscription();
   const tier: string = subscription?.tier ?? "free";
-  const v2WeeklyTarget = weeklyTargetForTier(tier);
-  const v2LowBalance = (() => {
+  const weeklyTarget = weeklyTargetForTier(tier);
+  const lowBalance = (() => {
     const credits = subscription?.credits ?? 0;
-    return (
-      loopsSetupV2 &&
-      credits > 0 &&
-      credits < estimatedWeeklyCreditsPeople(v2WeeklyTarget)
-    );
+    return credits > 0 && credits < estimatedWeeklyCreditsPeople(weeklyTarget);
   })();
-  // V2 product decision: every Loop pursues both pipelines (jobs +
-  // networking) against one budget. Locks the mode field as soon as the
-  // cohort assignment resolves so the rest of the wizard (preview,
-  // deploy payload, syntheticBrief) sees a consistent value.
-  useEffect(() => {
-    if (loopsSetupV2 && form.loopMode !== "both") {
-      set({ loopMode: "both" });
-    }
-  }, [loopsSetupV2, form.loopMode]);
+  const steps: ReadonlyArray<StepDescriptor> = STEPS;
 
-  // Cohort-aware step list. Computed every render so the rail and progress
-  // chrome stay in sync with the flag without a remount.
-  const steps: ReadonlyArray<StepDescriptor> = loopsSetupV2 ? STEPS_V2 : STEPS;
-
-  // V2 inline preview: feeds the right-side "Who you'd reach" panel.
-  // Only enabled on Step 01 (Goals) — the hook short-circuits when off
-  // so we don't refetch as the user navigates to Step 02. Brief is
-  // built from the form so chip-only flows still show a preview.
-  const v2BriefForPreview: ParsedBrief | null = loopsSetupV2
-    ? {
-        companies: form.companies,
-        industries: form.industries,
-        roles: form.roles,
-        locations: form.locations,
-        emailPurpose: null,
-        constraints: [],
-        targetCount: null,
-        mode: "both",
-      }
-    : null;
+  // Inline preview: feeds the right-side "Who you'd reach" panel. Only
+  // enabled on Step 01 (Goals) — the hook short-circuits when off so we
+  // don't refetch as the user navigates to Step 02. Brief is built from
+  // the form so chip-only flows still show a preview.
+  const briefForPreview: ParsedBrief = {
+    companies: form.companies,
+    industries: form.industries,
+    roles: form.roles,
+    locations: form.locations,
+    emailPurpose: null,
+    constraints: [],
+    targetCount: null,
+    mode: "both",
+  };
   const previewState = usePreviewTargets({
-    enabled: loopsSetupV2 && stepIdx === 0,
-    briefParsed: v2BriefForPreview,
+    enabled: stepIdx === 0,
+    briefParsed: briefForPreview,
   });
 
-  // V2 sync rule (carried over from the plan's locked architecture decision):
-  // chips are derived from the textarea while typing; once a chip is manually
-  // added or removed, that category becomes source of truth and subsequent
-  // parses no longer touch it. Tracked per-category so editing Companies
-  // doesn't freeze Roles too. AI propose (step 3) does NOT mark categories
-  // dirty — only explicit user edits do.
+  // Sync rule: chips are derived from the textarea while typing; once a
+  // chip is manually added or removed, that category becomes source of
+  // truth and subsequent parses no longer touch it. Tracked per-category
+  // so editing Companies doesn't freeze Roles too. AI propose does NOT
+  // mark categories dirty — only explicit user edits do.
   type ChipCategory = "companies" | "roles" | "industries" | "locations";
   const [chipDirty, setChipDirty] = useState<Record<ChipCategory, boolean>>({
     companies: false,
@@ -1887,42 +1262,17 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
           setParsePhase("empty");
           return;
         }
-        // ok — populate chips + mode from parser output. User edits made
-        // after this point stick until the next parse fires.
-        //
-        // V2 sync rule: any chip category the user manually edited stays
-        // sticky — the parse cannot overwrite it. V1 (flag off) keeps
-        // today's "parser always wins on chip categories" behavior.
+        // ok — populate chips from parser output. Sticky chip categories
+        // (manually edited by the user) are preserved. Mode is locked to
+        // "both" elsewhere; the parser's mode classification is ignored.
         const dirty = chipDirtyRef.current;
-        setForm((f) => {
-          const next: Partial<FormState> = {
-            companies:
-              loopsSetupV2 && dirty.companies
-                ? f.companies
-                : parsed?.companies ?? f.companies,
-            industries:
-              loopsSetupV2 && dirty.industries
-                ? f.industries
-                : parsed?.industries ?? f.industries,
-            roles:
-              loopsSetupV2 && dirty.roles ? f.roles : parsed?.roles ?? f.roles,
-            locations:
-              loopsSetupV2 && dirty.locations
-                ? f.locations
-                : parsed?.locations ?? f.locations,
-          };
-          // Mode only auto-updates when the parser actually committed to one.
-          // null = ambiguous → leave the user's current pick (or default).
-          // V2 locks the mode to "both" — see the loopsSetupV2 effect below;
-          // skip the parser's mode update so it doesn't fight that decision.
-          if (
-            !loopsSetupV2 &&
-            (parsed?.mode === "people" || parsed?.mode === "roles" || parsed?.mode === "both")
-          ) {
-            next.loopMode = parsed.mode;
-          }
-          return { ...f, ...next };
-        });
+        setForm((f) => ({
+          ...f,
+          companies: dirty.companies ? f.companies : parsed?.companies ?? f.companies,
+          industries: dirty.industries ? f.industries : parsed?.industries ?? f.industries,
+          roles: dirty.roles ? f.roles : parsed?.roles ?? f.roles,
+          locations: dirty.locations ? f.locations : parsed?.locations ?? f.locations,
+        }));
         setParsePhase("ok");
       })
       .catch(() => {
@@ -1931,12 +1281,11 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
       });
   }, [debouncedBriefText]);
 
-  // V2: apply the AI-proposed brief once, only if the user hasn't already
+  // Apply the AI-proposed brief once, only if the user hasn't already
   // started typing or picking chips. Prevents the proposal from clobbering
   // an in-progress edit if Claude lands a slow response.
   const [aiDraftActive, setAiDraftActive] = useState(false);
   useEffect(() => {
-    if (!loopsSetupV2) return;
     if (aiDraftAppliedRef.current) return;
     const data = proposedBrief.data;
     if (!data || data.status !== "ok") return;
@@ -1959,7 +1308,6 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
     }));
     setAiDraftActive(data.sentence.length > 0);
   }, [
-    loopsSetupV2,
     proposedBrief.data,
     briefText,
     form.companies.length,
@@ -1970,20 +1318,15 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
 
   const step = steps[stepIdx];
   const isLast = stepIdx === steps.length - 1;
-  const estimatedWeeklyCredits = form.weeklyTarget * CREDIT_COST_PER_CONTACT;
-  // V2 hides credit math entirely — only the V1 wizard gates on this.
-  const budgetUnderfunded =
-    !loopsSetupV2 && form.creditBudget < estimatedWeeklyCredits;
-  // Mode-aware copy for the Goals headline (and subtitle). Other steps stay
-  // shared. school is the user's actual university when known so the alumni
-  // toggle shows concrete language.
+  // Mode-aware copy for the Goals headline (and subtitle). school is the
+  // user's actual university when known so the alumni toggle shows
+  // concrete language.
   const goalsCopy = loopCopy(form.loopMode, { school: university || "" });
   // Deploy when EITHER the textarea has real content OR the user filled in
-  // chips manually. The two paths converge — buildSyntheticBrief covers the
-  // chip-only case.
+  // chips manually. buildSyntheticBrief covers the chip-only case.
   const hasBrief = briefText.trim().length >= MIN_BRIEF_CHARS_TO_PARSE;
   const hasChipTargets = form.companies.length > 0 || form.industries.length > 0;
-  const canDeploy = (hasBrief || hasChipTargets) && !budgetUnderfunded;
+  const canDeploy = hasBrief || hasChipTargets;
 
   const handleDeploy = async () => {
     if (!hasBrief && !hasChipTargets) {
@@ -1994,36 +1337,25 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
       });
       return;
     }
-    if (!loopsSetupV2 && budgetUnderfunded) {
-      toast({
-        title: "Budget too low",
-        description: `${form.weeklyTarget} contacts/week needs ~${estimatedWeeklyCredits} credits. Raise the budget or lower the target.`,
-        variant: "destructive",
-      });
-      return;
-    }
     setDeploying(true);
     try {
-      // Two paths converge here: prompt-first (textarea filled, parser fired)
-      // and chip-only (textarea empty, user added chips by hand). When the
-      // textarea is empty we fall back to buildSyntheticBrief so the planner
-      // still gets a <user_brief> block to anchor against.
+      // Prompt-first (textarea filled, parser fired) and chip-only paths
+      // converge here. When the textarea is empty we synthesize a brief
+      // from chips so the planner still gets a <user_brief> block.
       const finalBriefText = hasBrief
         ? briefText.trim()
         : buildSyntheticBrief({
             companies: form.companies,
             industries: form.industries,
             roles: form.roles,
-            weeklyTarget: loopsSetupV2 ? v2WeeklyTarget : form.weeklyTarget,
+            weeklyTarget,
             preferAlumni: form.preferAlumni,
           });
 
-      // briefParsed reflects the user's CURRENT chip state (post-edits), not
-      // the parser's raw output — chips are the source of truth at deploy.
-      // V2 always sends mode="both" regardless of what form.loopMode landed
-      // on — defense in depth around the lock effect above so a race
-      // between cohort fetch and Start CTA can't smuggle a stale mode in.
-      const finalLoopMode = loopsSetupV2 ? "both" : form.loopMode;
+      // briefParsed reflects the user's CURRENT chip state (post-edits),
+      // not the parser's raw output — chips are the source of truth at
+      // deploy. Mode is always "both" — every Loop pursues networking +
+      // job-search against one budget.
       const finalBriefParsed: ParsedBrief = {
         companies: form.companies,
         industries: form.industries,
@@ -2031,20 +1363,14 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
         locations: form.locations,
         emailPurpose: null,
         constraints: [],
-        targetCount: loopsSetupV2 ? v2WeeklyTarget : form.weeklyTarget,
-        mode: finalLoopMode,
+        targetCount: weeklyTarget,
+        mode: "both",
       };
 
-      // V2 hides credit math — derive weeklyTarget from tier and let the
-      // backend's tier_defaults fallback compute creditBudgetPerWeek. The
-      // explicit value we send here mirrors what the backend will derive,
-      // so the agent_config audit doc reads sensibly.
-      const persistedWeeklyTarget = loopsSetupV2
-        ? v2WeeklyTarget
-        : form.weeklyTarget;
-      const persistedCreditBudget = loopsSetupV2
-        ? estimatedWeeklyCreditsPeople(v2WeeklyTarget)
-        : form.creditBudget;
+      // Derive weeklyTarget + creditBudgetPerWeek from the user's tier so
+      // the agent_config audit doc reads sensibly and matches what the
+      // backend's tier-default fallback would compute.
+      const persistedCreditBudget = estimatedWeeklyCreditsPeople(weeklyTarget);
 
       await updateAgentConfig({
         targetCompanies: form.companies,
@@ -2053,7 +1379,7 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
         // Don't send preferAlumni=true if the user has no university on file —
         // it would silently boost nothing. Gate to actual school presence.
         preferAlumni: hasUniversity && form.preferAlumni,
-        weeklyContactTarget: persistedWeeklyTarget,
+        weeklyContactTarget: weeklyTarget,
         creditBudgetPerWeek: persistedCreditBudget,
         approvalMode: form.approvalMode,
       });
@@ -2064,32 +1390,22 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
       // (users/{uid}/settings/agent_config). Without this createLoop the
       // wizard "deploys" but no card ever shows up in the fleet view —
       // useCreateLoop invalidates the list query so /agent refetches.
-      //
-      // V2 path: send weeklyTarget but OMIT creditBudgetPerWeek so the
-      // backend's create_loop tier-default derivation runs (step 1 of the
-      // V2 rollout). V1 path keeps the explicit budget from the slider.
+      // creditBudgetPerWeek is omitted so the backend's create_loop
+      // tier-default derivation runs.
       await createLoopMut.mutateAsync({
         briefText: finalBriefText,
         briefParsed: finalBriefParsed,
         name: deriveLoopName(form),
         reviewBeforeSend: form.approvalMode === "review_first",
-        weeklyTarget: persistedWeeklyTarget,
+        weeklyTarget,
         cadence: "weekly",
-        ...(loopsSetupV2
-          ? {}
-          : { creditBudgetPerWeek: form.creditBudget }),
         automationEnabled: form.approvalMode === "autopilot",
-        loopMode: finalLoopMode,
+        loopMode: "both",
       });
 
       toast({
         title: "Loop deployed!",
-        description:
-          finalLoopMode === "both"
-            ? "Your loop is chasing roles AND networking together."
-            : form.loopMode === "roles"
-              ? "Your job-search loop is now active."
-              : "Your networking loop is now active.",
+        description: "Your loop is chasing roles AND networking together.",
       });
       onDeployed();
     } catch (e: unknown) {
@@ -2144,21 +1460,10 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
                   to chase.
                 </>
               )}
-              {stepIdx === 1 && !loopsSetupV2 && (
-                <>
-                  Set the <span style={{ fontStyle: "italic", color: "#4A60A8" }}>pace</span> and the rules.
-                </>
-              )}
-              {stepIdx === 1 && loopsSetupV2 && (
+              {stepIdx === 1 && (
                 <>
                   Review and{" "}
                   <span style={{ fontStyle: "italic", color: "#4A60A8" }}>launch.</span>
-                </>
-              )}
-              {stepIdx === 2 && (
-                <>
-                  Look it over, then{" "}
-                  <span style={{ fontStyle: "italic", color: "#4A60A8" }}>deploy.</span>
                 </>
               )}
             </h1>
@@ -2172,11 +1477,8 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
               }}
             >
               {stepIdx === 0 && goalsCopy.goalsSubtitle}
-              {stepIdx === 1 && !loopsSetupV2 &&
-                "Caps the loop so it doesn't over-reach. We recommend Review First to start."}
-              {stepIdx === 1 && loopsSetupV2 &&
+              {stepIdx === 1 &&
                 "Pick how drafts go out, then start the Loop. First batch lands within 24 hours."}
-              {stepIdx === 2 && "Deploying starts the first discovery cycle right away."}
             </p>
           </div>
 
@@ -2198,24 +1500,19 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
                 hasUniversity={hasUniversity}
                 university={university || ""}
                 profileFacts={profileFacts}
-                v2Enabled={loopsSetupV2}
                 proposedBrief={proposedBrief}
                 showAiDraftLabel={aiDraftActive}
                 onManualChipEdit={markChipDirty}
               />
             )}
-            {stepIdx === 1 && !loopsSetupV2 && <StepCadence form={form} set={set} />}
-            {stepIdx === 1 && loopsSetupV2 && (
-              <StepReviewV2
+            {stepIdx === 1 && (
+              <StepReview
                 form={form}
                 set={set}
                 university={university || ""}
-                weeklyTarget={v2WeeklyTarget}
-                lowBalance={v2LowBalance}
+                weeklyTarget={weeklyTarget}
+                lowBalance={lowBalance}
               />
-            )}
-            {stepIdx === 2 && !loopsSetupV2 && (
-              <StepReview form={form} university={university || ""} />
             )}
           </div>
 
@@ -2292,10 +1589,10 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
                         className="w-1.5 h-1.5 rounded-full bg-white"
                         style={{ animation: "om-blink 1s ease-in-out infinite" }}
                       />
-                      {loopsSetupV2 ? "Starting your Loop…" : "Deploying…"}
+                      Starting your Loop…
                     </>
                   ) : (
-                    <>{loopsSetupV2 ? "Start Loop" : "Deploy agent →"}</>
+                    <>Start Loop</>
                   )}
                 </button>
               ) : (
@@ -2328,8 +1625,9 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
         </div>
       </div>
 
-      {/* Preview rail — V2 swaps in real PDL samples on Step 01 */}
-      {loopsSetupV2 && stepIdx === 0 ? (
+      {/* Right rail: real PDL samples on Step 01; nothing on Step 02
+          (the review surface is the focus there). */}
+      {stepIdx === 0 && (
         <div style={{ width: 320, flexShrink: 0 }}>
           <InlinePreview
             contacts={previewState.contacts}
@@ -2338,8 +1636,6 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
             hasSignal={previewState.hasSignal}
           />
         </div>
-      ) : (
-        <PreviewRail form={form} litTo={stepIdx === 0 ? 1 : stepIdx === 1 ? 3 : 6} />
       )}
     </div>
   );
