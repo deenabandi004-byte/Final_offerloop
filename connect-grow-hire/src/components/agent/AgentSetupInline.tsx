@@ -5,7 +5,7 @@
 // natural language; the parser turns it into mode + chips below. Chips
 // stay editable so the parser is a starting point, not a black box.
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronDown, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -766,9 +766,20 @@ type ParsePhase = "idle" | "parsing" | "ok" | "empty" | "failed";
 function ParseStatusLine({
   phase,
   detectedMode,
+  v2Enabled = false,
+  briefLen = 0,
+  extractCounts,
 }: {
   phase: ParsePhase;
   detectedMode: LoopModeForCopy | null;
+  v2Enabled?: boolean;
+  briefLen?: number;
+  extractCounts?: {
+    companies: number;
+    roles: number;
+    industries: number;
+    locations: number;
+  };
 }) {
   const baseStyle: React.CSSProperties = {
     fontFamily: "'Inter', sans-serif",
@@ -776,6 +787,56 @@ function ParseStatusLine({
     color: "var(--ink-3)",
     marginTop: 8,
   };
+  // V2 status badge — design spec calls for an explicit "Found: X · Y · Z"
+  // readout when the parse lands. Falls back to the V1 line when the flag
+  // is off so existing tests + behavior don't shift on the control cohort.
+  if (v2Enabled) {
+    // Hide entirely below 10 chars — design spec: don't shame users who
+    // just opened the page.
+    if (briefLen < 10 && phase !== "parsing") {
+      return null;
+    }
+    if (phase === "parsing") {
+      return (
+        <div className="flex items-center gap-2" style={baseStyle}>
+          <PulseDot color="#4A60A8" />
+          <span>Reading…</span>
+        </div>
+      );
+    }
+    const totalEntities = extractCounts
+      ? extractCounts.companies +
+        extractCounts.roles +
+        extractCounts.industries +
+        extractCounts.locations
+      : 0;
+    if ((phase === "ok" || phase === "empty") && totalEntities === 0) {
+      return (
+        <div style={{ ...baseStyle, color: "#b91c1c" }}>
+          We didn't catch specific targets — try naming a company, role, or industry.
+        </div>
+      );
+    }
+    if (phase === "ok" && extractCounts) {
+      return (
+        <div style={baseStyle}>
+          Found: {extractCounts.companies}{" "}
+          {extractCounts.companies === 1 ? "company" : "companies"} ·{" "}
+          {extractCounts.roles} {extractCounts.roles === 1 ? "role" : "roles"} ·{" "}
+          {extractCounts.industries}{" "}
+          {extractCounts.industries === 1 ? "industry" : "industries"}
+        </div>
+      );
+    }
+    if (phase === "failed") {
+      return (
+        <div style={{ ...baseStyle, color: "#b91c1c" }}>
+          Couldn't read that — chips left as-is. Edit them by hand or rephrase.
+        </div>
+      );
+    }
+    return null;
+  }
   if (phase === "parsing") {
     return (
       <div className="flex items-center gap-2" style={baseStyle}>
@@ -903,6 +964,7 @@ function StepGoals({
   v2Enabled = false,
   proposedBrief,
   showAiDraftLabel = false,
+  onManualChipEdit,
 }: {
   form: FormState;
   set: (patch: Partial<FormState>) => void;
@@ -920,7 +982,20 @@ function StepGoals({
   v2Enabled?: boolean;
   proposedBrief?: UseProposedBriefState;
   showAiDraftLabel?: boolean;
+  onManualChipEdit?: (
+    cat: "companies" | "roles" | "industries" | "locations",
+  ) => void;
 }) {
+  // V2 sync rule: explicit edits to a chip row mark that category dirty so
+  // subsequent textarea parses don't clobber the user's choice. No-op when
+  // the flag is off (the prop is undefined on V1 cohort).
+  const editChips = (
+    cat: "companies" | "roles" | "industries" | "locations",
+    next: string[],
+  ) => {
+    set({ [cat]: next } as Partial<FormState>);
+    if (v2Enabled) onManualChipEdit?.(cat);
+  };
   const copy = loopCopy(form.loopMode, { school: university });
   const overLimit = briefText.length > MAX_BRIEF_CHARS;
   const [focused, setFocused] = useState(false);
@@ -1101,6 +1176,14 @@ function StepGoals({
             <ParseStatusLine
               phase={parsePhase}
               detectedMode={parsePhase === "ok" ? form.loopMode : null}
+              v2Enabled={v2Enabled}
+              briefLen={briefText.length}
+              extractCounts={{
+                companies: form.companies.length,
+                roles: form.roles.length,
+                industries: form.industries.length,
+                locations: form.locations.length,
+              }}
             />
             <span
               className="ml-3 shrink-0"
@@ -1142,7 +1225,7 @@ function StepGoals({
           <TagInput
             placeholder="e.g. Stripe, Linear, Vercel"
             list={form.companies}
-            setList={(v) => set({ companies: v })}
+            setList={(v) => editChips("companies", v)}
             suggestions={COMPANY_SUGGESTIONS}
           />
         </EditorialField>
@@ -1151,7 +1234,7 @@ function StepGoals({
           <TagInput
             placeholder="e.g. Product Designer, Analyst"
             list={form.roles}
-            setList={(v) => set({ roles: v })}
+            setList={(v) => editChips("roles", v)}
             suggestions={ROLE_SUGGESTIONS}
           />
         </EditorialField>
@@ -1164,7 +1247,7 @@ function StepGoals({
           <TagInput
             placeholder="e.g. Fintech, AI / ML, Consulting"
             list={form.industries}
-            setList={(v) => set({ industries: v })}
+            setList={(v) => editChips("industries", v)}
             suggestions={INDUSTRY_SUGGESTIONS}
           />
         </EditorialField>
@@ -1173,7 +1256,7 @@ function StepGoals({
           <TagInput
             placeholder="e.g. NYC, SF Bay Area, Remote"
             list={form.locations}
-            setList={(v) => set({ locations: v })}
+            setList={(v) => editChips("locations", v)}
             suggestions={LOCATION_SUGGESTIONS}
           />
         </EditorialField>
@@ -1474,6 +1557,31 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
   const proposedBrief = useProposedBrief({ enabled: loopsSetupV2 });
   const aiDraftAppliedRef = useRef(false);
 
+  // V2 sync rule (carried over from the plan's locked architecture decision):
+  // chips are derived from the textarea while typing; once a chip is manually
+  // added or removed, that category becomes source of truth and subsequent
+  // parses no longer touch it. Tracked per-category so editing Companies
+  // doesn't freeze Roles too. AI propose (step 3) does NOT mark categories
+  // dirty — only explicit user edits do.
+  type ChipCategory = "companies" | "roles" | "industries" | "locations";
+  const [chipDirty, setChipDirty] = useState<Record<ChipCategory, boolean>>({
+    companies: false,
+    roles: false,
+    industries: false,
+    locations: false,
+  });
+  const markChipDirty = useCallback((cat: ChipCategory) => {
+    setChipDirty((d) => (d[cat] ? d : { ...d, [cat]: true }));
+  }, []);
+  // Mirror chipDirty into a ref so the parse-effect can read the freshest
+  // value even when its closure was set up before a category went dirty.
+  // Without this, a parse in flight when the user adds a chip would still
+  // overwrite that category on its return.
+  const chipDirtyRef = useRef(chipDirty);
+  useEffect(() => {
+    chipDirtyRef.current = chipDirty;
+  }, [chipDirty]);
+
   // ── Prompt-first brief state ─────────────────────────────────────────
   // The textarea is the primary input on Step 01. Its value debounces into
   // a parser call (parseBrief) that fills mode + chip groups below. Chip
@@ -1513,12 +1621,27 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
         }
         // ok — populate chips + mode from parser output. User edits made
         // after this point stick until the next parse fires.
+        //
+        // V2 sync rule: any chip category the user manually edited stays
+        // sticky — the parse cannot overwrite it. V1 (flag off) keeps
+        // today's "parser always wins on chip categories" behavior.
+        const dirty = chipDirtyRef.current;
         setForm((f) => {
           const next: Partial<FormState> = {
-            companies: parsed?.companies ?? f.companies,
-            industries: parsed?.industries ?? f.industries,
-            roles: parsed?.roles ?? f.roles,
-            locations: parsed?.locations ?? f.locations,
+            companies:
+              loopsSetupV2 && dirty.companies
+                ? f.companies
+                : parsed?.companies ?? f.companies,
+            industries:
+              loopsSetupV2 && dirty.industries
+                ? f.industries
+                : parsed?.industries ?? f.industries,
+            roles:
+              loopsSetupV2 && dirty.roles ? f.roles : parsed?.roles ?? f.roles,
+            locations:
+              loopsSetupV2 && dirty.locations
+                ? f.locations
+                : parsed?.locations ?? f.locations,
           };
           // Mode only auto-updates when the parser actually committed to one.
           // null = ambiguous → leave the user's current pick (or default).
@@ -1774,6 +1897,7 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
                 v2Enabled={loopsSetupV2}
                 proposedBrief={proposedBrief}
                 showAiDraftLabel={aiDraftActive}
+                onManualChipEdit={markChipDirty}
               />
             )}
             {stepIdx === 1 && <StepCadence form={form} set={set} />}
