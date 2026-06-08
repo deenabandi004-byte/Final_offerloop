@@ -20,7 +20,9 @@ import { useCreateLoop } from "@/hooks/useLoops";
 import useDebounce from "@/hooks/use-debounce";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useProposedBrief, type UseProposedBriefState } from "@/hooks/useProposedBrief";
+import { usePreviewTargets } from "@/hooks/usePreviewTargets";
 import { useSubscription } from "@/hooks/useSubscription";
+import { InlinePreview } from "@/components/agent/InlinePreview";
 import {
   estimatedWeeklyCreditsPeople,
   weeklyTargetForTier,
@@ -1733,6 +1735,27 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
   // chrome stay in sync with the flag without a remount.
   const steps: ReadonlyArray<StepDescriptor> = loopsSetupV2 ? STEPS_V2 : STEPS;
 
+  // V2 inline preview: feeds the right-side "Who you'd reach" panel.
+  // Only enabled on Step 01 (Goals) — the hook short-circuits when off
+  // so we don't refetch as the user navigates to Step 02. Brief is
+  // built from the form so chip-only flows still show a preview.
+  const v2BriefForPreview: ParsedBrief | null = loopsSetupV2
+    ? {
+        companies: form.companies,
+        industries: form.industries,
+        roles: form.roles,
+        locations: form.locations,
+        emailPurpose: null,
+        constraints: [],
+        targetCount: null,
+        mode: form.loopMode,
+      }
+    : null;
+  const previewState = usePreviewTargets({
+    enabled: loopsSetupV2 && stepIdx === 0,
+    briefParsed: v2BriefForPreview,
+  });
+
   // V2 sync rule (carried over from the plan's locked architecture decision):
   // chips are derived from the textarea while typing; once a chip is manually
   // added or removed, that category becomes source of truth and subsequent
@@ -2227,8 +2250,19 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
         </div>
       </div>
 
-      {/* Preview rail */}
-      <PreviewRail form={form} litTo={stepIdx === 0 ? 1 : stepIdx === 1 ? 3 : 6} />
+      {/* Preview rail — V2 swaps in real PDL samples on Step 01 */}
+      {loopsSetupV2 && stepIdx === 0 ? (
+        <div style={{ width: 320, flexShrink: 0 }}>
+          <InlinePreview
+            contacts={previewState.contacts}
+            loading={previewState.loading}
+            error={previewState.error}
+            hasSignal={previewState.hasSignal}
+          />
+        </div>
+      ) : (
+        <PreviewRail form={form} litTo={stepIdx === 0 ? 1 : stepIdx === 1 ? 3 : 6} />
+      )}
     </div>
   );
 }

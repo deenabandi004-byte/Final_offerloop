@@ -211,6 +211,48 @@ export async function proposeBrief(): Promise<ProposedBrief> {
   return res.json();
 }
 
+// ── Inline preview (V2 Loops wizard) ───────────────────────────────────────
+
+export interface PreviewContact {
+  name: string;
+  title: string;
+  company: string;
+  school: string | null;
+  linkedinUrl: string | null;
+  sameSchool: boolean;
+}
+
+/**
+ * Fetch up to 8 sample contacts matching the current parsed brief.
+ * Used by the V2 Loops wizard's InlinePreview panel. Always resolves
+ * with a contacts list (possibly empty); a server error bubbles up as
+ * a thrown Error so the hook can surface "Preview unavailable."
+ */
+export async function previewTargets(
+  briefParsed: ParsedBrief | null,
+): Promise<{ contacts: PreviewContact[] }> {
+  const { auth } = await import("../lib/firebase");
+  await auth.authStateReady();
+  const user = auth.currentUser;
+  if (!user) throw new Error("Not authenticated");
+  const token = await user.getIdToken();
+
+  const res = await fetch(`${API_BASE_URL}/agent/preview-targets`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ briefParsed }),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Preview-targets error: ${res.status}`);
+  }
+  return res.json();
+}
+
 // ── Lifecycle ───────────────────────────────────────────────────────────────
 
 export async function deployAgent(): Promise<AgentConfig> {
