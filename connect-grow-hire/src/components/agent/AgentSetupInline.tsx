@@ -18,6 +18,8 @@ import { firebaseApi } from "@/services/firebaseApi";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useCreateLoop } from "@/hooks/useLoops";
 import useDebounce from "@/hooks/use-debounce";
+import { useFeatureFlag } from "@/hooks/useFeatureFlag";
+import { useProposedBrief, type UseProposedBriefState } from "@/hooks/useProposedBrief";
 import { loopCopy, type LoopModeForCopy } from "@/lib/loopCopy";
 import offerloopIcon from "@/assets/offerloopiconlogo.png";
 
@@ -898,6 +900,9 @@ function StepGoals({
   hasUniversity,
   university,
   profileFacts,
+  v2Enabled = false,
+  proposedBrief,
+  showAiDraftLabel = false,
 }: {
   form: FormState;
   set: (patch: Partial<FormState>) => void;
@@ -912,6 +917,9 @@ function StepGoals({
     preferredLocations: string[];
     extractedRoles: string[];
   };
+  v2Enabled?: boolean;
+  proposedBrief?: UseProposedBriefState;
+  showAiDraftLabel?: boolean;
 }) {
   const copy = loopCopy(form.loopMode, { school: university });
   const overLimit = briefText.length > MAX_BRIEF_CHARS;
@@ -986,8 +994,72 @@ function StepGoals({
     };
   }, [briefText, focused, typewriterExamples]);
 
+  // V2: "Suggest from my profile" header row (above the textarea card).
+  // Only renders when LOOPS_SETUP_V2 is on AND the user has either a
+  // landed proposal or a pending fetch. Falls back gracefully when the
+  // proposer returns "failed" — the button text becomes a retry.
+  const v2HasProposal = !!proposedBrief?.data && proposedBrief.data.status === "ok";
+  const v2ProposalLoading = !!proposedBrief?.loading;
+  const v2ProposalFailed = !!proposedBrief?.error
+    || proposedBrief?.data?.status === "failed";
+  const v2SuggestLabel = v2ProposalLoading
+    ? "Suggesting…"
+    : v2ProposalFailed
+      ? "Try again"
+      : v2HasProposal
+        ? "✨ Re-suggest"
+        : "✨ Suggest from my profile";
+
   return (
     <div>
+      {/* V2: Suggest-from-profile button — sits above the textarea per the
+          design specs. Hidden entirely when the flag is off. */}
+      {v2Enabled && proposedBrief && (
+        <div
+          className="mb-2 flex items-center justify-end"
+          style={{ fontFamily: "'Inter', sans-serif" }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              void proposedBrief.refetch();
+            }}
+            disabled={v2ProposalLoading}
+            aria-label="Suggest a brief from my profile"
+            style={{
+              fontSize: 12,
+              fontWeight: 500,
+              color: v2ProposalLoading ? "var(--ink-3)" : "var(--ink-2)",
+              background: "transparent",
+              border: "1px solid var(--line)",
+              borderRadius: 999,
+              padding: "5px 12px",
+              cursor: v2ProposalLoading ? "default" : "pointer",
+              transition: "color 0.15s ease, border-color 0.15s ease",
+            }}
+          >
+            {v2SuggestLabel}
+          </button>
+        </div>
+      )}
+
+      {/* V2: small "AI draft" label, visible only while the textarea still
+          holds the AI-proposed sentence (drops to false on first user
+          keystroke via the parent's wrapped setBriefText). */}
+      {v2Enabled && showAiDraftLabel && (
+        <div
+          aria-live="polite"
+          style={{
+            fontFamily: "'Inter', sans-serif",
+            fontSize: 12,
+            color: "var(--ink-3)",
+            marginBottom: 6,
+          }}
+        >
+          ✨ AI draft — edit anything
+        </div>
+      )}
+
       {/* Brief textarea — Find-page-style hero prompt with typewriter
           placeholder and profile-aware QuickStarters underneath. */}
       <div className="mb-5">
@@ -1394,6 +1466,14 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
   });
   const set = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }));
 
+  // ── V2 wizard: AI-proposed starting brief (LOOPS_SETUP_V2) ──────────────
+  // Flagged off by default. When on, fetch a Claude-drafted brief on mount
+  // and pre-fill the textarea + chips ONCE so students never face a blank
+  // page. User edits beat AI; we never overwrite anything the user typed.
+  const loopsSetupV2 = useFeatureFlag("LOOPS_SETUP_V2");
+  const proposedBrief = useProposedBrief({ enabled: loopsSetupV2 });
+  const aiDraftAppliedRef = useRef(false);
+
   // ── Prompt-first brief state ─────────────────────────────────────────
   // The textarea is the primary input on Step 01. Its value debounces into
   // a parser call (parseBrief) that fills mode + chip groups below. Chip
@@ -1454,6 +1534,43 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
         setParsePhase("failed");
       });
   }, [debouncedBriefText]);
+
+  // V2: apply the AI-proposed brief once, only if the user hasn't already
+  // started typing or picking chips. Prevents the proposal from clobbering
+  // an in-progress edit if Claude lands a slow response.
+  const [aiDraftActive, setAiDraftActive] = useState(false);
+  useEffect(() => {
+    if (!loopsSetupV2) return;
+    if (aiDraftAppliedRef.current) return;
+    const data = proposedBrief.data;
+    if (!data || data.status !== "ok") return;
+    if (briefText.trim().length > 0) return;
+    const formClean =
+      form.companies.length === 0 &&
+      form.roles.length === 0 &&
+      form.industries.length === 0 &&
+      form.locations.length === 0;
+    if (!formClean) return;
+
+    aiDraftAppliedRef.current = true;
+    setBriefText(data.sentence);
+    setForm((f) => ({
+      ...f,
+      companies: data.companies,
+      roles: data.roles,
+      industries: data.industries,
+      locations: data.locations,
+    }));
+    setAiDraftActive(data.sentence.length > 0);
+  }, [
+    loopsSetupV2,
+    proposedBrief.data,
+    briefText,
+    form.companies.length,
+    form.roles.length,
+    form.industries.length,
+    form.locations.length,
+  ]);
 
   const step = STEPS[stepIdx];
   const isLast = stepIdx === STEPS.length - 1;
@@ -1646,11 +1763,17 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
                 form={form}
                 set={set}
                 briefText={briefText}
-                setBriefText={setBriefText}
+                setBriefText={(v) => {
+                  if (aiDraftActive && v !== briefText) setAiDraftActive(false);
+                  setBriefText(v);
+                }}
                 parsePhase={parsePhase}
                 hasUniversity={hasUniversity}
                 university={university || ""}
                 profileFacts={profileFacts}
+                v2Enabled={loopsSetupV2}
+                proposedBrief={proposedBrief}
+                showAiDraftLabel={aiDraftActive}
               />
             )}
             {stepIdx === 1 && <StepCadence form={form} set={set} />}
