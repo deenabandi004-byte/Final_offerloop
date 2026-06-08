@@ -5,8 +5,8 @@
 // natural language; the parser turns it into mode + chips below. Chips
 // stay editable so the parser is a starting point, not a black box.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronDown, ChevronRight } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,7 +19,6 @@ import { useProposedBrief, type UseProposedBriefState } from "@/hooks/usePropose
 import { usePreviewTargets } from "@/hooks/usePreviewTargets";
 import { useSubscription } from "@/hooks/useSubscription";
 import { InlinePreview } from "@/components/agent/InlinePreview";
-import { IndustryBrowse } from "@/components/agent/IndustryBrowse";
 import {
   estimatedWeeklyCreditsPeople,
   weeklyTargetForTier,
@@ -34,11 +33,6 @@ const STEPS = [
 ] as const;
 
 type StepDescriptor = (typeof STEPS)[number];
-
-const COMPANY_SUGGESTIONS = ["Stripe", "Linear", "Vercel", "Notion", "Ramp", "Arc", "Anthropic"];
-const ROLE_SUGGESTIONS = ["Product Designer", "Design Engineer", "Analyst", "Associate", "Software Engineer"];
-const LOCATION_SUGGESTIONS = ["NYC", "SF Bay Area", "Remote", "Boston", "LA", "Chicago"];
-const INDUSTRY_SUGGESTIONS = ["Fintech", "AI / ML", "Consulting", "Investment Banking", "Healthcare", "Climate"];
 
 // Soft cap on the textarea. Backend MAX_BRIEF_CHARS is 2000; we soft-warn
 // at the same number so users see the cap before the parser truncates.
@@ -91,24 +85,6 @@ function deriveLoopName(form: {
 
 // ── Primitives ─────────────────────────────────────────────────────────
 
-function MonoTag({ children, color }: { children: React.ReactNode; color?: string }) {
-  // Originally a mono-uppercase label. Restyled to the site's quieter Inter
-  // small-caps recipe: still distinguishes meta from body, but doesn't read
-  // like a terminal.
-  return (
-    <span
-      style={{
-        fontFamily: "'Inter', sans-serif",
-        fontSize: 11,
-        fontWeight: 500,
-        letterSpacing: "0.04em",
-        color: color || "var(--ink-3)",
-      }}
-    >
-      {children}
-    </span>
-  );
-}
 
 function PulseDot({ color = "#22c55e" }: { color?: string }) {
   return (
@@ -122,267 +98,8 @@ function PulseDot({ color = "#22c55e" }: { color?: string }) {
 }
 
 
-// ── Tag Input ──────────────────────────────────────────────────────────
-// Chips live inside the input box with numbered mono labels.
-// Hover a chip -> strikethrough; click to remove. No x buttons.
 
-function TagChip({
-  label,
-  onRemove,
-}: {
-  label: string;
-  index: number;
-  onRemove: () => void;
-}) {
-  const [hover, setHover] = useState(false);
-  return (
-    <span
-      onClick={onRemove}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        padding: "4px 10px",
-        borderRadius: 3,
-        border: `1px solid ${hover ? "#4A60A8" : "var(--line)"}`,
-        background: hover ? "rgba(74, 96, 168, 0.06)" : "#FFFFFF",
-        color: hover ? "#4A60A8" : "var(--ink)",
-        fontFamily: "'Inter', sans-serif",
-        fontSize: 13,
-        fontWeight: 500,
-        cursor: "pointer",
-        transition: "all 0.12s ease",
-      }}
-      title="Click to remove"
-    >
-      {label}
-      <span style={{ fontSize: 11, opacity: hover ? 1 : 0.5, lineHeight: 1 }}>×</span>
-    </span>
-  );
-}
-
-function SuggestionChip({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        fontFamily: "'Inter', sans-serif",
-        fontSize: 13,
-        fontWeight: 500,
-        padding: "4px 10px",
-        borderRadius: 3,
-        border: "1px solid var(--line)",
-        background: "#FFFFFF",
-        color: "var(--ink-2)",
-        cursor: "pointer",
-        transition: "border-color 0.12s, color 0.12s, background 0.12s",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = "#4A60A8";
-        e.currentTarget.style.color = "#4A60A8";
-        e.currentTarget.style.background = "rgba(74, 96, 168, 0.06)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = "var(--line)";
-        e.currentTarget.style.color = "var(--ink-2)";
-        e.currentTarget.style.background = "#FFFFFF";
-      }}
-    >
-      + {label}
-    </button>
-  );
-}
-
-function TagInput({
-  placeholder,
-  list,
-  setList,
-  suggestions = [],
-}: {
-  placeholder: string;
-  list: string[];
-  setList: (v: string[]) => void;
-  suggestions?: string[];
-}) {
-  const [val, setVal] = useState("");
-  const [focused, setFocused] = useState(false);
-
-  // Case-insensitive dedup keeps the first insertion's casing while preventing
-  // "Stripe" / "stripe" / "STRIPE" from accreting as three separate targets.
-  const add = (v?: string) => {
-    const t = (v || val).trim();
-    if (t && !list.some((x) => x.toLowerCase() === t.toLowerCase())) {
-      setList([...list, t]);
-    }
-    setVal("");
-  };
-  const rem = (t: string) => setList(list.filter((x) => x !== t));
-  const remaining = suggestions.filter(
-    (s) => !list.some((x) => x.toLowerCase() === s.toLowerCase())
-  );
-
-  return (
-    <div>
-      <div
-        style={{
-          borderRadius: 3,
-          border: `1px solid ${focused ? "#4A60A8" : "var(--line)"}`,
-          background: focused ? "#FFFFFF" : "var(--paper-2)",
-          boxShadow: focused ? "0 0 0 3px rgba(74, 96, 168, 0.15)" : "none",
-          padding: list.length > 0 ? "10px 12px 6px 12px" : "6px 12px",
-          transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
-        }}
-      >
-        {list.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {list.map((t, i) => (
-              <TagChip key={t} label={t} index={i} onRemove={() => rem(t)} />
-            ))}
-          </div>
-        )}
-        <div className="flex items-center gap-2">
-          <input
-            value={val}
-            onChange={(e) => setVal(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                add();
-              } else if (e.key === "Backspace" && val === "" && list.length > 0) {
-                rem(list[list.length - 1]);
-              }
-            }}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            placeholder={list.length === 0 ? placeholder : "and one more\u2026"}
-            className="flex-1 border-none focus:outline-none placeholder:text-ink-3"
-            style={{
-              padding: 6,
-              background: "transparent",
-              color: "var(--ink)",
-              fontFamily: "'Inter', sans-serif",
-              fontSize: 14,
-            }}
-          />
-          <span
-            style={{
-              fontFamily: "'Inter', sans-serif",
-              fontSize: 11,
-              fontWeight: 500,
-              color: "var(--ink-3)",
-              opacity: val ? 1 : 0.6,
-              flexShrink: 0,
-              transition: "opacity 0.12s",
-            }}
-          >
-            {val ? "press \u21b5" : `${list.length} added`}
-          </span>
-        </div>
-      </div>
-
-      {remaining.length > 0 && (
-        <div className="mt-2.5 flex flex-wrap gap-1.5 items-center">
-          <MonoTag>Suggested</MonoTag>
-          {remaining.slice(0, 6).map((s) => (
-            <SuggestionChip key={s} label={s} onClick={() => add(s)} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Editorial field (D11) ──────────────────────────────────────────────
-// Per-field italic serif label + hairline left-rail. Used by the stacked
-// chip rows in the prompt-first wizard. Foundation Field stays mono-cap
-// so non-D11 surfaces (cadence, review) keep their existing voice.
-
-function EditorialField({
-  label,
-  hint,
-  badgeCount = 0,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  /** Items count shown as a small pill on the chevron row. Does NOT
-   *  auto-expand — these rows stay collapsed until the user opens them.
-   *  Their purpose is for inspecting what the parser extracted, not for
-   *  surfacing chip-by-chip. */
-  badgeCount?: number;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div className="mb-3">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        style={{
-          width: "100%",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "10px 12px",
-          background: open ? "var(--paper-2)" : "#FFFFFF",
-          border: "1px solid var(--line)",
-          borderRadius: 3,
-          cursor: "pointer",
-          textAlign: "left",
-          fontFamily: "'Inter', sans-serif",
-          transition: "background 0.12s ease",
-        }}
-        aria-expanded={open}
-      >
-        {open ? (
-          <ChevronDown style={{ width: 14, height: 14, color: "var(--ink-3)", flexShrink: 0 }} />
-        ) : (
-          <ChevronRight style={{ width: 14, height: 14, color: "var(--ink-3)", flexShrink: 0 }} />
-        )}
-        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>{label}</span>
-        {badgeCount > 0 && (
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              color: "#4A60A8",
-              background: "rgba(74, 96, 168, 0.10)",
-              padding: "1px 7px",
-              borderRadius: 100,
-            }}
-          >
-            {badgeCount}
-          </span>
-        )}
-        {hint && !open && (
-          <span style={{ fontSize: 12, color: "var(--ink-3)", marginLeft: "auto" }}>{hint}</span>
-        )}
-      </button>
-      {open && (
-        <div style={{ paddingTop: 10 }}>
-          {hint && (
-            <div
-              style={{
-                fontFamily: "'Inter', sans-serif",
-                fontSize: 12,
-                color: "var(--ink-3)",
-                marginBottom: 8,
-              }}
-            >
-              {hint}
-            </div>
-          )}
-          {children}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Mode card (radio) ──────────────────────────────────────────────────
+// ── Approval-mode card ─────────────────────────────────────────────────
 
 function ModeCard({
   active,
@@ -497,7 +214,7 @@ function StepRail({
                   minWidth: 18,
                 }}
               >
-                {done ? "\u2713" : s.num}
+                {done ? "✓" : s.num}
               </span>
               <div>
                 <div
@@ -615,7 +332,6 @@ function StepGoals({
   profileFacts,
   proposedBrief,
   showAiDraftLabel,
-  onManualChipEdit,
 }: {
   form: FormState;
   set: (patch: Partial<FormState>) => void;
@@ -632,38 +348,7 @@ function StepGoals({
   };
   proposedBrief: UseProposedBriefState;
   showAiDraftLabel: boolean;
-  onManualChipEdit: (
-    cat: "companies" | "roles" | "industries" | "locations",
-  ) => void;
 }) {
-  // Sync rule: explicit edits to a chip row mark that category dirty so
-  // subsequent textarea parses don't clobber the user's choice.
-  const editChips = (
-    cat: "companies" | "roles" | "industries" | "locations",
-    next: string[],
-  ) => {
-    set({ [cat]: next } as Partial<FormState>);
-    onManualChipEdit(cat);
-  };
-
-  // "Browse by industry" escape valve — modal open state. Bulk add
-  // routes through editChips so both Companies AND Industries become
-  // sticky against subsequent textarea parses.
-  const [browseOpen, setBrowseOpen] = useState(false);
-  const handleIndustryBrowseAdd = ({
-    companies,
-    industries,
-  }: {
-    companies: string[];
-    industries: string[];
-  }) => {
-    if (companies.length > 0) {
-      editChips("companies", [...form.companies, ...companies]);
-    }
-    if (industries.length > 0) {
-      editChips("industries", [...form.industries, ...industries]);
-    }
-  };
   const copy = loopCopy(form.loopMode, { school: university });
   const overLimit = briefText.length > MAX_BRIEF_CHARS;
   const [focused, setFocused] = useState(false);
@@ -864,92 +549,6 @@ function StepGoals({
         </div>
 
       </div>
-
-      {/* Collapsible chip rows. The textarea + parser are the primary input;
-          these rows are advanced/manual overrides. Each row auto-expands when
-          the parser fills it so the user sees what was extracted. */}
-      <div style={{ marginTop: 18, marginBottom: 18 }}>
-        <div
-          style={{
-            fontFamily: "'Inter', sans-serif",
-            fontSize: 12,
-            fontWeight: 600,
-            letterSpacing: "0.04em",
-            textTransform: "uppercase",
-            color: "var(--ink-3)",
-            marginBottom: 10,
-          }}
-        >
-          Manual targeting (optional)
-        </div>
-        <EditorialField label="Companies" hint="Press Enter to add" badgeCount={form.companies.length}>
-          <TagInput
-            placeholder="e.g. Stripe, Linear, Vercel"
-            list={form.companies}
-            setList={(v) => editChips("companies", v)}
-            suggestions={COMPANY_SUGGESTIONS}
-          />
-        </EditorialField>
-
-        <EditorialField label="Roles" hint="Press Enter to add" badgeCount={form.roles.length}>
-          <TagInput
-            placeholder="e.g. Product Designer, Analyst"
-            list={form.roles}
-            setList={(v) => editChips("roles", v)}
-            suggestions={ROLE_SUGGESTIONS}
-          />
-        </EditorialField>
-
-        <EditorialField
-          label="Industries"
-          hint="Optional — fills in when no company is named"
-          badgeCount={form.industries.length}
-        >
-          <TagInput
-            placeholder="e.g. Fintech, AI / ML, Consulting"
-            list={form.industries}
-            setList={(v) => editChips("industries", v)}
-            suggestions={INDUSTRY_SUGGESTIONS}
-          />
-        </EditorialField>
-
-        <EditorialField label="Locations" hint="Optional" badgeCount={form.locations.length}>
-          <TagInput
-            placeholder="e.g. NYC, SF Bay Area, Remote"
-            list={form.locations}
-            setList={(v) => editChips("locations", v)}
-            suggestions={LOCATION_SUGGESTIONS}
-          />
-        </EditorialField>
-
-        {/* Escape valve for students with no target list (freshmen,
-            switchers). Opens a modal with industries → company picker. */}
-        <button
-          type="button"
-          onClick={() => setBrowseOpen(true)}
-          style={{
-            marginTop: 8,
-            fontFamily: "'Inter', sans-serif",
-            fontSize: 12.5,
-            color: "var(--ink-3)",
-            background: "transparent",
-            border: "none",
-            padding: 0,
-            cursor: "pointer",
-            textDecoration: "underline",
-          }}
-        >
-          Not sure yet? Browse by industry →
-        </button>
-      </div>
-
-      <IndustryBrowse
-        open={browseOpen}
-        onOpenChange={setBrowseOpen}
-        existingCompanies={form.companies}
-        existingIndustries={form.industries}
-        onAdd={handleIndustryBrowseAdd}
-      />
 
       <div
         className="flex items-center justify-between"
@@ -1201,37 +800,12 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
     briefParsed: briefForPreview,
   });
 
-  // Sync rule: chips are derived from the textarea while typing; once a
-  // chip is manually added or removed, that category becomes source of
-  // truth and subsequent parses no longer touch it. Tracked per-category
-  // so editing Companies doesn't freeze Roles too. AI propose does NOT
-  // mark categories dirty — only explicit user edits do.
-  type ChipCategory = "companies" | "roles" | "industries" | "locations";
-  const [chipDirty, setChipDirty] = useState<Record<ChipCategory, boolean>>({
-    companies: false,
-    roles: false,
-    industries: false,
-    locations: false,
-  });
-  const markChipDirty = useCallback((cat: ChipCategory) => {
-    setChipDirty((d) => (d[cat] ? d : { ...d, [cat]: true }));
-  }, []);
-  // Mirror chipDirty into a ref so the parse-effect can read the freshest
-  // value even when its closure was set up before a category went dirty.
-  // Without this, a parse in flight when the user adds a chip would still
-  // overwrite that category on its return.
-  const chipDirtyRef = useRef(chipDirty);
-  useEffect(() => {
-    chipDirtyRef.current = chipDirty;
-  }, [chipDirty]);
-
   // ── Prompt-first brief state ─────────────────────────────────────────
-  // The textarea is the primary input on Step 01. Its value debounces into
-  // a parser call (parseBrief) that fills mode + chip groups below. Chip
-  // groups are editable — they reflect the latest parser result, but the
-  // user can override. Subsequent textarea edits trigger re-parses that
-  // overwrite chip groups (the wizard's chip behavior is "parser output
-  // you can fine-tune, until you re-type the prompt").
+  // The textarea is the only input on Step 01. Its value debounces into a
+  // parser call (parseBrief) that populates the four extracted-entity
+  // lists on the form; those drive the InlinePreview side panel. No
+  // chip rows means no manual-edit sticky tracking — the parser always
+  // wins.
   const [briefText, setBriefText] = useState("");
   const [parsePhase, setParsePhase] = useState<ParsePhase>("idle");
   // Guard against stale parses overwriting fresh results (user types fast).
@@ -1262,16 +836,16 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
           setParsePhase("empty");
           return;
         }
-        // ok — populate chips from parser output. Sticky chip categories
-        // (manually edited by the user) are preserved. Mode is locked to
-        // "both" elsewhere; the parser's mode classification is ignored.
-        const dirty = chipDirtyRef.current;
+        // ok — populate the extracted-entity lists from parser output.
+        // Mode is locked to "both"; the parser's mode classification is
+        // ignored. These four lists are never user-visible chips — they
+        // exist only to feed InlinePreview + the deploy payload.
         setForm((f) => ({
           ...f,
-          companies: dirty.companies ? f.companies : parsed?.companies ?? f.companies,
-          industries: dirty.industries ? f.industries : parsed?.industries ?? f.industries,
-          roles: dirty.roles ? f.roles : parsed?.roles ?? f.roles,
-          locations: dirty.locations ? f.locations : parsed?.locations ?? f.locations,
+          companies: parsed?.companies ?? f.companies,
+          industries: parsed?.industries ?? f.industries,
+          roles: parsed?.roles ?? f.roles,
+          locations: parsed?.locations ?? f.locations,
         }));
         setParsePhase("ok");
       })
@@ -1502,7 +1076,6 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
                 profileFacts={profileFacts}
                 proposedBrief={proposedBrief}
                 showAiDraftLabel={aiDraftActive}
-                onManualChipEdit={markChipDirty}
               />
             )}
             {stepIdx === 1 && (
