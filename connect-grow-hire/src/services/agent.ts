@@ -253,6 +253,22 @@ export async function previewTargets(
   return res.json();
 }
 
+// ── Cohort assignment (V2 wizard rollout) ──────────────────────────────────
+
+export interface LoopsSetupV2Cohort {
+  cohort: "treatment" | "control";
+  flagEnabled: boolean;
+}
+
+/**
+ * Read the user's sticky cohort assignment for LOOPS_SETUP_V2. Backend
+ * persists the assignment on first call so subsequent calls return the
+ * same cohort across sessions.
+ */
+export async function getLoopsSetupV2Cohort(): Promise<LoopsSetupV2Cohort> {
+  return agentFetch("/cohort/loops-setup-v2");
+}
+
 // ── Lifecycle ───────────────────────────────────────────────────────────────
 
 export async function deployAgent(): Promise<AgentConfig> {

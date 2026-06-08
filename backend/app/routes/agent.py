@@ -15,6 +15,10 @@ from flask import Blueprint, current_app, jsonify, request
 from app.extensions import get_db, require_firebase_auth, require_tier
 from app.services.agent_brief_parser import parse_brief
 from app.services.brief_proposer import propose_brief
+from app.services.cohort_assignment import (
+    LOOPS_SETUP_V2_FLAG,
+    get_or_assign as get_or_assign_cohort,
+)
 from app.services.preview_search import preview_targets
 from app.utils.exceptions import ValidationError
 from app.utils.validation import (
@@ -164,6 +168,26 @@ def preview_targets_route():
 
     contacts = preview_targets(parsed_brief=parsed, user_profile=profile)
     return jsonify({"contacts": contacts})
+
+
+@agent_bp.route("/cohort/loops-setup-v2", methods=["GET"])
+@require_firebase_auth
+def loops_setup_v2_cohort():
+    """Return the user's sticky cohort assignment for the V2 Loops wizard.
+
+    Frontend reads this on wizard mount to decide whether to render V2.
+    Assignment is recorded on first call so subsequent calls return the
+    same cohort across sessions — the rollout percentage can shift over
+    time, but no individual user bounces between cohorts.
+
+    Returns: {"cohort": "treatment" | "control", "flagEnabled": bool}.
+    """
+    uid = request.firebase_user["uid"]
+    cohort = get_or_assign_cohort(uid, LOOPS_SETUP_V2_FLAG)
+    return jsonify({
+        "cohort": cohort,
+        "flagEnabled": cohort == "treatment",
+    })
 
 
 @agent_bp.route("/deploy", methods=["POST"])
