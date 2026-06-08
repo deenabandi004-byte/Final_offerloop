@@ -39,6 +39,7 @@ from app.services.loop_budget import (
     BUNDLED_BUDGET_BUFFER,
     BUNDLED_COST_PER_PERSON,
 )
+from app.services.tier_defaults import weekly_target_for_tier
 
 logger = logging.getLogger(__name__)
 
@@ -367,7 +368,6 @@ def create_loop(uid: str, tier: str, payload: dict) -> dict:
     # (output-first wizard pattern) unless the client explicitly supplied one.
     # Always enforce the tier max and a 25-credit floor.
     tier_cfg = TIER_CONFIGS.get(tier) or TIER_CONFIGS["free"]
-    default_budget = int(tier_cfg.get("default_credit_budget_per_week_per_loop", 75))
     max_budget = tier_cfg.get("max_credit_budget_per_week_per_loop")  # None = unbounded
     raw_mode_for_budget = (payload or {}).get("loopMode")
     loop_mode_for_budget = (
@@ -378,8 +378,13 @@ def create_loop(uid: str, tier: str, payload: dict) -> dict:
         # Client supplied an explicit cap (Settings → "Hard weekly credit cap").
         # Trust it, but still clamp to tier max + 25-credit floor.
         budget = int(payload_clean["creditBudgetPerWeek"])
-    elif payload_clean.get("weeklyTarget"):
-        # Wizard path: derive from people/week × bundled per-person cost.
+    else:
+        # Wizard V2 hides cadence from the user — when weeklyTarget is missing
+        # we substitute the tier default so both fields land on the Loop doc
+        # consistently and downstream readers (agent_planner, gating) see a
+        # tier-appropriate cadence instead of the _loop_defaults() constant.
+        if not payload_clean.get("weeklyTarget"):
+            payload_clean["weeklyTarget"] = weekly_target_for_tier(tier)
         weekly = int(payload_clean["weeklyTarget"])
         bundled = BUNDLED_COST_PER_PERSON[loop_mode_for_budget]
         budget = int(weekly * bundled * BUNDLED_BUDGET_BUFFER)
@@ -388,9 +393,6 @@ def create_loop(uid: str, tier: str, payload: dict) -> dict:
         # top so the wizard's derived budget covers the new line item.
         if payload_clean.get("autoSendMode") == "send_for_me":
             budget += int(weekly * AUTO_SEND_CREDIT_COST * BUNDLED_BUDGET_BUFFER)
-    else:
-        # No target either — fall back to the tier default.
-        budget = default_budget
 
     if max_budget is not None:
         budget = min(budget, max_budget)
