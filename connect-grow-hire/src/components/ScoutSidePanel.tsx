@@ -14,12 +14,16 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { X, ArrowUp, Loader2, Trash2, MessageSquarePlus, History, Lock } from 'lucide-react';
+import { X, Send, Loader2, Trash2, MessageSquarePlus, History, Lock } from 'lucide-react';
 import { useScout, SearchHelpResponse } from '@/contexts/ScoutContext';
-import { useTour } from '@/contexts/TourContext';
-import { useScoutChat, formatMessage, type ScoutNavigate, type ScoutMode, type ScoutCta, type ScoutPlanStep } from '@/hooks/useScoutChat';
+import { useScoutChat, formatMessage, type ScoutNavigate, type ScoutMode, type ScoutCta, type ScoutPlanStep, type ScoutActiveStrategy } from '@/hooks/useScoutChat';
+import { BriefingButton } from '@/components/scout/BriefingButton';
+import { CompletenessGauge } from '@/components/scout/CompletenessGauge';
+import { ActiveStrategyCard } from '@/components/scout/ActiveStrategyCard';
 import { SUGGESTED_QUESTIONS, SCOUT_CHIPS_BY_PAGE } from '@/data/scout-knowledge';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
+// Tour demo orchestration — local addition, not in loops-setup-v2.
+import { useTour } from '@/contexts/TourContext';
 import { toast } from '@/hooks/use-toast';
 import { ScoutApproveCard } from '@/components/ScoutApproveCard';
 import {
@@ -124,6 +128,9 @@ export function ScoutSidePanel() {
     pendingMessage,
     clearPendingMessage,
   } = useScout();
+  // Tour demo orchestration — local addition, not in loops-setup-v2.
+  // `demoSurface === 'scout'` means the onboarding tour reached the Ask-Scout
+  // step; the effect below seeds a synthetic demo thread while it's active.
   const { demoSurface } = useTour();
   const scoutDemoActive = demoSurface === 'scout';
   const panelRef = useRef<HTMLDivElement>(null);
@@ -150,7 +157,54 @@ export function ScoutSidePanel() {
     isLoadingChat,
     appendSyntheticAssistant,
     appendSyntheticUser,
+    requestBriefing,
   } = useScoutChat(location.pathname);
+
+  // Phase 4B auto-fire: when the user opens Scout for the very first time
+  // (no prior briefing flagged in localStorage AND a fresh chat with zero
+  // messages), kick off the strategist briefing once so they land on a
+  // profile-grounded plan, not an empty state. Manual button always works
+  // regardless of the flag and never resets it. Per-uid key so two users on
+  // the same machine each get their own first-time experience.
+  const briefingShownKey = user?.uid
+    ? `scout_briefing_shown_${user.uid}`
+    : null;
+  const briefingAutoFiredRef = useRef(false);
+  useEffect(() => {
+    if (!isPanelOpen) return;
+    if (!briefingShownKey) return;
+    if (isLoading || isLoadingChat) return;
+    if (messages.length > 0) return;
+    if (briefingAutoFiredRef.current) return;
+    try {
+      if (localStorage.getItem(briefingShownKey) === '1') return;
+    } catch {
+      // Storage disabled; fall back to once-per-session.
+    }
+    briefingAutoFiredRef.current = true;
+    void (async () => {
+      const ok = await requestBriefing();
+      if (ok) {
+        try {
+          localStorage.setItem(briefingShownKey, '1');
+        } catch {
+          // Best-effort; not worth surfacing.
+        }
+      }
+    })();
+  }, [isPanelOpen, briefingShownKey, isLoading, isLoadingChat, messages.length, requestBriefing]);
+
+  // The most-recent message carrying an active_strategy payload becomes the
+  // source for the header card. Looking at messages in reverse so a fresh
+  // briefing supersedes an older one without us tracking strategy state
+  // separately.
+  const activeStrategy: ScoutActiveStrategy | null = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const s = messages[i]?.activeStrategy;
+      if (s) return s;
+    }
+    return null;
+  })();
 
   // -------------------------------------------------------------------------
   // Sidebar (Phase 5 Stage 3): persisted chat history
@@ -188,15 +242,16 @@ export function ScoutSidePanel() {
   // first turn lands and the title generation finishes).
   useEffect(() => {
     if (!isPanelOpen) return;
-    // Suppress the sidebar history fetch during the Scout tour demo — the
-    // demo seeds a synthetic Mark Cuban conversation and a real chat-list
-    // refetch would surface the user's persisted threads alongside it.
+    // Tour demo orchestration — local addition, not in loops-setup-v2.
+    // Suppress the real chat-history refetch while the seeded demo is active
+    // so the user's actual chats don't bleed into the tour's demo thread.
     if (scoutDemoActive) return;
     void refreshChats();
   }, [isPanelOpen, refreshChats, scoutDemoActive]);
 
   useEffect(() => {
     if (!isPanelOpen) return;
+    // Tour demo orchestration — local addition, not in loops-setup-v2.
     if (scoutDemoActive) return;
     // Small debounce: the backend writes the title asynchronously after the
     // turn responds, so wait briefly before refetching so we pick the new
@@ -209,9 +264,6 @@ export function ScoutSidePanel() {
 
   const handleSidebarChatClick = useCallback(
     async (id: string) => {
-      // Inert during the Scout tour demo — loading a real chat would
-      // clobber the seeded Mark Cuban conversation.
-      if (scoutDemoActive) return;
       if (id === chatId) return;
       setActiveRowId(id);
       try {
@@ -220,21 +272,22 @@ export function ScoutSidePanel() {
         setActiveRowId(null);
       }
     },
-    [chatId, loadChat, scoutDemoActive],
+    [chatId, loadChat],
   );
 
   const handleNewChatClick = useCallback(() => {
-    if (scoutDemoActive) return;
     startNewChat();
-  }, [startNewChat, scoutDemoActive]);
+  }, [startNewChat]);
 
   // ── Tour Scout demo orchestration ──────────────────────────────────────
-  // When the tour reaches step 10 (Ask Scout), open the panel programmatically
+  // Local addition, NOT in loops-setup-v2 — re-ported on top of the branch
+  // overwrite (depends on appendSyntheticUser, also re-added to useScoutChat).
+  // When the tour reaches the Ask-Scout step, open the panel programmatically
   // and seed a two-turn strategist conversation about reaching Mark Cuban.
-  // The seed uses the existing appendSyntheticUser / appendSyntheticAssistant
-  // helpers (purely local, never persisted), and the sidebar history refetch
-  // is gated above so the user's real chat list won't pop in alongside the
-  // demo. Cleanup closes the panel and clears the seeded thread.
+  // The seed uses the appendSyntheticUser / appendSyntheticAssistant helpers
+  // (purely local, never persisted), and the sidebar history refetch is gated
+  // above so the user's real chat list won't pop in alongside the demo.
+  // Cleanup closes the panel and clears the seeded thread.
   useEffect(() => {
     if (!scoutDemoActive) return;
 
@@ -583,12 +636,15 @@ export function ScoutSidePanel() {
       />
 
       {/* Panel. Chat mode is wider to accommodate the persisted-chat sidebar
-          (Phase 5 Stage 3); search-help mode keeps the legacy width. */}
+          AND briefing prose with deep-link URLs that don't wrap mid-token.
+          Search-help mode keeps the legacy width. */}
       <div
         ref={panelRef}
         className={
           'fixed right-0 top-0 z-50 h-full w-full bg-white shadow-xl flex flex-col transform transition-transform duration-300 ease-out rounded-l-2xl ' +
-          (isSearchHelpMode ? 'sm:w-[420px]' : 'sm:w-[600px]')
+          (isSearchHelpMode
+            ? 'sm:w-[420px]'
+            : 'sm:w-[640px] md:w-[760px] lg:w-[860px]')
         }
         style={{ animation: 'slideIn 0.3s ease-out forwards' }}
         onClick={(e) => e.stopPropagation()}
@@ -606,7 +662,7 @@ export function ScoutSidePanel() {
           <div className="flex items-center gap-1">
             {!isSearchHelpMode && messages.length > 0 && (
               <button
-                onClick={() => { if (scoutDemoActive) return; clearChat(); }}
+                onClick={clearChat}
                 className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                 aria-label="Clear chat"
               >
@@ -832,6 +888,13 @@ export function ScoutSidePanel() {
 
               {/* Chat column */}
               <div className="flex-1 flex flex-col overflow-hidden">
+              {/* Phase 4B (D2-A): persistent active-strategy card lives in
+                  the chat column header so step progress is always-on context
+                  while the user scrolls older messages. Hidden when there is
+                  no strategy yet, so the empty-state hero is uncluttered. */}
+              {activeStrategy && (
+                <ActiveStrategyCard strategy={activeStrategy} />
+              )}
               <div className="flex-1 overflow-y-auto">
                 <div className="px-5 py-4">
                   {/* Empty state */}
@@ -854,11 +917,20 @@ export function ScoutSidePanel() {
                           </div>
                         </div>
                       </div>
+                      {/* Phase 4B: primary briefing CTA above the suggested
+                          chips. Auto-fires once for new users via the effect
+                          above; this button is the manual re-fire path. */}
+                      <div className="ml-10 mb-3">
+                        <BriefingButton
+                          onClick={() => void requestBriefing()}
+                          isLoading={isLoading}
+                        />
+                      </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 ml-10">
                         {(SCOUT_CHIPS_BY_PAGE[location.pathname] ?? SUGGESTED_QUESTIONS).map((question, idx) => (
                           <button
                             key={idx}
-                            onClick={() => { if (scoutDemoActive) return; void sendMessage(question); }}
+                            onClick={() => sendMessage(question)}
                             className="text-left px-3 py-2.5 rounded-xl bg-white border border-gray-200 hover:border-[#3B82F6] hover:bg-[#FAFBFF]/50 text-sm text-gray-700 transition-colors"
                           >
                             {question}
@@ -920,9 +992,31 @@ export function ScoutSidePanel() {
                                   {message.content && (
                                     <div className="bg-gray-100 rounded-3xl rounded-bl-md px-4 py-2.5">
                                       <div
-                                        className="text-sm text-gray-900 leading-relaxed"
+                                        className="text-sm text-gray-900 leading-relaxed [overflow-wrap:anywhere] break-words"
+                                        // Intercept clicks on chips marked
+                                        // data-scout-link so they route via
+                                        // react-router instead of triggering
+                                        // a full page reload (which would
+                                        // close the Scout panel).
+                                        onClick={(e) => {
+                                          const target = e.target as HTMLElement
+                                          const link = target.closest('a[data-scout-link]') as HTMLAnchorElement | null
+                                          if (!link) return
+                                          const href = link.getAttribute('href') || ''
+                                          if (!href.startsWith('/')) return
+                                          e.preventDefault()
+                                          closePanel()
+                                          navigate(href)
+                                        }}
                                         dangerouslySetInnerHTML={{ __html: formatMessage(message.content) }}
                                       />
+                                      {/* Phase 4B (E1): inline coverage gauge
+                                          on briefing messages. The component
+                                          self-hides above 90% so finished
+                                          profiles don't see ambient noise. */}
+                                      {message.coverage && !message.isStreaming && (
+                                        <CompletenessGauge coverage={message.coverage} />
+                                      )}
                                     </div>
                                   )}
                                   {/* Live tool pills (still running) - shown
@@ -1008,12 +1102,12 @@ export function ScoutSidePanel() {
                     disabled={isLoading}
                   />
                   <button
-                    onClick={() => { if (scoutDemoActive) return; void sendMessage(); }}
+                    onClick={() => sendMessage()}
                     disabled={!input.trim() || isLoading}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg text-white bg-[#4C62A8] hover:bg-[#3E5395] disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg text-white bg-[#0F172A] hover:bg-[#1E293B] disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
                     aria-label="Send message"
                   >
-                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" strokeWidth={2.5} />}
+                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   </button>
                 </div>
                 <p className="text-xs text-gray-400 text-center mt-2">Free to chat</p>

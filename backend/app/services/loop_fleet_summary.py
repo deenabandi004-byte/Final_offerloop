@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from app.extensions import get_db
 from app.services.loop_budget import _start_of_iso_week_utc
 from app.services.loop_service import _action_to_items
+from app.services.outbox_service import POST_SEND_STAGES
 
 logger = logging.getLogger(__name__)
 
@@ -27,30 +28,13 @@ logger = logging.getLogger(__name__)
 # ── Weekly summary ─────────────────────────────────────────────────────────
 
 
-def _count_results_in_action(action: dict) -> int:
-    """How many surface-able rows did this completed action produce? Mirrors
-    the buckets the feed expands (`_action_to_items`) so the summary number
-    matches what the user actually sees on screen.
-    """
-    result = action.get("result") or {}
-    if not isinstance(result, dict):
-        return 0
-    action_type = action.get("action")
-    if action_type in ("find", "find_hiring_managers"):
-        return len(result.get("contacts") or [])
-    if action_type == "find_jobs":
-        return len(result.get("jobs") or [])
-    if action_type == "discover_companies":
-        return len(result.get("companies") or [])
-    return 0
-
-
 def get_fleet_weekly_summary(uid: str) -> dict:
     """Aggregate fleet-wide metrics for the LoopsCommandBar.
 
-    Reads agent_actions once (status=completed, createdAt>=week_start) and
-    buckets find counts by day. Reads loop docs for the goal denominator and
-    `pendingDrafts` rollup.
+    "Found" counts the people we've actually moved on — drafts still waiting
+    on the user plus every contact whose email has already gone out. Reading
+    pipelineStage on contacts means the number matches the user's pipeline
+    instead of drifting against agent_actions write history.
     """
     db = get_db()
     now = datetime.now(timezone.utc)
@@ -72,62 +56,26 @@ def get_fleet_weekly_summary(uid: str) -> dict:
     except Exception:
         logger.exception("fleet_weekly_summary: failed to read loops for uid=%s", uid)
 
-    # ── draftsWaiting from contacts ──
-    # The Loop doc's `pendingDrafts` counter is never written today (it's only
-    # initialized to 0 in _loop_defaults). The authoritative signal is the
-    # contact's pipelineStage — the same one get_agent_stats and the outbox
-    # use. Count every contact still at "draft_created" regardless of source
-    # so a user's manual drafts also surface in the fleet command bar.
+    # ── draftsWaiting + emailsSent from contacts ──
+    # Found = drafts waiting on user + emails already sent. One scan of the
+    # contacts subcollection tallies both — same source the outbox uses, so
+    # the numbers stay in lock-step with the tracker.
     drafts_waiting = 0
+    emails_sent = 0
     try:
         contacts_ref = (
             db.collection("users").document(uid).collection("contacts")
         )
         for doc in contacts_ref.stream():
-            data = doc.to_dict() or {}
-            if data.get("pipelineStage") == "draft_created":
+            stage = (doc.to_dict() or {}).get("pipelineStage")
+            if stage == "draft_created":
                 drafts_waiting += 1
+            elif stage in POST_SEND_STAGES:
+                emails_sent += 1
     except Exception:
         logger.exception("fleet_weekly_summary: failed to read contacts for uid=%s", uid)
 
-    # ── foundThisWeek + sparkline from agent_actions ──
-    found_this_week = 0
-    # 7 daily buckets — index 0 is 6 days ago, index 6 is today, so the line
-    # reads left-to-right as the week progresses (matches the design).
-    spark = [0] * 7
-    try:
-        # Single-field range query so Firestore doesn't ask for a composite
-        # index on (status, createdAt). We filter status==completed client-side
-        # below — the cardinality difference is small over a 7-day window and
-        # this keeps the endpoint working out-of-the-box on any account.
-        actions_ref = (
-            db.collection("users").document(uid)
-              .collection("agent_actions")
-              .where("createdAt", ">=", week_start_iso)
-        )
-        for doc in actions_ref.stream():
-            data = doc.to_dict() or {}
-            if data.get("status") != "completed":
-                continue
-            count = _count_results_in_action(data)
-            if count <= 0:
-                continue
-            found_this_week += count
-            created = data.get("completedAt") or data.get("createdAt") or ""
-            if not isinstance(created, str):
-                continue
-            try:
-                created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
-            except (TypeError, ValueError):
-                continue
-            days_ago = (now.date() - created_dt.date()).days
-            # Clamp to the current week window (0..6 inclusive). Anything
-            # outside is ignored — defensive against clock skew.
-            idx = 6 - days_ago
-            if 0 <= idx < 7:
-                spark[idx] += count
-    except Exception:
-        logger.exception("fleet_weekly_summary: failed to read agent_actions for uid=%s", uid)
+    found_this_week = drafts_waiting + emails_sent
 
     weekly_progress_pct = 0
     if weekly_goal > 0:
@@ -135,7 +83,9 @@ def get_fleet_weekly_summary(uid: str) -> dict:
 
     return {
         "foundThisWeek": found_this_week,
-        "weeklySparkline": spark,
+        # Sparkline is no longer rendered (LoopsCommandBar dropped the graph);
+        # we keep the field in the response so older clients don't break.
+        "weeklySparkline": [0] * 7,
         "draftsWaiting": drafts_waiting,
         "weeklyGoal": weekly_goal,
         "weeklyProgressPct": weekly_progress_pct,

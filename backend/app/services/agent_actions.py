@@ -404,13 +404,31 @@ def execute_find_and_draft(
     """
     db = get_db()
     company = action.get("company", "")
-    title = action.get("title", "Software Engineer")
+    # No "Software Engineer" default — that was a latent footgun (S1.5):
+    # a planner regression on an IB / consulting brief would silently
+    # mis-target the PDL query to SWEs. Fall back first to the brief's
+    # first role, then to a generic "Professional" string. PDL's
+    # _expand_titles broadens "Professional" into individual contributor
+    # / senior titles per-industry, which is a more honest baseline than
+    # tech-skewed "Software Engineer".
+    title = (
+        action.get("title")
+        or (config.get("targetRoles") or [None])[0]
+        or "Professional"
+    )
     count = min(action.get("count", 3), 5)
 
-    # Build parsed prompt for PDL (must match prompt_parser output format)
+    # Build parsed prompt for PDL (must match prompt_parser output format).
+    # `industries` comes from briefParsed.industries — without it, a brief
+    # like "PMs at Stripe about breaking into fintech" loses the fintech
+    # signal entirely and PDL gets only company+title. `build_query_from_prompt`
+    # (pdl_client.py:3044) actively reads industries to add must-match
+    # clauses, so passing them through narrows the result to the right
+    # crowd within each target company.
     parsed_prompt = {
         "companies": [{"name": company}] if company else [],
         "title_variations": [title.lower()] if title else [],
+        "industries": [],
         "schools": [],
         "locations": [],
     }
@@ -420,10 +438,20 @@ def execute_find_and_draft(
     if config.get("preferAlumni") and prof.get("university"):
         parsed_prompt["schools"] = [prof["university"]]
 
-    # Add location preference (locations expects plain strings)
+    # Add industry preferences from the brief (config.targetIndustries is
+    # populated from briefParsed.industries upstream in loop_jobs.py).
+    industries = config.get("targetIndustries") or []
+    if industries:
+        # Cap at 5 — PDL's must-match clause grows linearly and 5 is well
+        # past the point where the student's stated industries diverge.
+        parsed_prompt["industries"] = [ind for ind in industries[:5] if ind]
+
+    # Add location preference (locations expects plain strings). Cap at 5
+    # — same justification as industries. The old cap of 2 silently
+    # dropped the user's 3rd+ preferred location (S1.4).
     locations = config.get("targetLocations", [])
     if locations:
-        parsed_prompt["locations"] = [loc for loc in locations[:2]]
+        parsed_prompt["locations"] = [loc for loc in locations[:5] if loc]
 
     # Build exclusion set (dedup against existing contacts)
     exclusion_data = _build_exclusion_sets(uid, db)
@@ -451,12 +479,23 @@ def execute_find_and_draft(
         raw_contacts = result[0] if isinstance(result, tuple) else result
         logger.info("Agent find first attempt: %d contacts for %s", len(raw_contacts) if raw_contacts else 0, company)
 
-        # If no results found with alumni+location filters, retry with just company+title
-        if not raw_contacts and (parsed_prompt.get("schools") or parsed_prompt.get("locations")):
-            logger.info("Agent retry without alumni/location filters for %s", company)
+        # If no results found with alumni+location+industry filters, retry
+        # with just company+title. Industries are dropped on retry along
+        # with schools/locations — broadening past the brief's specifics
+        # is the whole point of the relaxed pass.
+        if not raw_contacts and (
+            parsed_prompt.get("schools")
+            or parsed_prompt.get("locations")
+            or parsed_prompt.get("industries")
+        ):
+            logger.info(
+                "Agent retry without alumni/location/industry filters for %s",
+                company,
+            )
             relaxed_prompt = {
                 "companies": parsed_prompt["companies"],
                 "title_variations": parsed_prompt.get("title_variations", []),
+                "industries": [],
                 "schools": [],
                 "locations": [],
             }
@@ -621,6 +660,14 @@ def execute_find_and_draft(
             },
             auth_display_name=user_data.get("name") or prof.get("name") or "",
             enrichment_data=enrichment_data,
+            # Loop brief — the student's own words describing what this Loop
+            # is chasing. Drafts that don't see this read as generic
+            # networking; with it the LLM can frame the email around the
+            # actual goal ("summer fintech internship", "breaking into PM",
+            # etc.). briefParsed gives the structured chip view as backup
+            # when the freeform sentence is sparse.
+            loop_brief_text=config.get("briefText") or "",
+            loop_brief_parsed=config.get("briefParsed") or None,
         )
     except Exception as e:
         logger.exception("Email generation failed for agent uid=%s", uid)
@@ -753,11 +800,13 @@ def execute_find_and_draft(
             "name": contact_key,
             "title": contact_doc.get("Title", ""),
             "company": contact_doc["company"],
+            "email": email,
             "hasEmail": bool(email_data),
             "emailSubject": email_data.get("subject", "") if email_data else "",
             "emailBodyPreview": (email_data.get("body", "") if email_data else "")[:200],
             "gmailDraftId": contact_doc.get("gmailDraftId", ""),
             "gmailDraftUrl": contact_doc.get("gmailDraftUrl", ""),
+            "gmailThreadId": contact_doc.get("gmailThreadId", ""),
         })
 
     # Per-contact credit cost — see CREDIT_COSTS in loop_budget.py.
@@ -1188,25 +1237,15 @@ def execute_find_hiring_managers(
     hms = result.get("hiringManagers", result.get("hiring_managers", []))
     emails_list = result.get("emails", [])
 
-    # Verify HMs are still active via Perplexity
-    try:
-        from app.services.perplexity_client import verify_hiring_managers
-        verifications = verify_hiring_managers(hms, company, job_title)
-        # Filter out HMs who have left the company
-        active_hms = []
-        active_emails = []
-        for i, (hm, v) in enumerate(zip(hms, verifications)):
-            if v.get("verified", True):
-                active_hms.append(hm)
-                if i < len(emails_list):
-                    active_emails.append(emails_list[i])
-        if active_hms:
-            hms = active_hms
-            emails_list = active_emails
-            logger.info("HM verification: %d/%d verified active at %s",
-                        len(active_hms), len(verifications), company)
-    except Exception:
-        logger.warning("HM verification failed, using all candidates", exc_info=True)
+    # NOTE: `find_hiring_manager` already runs `verify_hiring_managers_v2`
+    # internally (recruiter_finder.py:1689). v2 uses structured output,
+    # parallel verification, *filters* stale candidates from the pool, and
+    # corrects stale PDL titles. The HMs returned here are already the
+    # post-v2 survivors and `emails_list` is aligned to them. Running v1
+    # (`verify_hiring_managers`) here would just bill Perplexity a second
+    # time per HM for a weaker free-text check — that was the historical
+    # double-billing bug. Don't add a second verification pass without
+    # also turning off v2 upstream.
 
     contacts_ref = db.collection("users").document(uid).collection("contacts")
     now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -1302,12 +1341,14 @@ def execute_find_hiring_managers(
             "name": f"{first_name} {last_name}",
             "title": contact_doc.get("Title", ""),
             "company": company,
+            "email": hm_email,
             "hasEmail": bool(email_body),
             "emailSubject": email_subject,
             "emailBodyPreview": email_body_plain[:200] if email_body_plain else "",
             "isHiringManager": True,
             "gmailDraftId": contact_doc.get("gmailDraftId", ""),
             "gmailDraftUrl": contact_doc.get("gmailDraftUrl", ""),
+            "gmailThreadId": contact_doc.get("gmailThreadId", ""),
         })
 
     # Per-HM credit cost — see CREDIT_COSTS in loop_budget.py.

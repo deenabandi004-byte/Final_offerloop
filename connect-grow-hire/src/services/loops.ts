@@ -220,6 +220,11 @@ export interface LoopActivityItem {
   /** True when linkTo is an external URL (Gmail draft, job apply page).
    *  The feed opens these in a new tab with target=_blank. */
   external?: boolean;
+  /** Recipient address for draft rows. Surfaced in the activity feed
+   *  so users can scan who each draft went to without drilling in.
+   *  Absent on non-draft items and on legacy drafts written before
+   *  agent_actions started persisting it. */
+  email?: string;
   createdAt: string;
   /** Pairs a job posting with its founder-draft sub-card in the activity
    *  feed. Items that share a groupKey render as a hierarchy (job primary,

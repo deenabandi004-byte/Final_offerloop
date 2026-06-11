@@ -158,6 +158,59 @@ export async function parseBrief(
   return res.json();
 }
 
+// ── AI-proposed brief (V2 Loops wizard) ────────────────────────────────────
+
+export type ProposeStatus = "ok" | "empty" | "failed";
+
+export interface ProposedBrief {
+  sentence: string;
+  companies: string[];
+  roles: string[];
+  industries: string[];
+  locations: string[];
+  status: ProposeStatus;
+}
+
+/**
+ * Ask the backend to draft a starting Loop brief from the user's resume +
+ * profile. Used by the V2 Loops setup wizard on Step 01 mount so students
+ * never face a blank textarea. 502 from the route becomes status="failed"
+ * in the returned object — never an exception — so the wizard can show a
+ * graceful fallback.
+ */
+export async function proposeBrief(): Promise<ProposedBrief> {
+  const { auth } = await import("../lib/firebase");
+  await auth.authStateReady();
+  const user = auth.currentUser;
+  if (!user) throw new Error("Not authenticated");
+  const token = await user.getIdToken();
+
+  const res = await fetch(`${API_BASE_URL}/agent/propose-brief`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (res.status === 502) {
+    const body = await res.json().catch(() => ({}));
+    return {
+      sentence: body.sentence ?? "",
+      companies: body.companies ?? [],
+      roles: body.roles ?? [],
+      industries: body.industries ?? [],
+      locations: body.locations ?? [],
+      status: "failed",
+    };
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Propose-brief error: ${res.status}`);
+  }
+  return res.json();
+}
+
 // ── Lifecycle ───────────────────────────────────────────────────────────────
 
 export async function deployAgent(): Promise<AgentConfig> {

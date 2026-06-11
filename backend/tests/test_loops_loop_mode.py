@@ -39,12 +39,14 @@ from app.services.loop_service import (
 # ── Service: _loop_defaults ──────────────────────────────────────────────
 
 
-def test_loop_defaults_includes_people_mode():
-    """The default Loop shape must carry loopMode='people' so any code that
-    reads a freshly-created doc sees the field. Verifies the static contract
-    before we test create_loop end-to-end."""
+def test_loop_defaults_uses_both_mode():
+    """The default Loop shape must carry loopMode='both' — V2 Loops always
+    run networking + job-search against one budget (see CLAUDE.md and the
+    wizard's hardcoded `loopMode: "both"`). Pre-S5 the default was
+    'people', which silently downgraded any non-wizard caller (legacy
+    routes, scripts, partial migrations) below the actual product default."""
     defaults = _loop_defaults()
-    assert defaults["loopMode"] == "people"
+    assert defaults["loopMode"] == "both"
 
 
 def test_loop_modes_constant_is_complete():
@@ -174,9 +176,9 @@ def test_create_loop_with_roles_mode_persists(monkeypatch):
     assert writes[0]["loopMode"] == "roles"
 
 
-def test_create_loop_missing_loop_mode_defaults_to_people(monkeypatch):
-    """Old clients that don't send loopMode must result in a Loop with
-    loopMode='people' (today's networking behavior preserved)."""
+def test_create_loop_missing_loop_mode_defaults_to_both(monkeypatch):
+    """Old clients that don't send loopMode now land on 'both' — the V2
+    product default. Pre-S5 they silently got 'people'."""
     db, writes = _fake_db_capturing_writes()
     monkeypatch.setattr(loop_service, "get_db", lambda: db)
     monkeypatch.setattr(loop_service, "_migrate_legacy_config", lambda _uid: None)
@@ -187,13 +189,13 @@ def test_create_loop_missing_loop_mode_defaults_to_people(monkeypatch):
         payload={"briefText": "10 analysts at Goldman"},  # no loopMode key
     )
 
-    assert writes[0]["loopMode"] == "people"
+    assert writes[0]["loopMode"] == "both"
 
 
-def test_create_loop_invalid_mode_falls_back_to_people(monkeypatch):
-    """Defense-in-depth: if a bogus loopMode somehow makes it past the route
-    validation (e.g., a non-HTTP caller), the service silently defaults to
-    'people'. The route is responsible for returning 400 to clients."""
+def test_create_loop_invalid_mode_falls_back_to_both(monkeypatch):
+    """Defense-in-depth: if a bogus loopMode somehow makes it past route
+    validation, the service silently defaults to 'both'. The route is
+    still responsible for returning 400 to HTTP clients."""
     db, writes = _fake_db_capturing_writes()
     monkeypatch.setattr(loop_service, "get_db", lambda: db)
     monkeypatch.setattr(loop_service, "_migrate_legacy_config", lambda _uid: None)
@@ -207,35 +209,28 @@ def test_create_loop_invalid_mode_falls_back_to_people(monkeypatch):
         },
     )
 
-    assert writes[0]["loopMode"] == "people"
+    assert writes[0]["loopMode"] == "both"
 
 
 # ── Regression: existing Loop docs without loopMode field ────────────────
 
 
-def test_existing_loop_without_loop_mode_does_not_crash_callers():
-    """CRITICAL REGRESSION TEST.
-
-    Loops created before this change won't have the loopMode field in
-    Firestore. Any code that reads them via `.get("loopMode", "people")`
-    must see "people" and proceed normally.
-
-    This test asserts the contract: the recommended read pattern resolves
-    to "people" for missing keys, so old Loops behave as networking Loops
-    (which is what they actually were).
-    """
+def test_existing_loop_without_loop_mode_now_reads_as_both():
+    """Post-S5 contract: old loop docs missing the loopMode field get
+    resolved to 'both' by the recommended read pattern. This intentionally
+    upgrades pre-V2 networking-only Loops to also pursue job-search on
+    their next cycle — matching the V2 product default. The change is
+    one-way (read-only); we don't backfill the Firestore doc."""
     old_loop_doc = {
         "id": "abc",
-        "name": "Old networking loop",
+        "name": "Pre-V2 loop",
         "briefText": "Find analysts",
-        # NOTE: no loopMode key — simulates Firestore docs from before
-        # this change.
+        # NOTE: no loopMode key — simulates pre-V2 Firestore docs.
         "status": "running",
     }
 
-    # The read pattern used everywhere in the codebase:
-    resolved = old_loop_doc.get("loopMode", "people")
-    assert resolved == "people"
+    resolved = old_loop_doc.get("loopMode", "both")
+    assert resolved == "both"
 
 
 # ── Route layer: 400 on invalid input ────────────────────────────────────

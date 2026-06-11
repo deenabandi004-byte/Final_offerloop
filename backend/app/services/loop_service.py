@@ -39,6 +39,7 @@ from app.services.loop_budget import (
     BUNDLED_BUDGET_BUFFER,
     BUNDLED_COST_PER_PERSON,
 )
+from app.services.tier_defaults import weekly_target_for_tier
 
 logger = logging.getLogger(__name__)
 
@@ -142,9 +143,12 @@ def _loop_defaults() -> dict:
         "weekCreditsSpent": 0,
         "weekStartedAt": None,
         "pauseReason": None,
-        # "people" preserves today's networking behavior. Read-only after
-        # creation — see LOOP_MODES comment.
-        "loopMode": "people",
+        # Default mirrors the V2 wizard's hardcoded `loopMode: "both"` —
+        # every Loop pursues networking + job-search against one budget.
+        # Pre-V2 paths that omit loopMode used to silently get "people"
+        # (S5.1 in the loops audit); now they get the same behavior as
+        # the wizard, which is the actual product default.
+        "loopMode": "both",
         # Phase 9 — auto-send. Default "draft_only" matches today's
         # "Autopilot" behavior (cycle runs, Gmail draft created, no send).
         # Flipping to "send_for_me" activates the send_gate in agent_actions.
@@ -367,7 +371,6 @@ def create_loop(uid: str, tier: str, payload: dict) -> dict:
     # (output-first wizard pattern) unless the client explicitly supplied one.
     # Always enforce the tier max and a 25-credit floor.
     tier_cfg = TIER_CONFIGS.get(tier) or TIER_CONFIGS["free"]
-    default_budget = int(tier_cfg.get("default_credit_budget_per_week_per_loop", 75))
     max_budget = tier_cfg.get("max_credit_budget_per_week_per_loop")  # None = unbounded
     raw_mode_for_budget = (payload or {}).get("loopMode")
     loop_mode_for_budget = (
@@ -378,8 +381,13 @@ def create_loop(uid: str, tier: str, payload: dict) -> dict:
         # Client supplied an explicit cap (Settings → "Hard weekly credit cap").
         # Trust it, but still clamp to tier max + 25-credit floor.
         budget = int(payload_clean["creditBudgetPerWeek"])
-    elif payload_clean.get("weeklyTarget"):
-        # Wizard path: derive from people/week × bundled per-person cost.
+    else:
+        # Wizard V2 hides cadence from the user — when weeklyTarget is missing
+        # we substitute the tier default so both fields land on the Loop doc
+        # consistently and downstream readers (agent_planner, gating) see a
+        # tier-appropriate cadence instead of the _loop_defaults() constant.
+        if not payload_clean.get("weeklyTarget"):
+            payload_clean["weeklyTarget"] = weekly_target_for_tier(tier)
         weekly = int(payload_clean["weeklyTarget"])
         bundled = BUNDLED_COST_PER_PERSON[loop_mode_for_budget]
         budget = int(weekly * bundled * BUNDLED_BUDGET_BUFFER)
@@ -388,9 +396,6 @@ def create_loop(uid: str, tier: str, payload: dict) -> dict:
         # top so the wizard's derived budget covers the new line item.
         if payload_clean.get("autoSendMode") == "send_for_me":
             budget += int(weekly * AUTO_SEND_CREDIT_COST * BUNDLED_BUDGET_BUFFER)
-    else:
-        # No target either — fall back to the tier default.
-        budget = default_budget
 
     if max_budget is not None:
         budget = min(budget, max_budget)
@@ -406,6 +411,16 @@ def create_loop(uid: str, tier: str, payload: dict) -> dict:
     raw_mode = (payload or {}).get("loopMode")
     if raw_mode in LOOP_MODES:
         payload_clean["loopMode"] = raw_mode
+
+    # Derive autoSendMode from the wizard's reviewBeforeSend pick if the
+    # client didn't supply it explicitly. Without this, Autopilot Loops
+    # (reviewBeforeSend=False) still default to "draft_only" and never
+    # actually send — which was S5.3 in the loops audit. Explicit
+    # autoSendMode (Settings power-user surface) still wins.
+    if "autoSendMode" not in payload_clean:
+        if payload_clean.get("reviewBeforeSend") is False:
+            payload_clean["autoSendMode"] = "send_for_me"
+        # else: keep _loop_defaults' "draft_only"
 
     doc = {
         **_loop_defaults(),
@@ -627,7 +642,52 @@ def get_loop_activity(uid: str, loop_id: str, limit: int = 50) -> list[dict]:
 
     # Sort newest first, cap.
     items.sort(key=lambda x: x.get("createdAt") or "", reverse=True)
-    return items[:limit]
+    items = items[:limit]
+
+    # Re-resolve draft items from the live contact doc. The snapshot in
+    # agent_actions.result is frozen at write time, so it misses anything
+    # the contact picked up later — Gmail send, thread sync, reply detection.
+    # The contact subcollection is the source of truth, so we batch-read it
+    # and overwrite the click target + email subtitle on draft rows.
+    contact_ids = [it.get("_contactId") for it in items
+                   if it.get("type") == "draft" and it.get("_contactId")]
+    if contact_ids:
+        contacts_ref = db.collection("users").document(uid).collection("contacts")
+        refs = [contacts_ref.document(cid) for cid in set(contact_ids)]
+        try:
+            contact_map = {
+                snap.id: (snap.to_dict() or {})
+                for snap in db.get_all(refs)
+                if snap.exists
+            }
+        except Exception:
+            contact_map = {}
+        for it in items:
+            if it.get("type") != "draft":
+                continue
+            cid = it.pop("_contactId", None)
+            if not cid:
+                continue
+            cdata = contact_map.get(cid)
+            if not cdata:
+                continue
+            thread_id = (cdata.get("gmailThreadId") or "").strip()
+            draft_url = (cdata.get("gmailDraftUrl") or "").strip()
+            email = (cdata.get("email") or "").strip()
+            if thread_id:
+                it["linkTo"] = f"https://mail.google.com/mail/u/0/#inbox/{thread_id}"
+                it["external"] = True
+            elif draft_url:
+                it["linkTo"] = draft_url
+                it["external"] = True
+            if email:
+                it["subtitle"] = email
+                it["email"] = email
+    else:
+        for it in items:
+            it.pop("_contactId", None)
+
+    return items
 
 
 # Names that almost certainly came from a scraper hitting a broken page.
@@ -711,18 +771,38 @@ def _action_to_items(
                 contact_item["groupKey"] = source_job_id
             out.append(contact_item)
             # If a draft was generated alongside, surface it as its own row.
-            # gmailDraftUrl, when present, is the deep link to the actual
-            # Gmail draft; the frontend opens it in a new tab.
+            # Click target priority: Gmail thread (if sent) > Gmail draft
+            # (if drafted) > tracker fallback. Both Gmail URLs open in a new
+            # tab; the subtitle shows the recipient's email address so users
+            # can scan who each draft went to without drilling in.
             if c.get("emailSubject") or c.get("emailBodyPreview"):
-                draft_url = c.get("gmailDraftUrl") or ""
+                thread_id = (c.get("gmailThreadId") or "").strip()
+                draft_url = (c.get("gmailDraftUrl") or "").strip()
+                contact_email = (c.get("email") or "").strip()
+                if thread_id:
+                    link = f"https://mail.google.com/mail/u/0/#inbox/{thread_id}"
+                    external = True
+                elif draft_url:
+                    link = draft_url
+                    external = True
+                else:
+                    link = f"/tracker?contact={contact_id}" if contact_id else "/tracker"
+                    external = False
                 draft_item = {
                     "id": f"{action_id}-d{i}",
                     "type": "draft",
                     "title": c.get("emailSubject") or f"Draft to {name}",
-                    "subtitle": (c.get("emailBodyPreview") or "")[:120],
-                    "linkTo": draft_url or (f"/tracker?contact={contact_id}" if contact_id else "/tracker"),
-                    "external": bool(draft_url),
+                    "subtitle": contact_email or (c.get("emailBodyPreview") or "")[:120],
+                    "email": contact_email,
+                    "linkTo": link,
+                    "external": external,
                     "createdAt": created_at,
+                    # Internal: lets get_loop_activity re-resolve the live
+                    # contact doc so legacy actions (saved before email /
+                    # gmailThreadId were stamped on saved_contacts) still
+                    # render the right address and click target. Stripped
+                    # before the item leaves the backend.
+                    "_contactId": contact_id,
                 }
                 if source_job_id:
                     draft_item["groupKey"] = source_job_id

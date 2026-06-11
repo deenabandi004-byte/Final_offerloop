@@ -1,37 +1,68 @@
-// Inline agent setup wizard. 2-screen flow: Configure (brief, mode,
-// alumni, cadence, approval mode) then Review.
+// Inline agent setup wizard — 3-step flow with editorial headlines,
+// step rail, tag inputs, and a live preview rail sidebar.
 //
-// The textarea is the primary input. The parser turns it into mode +
-// targeting under the hood. Manual chip editing and the live preview
-// rail were removed; targeting comes entirely from the parser.
+// PR1 update: Step 01 is textarea-first. The student types their goal in
+// natural language; the parser turns it into mode + chips below. Chips
+// stay editable so the parser is a starting point, not a black box.
 
-import { useState, useEffect, useMemo, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import { ArrowLeft, ChevronLeft } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Label } from "@/components/ui/label";
-import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { updateAgentConfig, deployAgent, parseBrief, type ParsedBrief } from "@/services/agent";
+import { parseBrief, type ParsedBrief } from "@/services/agent";
 import { firebaseApi } from "@/services/firebaseApi";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useCreateLoop } from "@/hooks/useLoops";
 import useDebounce from "@/hooks/use-debounce";
+import { useProposedBrief, type UseProposedBriefState } from "@/hooks/useProposedBrief";
+import { useSubscription } from "@/hooks/useSubscription";
+import {
+  estimatedWeeklyCreditsPeople,
+  weeklyTargetForTier,
+} from "@/lib/tierDefaults";
 import { loopCopy, type LoopModeForCopy } from "@/lib/loopCopy";
 
 // ── Constants ──────────────────────────────────────────────────────────
+
+const STEPS = [
+  { id: "goals", num: "01", label: "Goals", sub: "Who and where" },
+  { id: "launch", num: "02", label: "Review & launch", sub: "Pick approval and start" },
+] as const;
+
+type StepDescriptor = (typeof STEPS)[number];
 
 // Soft cap on the textarea. Backend MAX_BRIEF_CHARS is 2000; we soft-warn
 // at the same number so users see the cap before the parser truncates.
 const MAX_BRIEF_CHARS = 2000;
 // 600ms debounce on the textarea parse (PR1 plan D10 spec).
 const BRIEF_PARSE_DEBOUNCE_MS = 600;
-// Below this length the textarea is too thin to be worth parsing, saves
+// Below this length the textarea is too thin to be worth parsing — saves
 // OpenAI calls on the user's first few keystrokes.
 const MIN_BRIEF_CHARS_TO_PARSE = 8;
 
-// Derive a human-readable Loop name from the parsed brief. Mirrors how the
+// Compose a one-paragraph brief from the chip wizard so the same backend
+// pipeline (POST /api/agent/brief → briefText + briefParsed) is the single
+// source of truth as the freeform Loop composer.
+function buildSyntheticBrief(form: {
+  companies: string[];
+  industries: string[];
+  roles: string[];
+  weeklyTarget: number;
+  preferAlumni: boolean;
+}): string {
+  const parts: string[] = [];
+  const whoBits: string[] = [];
+  if (form.roles.length) whoBits.push(form.roles.join(", "));
+  if (form.companies.length) whoBits.push(`at ${form.companies.join(", ")}`);
+  else if (form.industries.length) whoBits.push(`in ${form.industries.join(", ")}`);
+  parts.push(
+    `Find ${form.weeklyTarget} ${whoBits.join(" ") || "professionals"} per week.`
+  );
+  if (form.preferAlumni) parts.push("Prefer alumni from my university.");
+  return parts.join(" ");
+}
+
+// Derive a human-readable Loop name from the wizard form. Mirrors how the
 // design's LoopCard subtitle reads ("Stripe · Linear · Vercel · Product
 // Designer") so the new card slots right in next to existing ones.
 function deriveLoopName(form: {
@@ -51,6 +82,7 @@ function deriveLoopName(form: {
 
 // ── Primitives ─────────────────────────────────────────────────────────
 
+
 function PulseDot({ color = "#22c55e" }: { color?: string }) {
   return (
     <span className="relative inline-block w-[7px] h-[7px]">
@@ -62,43 +94,143 @@ function PulseDot({ color = "#22c55e" }: { color?: string }) {
   );
 }
 
-// ── Field wrapper ──────────────────────────────────────────────────────
 
-function Field({
-  label,
-  hint,
-  children,
+
+// ── Approval-mode card ─────────────────────────────────────────────────
+
+function ModeCard({
+  active,
+  title,
+  desc,
+  tag,
+  onClick,
 }: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
+  active: boolean;
+  title: string;
+  desc: string;
+  tag?: string;
+  onClick: () => void;
 }) {
   return (
-    <div className="mb-7">
-      <div className="flex items-baseline gap-2 mb-2">
-        <Label
+    <button
+      onClick={onClick}
+      className="text-left transition-all cursor-pointer"
+      style={{
+        padding: 14,
+        borderRadius: 3,
+        border: `1px solid ${active ? "#4A60A8" : "var(--line)"}`,
+        background: active ? "rgba(74, 96, 168, 0.06)" : "#FFFFFF",
+        boxShadow: active ? "0 0 0 3px rgba(74, 96, 168, 0.10)" : "none",
+        fontFamily: "'Inter', sans-serif",
+      }}
+    >
+      <div className="flex items-center gap-2 mb-1">
+        <span
+          className="w-2.5 h-2.5 rounded-full"
           style={{
-            fontFamily: "'Inter', sans-serif",
-            fontSize: 13,
-            fontWeight: 600,
-            color: "var(--ink)",
+            border: `${active ? 3 : 1.5}px solid ${active ? "#4A60A8" : "var(--ink-3)"}`,
+            background: active ? "#FFFFFF" : "transparent",
           }}
-        >
-          {label}
-        </Label>
-        {hint && (
-          <span
-            style={{
-              fontFamily: "'Inter', sans-serif",
-              fontSize: 12,
-              color: "var(--ink-3)",
-            }}
-          >
-            · {hint}
+        />
+        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--ink)" }}>
+          {title}
+        </span>
+        {tag && (
+          <span className="ml-auto">
+            <span
+              style={{
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 10.5,
+                fontWeight: 600,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+                color: "#4A60A8",
+                background: "rgba(74, 96, 168, 0.10)",
+                padding: "2px 8px",
+                borderRadius: 100,
+              }}
+            >
+              {tag}
+            </span>
           </span>
         )}
       </div>
-      {children}
+      <div className="text-xs leading-relaxed pl-[18px]" style={{ color: "var(--ink-2)" }}>
+        {desc}
+      </div>
+    </button>
+  );
+}
+
+// ── Step rail ──────────────────────────────────────────────────────────
+
+function StepRail({
+  index,
+  onJump,
+  steps,
+}: {
+  index: number;
+  onJump: (i: number) => void;
+  steps: ReadonlyArray<StepDescriptor>;
+}) {
+  return (
+    <div
+      className="grid"
+      style={{
+        gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))`,
+        background: "var(--paper-2)",
+        border: "1px solid var(--line)",
+        borderRadius: 3,
+        overflow: "hidden",
+        fontFamily: "'Inter', sans-serif",
+      }}
+    >
+      {steps.map((s, i) => {
+        const active = i === index;
+        const done = i < index;
+        return (
+          <button
+            key={s.id}
+            onClick={() => onJump(i)}
+            className="relative text-left py-3.5 px-4 cursor-pointer border-0"
+            style={{
+              background: active ? "#FFFFFF" : "transparent",
+              borderRight: i < steps.length - 1 ? "1px solid var(--line)" : "none",
+            }}
+          >
+            {active && (
+              <span className="absolute left-0 top-0 bottom-0 w-[2px]" style={{ background: "#4A60A8" }} />
+            )}
+            <div className="flex items-center gap-2.5">
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  letterSpacing: "0.04em",
+                  color: done ? "var(--signal-pos)" : active ? "#4A60A8" : "var(--ink-3)",
+                  minWidth: 18,
+                }}
+              >
+                {done ? "✓" : s.num}
+              </span>
+              <div>
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: active ? 600 : 500,
+                    color: active ? "var(--ink)" : done ? "var(--ink-2)" : "var(--ink-3)",
+                  }}
+                >
+                  {s.label}
+                </div>
+                <div style={{ fontSize: 11, marginTop: 2, color: "var(--ink-3)" }}>
+                  {s.sub}
+                </div>
+              </div>
+            </div>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -110,24 +242,17 @@ interface FormState {
   industries: string[];
   roles: string[];
   locations: string[];
-  // Defaults to false. Yes/no question, university-gated.
+  // The parser extracts WHY the student is reaching out ("breaking into
+  // fintech", "summer internship recruiting") and any explicit constraints
+  // ("avoid recruiters", "alumni only"). Both feed the planner prompt
+  // and the email-draft prompt, so we carry them through to deploy rather
+  // than nulling them at the boundary.
+  emailPurpose: string | null;
+  constraints: string[];
   preferAlumni: boolean;
-  // Cadence: turn the schedule on/off, pick daily vs weekly, and how
-  // many contacts and/or roles per cycle. The unit (per day vs per
-  // week) on the sliders follows cadenceFrequency.
-  cadenceEnabled: boolean;
-  cadenceFrequency: "weekly" | "daily";
-  contactsTarget: number;
-  rolesTarget: number;
   approvalMode: "review_first" | "autopilot";
   loopMode: LoopModeForCopy;
 }
-
-// Pricing: 5 credits per contact found + drafted, 2 credits per role
-// surfaced. Used by the live projected cost line in StepCadence and by
-// the deploy payload (creditBudgetPerWeek = projected weekly spend).
-const CREDIT_COST_PER_CONTACT = 5;
-const CREDIT_COST_PER_ROLE = 2;
 
 type ParsePhase = "idle" | "parsing" | "ok" | "empty" | "failed";
 
@@ -135,10 +260,17 @@ type ParsePhase = "idle" | "parsing" | "ok" | "empty" | "failed";
 
 function ParseStatusLine({
   phase,
-  detectedMode,
+  briefLen,
+  extractCounts,
 }: {
   phase: ParsePhase;
-  detectedMode: LoopModeForCopy | null;
+  briefLen: number;
+  extractCounts: {
+    companies: number;
+    roles: number;
+    industries: number;
+    locations: number;
+  };
 }) {
   const baseStyle: React.CSSProperties = {
     fontFamily: "'Inter', sans-serif",
@@ -146,132 +278,65 @@ function ParseStatusLine({
     color: "var(--ink-3)",
     marginTop: 8,
   };
+  // Hide entirely below 10 chars — don't shame users who just opened the
+  // page. Once they've typed enough to be meaningful, show the parser's
+  // readout so they can see what was extracted.
+  if (briefLen < 10 && phase !== "parsing") return null;
+
   if (phase === "parsing") {
     return (
       <div className="flex items-center gap-2" style={baseStyle}>
         <PulseDot color="#4A60A8" />
-        <span>Reading your goal…</span>
+        <span>Reading…</span>
       </div>
     );
   }
-  if (phase === "failed") {
+  const totalEntities =
+    extractCounts.companies +
+    extractCounts.roles +
+    extractCounts.industries +
+    extractCounts.locations;
+  if ((phase === "ok" || phase === "empty") && totalEntities === 0) {
     return (
       <div style={{ ...baseStyle, color: "#b91c1c" }}>
-        Couldn't read that. You can rephrase or add more detail.
-      </div>
-    );
-  }
-  if (phase === "ok" && detectedMode) {
-    const summary = loopCopy(detectedMode).modeSummary;
-    return (
-      <div style={baseStyle}>
-        Read as <span style={{ color: "var(--ink-2)", fontWeight: 600 }}>{summary}</span>.
+        We didn't catch specific targets — try naming a company, role, or industry.
       </div>
     );
   }
   if (phase === "ok") {
     return (
       <div style={baseStyle}>
-        Mode looks ambiguous. Pick one below, or add more detail above.
+        Found: {extractCounts.companies}{" "}
+        {extractCounts.companies === 1 ? "company" : "companies"} ·{" "}
+        {extractCounts.roles} {extractCounts.roles === 1 ? "role" : "roles"} ·{" "}
+        {extractCounts.industries}{" "}
+        {extractCounts.industries === 1 ? "industry" : "industries"}
       </div>
     );
   }
-  if (phase === "empty" || phase === "idle") {
+  if (phase === "failed") {
     return (
-      <div style={baseStyle}>
-        Type a sentence or two above. The parser fills in the rest.
+      <div style={{ ...baseStyle, color: "#b91c1c" }}>
+        Couldn't read that — chips left as-is. Edit them by hand or rephrase.
       </div>
     );
   }
   return null;
 }
 
-// ── Mode indicator with manual override ────────────────────────────────
-// Mode is the parser's classification of the brief, with a manual override
-// so the user can correct it without re-typing.
-
-function ModeIndicator({
-  mode,
-  onChange,
-}: {
-  mode: LoopModeForCopy;
-  onChange: (m: LoopModeForCopy) => void;
-}) {
-  const opts: { key: LoopModeForCopy; label: string }[] = [
-    { key: "people", label: "people" },
-    { key: "roles", label: "roles" },
-    { key: "both", label: "both" },
-  ];
-  return (
-    <div className="mb-6">
-      <div className="flex items-baseline gap-2 mb-2">
-        <span
-          style={{
-            fontFamily: "'Inter', sans-serif",
-            fontSize: 13,
-            fontWeight: 600,
-            color: "var(--ink)",
-          }}
-        >
-          Mode
-        </span>
-        <span
-          style={{
-            fontFamily: "'Inter', sans-serif",
-            fontSize: 12,
-            color: "var(--ink-3)",
-          }}
-        >
-          · what's this Loop chasing?
-        </span>
-      </div>
-      <div
-        role="radiogroup"
-        aria-label="Loop mode"
-        className="inline-flex overflow-hidden"
-        style={{ border: "1px solid var(--line)", borderRadius: 3, background: "#FFFFFF" }}
-      >
-        {opts.map((o, i) => {
-          const active = mode === o.key;
-          return (
-            <button
-              key={o.key}
-              role="radio"
-              aria-checked={active}
-              onClick={() => onChange(o.key)}
-              className="transition-colors"
-              style={{
-                padding: "6px 14px",
-                fontFamily: "'Inter', sans-serif",
-                fontSize: 13,
-                fontWeight: 500,
-                textTransform: "capitalize",
-                background: active ? "#4A60A8" : "transparent",
-                color: active ? "#FFFFFF" : "var(--ink-2)",
-                borderLeft: i > 0 ? "1px solid var(--line)" : "none",
-              }}
-            >
-              {o.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 function StepGoals({
   form,
-  set,
   briefText,
   setBriefText,
   parsePhase,
   hasUniversity,
   university,
   profileFacts,
+  proposedBrief,
+  showAiDraftLabel,
 }: {
   form: FormState;
-  set: (patch: Partial<FormState>) => void;
   briefText: string;
   setBriefText: (v: string) => void;
   parsePhase: ParsePhase;
@@ -283,12 +348,15 @@ function StepGoals({
     preferredLocations: string[];
     extractedRoles: string[];
   };
+  proposedBrief: UseProposedBriefState;
+  showAiDraftLabel: boolean;
 }) {
+  const copy = loopCopy(form.loopMode, { school: university });
   const overLimit = briefText.length > MAX_BRIEF_CHARS;
   const [focused, setFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Goal-oriented prompts. Loops are persistent, so the textarea reads more
+  // Goal-oriented prompts — Loops are persistent, so the textarea reads more
   // like "what am I trying to accomplish?" than a single-shot search query.
   // Profile facts (university, target industry/firm) fill in when present so
   // the rotating examples sound like the user's own goals.
@@ -356,10 +424,124 @@ function StepGoals({
     };
   }, [briefText, focused, typewriterExamples]);
 
+  // "Suggest from my profile" button label varies with the proposal's
+  // current state — loading, failed, fresh-data, or never-fetched.
+  const proposalHasData =
+    !!proposedBrief.data && proposedBrief.data.status === "ok";
+  const proposalLoading = proposedBrief.loading;
+  const proposalFailed =
+    !!proposedBrief.error || proposedBrief.data?.status === "failed";
+  const suggestLabel = proposalLoading
+    ? "Suggesting…"
+    : proposalFailed
+      ? "Try again"
+      : proposalHasData
+        ? "✨ Re-suggest"
+        : "✨ Suggest from my profile";
+
   return (
     <div>
-      {/* Brief textarea: Find-page-style hero prompt with typewriter
-          placeholder. */}
+      {/* Scout greeter — warm intro, then steps back. From the Loops
+          redesign handoff (screen-newloop.jsx) so Step 01 reads as a
+          conversation, not a form. */}
+      <div
+        className="mb-6 flex items-center gap-3"
+        style={{ fontFamily: "'Inter', sans-serif" }}
+      >
+        <img
+          src="/scout-find.png"
+          alt=""
+          aria-hidden
+          style={{
+            width: 52,
+            height: 52,
+            objectFit: "contain",
+            flexShrink: 0,
+            filter: "drop-shadow(0 6px 10px rgba(30,45,77,.16))",
+          }}
+        />
+        <div
+          style={{
+            position: "relative",
+            background: "rgba(74, 96, 168, 0.08)",
+            border: "1px solid rgba(74, 96, 168, 0.20)",
+            borderRadius: 14,
+            padding: "11px 16px",
+            maxWidth: 440,
+          }}
+        >
+          <div style={{ fontSize: 13.5, color: "var(--ink-2)", lineHeight: 1.5 }}>
+            Tell me who you're chasing and I'll line up real people to reach.
+            <strong style={{ color: "#1E2D4D", fontWeight: 600 }}>
+              {" "}Everything here is editable.
+            </strong>
+          </div>
+          <span
+            aria-hidden
+            style={{
+              position: "absolute",
+              left: -6,
+              top: 17,
+              width: 11,
+              height: 11,
+              background: "rgba(74, 96, 168, 0.08)",
+              borderLeft: "1px solid rgba(74, 96, 168, 0.20)",
+              borderBottom: "1px solid rgba(74, 96, 168, 0.20)",
+              transform: "rotate(45deg)",
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Suggest-from-profile button — sits above the textarea per the
+          design spec so the AI assist is always visible without taking
+          the textarea's prominence. */}
+      <div
+        className="mb-2 flex items-center justify-end"
+        style={{ fontFamily: "'Inter', sans-serif" }}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            void proposedBrief.refetch();
+          }}
+          disabled={proposalLoading}
+          aria-label="Suggest a brief from my profile"
+          style={{
+            fontSize: 12,
+            fontWeight: 500,
+            color: proposalLoading ? "var(--ink-3)" : "var(--ink-2)",
+            background: "transparent",
+            border: "1px solid var(--line)",
+            borderRadius: 999,
+            padding: "5px 12px",
+            cursor: proposalLoading ? "default" : "pointer",
+            transition: "color 0.15s ease, border-color 0.15s ease",
+          }}
+        >
+          {suggestLabel}
+        </button>
+      </div>
+
+      {/* Small "AI draft" label, visible only while the textarea still
+          holds the AI-proposed sentence (drops to false on first user
+          keystroke via the parent's wrapped setBriefText). */}
+      {showAiDraftLabel && (
+        <div
+          aria-live="polite"
+          style={{
+            fontFamily: "'Inter', sans-serif",
+            fontSize: 12,
+            color: "var(--ink-3)",
+            marginBottom: 6,
+          }}
+        >
+          ✨ AI draft — edit anything
+        </div>
+      )}
+
+      {/* Brief textarea — Find-page-style hero prompt with typewriter
+          placeholder and profile-aware QuickStarters underneath. */}
       <div className="mb-5">
         <div
           style={{
@@ -398,7 +580,13 @@ function StepGoals({
           <div className="flex items-center justify-between" style={{ marginTop: 12 }}>
             <ParseStatusLine
               phase={parsePhase}
-              detectedMode={parsePhase === "ok" ? form.loopMode : null}
+              briefLen={briefText.length}
+              extractCounts={{
+                companies: form.companies.length,
+                roles: form.roles.length,
+                industries: form.industries.length,
+                locations: form.locations.length,
+              }}
             />
             <span
               className="ml-3 shrink-0"
@@ -413,681 +601,89 @@ function StepGoals({
             </span>
           </div>
         </div>
-        <div
-          style={{
-            textAlign: "center",
-            fontFamily: "'Inter', sans-serif",
-            fontSize: 12,
-            color: "var(--ink-3)",
-            marginTop: 8,
-          }}
-        >
-          The more detailed the better.
-        </div>
+
       </div>
 
-      {/* Mode (parser outcome with manual override) */}
-      <ModeIndicator mode={form.loopMode} onChange={(m) => set({ loopMode: m })} />
-
-      {/* Alumni: yes/no question, defaults OFF. University-gated:
-          disabled and gray when the user has no school on file. The old
-          mode-aware label ("Prefer alumni" / "Prefer warm angles") is
-          gone; the question is now fixed. */}
-      <div
-        className="flex items-center justify-between"
-        style={{
-          paddingTop: 18,
-          borderTop: "1px solid var(--line-2)",
-          fontFamily: "'Inter', sans-serif",
-        }}
-      >
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ink)" }}>
-            Do you want us to target alumni?
-          </div>
-          <div style={{ fontSize: 12.5, marginTop: 2, color: "var(--ink-3)" }}>
-            {hasUniversity
-              ? `We'll prioritize alumni from ${university}.`
-              : "Set your university in Account Settings to use this."}
-          </div>
-        </div>
-        <Switch
-          checked={hasUniversity && form.preferAlumni}
-          disabled={!hasUniversity}
-          onCheckedChange={(v) => set({ preferAlumni: v })}
-          aria-label="Target alumni"
-        />
-      </div>
-    </div>
-  );
-}
-
-function BigSlider({
-  value,
-  unit,
-  min,
-  max,
-  step,
-  onChange,
-  ariaLabel,
-}: {
-  value: number;
-  unit: string;
-  min: number;
-  max: number;
-  step: number;
-  onChange: (v: number) => void;
-  ariaLabel: string;
-}) {
-  return (
-    <div>
-      <div className="flex items-baseline gap-2 mb-3">
-        <span
-          style={{
-            fontFamily: "'Instrument Serif', Georgia, serif",
-            fontSize: 32,
-            fontWeight: 700,
-            letterSpacing: "-0.025em",
-            lineHeight: 1,
-            color: "#4A60A8",
-          }}
-        >
-          {value}
-        </span>
-        <span
-          style={{
-            fontFamily: "'Inter', sans-serif",
-            fontSize: 13,
-            color: "var(--ink-3)",
-          }}
-        >
-          {unit}
-        </span>
-      </div>
-      <Slider
-        min={min}
-        max={max}
-        step={step}
-        value={[value]}
-        onValueChange={([v]) => onChange(v)}
-        aria-label={ariaLabel}
-      />
-      <div
-        className="flex justify-between mt-2"
-        style={{
-          fontFamily: "'Inter', sans-serif",
-          fontSize: 11,
-          fontWeight: 500,
-          color: "var(--ink-3)",
-        }}
-      >
-        <span>{min}</span>
-        <span>{max}</span>
-      </div>
-    </div>
-  );
-}
-
-// Cadence: "Cadence?" header + explainer + on/off Switch. When on,
-// reveals a Weekly/Daily segmented control and mode-driven sliders
-// (contacts for people, roles for roles, both in both mode). The slider
-// unit and the projected cost line both follow the picked frequency.
-// Pricing is fixed: 5 credits per contact, 2 credits per role.
-function StepCadence({
-  form,
-  set,
-}: {
-  form: FormState;
-  set: (patch: Partial<FormState>) => void;
-}) {
-  const unit = form.cadenceFrequency === "daily" ? "day" : "week";
-  const showContacts = form.loopMode === "people" || form.loopMode === "both";
-  const showRoles = form.loopMode === "roles" || form.loopMode === "both";
-  const contactsCost = showContacts ? form.contactsTarget * CREDIT_COST_PER_CONTACT : 0;
-  const rolesCost = showRoles ? form.rolesTarget * CREDIT_COST_PER_ROLE : 0;
-  const projectedCost = contactsCost + rolesCost;
-
-  return (
-    <div className="mb-7">
-      <h3
-        style={{
-          fontFamily: "'Instrument Serif', Georgia, serif",
-          fontSize: 32,
-          fontWeight: 400,
-          letterSpacing: "-0.01em",
-          color: "#0f2545",
-          marginBottom: 6,
-        }}
-      >
-        Cadence?
-      </h3>
-      <p
-        style={{
-          fontFamily: "'Inter', sans-serif",
-          fontSize: 14,
-          lineHeight: 1.55,
-          color: "var(--ink-3)",
-          marginBottom: 14,
-          maxWidth: 520,
-        }}
-      >
-        Cadence wakes your Loop up so it works for you on a schedule, daily or weekly.
-      </p>
-      <div className="flex items-center gap-3 mb-2" style={{ fontFamily: "'Inter', sans-serif" }}>
-        <Switch
-          checked={form.cadenceEnabled}
-          onCheckedChange={(v) => set({ cadenceEnabled: v })}
-          aria-label="Run on a cadence"
-        />
-        <span
-          style={{
-            fontSize: 13,
-            fontWeight: 500,
-            color: form.cadenceEnabled ? "var(--ink)" : "var(--ink-3)",
-          }}
-        >
-          {form.cadenceEnabled ? "On" : "Off"}
-        </span>
-      </div>
-
-      {form.cadenceEnabled && (
+      {/* Prefer-alumni is now always on — the toggle was removed because
+          alumni boost is strictly additive (PDL filter narrows results
+          when the student has a university on file, no-ops otherwise).
+          We surface a one-line confirmation so the behavior isn't
+          completely silent. */}
+      {hasUniversity && (
         <div
           style={{
             marginTop: 18,
-            padding: "18px 18px 20px 18px",
-            border: "1px solid var(--line)",
-            borderRadius: 8,
-            background: "var(--paper-2)",
+            padding: "10px 14px",
+            borderRadius: 12,
+            background: "rgba(74, 96, 168, 0.06)",
+            border: "1px solid rgba(74, 96, 168, 0.16)",
+            fontFamily: "'Inter', sans-serif",
+            fontSize: 12.5,
+            color: "#1E2D4D",
+            lineHeight: 1.5,
           }}
         >
-          {/* Frequency: Weekly | Daily segmented control. Default Weekly. */}
-          <div className="mb-5">
-            <div
-              style={{
-                fontFamily: "'Inter', sans-serif",
-                fontSize: 13,
-                fontWeight: 600,
-                color: "var(--ink)",
-                marginBottom: 8,
-              }}
-            >
-              Frequency
-            </div>
-            <div
-              role="radiogroup"
-              aria-label="Cadence frequency"
-              className="inline-flex overflow-hidden"
-              style={{
-                border: "1px solid var(--line)",
-                borderRadius: 3,
-                background: "#FFFFFF",
-              }}
-            >
-              {(["weekly", "daily"] as const).map((freq, i) => {
-                const active = form.cadenceFrequency === freq;
-                return (
-                  <button
-                    key={freq}
-                    type="button"
-                    role="radio"
-                    aria-checked={active}
-                    onClick={() => set({ cadenceFrequency: freq })}
-                    className="transition-colors"
-                    style={{
-                      padding: "6px 16px",
-                      fontFamily: "'Inter', sans-serif",
-                      fontSize: 13,
-                      fontWeight: 500,
-                      background: active ? "#4A60A8" : "transparent",
-                      color: active ? "#FFFFFF" : "var(--ink-2)",
-                      borderLeft: i > 0 ? "1px solid var(--line)" : "none",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {freq === "weekly" ? "Weekly" : "Daily"}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Sliders. Mode-driven: people = contacts only, roles =
-              roles only, both = both, each with its own count. Unit
-              text on each slider follows the selected frequency. */}
-          {showContacts && (
-            <div className="mb-5">
-              <BigSlider
-                value={form.contactsTarget}
-                unit={`contacts per ${unit}`}
-                min={1}
-                max={15}
-                step={1}
-                onChange={(v) => set({ contactsTarget: v })}
-                ariaLabel={`Contacts per ${unit}`}
-              />
-            </div>
-          )}
-          {showRoles && (
-            <div className="mb-5">
-              <BigSlider
-                value={form.rolesTarget}
-                unit={`roles per ${unit}`}
-                min={1}
-                max={10}
-                step={1}
-                onChange={(v) => set({ rolesTarget: v })}
-                ariaLabel={`Roles per ${unit}`}
-              />
-            </div>
-          )}
-
-          {/* Live projected cost line. Computed from the new pricing
-              (5 per contact, 2 per role), in the unit of the chosen
-              cadence frequency. No budget input, no cap: this is the
-              actual spend the user is committing to per cycle. */}
-          <div
-            style={{
-              fontFamily: "'Inter', sans-serif",
-              fontSize: 13,
-              color: "var(--ink-2)",
-              lineHeight: 1.5,
-            }}
-          >
-            {form.loopMode === "people" && (
-              <>
-                {form.contactsTarget} contacts × {CREDIT_COST_PER_CONTACT} ={" "}
-              </>
-            )}
-            {form.loopMode === "roles" && (
-              <>
-                {form.rolesTarget} roles × {CREDIT_COST_PER_ROLE} ={" "}
-              </>
-            )}
-            {form.loopMode === "both" && (
-              <>
-                ({form.contactsTarget} × {CREDIT_COST_PER_CONTACT}) + ({form.rolesTarget} × {CREDIT_COST_PER_ROLE}) ={" "}
-              </>
-            )}
-            <strong style={{ color: "var(--ink)" }}>
-              {projectedCost} credits per {unit}
-            </strong>
-            <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 4 }}>
-              {CREDIT_COST_PER_CONTACT} credits per person, {CREDIT_COST_PER_ROLE} credits per role.
-            </div>
-          </div>
+          {copy.preferAlumniHint}
         </div>
       )}
-
     </div>
   );
 }
 
-// Review mode: two side-by-side buttons that pick how drafts go out.
-// Sits directly under the cadence section in the main render. Active
-// state uses the same dark blue (#1e3a8a) as the "Loop" word and the
-// Continue button below, so the page reads as one color hierarchy:
-// brand blue for accents (squiggle, mode pills), dark blue for the
-// primary identity (hero word, primary choices, primary CTA).
-function ApprovalButton({
-  active,
-  title,
-  desc,
-  recommended,
-  onClick,
-}: {
-  active: boolean;
-  title: string;
-  desc: string;
-  recommended?: boolean;
-  onClick: () => void;
-}) {
-  const [hovered, setHovered] = useState(false);
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        padding: "16px 18px",
-        borderRadius: 12,
-        border: `1px solid ${active ? "#1e3a8a" : hovered ? "#1e3a8a" : "var(--line)"}`,
-        background: active
-          ? "#1e3a8a"
-          : hovered
-            ? "rgba(30, 58, 138, 0.04)"
-            : "#FFFFFF",
-        color: active ? "#FFFFFF" : "var(--ink)",
-        textAlign: "left",
-        fontFamily: "'Inter', sans-serif",
-        cursor: "pointer",
-        transition: "all 0.15s ease",
-        boxShadow: active ? "0 0 0 3px rgba(30, 58, 138, 0.12)" : "none",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          marginBottom: 6,
-        }}
-      >
-        <span style={{ fontSize: 15, fontWeight: 600 }}>{title}</span>
-        {recommended && (
-          <span
-            style={{
-              fontSize: 10.5,
-              fontWeight: 600,
-              letterSpacing: "0.04em",
-              textTransform: "uppercase",
-              color: active ? "#FFFFFF" : "#1e3a8a",
-              background: active
-                ? "rgba(255, 255, 255, 0.18)"
-                : "rgba(30, 58, 138, 0.10)",
-              padding: "2px 8px",
-              borderRadius: 100,
-            }}
-          >
-            recommended
-          </span>
-        )}
-      </div>
-      <div
-        style={{
-          fontSize: 13,
-          lineHeight: 1.5,
-          color: active ? "rgba(255, 255, 255, 0.88)" : "var(--ink-2)",
-        }}
-      >
-        {desc}
-      </div>
-    </button>
-  );
-}
 
-function StepReviewMode({
+function StepReview({
   form,
   set,
+  university,
+  weeklyTarget,
+  lowBalance,
 }: {
   form: FormState;
   set: (patch: Partial<FormState>) => void;
-}) {
-  return (
-    <div className="mb-7">
-      <div className="grid grid-cols-2 gap-3">
-        <ApprovalButton
-          active={form.approvalMode === "review_first"}
-          title="Review first"
-          recommended
-          desc="We draft everything. Nothing sends until you approve."
-          onClick={() => set({ approvalMode: "review_first" })}
-        />
-        <ApprovalButton
-          active={form.approvalMode === "autopilot"}
-          title="Autopilot"
-          desc="We send drafts automatically as the Loop finds matches."
-          onClick={() => set({ approvalMode: "autopilot" })}
-        />
-      </div>
-    </div>
-  );
-}
-
-// Wide, bold-white-on-dark-blue, pill-rounded primary CTA. Used by
-// Continue on screen 1 and (in Chunk 5) Run Loop on screen 2. Disabled
-// state desaturates to the muted ink color and disables hover.
-function WidePillButton({
-  label,
-  onClick,
-  disabled = false,
-  loading = false,
-  loadingLabel,
-}: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  loading?: boolean;
-  loadingLabel?: string;
-}) {
-  const isInactive = disabled || loading;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={isInactive}
-      style={{
-        width: "100%",
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 10,
-        padding: "16px 24px",
-        fontFamily: "'Inter', sans-serif",
-        fontSize: 16,
-        fontWeight: 700,
-        letterSpacing: "0.01em",
-        color: "#FFFFFF",
-        background: isInactive ? "var(--ink-3)" : "#1e3a8a",
-        border: "none",
-        borderRadius: 999,
-        cursor: isInactive ? "not-allowed" : "pointer",
-        transition: "background 0.15s ease",
-      }}
-      onMouseEnter={(e) => {
-        if (!isInactive) e.currentTarget.style.background = "#15306b";
-      }}
-      onMouseLeave={(e) => {
-        if (!isInactive) e.currentTarget.style.background = "#1e3a8a";
-      }}
-    >
-      {loading ? (
-        <>
-          <span
-            className="w-1.5 h-1.5 rounded-full bg-white"
-            style={{ animation: "om-blink 1s ease-in-out infinite" }}
-          />
-          {loadingLabel || `${label}…`}
-        </>
-      ) : (
-        label
-      )}
-    </button>
-  );
-}
-
-// Screen 2: review and deploy. StepReview owns the entire screen (back
-// link, hero, brief block, settings recap, static preview table, Run
-// Loop CTA). No fresh search runs here. The preview table is sourced
-// from the cached parser output (form.companies/roles/industries/
-// locations populated by parseBrief on screen 1). The first paid PDL +
-// LLM cycle is queued only when Run Loop is clicked.
-function StepReview({
-  form,
-  university,
-  briefText,
-  canDeploy,
-  deploying,
-  onBack,
-  onDeploy,
-}: {
-  form: FormState;
   university: string;
-  briefText: string;
-  canDeploy: boolean;
-  deploying: boolean;
-  onBack: () => void;
-  onDeploy: () => void;
+  weeklyTarget: number;
+  lowBalance: boolean;
 }) {
-  const unit = form.cadenceFrequency === "daily" ? "day" : "week";
-  const showContacts = form.loopMode === "people" || form.loopMode === "both";
-  const showRoles = form.loopMode === "roles" || form.loopMode === "both";
-  const perCycleContacts = showContacts ? form.contactsTarget : 0;
-  const perCycleRoles = showRoles ? form.rolesTarget : 0;
-  const perCycleCost =
-    perCycleContacts * CREDIT_COST_PER_CONTACT +
-    perCycleRoles * CREDIT_COST_PER_ROLE;
-
-  const cadenceStr = form.cadenceEnabled
-    ? form.cadenceFrequency === "daily" ? "Daily" : "Weekly"
-    : "Manual (off)";
-
-  const targetBits: string[] = [];
-  if (showContacts) targetBits.push(`${form.contactsTarget} contacts per ${unit}`);
-  if (showRoles) targetBits.push(`${form.rolesTarget} roles per ${unit}`);
-  const targetStr = targetBits.length ? targetBits.join(", ") : "-";
-
-  const modeLabel =
-    form.loopMode === "people" ? "People" : form.loopMode === "roles" ? "Roles" : "Both";
-
-  const rows: Array<{ k: string; v: string }> = [
-    { k: "Mode", v: modeLabel },
-    { k: "Schedule", v: cadenceStr },
-    { k: "Target", v: targetStr },
+  const summary: Array<{ k: string; v: string }> = [
+    { k: "Companies", v: form.companies.length ? form.companies.join(", ") : "—" },
+    { k: "Roles", v: form.roles.length ? form.roles.join(", ") : "—" },
     {
-      k: "Review mode",
-      v: form.approvalMode === "review_first" ? "Review first" : "Autopilot",
+      k: "Industries",
+      v: form.industries.length ? form.industries.join(", ") : "—",
     },
+    // Alumni priority is now always on — the toggle was removed. We
+    // still surface it in the review so the student sees what's
+    // happening on their behalf.
     {
-      k: "Alumni",
-      v: form.preferAlumni ? (university ? `On (${university})` : "On") : "Off",
-    },
-    {
-      k: "Projected cost",
-      v: form.cadenceEnabled
-        ? `${perCycleCost} credits per ${unit}`
-        : `${perCycleCost} credits per manual run`,
+      k: "Alumni priority",
+      v: university ? `On — ${university}` : "On (set your university in Account Settings to activate)",
     },
   ];
 
-  // Static preview: one row per parsed target. Purely a read of state
-  // populated by the parseBrief call on screen 1. If the parser found
-  // nothing (all four arrays empty), the whole table is omitted, per
-  // the Chunk 0 resolution.
-  type PreviewRow = { type: string; value: string };
-  const previewRows: PreviewRow[] = [
-    ...form.companies.map<PreviewRow>((c) => ({ type: "Company", value: c })),
-    ...form.roles.map<PreviewRow>((r) => ({ type: "Role", value: r })),
-    ...form.industries.map<PreviewRow>((i) => ({ type: "Industry", value: i })),
-    ...form.locations.map<PreviewRow>((l) => ({ type: "Location", value: l })),
-  ];
-  const hasPreview = previewRows.length > 0;
+  const cadenceSentence =
+    form.approvalMode === "autopilot"
+      ? "We'll send your approved templates automatically — manage them in Settings."
+      : `We'll find ~${weeklyTarget} ${weeklyTarget === 1 ? "person" : "people"} per week. You can pause anytime in the fleet view.`;
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif" }}>
-      {/* Small back link at the top. Kept inline (not in a bottom nav
-          row) so the wide Run Loop CTA at the bottom has the page to
-          itself. */}
-      <div style={{ paddingTop: 24, marginBottom: 4 }}>
-        <button
-          type="button"
-          onClick={onBack}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 4,
-            fontFamily: "'Inter', sans-serif",
-            fontSize: 13,
-            fontWeight: 500,
-            color: "var(--ink-2)",
-            background: "transparent",
-            border: "none",
-            cursor: "pointer",
-            padding: 0,
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--ink)")}
-          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--ink-2)")}
-        >
-          <ChevronLeft style={{ width: 14, height: 14 }} />
-          Back to setup
-        </button>
-      </div>
-
-      {/* Hero */}
-      <div className="mb-8" style={{ paddingTop: 8 }}>
-        <h1
-          style={{
-            fontFamily: "'Instrument Serif', Georgia, serif",
-            fontSize: 48,
-            fontWeight: 400,
-            lineHeight: 1.05,
-            letterSpacing: "-0.02em",
-            color: "#0f2545",
-            marginBottom: 16,
-          }}
-        >
-          Look it over, then{" "}
-          <span style={{ fontStyle: "italic", color: "#1e3a8a" }}>deploy.</span>
-        </h1>
-        <p
-          style={{
-            fontFamily: "'Inter', sans-serif",
-            fontSize: 17,
-            lineHeight: 1.55,
-            color: "#475569",
-            maxWidth: 560,
-          }}
-        >
-          Deploying starts the first discovery cycle right away. The first paid
-          search runs on Run Loop, not on this screen.
-        </p>
-      </div>
-
-      {/* Brief block */}
+      {/* Compact summary */}
       <div
-        className="mb-4"
+        className="overflow-hidden mb-5"
         style={{
           border: "1px solid var(--line)",
-          borderRadius: 8,
-          background: "#FFFFFF",
-          padding: "14px 18px",
-        }}
-      >
-        <div
-          style={{
-            fontFamily: "'Inter', sans-serif",
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: "0.06em",
-            textTransform: "uppercase",
-            color: "var(--ink-3)",
-            marginBottom: 6,
-          }}
-        >
-          Your brief
-        </div>
-        <div
-          style={{
-            fontFamily: "'Instrument Serif', Georgia, serif",
-            fontStyle: "italic",
-            fontSize: 17,
-            lineHeight: 1.5,
-            color: "var(--ink)",
-            whiteSpace: "pre-wrap",
-          }}
-        >
-          {briefText.trim() || "(none)"}
-        </div>
-      </div>
-
-      {/* Settings recap (key/value rows). Targeting fields are not in
-          this table to avoid duplication with the preview table below. */}
-      <div
-        className="mb-5 overflow-hidden"
-        style={{
-          border: "1px solid var(--line)",
-          borderRadius: 8,
+          borderRadius: 3,
           background: "#FFFFFF",
         }}
       >
-        {rows.map((r, i) => (
+        {summary.map((r, i) => (
           <div
             key={r.k}
-            className="grid grid-cols-[160px_1fr]"
+            className="grid grid-cols-[150px_1fr]"
             style={{
               padding: "12px 18px",
               fontSize: 13,
-              borderBottom: i < rows.length - 1 ? "1px solid var(--line-2)" : "none",
+              borderBottom: i < summary.length - 1 ? "1px solid var(--line-2)" : "none",
             }}
           >
             <span style={{ color: "var(--ink-3)" }}>{r.k}</span>
@@ -1096,131 +692,76 @@ function StepReview({
         ))}
       </div>
 
-      {/* Static preview table from the parsed targeting buckets. NOT a
-          live search: no PDL hit, no credit spend. The first paid run
-          happens when the user clicks Run Loop. */}
-      {hasPreview && (
-        <div className="mb-6">
-          <div
-            style={{
-              fontFamily: "'Inter', sans-serif",
-              fontSize: 11,
-              fontWeight: 600,
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
-              color: "var(--ink-3)",
-              marginBottom: 6,
-            }}
-          >
-            What this Loop will search
-          </div>
-          <p
-            style={{
-              fontFamily: "'Inter', sans-serif",
-              fontSize: 12.5,
-              lineHeight: 1.5,
-              color: "var(--ink-3)",
-              marginBottom: 10,
-            }}
-          >
-            Targeting buckets parsed from your brief. Real names appear once the
-            Loop runs.
-          </p>
-          <div
-            className="overflow-hidden"
-            style={{
-              border: "1px solid var(--line)",
-              borderRadius: 8,
-              background: "#FFFFFF",
-            }}
-          >
-            <table
-              style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                fontFamily: "'Inter', sans-serif",
-                fontSize: 13,
-              }}
-            >
-              <thead>
-                <tr style={{ background: "var(--paper-2)" }}>
-                  <th
-                    style={{
-                      textAlign: "left",
-                      padding: "10px 18px",
-                      fontSize: 11,
-                      fontWeight: 600,
-                      letterSpacing: "0.04em",
-                      textTransform: "uppercase",
-                      color: "var(--ink-3)",
-                      borderBottom: "1px solid var(--line-2)",
-                      width: 140,
-                    }}
-                  >
-                    Type
-                  </th>
-                  <th
-                    style={{
-                      textAlign: "left",
-                      padding: "10px 18px",
-                      fontSize: 11,
-                      fontWeight: 600,
-                      letterSpacing: "0.04em",
-                      textTransform: "uppercase",
-                      color: "var(--ink-3)",
-                      borderBottom: "1px solid var(--line-2)",
-                    }}
-                  >
-                    Value
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {previewRows.map((r, i) => (
-                  <tr key={`${r.type}-${r.value}-${i}`}>
-                    <td
-                      style={{
-                        padding: "10px 18px",
-                        color: "var(--ink-2)",
-                        borderBottom:
-                          i < previewRows.length - 1
-                            ? "1px solid var(--line-2)"
-                            : "none",
-                      }}
-                    >
-                      {r.type}
-                    </td>
-                    <td
-                      style={{
-                        padding: "10px 18px",
-                        color: "var(--ink)",
-                        fontWeight: 500,
-                        borderBottom:
-                          i < previewRows.length - 1
-                            ? "1px solid var(--line-2)"
-                            : "none",
-                      }}
-                    >
-                      {r.value}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {/* Approval mode picker — the focus of V2 step 2 */}
+      <div className="mb-5">
+        <div
+          style={{
+            fontSize: 14,
+            fontWeight: 600,
+            color: "var(--ink)",
+            marginBottom: 4,
+          }}
+        >
+          Should we send drafts automatically once you approve a template?
+        </div>
+        <div
+          style={{
+            fontSize: 12.5,
+            color: "var(--ink-3)",
+            marginBottom: 12,
+          }}
+        >
+          The most important decision in setup — you can change it later in Settings.
+        </div>
+        <div
+          role="radiogroup"
+          aria-label="Approval mode"
+          className="grid grid-cols-1 md:grid-cols-2 gap-2.5"
+        >
+          <ModeCard
+            active={form.approvalMode === "review_first"}
+            title="Review first"
+            tag="recommended"
+            desc="We draft every email — nothing sends until you approve it."
+            onClick={() => set({ approvalMode: "review_first" })}
+          />
+          <ModeCard
+            active={form.approvalMode === "autopilot"}
+            title="Autopilot"
+            desc="We send your approved templates automatically."
+            onClick={() => set({ approvalMode: "autopilot" })}
+          />
+        </div>
+      </div>
+
+      {/* Low-balance warning — only when the user actually is low */}
+      {lowBalance && (
+        <div
+          className="mb-5"
+          style={{
+            border: "1px solid rgba(180, 100, 30, 0.25)",
+            background: "rgba(180, 100, 30, 0.04)",
+            borderRadius: 3,
+            padding: 14,
+            fontSize: 13,
+            color: "var(--ink-2)",
+            lineHeight: 1.5,
+          }}
+        >
+          You're low on credits this month — your Loop may pause early.
         </div>
       )}
 
-      {/* Wide pill Run Loop button. Same primitive as Continue on
-          screen 1. This is where the first paid cycle is queued. */}
-      <div style={{ marginTop: hasPreview ? 8 : 16 }}>
-        <WidePillButton
-          label="Run Loop"
-          disabled={!canDeploy}
-          loading={deploying}
-          loadingLabel="Starting Loop…"
-          onClick={onDeploy}
-        />
+      {/* Cadence sentence — plain English, no numbers other than the count */}
+      <div
+        style={{
+          fontSize: 12.5,
+          color: "var(--ink-3)",
+          marginBottom: 14,
+          lineHeight: 1.5,
+        }}
+      >
+        {cadenceSentence}
       </div>
     </div>
   );
@@ -1228,18 +769,51 @@ function StepReview({
 
 // ── Main component ─────────────────────────────────────────────────────
 
-export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
+export function AgentSetupInline({
+  onDeployed,
+  initialBrief,
+  initialBriefParsed,
+  onBackToEntry,
+}: {
+  onDeployed: () => void;
+  // Optional seed brief — passed in when the user already wrote/edited
+  // their goal somewhere upstream (e.g. the Loops empty-state card). When
+  // present we preload the textarea and skip the AI auto-apply so we
+  // don't clobber the user's words.
+  initialBrief?: string;
+  // Optional seed chips that arrive alongside initialBrief. Used so the
+  // wizard's Step 02 review can show real roles / industries even when
+  // the brief text doesn't explicitly name them — the parser would
+  // otherwise return empty for those fields and Step 02 would render
+  // Roles=— even when the resume implied them.
+  initialBriefParsed?: {
+    companies?: string[];
+    industries?: string[];
+    roles?: string[];
+    locations?: string[];
+  };
+  // Where to send the user when they hit Back from the step they
+  // entered on. When the empty-state card brought them straight to
+  // Step 02, Back should return them to the empty state, not to the
+  // wizard's Step 01 they never saw.
+  onBackToEntry?: () => void;
+}) {
   const { toast } = useToast();
   const { user } = useFirebaseAuth();
-  const navigate = useNavigate();
   const createLoopMut = useCreateLoop();
-  const [stepIdx, setStepIdx] = useState(0);
+  // When the empty-state already collected the brief (initialBrief is
+  // present), Step 01 (Goals) would just re-show the same Scout greeter
+  // and textarea the student already used — pure redundancy. Jump
+  // directly to Step 02 (Review & launch). The server still re-parses
+  // the brief on POST when briefParsed is empty (loops.py:165-171), so a
+  // 1-2s parse round-trip in the background doesn't block the deploy.
+  const [stepIdx, setStepIdx] = useState(initialBrief ? 1 : 0);
   const [deploying, setDeploying] = useState(false);
   // null = still loading, "" = onboarded but no school, "USC" = set.
   const [university, setUniversity] = useState<string | null>(null);
   const hasUniversity = !!(university && university.trim());
-  // Profile facts powering the rotating placeholder examples in the brief
-  // textarea. Mirrors what ContactSearchPage feeds the Find prompt.
+  // Profile facts powering the QuickStarters chips under the brief textarea —
+  // mirrors what ContactSearchPage feeds the Find prompt.
   const [profileFacts, setProfileFacts] = useState<{
     targetFirms: string[];
     targetIndustries: string[];
@@ -1263,33 +837,55 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
       .catch(() => setUniversity(""));
   }, [user?.uid]);
 
+  // Seed the form chips from the empty-state's parsed proposal when
+  // provided. Without this, a brief like "opportunities at Apple, IBM,
+  // Google in Tech" lands on Step 02 with Roles=— because the parser
+  // correctly found no role token in the brief — even though the
+  // resume-derived proposal had roles.
   const [form, setForm] = useState<FormState>({
-    companies: [],
-    industries: [],
-    roles: [],
-    locations: [],
-    // Alumni: default OFF. User has to opt in by answering the yes/no
-    // question. Was true under the old "Prefer alumni" framing.
-    preferAlumni: false,
-    // Cadence: default ON, weekly. Most users want automation; they can
-    // flip the toggle off for a one-shot manual run.
-    cadenceEnabled: true,
-    cadenceFrequency: "weekly",
-    contactsTarget: 5,
-    rolesTarget: 3,
+    companies: initialBriefParsed?.companies ?? [],
+    industries: initialBriefParsed?.industries ?? [],
+    roles: initialBriefParsed?.roles ?? [],
+    locations: initialBriefParsed?.locations ?? [],
+    emailPurpose: null,
+    constraints: [],
+    preferAlumni: true,
     approvalMode: "review_first",
-    // Default to "people" (today's networking behavior) for new users.
-    loopMode: "people",
+    // Every Loop pursues both networking + job-search against one budget.
+    // The picker is gone from the wizard; loopMode stays on the doc for
+    // AgentSettingsModal's Advanced escape valve.
+    loopMode: "both",
   });
   const set = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }));
 
+  // AI-proposed starting brief — Claude drafts a sentence from the user's
+  // resume + profile on mount so students never face a blank page. User
+  // edits beat AI; we never overwrite anything the user typed.
+  // When the caller passed an initialBrief (e.g. from the empty-state
+  // editable card), treat the auto-apply as already done so Claude's
+  // response can never overwrite the user's words.
+  const proposedBrief = useProposedBrief({ enabled: true });
+  const aiDraftAppliedRef = useRef(!!initialBrief);
+
+  // Read the user's tier so the wizard can derive cadence + low-balance
+  // hint without exposing credit math in the UI. Subscription is fetched
+  // lazily; treat null as "free" while it loads — the worst case is a
+  // briefly-shown lower cadence number that updates on hydrate.
+  const { subscription } = useSubscription();
+  const tier: string = subscription?.tier ?? "free";
+  const weeklyTarget = weeklyTargetForTier(tier);
+  const lowBalance = (() => {
+    const credits = subscription?.credits ?? 0;
+    return credits > 0 && credits < estimatedWeeklyCreditsPeople(weeklyTarget);
+  })();
+  const steps: ReadonlyArray<StepDescriptor> = STEPS;
+
   // ── Prompt-first brief state ─────────────────────────────────────────
-  // The textarea is the primary input. Its value debounces into a parser
-  // call (parseBrief) that fills mode + targeting (companies, industries,
-  // roles, locations) on the form. Those parsed fields are not user-
-  // editable in the new flow; they flow straight into the createLoop call
-  // on deploy.
-  const [briefText, setBriefText] = useState("");
+  // The textarea is the only input on Step 01. Its value debounces into a
+  // parser call (parseBrief) that populates the four extracted-entity
+  // lists on the form. No chip rows means no manual-edit sticky tracking —
+  // the parser always wins.
+  const [briefText, setBriefText] = useState(initialBrief ?? "");
   const [parsePhase, setParsePhase] = useState<ParsePhase>("idle");
   // Guard against stale parses overwriting fresh results (user types fast).
   const lastParseTokenRef = useRef(0);
@@ -1319,24 +915,33 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
           setParsePhase("empty");
           return;
         }
-        // ok: populate targeting + mode from parser output. These fields
-        // are not user-editable in the wizard (chip editors were removed),
-        // so they always reflect the latest parser result.
-        setForm((f) => {
-          const next: Partial<FormState> = {
-            companies: parsed?.companies ?? f.companies,
-            industries: parsed?.industries ?? f.industries,
-            roles: parsed?.roles ?? f.roles,
-            locations: parsed?.locations ?? f.locations,
-          };
-          // Mode only auto-updates when the parser actually committed to
-          // one. null = ambiguous, leave the user's current pick (or
-          // default).
-          if (parsed?.mode === "people" || parsed?.mode === "roles" || parsed?.mode === "both") {
-            next.loopMode = parsed.mode;
-          }
-          return { ...f, ...next };
-        });
+        // ok — populate the extracted-entity lists from parser output.
+        // Mode is locked to "both"; the parser's mode classification is
+        // ignored. These six fields are never user-visible chips — they
+        // feed the deploy payload. emailPurpose and constraints flow
+        // through to the planner + email-draft prompts so cycles know
+        // *why* the student is reaching out, not just *who*.
+        //
+        // Important: a parser result of `[]` for a field means "I didn't
+        // see this in the brief", not "the user wants nothing here". We
+        // only overwrite a field when the parser returned a non-empty
+        // value — otherwise the resume-derived seed from
+        // `initialBriefParsed` stays intact. Without this guard, a brief
+        // like "opportunities at Apple, IBM, Google in Tech" wipes
+        // seeded roles because the parser correctly found no role token.
+        const replaceIf = <T,>(parsedVal: T[] | undefined, current: T[]): T[] => {
+          if (Array.isArray(parsedVal) && parsedVal.length > 0) return parsedVal;
+          return current;
+        };
+        setForm((f) => ({
+          ...f,
+          companies: replaceIf(parsed?.companies, f.companies),
+          industries: replaceIf(parsed?.industries, f.industries),
+          roles: replaceIf(parsed?.roles, f.roles),
+          locations: replaceIf(parsed?.locations, f.locations),
+          emailPurpose: parsed?.emailPurpose ?? f.emailPurpose,
+          constraints: replaceIf(parsed?.constraints, f.constraints),
+        }));
         setParsePhase("ok");
       })
       .catch(() => {
@@ -1345,134 +950,133 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
       });
   }, [debouncedBriefText]);
 
-  const isReview = stepIdx === 1;
-  // Deploy requires the user to have written a real brief. Chip-only
-  // deploy (used by the removed manual targeting section) is gone.
+  // Apply the AI-proposed brief once, only if the user hasn't already
+  // started typing or picking chips. Prevents the proposal from clobbering
+  // an in-progress edit if Claude lands a slow response.
+  const [aiDraftActive, setAiDraftActive] = useState(false);
+  useEffect(() => {
+    if (aiDraftAppliedRef.current) return;
+    const data = proposedBrief.data;
+    if (!data || data.status !== "ok") return;
+    if (briefText.trim().length > 0) return;
+    const formClean =
+      form.companies.length === 0 &&
+      form.roles.length === 0 &&
+      form.industries.length === 0 &&
+      form.locations.length === 0;
+    if (!formClean) return;
+
+    aiDraftAppliedRef.current = true;
+    setBriefText(data.sentence);
+    setForm((f) => ({
+      ...f,
+      companies: data.companies,
+      roles: data.roles,
+      industries: data.industries,
+      locations: data.locations,
+    }));
+    setAiDraftActive(data.sentence.length > 0);
+  }, [
+    proposedBrief.data,
+    briefText,
+    form.companies.length,
+    form.roles.length,
+    form.industries.length,
+    form.locations.length,
+  ]);
+
+  const step = steps[stepIdx];
+  const isLast = stepIdx === steps.length - 1;
+  // Mode-aware copy for the Goals headline (and subtitle). school is the
+  // user's actual university when known so the alumni toggle shows
+  // concrete language.
+  const goalsCopy = loopCopy(form.loopMode, { school: university || "" });
+  // Deploy when EITHER the textarea has real content OR the user filled in
+  // chips manually. buildSyntheticBrief covers the chip-only case.
   const hasBrief = briefText.trim().length >= MIN_BRIEF_CHARS_TO_PARSE;
-  const canDeploy = hasBrief;
+  const hasChipTargets = form.companies.length > 0 || form.industries.length > 0;
+  const canDeploy = hasBrief || hasChipTargets;
+  // Gate the Continue button while the parser is actively reading the
+  // brief. Without this, a fast click after typing lands the user on
+  // Step 02 with empty extraction fields and a stale preview.
+  const parseInFlight = stepIdx === 0 && parsePhase === "parsing";
 
   const handleDeploy = async () => {
-    if (!hasBrief) {
+    if (!hasBrief && !hasChipTargets) {
       toast({
         title: "Add a goal",
-        description: "Type your goal in the textbox above.",
+        description: "Type your goal in the textbox or add at least one company / industry.",
         variant: "destructive",
       });
       return;
     }
     setDeploying(true);
     try {
-      const finalBriefText = briefText.trim();
+      // Prompt-first (textarea filled, parser fired) and chip-only paths
+      // converge here. When the textarea is empty we synthesize a brief
+      // from chips so the planner still gets a <user_brief> block.
+      const finalBriefText = hasBrief
+        ? briefText.trim()
+        : buildSyntheticBrief({
+            companies: form.companies,
+            industries: form.industries,
+            roles: form.roles,
+            weeklyTarget,
+            preferAlumni: form.preferAlumni,
+          });
 
-      // Derive backend payload from the new cadence + pricing state.
-      // Pricing: 5 credits per contact, 2 credits per role. Per-cycle
-      // counts and cost are what the user sees in the cadence section;
-      // the backend's *PerWeek fields want weekly equivalents, so daily
-      // cadence multiplies by 7. When cadence is OFF, or when the mode
-      // excludes a target type, the corresponding fields are OMITTED
-      // from both payloads instead of sent as 0. The backend treats
-      // missing fields as "no change" rather than 400ing them.
-      const showContacts = form.loopMode === "people" || form.loopMode === "both";
-      const showRoles = form.loopMode === "roles" || form.loopMode === "both";
-      const perCycleContacts = showContacts ? form.contactsTarget : 0;
-      const perCycleRoles = showRoles ? form.rolesTarget : 0;
-      const perCycleCost =
-        perCycleContacts * CREDIT_COST_PER_CONTACT +
-        perCycleRoles * CREDIT_COST_PER_ROLE;
-      const cyclesPerWeek =
-        form.cadenceEnabled && form.cadenceFrequency === "daily" ? 7 : 1;
-      const weeklyContacts = perCycleContacts * cyclesPerWeek;
-      const weeklyRoles = perCycleRoles * cyclesPerWeek;
-      const weeklyBudget = perCycleCost * cyclesPerWeek;
-      const cadenceStr: "weekly" | "daily" | "manual" = form.cadenceEnabled
-        ? form.cadenceFrequency
-        : "manual";
-
-      // briefParsed.targetCount: a per-cycle "find this many" hint to
-      // the planner. Use the primary count for the mode (contacts in
-      // people/both, roles in roles). Null when neither applies.
-      const perCyclePrimaryTarget = showContacts
-        ? form.contactsTarget
-        : showRoles
-          ? form.rolesTarget
-          : null;
-
-      // briefParsed reflects the parser's latest output (populated by the
-      // parseBrief effect above). With chip editing gone, the parser is
-      // the single source of truth for targeting.
+      // briefParsed reflects the user's CURRENT chip state (post-edits),
+      // not the parser's raw output — chips are the source of truth at
+      // deploy. Mode is always "both" — every Loop pursues networking +
+      // job-search against one budget. emailPurpose + constraints carry
+      // the parser's "why" through to the planner and email drafter so
+      // cycles know what the student is actually chasing.
       const finalBriefParsed: ParsedBrief = {
         companies: form.companies,
         industries: form.industries,
         roles: form.roles,
         locations: form.locations,
-        emailPurpose: null,
-        constraints: [],
-        targetCount: perCyclePrimaryTarget,
-        mode: form.loopMode,
+        emailPurpose: form.emailPurpose,
+        constraints: form.constraints,
+        targetCount: weeklyTarget,
+        mode: "both",
       };
 
-      // Legacy /api/agent/config payload. Cadence targets and budget are
-      // included only when cadence is enabled AND the mode includes the
-      // relevant target type. Backend (AgentConfigUpdate) now accepts
-      // these fields as omitted/null.
-      const configPayload: Partial<Parameters<typeof updateAgentConfig>[0]> = {
-        targetCompanies: form.companies,
-        targetIndustries: form.industries,
-        targetRoles: form.roles,
-        // Don't send preferAlumni=true if the user has no university on
-        // file. It would silently boost nothing. Gate to actual school
-        // presence.
-        preferAlumni: hasUniversity && form.preferAlumni,
-        approvalMode: form.approvalMode,
-      };
-      if (form.cadenceEnabled && showContacts && weeklyContacts > 0) {
-        configPayload.weeklyContactTarget = weeklyContacts;
-      }
-      if (form.cadenceEnabled && weeklyBudget > 0) {
-        configPayload.creditBudgetPerWeek = weeklyBudget;
-      }
-      await updateAgentConfig(configPayload);
-      await deployAgent();
-
-      // The Loops fleet view at /agent reads from a different collection
-      // (users/{uid}/loops/*) than the legacy single-agent config above
-      // (users/{uid}/settings/agent_config). Without this createLoop the
-      // wizard "deploys" but no card ever shows up in the fleet view.
-      // useCreateLoop invalidates the list query so /agent refetches.
-      //
-      // Loop.weeklyTarget is mode-agnostic throughput. In people/both
-      // mode we send the weekly contact count; in roles-only mode we
-      // send the weekly role count. When cadence is off, omit it; the
-      // backend default in loop_service handles the rest. cadence:
-      // "manual" already signals "no scheduled runs" on this side.
-      const weeklyTargetForLoop = showContacts ? weeklyContacts : weeklyRoles;
-      type LoopCreateInput = Parameters<typeof createLoopMut.mutateAsync>[0];
-      const loopPayload: LoopCreateInput = {
+      // S3.3 — the legacy updateAgentConfig + deployAgent pair used to run
+      // here too, writing to users/{uid}/settings/agent_config. No Loop
+      // surface ever read those fields (the fleet uses users/{uid}/loops/*),
+      // and the legacy singleton's cycle path stamped counters that nothing
+      // consumed. Removed — createLoop alone is the source of truth.
+      const created = await createLoopMut.mutateAsync({
         briefText: finalBriefText,
         briefParsed: finalBriefParsed,
         name: deriveLoopName(form),
         reviewBeforeSend: form.approvalMode === "review_first",
-        cadence: cadenceStr,
+        weeklyTarget,
+        cadence: "weekly",
         automationEnabled: form.approvalMode === "autopilot",
-        loopMode: form.loopMode,
-      };
-      if (form.cadenceEnabled && weeklyTargetForLoop > 0) {
-        loopPayload.weeklyTarget = weeklyTargetForLoop;
-      }
-      if (form.cadenceEnabled && weeklyBudget > 0) {
-        loopPayload.creditBudgetPerWeek = weeklyBudget;
-      }
-      await createLoopMut.mutateAsync(loopPayload);
-
-      toast({
-        title: "Loop deployed!",
-        description:
-          form.loopMode === "both"
-            ? "Your loop is chasing roles AND networking together."
-            : form.loopMode === "roles"
-              ? "Your job-search loop is now active."
-              : "Your networking loop is now active.",
+        loopMode: "both",
       });
+
+      // Backend returns autoStartError when the Loop was saved but the
+      // auto-start failed (S2.4 — used to be silent). Surface it so the
+      // student knows to use Run it now from the fleet view.
+      const autoStartError = (created as { autoStartError?: string } | null)?.autoStartError;
+      const autoStartMessage = (created as { autoStartMessage?: string } | null)?.autoStartMessage;
+      if (autoStartError) {
+        toast({
+          title: "Loop saved, but didn't start",
+          description:
+            autoStartMessage ||
+            "Tap Run it now from the fleet view to kick off the first cycle.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Loop deployed!",
+          description: "Your loop is chasing roles AND networking together.",
+        });
+      }
       onDeployed();
     } catch (e: unknown) {
       toast({
@@ -1486,152 +1090,234 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
   };
 
   return (
-    <div className="min-h-0">
-      {/* Top-left bail-out. Lives outside the centered 640px column so it
-          anchors to the page edge, not the hero. Renders on both steps. */}
-      <div className="px-4 sm:px-8 pt-6">
-        <button
-          type="button"
-          onClick={() => navigate("/agent")}
-          className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium text-white transition-opacity hover:opacity-90"
-          style={{
-            background: "#1e3a8a",
-            border: "none",
-            cursor: "pointer",
-            fontFamily: "'Inter', sans-serif",
-          }}
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Back to Loops
-        </button>
-      </div>
-
-      <div className="max-w-[640px] mx-auto px-4 sm:px-8 pb-20">
-        {/* Hero. Screen 0 (config) gets the centered "Start a Loop"
-            treatment: Inter sans for "Start a", Instrument Serif italic
-            dark blue for "Loop", with a hand-drawn squiggle SVG in the
-            lighter brand blue underneath the word. Screen 1 (review)
-            keeps a serif heading for now; Chunk 5 will rework it. */}
-        {!isReview && (
-          <div className="mb-8" style={{ paddingTop: 32, textAlign: "center" }}>
-            <h1
+    <div className="flex min-h-0">
+      {/* Main form column */}
+      <div className="flex-1 min-w-0">
+        <div className="max-w-[640px] mx-auto px-4 sm:px-8 py-8 pb-20">
+          {/* Hero — mirrors the Find page's serif headline treatment:
+              parallel phrases, italic emphasis, navy ink. */}
+          <div className="mb-8" style={{ paddingTop: 32 }}>
+            <div
               style={{
                 fontFamily: "'Inter', sans-serif",
-                fontSize: 72,
+                fontSize: 11,
                 fontWeight: 600,
-                lineHeight: 1.1,
-                letterSpacing: "-0.02em",
-                color: "#0f2545",
-                marginBottom: 24,
+                letterSpacing: "0.10em",
+                textTransform: "uppercase",
+                color: "#4A60A8",
+                marginBottom: 16,
               }}
             >
-              Start a{" "}
-              <span
-                style={{
-                  position: "relative",
-                  display: "inline-block",
-                  paddingBottom: 8,
-                }}
-              >
-                <span
-                  style={{
-                    fontFamily: "'Instrument Serif', Georgia, serif",
-                    fontStyle: "italic",
-                    fontWeight: 400,
-                    color: "#1e3a8a",
-                  }}
-                >
-                  Loop
-                </span>
-                <svg
-                  aria-hidden="true"
-                  width="100%"
-                  height="12"
-                  viewBox="0 0 130 10"
-                  preserveAspectRatio="none"
-                  style={{
-                    position: "absolute",
-                    left: 0,
-                    right: 0,
-                    bottom: -2,
-                    pointerEvents: "none",
-                  }}
-                >
-                  <path
-                    d="M 4 5 Q 19 1 34 5 T 64 5 T 94 5 T 124 5"
-                    stroke="#4A60A8"
-                    strokeWidth="2.5"
-                    fill="none"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </span>
+              Step {step.num} · {step.label}
+            </div>
+            <h1
+              style={{
+                fontFamily: "'Instrument Serif', Georgia, serif",
+                fontSize: 48,
+                fontWeight: 400,
+                lineHeight: 1.05,
+                letterSpacing: "-0.02em",
+                color: "#0f2545",
+                marginBottom: 16,
+              }}
+            >
+              {stepIdx === 0 && (
+                <>
+                  Tell your Loop{" "}
+                  <span style={{ fontStyle: "italic", color: "#4A60A8" }}>
+                    {goalsCopy.goalsTitleAccent}
+                  </span>{" "}
+                  to chase.
+                </>
+              )}
+              {stepIdx === 1 && (
+                <>
+                  Review and{" "}
+                  <span style={{ fontStyle: "italic", color: "#4A60A8" }}>launch.</span>
+                </>
+              )}
             </h1>
             <p
               style={{
                 fontFamily: "'Inter', sans-serif",
-                fontSize: 21,
-                lineHeight: 1.5,
+                fontSize: 17,
+                lineHeight: 1.55,
                 color: "#475569",
-                maxWidth: 620,
-                marginLeft: "auto",
-                marginRight: "auto",
+                maxWidth: 560,
               }}
             >
-              Tell it what you want, walk away, get a text when the work is done. It works for you 24/7.
+              {stepIdx === 0 && goalsCopy.goalsSubtitle}
+              {stepIdx === 1 &&
+                "Pick how drafts go out, then start the Loop. First batch lands within 24 hours."}
             </p>
           </div>
-        )}
 
-        {/* Step body. Screen 1 (config) renders the three stacked
-            sections plus a wide pill Continue CTA below them. Screen 2
-            (review) is owned entirely by StepReview, including its own
-            back link, hero, recap, optional preview table, and Run Loop
-            CTA. */}
-        <div className="pt-7">
-          {!isReview && (
-            <>
+          {/* Step rail */}
+          <StepRail index={stepIdx} onJump={setStepIdx} steps={steps} />
+
+          {/* Step body */}
+          <div className="pt-7">
+            {stepIdx === 0 && (
               <StepGoals
                 form={form}
-                set={set}
                 briefText={briefText}
-                setBriefText={setBriefText}
+                setBriefText={(v) => {
+                  if (aiDraftActive && v !== briefText) setAiDraftActive(false);
+                  setBriefText(v);
+                }}
                 parsePhase={parsePhase}
                 hasUniversity={hasUniversity}
                 university={university || ""}
                 profileFacts={profileFacts}
+                proposedBrief={proposedBrief}
+                showAiDraftLabel={aiDraftActive}
               />
-              <StepCadence form={form} set={set} />
-              <StepReviewMode form={form} set={set} />
-            </>
-          )}
-          {isReview && (
-            <StepReview
-              form={form}
-              university={university || ""}
-              briefText={briefText}
-              canDeploy={canDeploy}
-              deploying={deploying}
-              onBack={() => setStepIdx(0)}
-              onDeploy={handleDeploy}
-            />
-          )}
-        </div>
-
-        {/* Bottom nav only exists on screen 1; on screen 2 the CTA and
-            back link live inside StepReview, so the page can end after
-            the Run Loop button. */}
-        {!isReview && (
-          <div className="mt-8 pt-5" style={{ borderTop: "1px solid var(--line-2)" }}>
-            <WidePillButton
-              label="Continue"
-              disabled={!hasBrief}
-              onClick={() => setStepIdx(1)}
-            />
+            )}
+            {stepIdx === 1 && (
+              <StepReview
+                form={form}
+                set={set}
+                university={university || ""}
+                weeklyTarget={weeklyTarget}
+                lowBalance={lowBalance}
+              />
+            )}
           </div>
-        )}
+
+          {/* Navigation */}
+          <div
+            className="flex justify-between items-center mt-7 pt-5"
+            style={{ borderTop: "1px solid var(--line-2)" }}
+          >
+            {/* Back behavior is "step back when possible, otherwise exit
+                to the surface that brought us here". For users who came
+                from the empty-state card and skipped Step 01, exit means
+                returning to /agent — going to Step 01 they never saw
+                would be a worse experience. */}
+            {(() => {
+              const entryStep = initialBrief ? 1 : 0;
+              const canStepBack = stepIdx > entryStep;
+              const canExitToEntry = stepIdx === entryStep && !!onBackToEntry;
+              const enabled = canStepBack || canExitToEntry;
+              const onBackClick = () => {
+                if (canStepBack) {
+                  setStepIdx(stepIdx - 1);
+                } else if (canExitToEntry) {
+                  onBackToEntry!();
+                }
+              };
+              return (
+                <button
+                  type="button"
+                  onClick={onBackClick}
+                  disabled={!enabled}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "10px 16px",
+                    fontFamily: "'Inter', sans-serif",
+                    fontSize: 14,
+                    fontWeight: 500,
+                    color: enabled ? "var(--ink-2)" : "var(--ink-3)",
+                    background: "#FFFFFF",
+                    border: "1px solid var(--line)",
+                    borderRadius: 3,
+                    cursor: enabled ? "pointer" : "not-allowed",
+                    opacity: enabled ? 1 : 0.6,
+                  }}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Back
+                </button>
+              );
+            })()}
+
+            <div className="flex items-center gap-3">
+              <span
+                style={{
+                  fontFamily: "'Inter', sans-serif",
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: "var(--ink-3)",
+                }}
+              >
+                {stepIdx + 1} / {steps.length}
+              </span>
+              {isLast ? (
+                <button
+                  type="button"
+                  onClick={handleDeploy}
+                  disabled={!canDeploy || deploying}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "10px 20px",
+                    fontFamily: "'Inter', sans-serif",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: "#FFFFFF",
+                    background: (!canDeploy || deploying) ? "var(--ink-3)" : "#4A60A8",
+                    border: "none",
+                    borderRadius: 3,
+                    cursor: (!canDeploy || deploying) ? "not-allowed" : "pointer",
+                    transition: "background 0.15s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (canDeploy && !deploying) e.currentTarget.style.background = "#3A4F8E";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (canDeploy && !deploying) e.currentTarget.style.background = "#4A60A8";
+                  }}
+                >
+                  {deploying ? (
+                    <>
+                      <span
+                        className="w-1.5 h-1.5 rounded-full bg-white"
+                        style={{ animation: "om-blink 1s ease-in-out infinite" }}
+                      />
+                      Starting your Loop…
+                    </>
+                  ) : (
+                    <>Start Loop</>
+                  )}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => !parseInFlight && setStepIdx(stepIdx + 1)}
+                  disabled={parseInFlight}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "10px 20px",
+                    fontFamily: "'Inter', sans-serif",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: "#FFFFFF",
+                    background: parseInFlight ? "var(--ink-3)" : "#4A60A8",
+                    border: "none",
+                    borderRadius: 3,
+                    cursor: parseInFlight ? "not-allowed" : "pointer",
+                    transition: "background 0.15s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!parseInFlight) e.currentTarget.style.background = "#3A4F8E";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!parseInFlight) e.currentTarget.style.background = "#4A60A8";
+                  }}
+                >
+                  {parseInFlight ? "Reading…" : "Continue →"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
+
     </div>
   );
 }

@@ -25,6 +25,15 @@ function itemId(i: NotificationItem): string {
   return `${i.contactId}|${i.timestamp}`;
 }
 
+// Loop-run summaries (written by loop_notifications.write_loop_run_notification
+// with kind: "loop_run") share this same outbox doc + items[] array, but they
+// are NOT replies and must never fire the reply toast. Legacy reply items have
+// no `kind` field, so treat a missing kind as "reply". Read defensively so this
+// stays correct even though HEAD's NotificationItem type predates the field.
+function isReply(i: NotificationItem): boolean {
+  return ((i as { kind?: string }).kind ?? 'reply') === 'reply';
+}
+
 function loadSeen(): Set<string> {
   try {
     const raw = sessionStorage.getItem(SEEN_KEY);
@@ -68,7 +77,7 @@ export function ReplyNotifier() {
     }
 
     const unseen = notifications.items.filter(
-      (i) => !i.read && !seen.has(itemId(i))
+      (i) => !i.read && !seen.has(itemId(i)) && isReply(i)
     );
     if (unseen.length === 0) return;
 
