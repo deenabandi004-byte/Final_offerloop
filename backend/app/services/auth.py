@@ -162,15 +162,84 @@ def can_access_feature(tier: str, feature: str, user_data: dict, tier_config: di
     return True, 'allowed'  # Default: allow if not specifically restricted
 
 
+def _maybe_fire_low_credits(user_id: str, user_ref) -> None:
+    """Re-read user doc post-deduct and fire the low-credits lifecycle email
+    when the *total* across all buckets dips below 10% of monthly max.
+    Best-effort — never raises into the caller."""
+    try:
+        snap = user_ref.get()
+        if not snap.exists:
+            return
+        udata = snap.to_dict() or {}
+        max_cr = max(1, int(udata.get('maxCredits') or 0))
+        # Use the LEDGER's total (monthly + bonus + promo), not just monthly,
+        # so users with healthy bonus balances don't get spammed.
+        from app.services.credit_ledger import state_from_user_dict
+        total = state_from_user_dict(udata).total()
+        if total > 0 and total / max_cr < 0.10:
+            from app.services.lifecycle_emails import notify_low_credits
+            notify_low_credits(user_id, total, max_cr)
+    except Exception as e:
+        logger.warning("Low-credits notify failed for %s: %s", user_id, e)
+
+
 def deduct_credits_atomic(user_id: str, amount: int, operation_name: str = "operation") -> tuple[bool, int]:
     """
     Atomically deduct credits from user account using Firestore transaction.
     Prevents race conditions when multiple requests try to deduct credits simultaneously.
 
+    Trial-aware: if the user has an active Pro trial, deduction runs against the
+    trial daily pool instead of the monthly pool. If the trial has expired but
+    hasn't been processed yet, we run the lazy expiry transition first, then
+    deduct from the (now Free) monthly pool.
+
+    Ledger-aware (Wave 2): non-trial deduction runs through the three-bucket
+    ledger (monthly → bonusCredits → promoCredits) so purchased top-up credits
+    survive monthly resets and never expire — matching the TOS promise.
+
     Returns:
         Tuple of (success: bool, remaining_credits: int)
         If success is False, remaining_credits is the current balance
     """
+    # Trial fast-path — checked before the transaction so we can route to the
+    # trial-specific deduct helper which manages its own transaction.
+    db = get_db()
+    user_ref = db.collection('users').document(user_id)
+    try:
+        snap = user_ref.get()
+        if snap.exists:
+            user_data = snap.to_dict() or {}
+            # Lazy import to avoid circular dependency at module load
+            from app.services.trial_service import get_trial_status, deduct_trial_credits, apply_trial_expiry
+            trial_status = get_trial_status(user_data)
+
+            if trial_status.get('is_active'):
+                success, remaining = deduct_trial_credits(user_id, amount)
+                if success or remaining > 0:
+                    _maybe_fire_low_credits(user_id, user_ref)
+                    return success, remaining
+                # Fall through to normal monthly pool if trial deduct returned (False, 0)
+                # — shouldn't happen for active trials but defensive.
+
+            if trial_status.get('is_expired_unprocessed'):
+                # Auto-downgrade to Free before charging credits
+                apply_trial_expiry(user_id)
+                # Continue to normal monthly flow below — user is now Free tier
+    except Exception as e:
+        logger.warning(f"Trial fast-path failed for {user_id}, falling back to monthly: {e}")
+
+    # Three-bucket ledger deduct (monthly → bonus → promo)
+    try:
+        from app.services.credit_ledger import apply_deduct_atomic
+        success, remaining = apply_deduct_atomic(user_id, amount, reason=operation_name)
+        if success:
+            _maybe_fire_low_credits(user_id, user_ref)
+        return success, remaining
+    except Exception as e:
+        logger.error("Ledger deduct failed for %s, falling back to legacy path: %s", user_id, e)
+
+    # Legacy fallback path follows — only reached if the ledger module throws
+    # something unexpected. Preserved verbatim from the pre-Wave-2 behavior.
     db = get_db()
     user_ref = db.collection('users').document(user_id)
 
@@ -215,6 +284,23 @@ def deduct_credits_atomic(user_id: str, amount: int, operation_name: str = "oper
     try:
         transaction = db.transaction()
         success, credits = deduct_in_transaction(transaction)
+
+        # Low-credits lifecycle email trigger — fire once when the balance
+        # crosses the 10% threshold. Idempotent per billing month via the
+        # campaign step key. Best-effort: don't fail the deduction if the
+        # notify call errors.
+        if success and credits > 0:
+            try:
+                snap = user_ref.get()
+                if snap.exists:
+                    udata = snap.to_dict() or {}
+                    max_cr = max(1, int(udata.get('maxCredits') or 0))
+                    if credits / max_cr < 0.10:
+                        from app.services.lifecycle_emails import notify_low_credits
+                        notify_low_credits(user_id, credits, max_cr)
+            except Exception as e:
+                logger.warning("Low-credits notify failed for %s: %s", user_id, e)
+
         return success, credits
     except Exception as e:
         logger.error("Error in atomic credit deduction: %s", e)

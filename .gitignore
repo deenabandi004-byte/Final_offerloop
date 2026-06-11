@@ -92,3 +92,8 @@ connect-grow-hire/dist/
 /mid-*.png
 # Local zip archives at repo root
 /*.zip
+
+# --- Higgsfield AI Video Agency artifacts (local-only tooling) ---
+.agents/
+.claude/skills/
+skills-lock.json

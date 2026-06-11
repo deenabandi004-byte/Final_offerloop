@@ -29,6 +29,7 @@ import { trackNavClick, trackUpgradeClick } from "../lib/analytics";
 import { useAgentSidebarStatus } from "@/hooks/useAgent";
 import { useTour } from "@/contexts/TourContext";
 import { useNotifications } from "@/hooks/useNotifications";
+import { useCreditBreakdown } from "@/hooks/useCreditBreakdown";
 import { TIER_CONFIGS } from "@/lib/constants";
 
 import {
@@ -133,6 +134,10 @@ export function AppSidebar() {
   const credits = user?.credits ?? 0;
   const maxCredits = TIER_CONFIGS[tierKey].credits;
   const creditPercentage = Math.min((credits / maxCredits) * 100, 100);
+  // Three-bucket breakdown for the "+ N bonus" badge — purchased top-up
+  // credits live in a separate bucket that never expires.
+  const { breakdown } = useCreditBreakdown();
+  const bonusCredits = breakdown?.bonus ?? 0;
   const isCollapsed = state === "collapsed";
 
   const { startTour } = useTour();
@@ -635,6 +640,24 @@ export function AppSidebar() {
                       {" "}
                       / {maxCredits.toLocaleString()}
                     </span>
+                    {bonusCredits > 0 && (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          color: '#A3E635',
+                          marginLeft: 6,
+                          padding: '2px 6px',
+                          background: 'rgba(163, 230, 53, 0.12)',
+                          border: '1px solid rgba(163, 230, 53, 0.35)',
+                          borderRadius: 999,
+                          letterSpacing: '0.04em',
+                        }}
+                        title="Bonus credits from top-up packs. Never expire."
+                      >
+                        +{bonusCredits.toLocaleString()}
+                      </span>
+                    )}
                   </span>
                 </div>
                 <div

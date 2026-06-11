@@ -45,6 +45,7 @@ from .app.routes.loops import loops_bp
 from .app.routes.loop_notifications import loop_notifications_bp
 from .app.routes.alumni_discovery_routes import alumni_discovery_bp
 from .app.routes.metrics import metrics_bp
+from .app.routes.lifecycle import lifecycle_bp
 from .app.extensions import init_app_extensions
 
 def create_app() -> Flask:
@@ -207,6 +208,7 @@ def create_app() -> Flask:
     app.register_blueprint(loop_notifications_bp)
     app.register_blueprint(alumni_discovery_bp)
     app.register_blueprint(metrics_bp)
+    app.register_blueprint(lifecycle_bp)
 
     # --- Debug route to check frontend build (dev only) ---
     @app.route('/api/debug/frontend')

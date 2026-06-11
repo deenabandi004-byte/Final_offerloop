@@ -66,7 +66,25 @@ const TermsOfService = () => {
                 <p className="text-gray-600"><strong>Auto-Renewal:</strong> Paid Plans renew automatically unless you cancel in-app before the renewal date.</p>
                 <p className="text-gray-600"><strong>Changes:</strong> We may adjust plan pricing or features prospectively with notice (email or in-app). Continuing to use the Services after changes take effect means you accept them.</p>
                 <p className="text-gray-600"><strong>Upgrades/Downgrades:</strong> Upgrades may bill immediately on a prorated basis; downgrades apply at the next renewal.</p>
-                <p className="text-gray-600"><strong>Refunds:</strong> Except where required by law, payments are non-refundable.</p>
+                <p className="text-gray-600">
+                  <strong>Refunds:</strong> We offer a goodwill refund window after your first charge on each product:
+                </p>
+                <ul className="list-disc pl-6 text-gray-600 space-y-1">
+                  <li><strong>Pro and Elite (monthly or annual):</strong> 7 days from the date of the charge. Cancel anytime after that to stop future renewals — no refund will be issued for time already used.</li>
+                  <li><strong>Recruiting Season Pass:</strong> 14 days from the date of the charge, provided you have used less than 50% of your month-1 credit allocation. After 14 days, the pass is non-refundable.</li>
+                  <li><strong>Top-up credit packs:</strong> Non-refundable, because purchased credits never expire and remain available on your account indefinitely.</li>
+                  <li><strong>Post-checkout add-ons</strong> (e.g., the one-time Pro→Elite upgrade offer): fall under the same 7-day window as the underlying subscription.</li>
+                </ul>
+                <p className="text-gray-600">
+                  To request a refund, contact <a href="mailto:support@offerloop.ai" className="text-[#3B82F6] hover:underline">support@offerloop.ai</a> or
+                  submit a request from your account settings. We typically respond within 24 hours.
+                </p>
+                <p className="text-gray-600">
+                  <strong>Anti-abuse:</strong> Refunds are issued in good faith and at Offerloop's discretion.
+                  We reserve the right to deny refund requests where usage patterns indicate evaluation in bad
+                  faith — for example, bulk credit consumption immediately followed by a refund request.
+                  Outside these stated windows, payments are non-refundable except where required by law.
+                </p>
                 <p className="text-gray-600"><strong>Taxes:</strong> You are responsible for applicable taxes, though we may collect and remit when legally required.</p>
                 <p className="text-gray-600"><strong>Chargebacks:</strong> Fraudulent or unwarranted chargebacks may result in suspension or termination.</p>
 

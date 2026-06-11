@@ -16,6 +16,8 @@ import { GoalsPromptBanner } from "@/components/find/GoalsPromptBanner";
 import { IS_DEV_PREVIEW, DEV_MOCK_USER } from "@/lib/devPreview";
 import { getUniversityShortName } from "@/lib/universityUtils";
 import { PersonalizationStrip } from "@/components/personalization/PersonalizationStrip";
+import { TrialBanner } from "@/components/TrialBanner";
+import { useNavigate } from "react-router-dom";
 
 const ContactSearchPage = React.lazy(() => import("./ContactSearchPage"));
 const FirmSearchPage = React.lazy(() => import("./FirmSearchPage"));
@@ -41,6 +43,7 @@ export const SearchSurface: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = resolveTab(searchParams.get("tab"));
   const routerLocation = useLocation();
+  const navigate = useNavigate();
   const { user: authUser } = useFirebaseAuth();
   const user = IS_DEV_PREVIEW ? DEV_MOCK_USER : authUser;
 
@@ -117,6 +120,15 @@ export const SearchSurface: React.FC = () => {
       {/* Page title */}
       <div>
         <div style={{ maxWidth: 800, margin: "0 auto", padding: "24px 0 8px" }}>
+          {/* Pro trial banner — auto-hides for paid users and post-trial users.
+              Renders "Try Pro free" CTA for eligible users, or active-trial
+              countdown for users mid-trial. */}
+          <div style={{ marginBottom: 16 }}>
+            <TrialBanner
+              variant="full"
+              onUpgrade={() => navigate('/pricing')}
+            />
+          </div>
           {isCompaniesTab && userUniversity && (
             <PersonalizationStrip firstName={userFirstName} university={userUniversity} />
           )}
