@@ -19,6 +19,7 @@ from app.services.pdl_client import search_contacts_from_prompt, get_contact_ide
 from app.services.reply_generation import batch_generate_emails
 from app.services.auth import deduct_credits_atomic
 from app.services.loop_budget import CREDIT_COSTS
+from app.services.outbox_service import build_hm_outbox_contact_doc
 from app.utils.exceptions import RateLimitError
 from app.utils.warmth_scoring import score_contacts_for_email
 from email_templates import get_template_instructions, roles_mode_template_instructions
@@ -319,7 +320,11 @@ def purge_brief_dependent_caches(db, uid: str, loop_id: str) -> int:
 
 
 def _company_to_domain(company_name: str) -> str | None:
-    """Map company name to domain for Clearbit logo."""
+    """Map a company name to a best-guess domain string.
+
+    Used as input to the logo URL builder below and any other callers that
+    need a `foo.com` style identifier. Not a verified domain, just a guess.
+    """
     if not company_name:
         return None
     key = company_name.strip().lower()
@@ -328,6 +333,22 @@ def _company_to_domain(company_name: str) -> str | None:
     # Fallback: lowercase, remove spaces/special chars, add .com
     cleaned = "".join(c for c in key if c.isalnum())
     return f"{cleaned}.com" if cleaned else None
+
+
+def _company_to_logo_url(company_name: str, size: int = 128) -> str | None:
+    """Build the public logo URL we ship to the frontend for a company.
+
+    Single point of indirection so swapping providers (logo.dev, Brandfetch,
+    etc.) is one line. Currently Google s2/favicons, which returns a tiny
+    image even for unknown domains so the frontend never sees a 404.
+
+    The previous provider, logo.clearbit.com, was retired on 2025-12-08 and
+    every request now fails with ERR_NAME_NOT_RESOLVED. Do not re-introduce.
+    """
+    domain = _company_to_domain(company_name)
+    if not domain:
+        return None
+    return f"https://www.google.com/s2/favicons?domain={domain}&sz={size}"
 
 
 # ── HM provenance (mode-aware template selection) ──────────────────────────
@@ -1035,8 +1056,7 @@ def execute_discover_companies(
     saved = []
 
     for co in new_companies[:5]:
-        domain = _company_to_domain(co.get("name", ""))
-        logo_url = f"https://logo.clearbit.com/{domain}" if domain else None
+        logo_url = _company_to_logo_url(co.get("name", ""))
 
         # Extract industry — field is "sector" in recommendation engine
         industry = co.get("industry") or co.get("sector", "")
@@ -1200,50 +1220,49 @@ def execute_find_hiring_managers(
         # Get email data from the emails list if available
         email_data = emails_list[idx] if idx < len(emails_list) else {}
         email_body = email_data.get("body", hm.get("email_body", ""))
+        # Plain-text variant for Firestore storage and previews. The recruiter
+        # email generator returns body (HTML) plus plain_body (clean text); the
+        # tracker renders emailBody as text, so persist the plain version. The
+        # HTML email_body is still used below for the Gmail draft and auto-send.
+        email_body_plain = email_data.get("plain_body") or email_body
         email_subject = email_data.get("subject", hm.get("email_subject", ""))
         hm_email = (hm.get("Email") or hm.get("email") or hm.get("WorkEmail") or "").strip()
         first_name = (hm.get("FirstName") or hm.get("firstName") or hm.get("first_name") or "").strip()
         last_name = (hm.get("LastName") or hm.get("lastName") or hm.get("last_name") or "").strip()
 
-        contact_doc = {
-            "firstName": first_name,
-            "lastName": last_name,
-            "email": hm_email,
-            "company": company,
-            "jobTitle": (hm.get("Title") or hm.get("title") or hm.get("jobTitle") or "").strip(),
-            "source": "agent",
-            "agentCycleId": action.get("cycleId"),
-            # Why this HM surfaced. "role_search" = pulled in by find_jobs at
-            # a small/founder-led company (founder-voice draft). "networking"
-            # = pulled in to support the networking goal (people-voice
-            # draft). Foundation: people-mode HMs default to "networking",
-            # roles-mode HMs default to "role_search", both-mode HMs read
-            # the planner-supplied tag with "networking" fallback.
-            "discoveredVia": discovered_via,
-            # Foreign key into the find_jobs activity item this HM was paired
-            # with — only set for role_search HMs. The activity feed groups
-            # by this key so the founder-draft sub-card renders inline below
-            # its source posting. Networking-mode HMs leave it empty so they
-            # render as standalone rows (today's people-mode behavior).
-            "sourceJobId": action.get("sourceJobId", "") if discovered_via == "role_search" else "",
-            "loopId": loop_id,
-            "pipelineStage": "draft_created" if email_body else "not_contacted",
-            "emailSubject": email_subject,
-            "emailBody": email_body,
-            "inOutbox": True,
-            "createdAt": now_iso,
-            "firstContactDate": today,
-            "lastContactDate": today,
-            "status": "Not Contacted",
-            "isHiringManager": True,
-            "userId": uid,
-            "emailGeneratedAt": now_iso,
-            "draftCreatedAt": now_iso,
-            "draftStillExists": True,
-            "lastActivityAt": now_iso,
-            "hasUnreadReply": False,
-            "linkedinUrl": (hm.get("LinkedIn") or hm.get("linkedinUrl") or "").strip(),
-        }
+        # Why this HM surfaced. "role_search" = pulled in by find_jobs at a
+        # small/founder-led company (founder-voice draft). "networking" =
+        # pulled in to support the networking goal (people-voice draft).
+        # Foundation: people-mode HMs default to "networking", roles-mode HMs
+        # default to "role_search", both-mode HMs read the planner-supplied tag
+        # with "networking" fallback.
+        #
+        # sourceJobId is a foreign key into the find_jobs activity item this HM
+        # was paired with, only set for role_search HMs. The activity feed
+        # groups by this key so the founder-draft sub-card renders inline below
+        # its source posting. Networking-mode HMs leave it empty so they render
+        # as standalone rows (today's people-mode behavior).
+        source_job_id = action.get("sourceJobId", "") if discovered_via == "role_search" else ""
+        # Shared builder so this path and the manual Find -> Hiring Managers
+        # path write the identical outbox shape (see outbox_service).
+        contact_doc = build_hm_outbox_contact_doc(
+            uid=uid,
+            first_name=first_name,
+            last_name=last_name,
+            email=hm_email,
+            company=company,
+            job_title=(hm.get("Title") or hm.get("title") or hm.get("jobTitle") or "").strip(),
+            linkedin_url=(hm.get("LinkedIn") or hm.get("linkedinUrl") or "").strip(),
+            email_subject=email_subject,
+            email_body=email_body_plain,
+            now_iso=now_iso,
+            today=today,
+            source="agent",
+            agent_cycle_id=action.get("cycleId"),
+            discovered_via=discovered_via,
+            source_job_id=source_job_id,
+            loop_id=loop_id,
+        )
 
         # Create Gmail draft
         if email_body and hm_email:
@@ -1285,7 +1304,7 @@ def execute_find_hiring_managers(
             "company": company,
             "hasEmail": bool(email_body),
             "emailSubject": email_subject,
-            "emailBodyPreview": email_body[:200] if email_body else "",
+            "emailBodyPreview": email_body_plain[:200] if email_body_plain else "",
             "isHiringManager": True,
             "gmailDraftId": contact_doc.get("gmailDraftId", ""),
             "gmailDraftUrl": contact_doc.get("gmailDraftUrl", ""),

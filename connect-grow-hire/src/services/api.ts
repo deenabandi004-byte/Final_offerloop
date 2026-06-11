@@ -427,6 +427,24 @@ export interface ReplyCoachDraft {
   contactId: string;
   createdAt: string;
   status: "ready" | "generating";
+  warmthTier?: string;
+  leadType?: string;
+}
+
+export interface ThreadMessage {
+  messageId: string | null;
+  sender: string | null;
+  isFromRecipient: boolean;
+  isFromUser: boolean;
+  sentAt: string | null;
+  subject: string;
+  body: string;
+}
+
+export interface ThreadMessagesResponse {
+  source: "gmail" | "local";
+  messages: ThreadMessage[];
+  reason?: "no_thread" | "gmail_disconnected" | "gmail_error";
 }
 
 export interface AutoPrepStatus {
@@ -792,8 +810,44 @@ export interface JobFeedResponse {
   cached: boolean;
   stale?: boolean;
   ranking_in_progress?: boolean;
+  // Refresh-button rotation. feed_offset is the position into the cached
+  // ranked list we hydrated from this response. feed_wrapped is true when
+  // a refresh advanced past the end of the cached list and reset to 0;
+  // surface that to the user as a brief "back to top picks" toast.
+  feed_offset?: number;
+  feed_wrapped?: boolean;
   summary?: JobFeedSummaryMeta;
   gated?: JobFeedGatedInfo;
+}
+
+// Inputs for the catalog search endpoint. All fields optional; sending an
+// empty object returns the most recent jobs across the whole store. Mirrors
+// the GET /api/jobs/search route in backend/app/routes/jobs.py.
+export interface JobSearchParams {
+  q?: string;
+  company?: string;
+  location?: string;
+  type?: "FULLTIME" | "PARTTIME" | "INTERNSHIP";
+  seniority?: "intern" | "entry" | "mid" | "senior";
+  postedAfter?: "24h" | "7d" | "30d";
+  limit?: number;
+  cursor?: string;
+}
+
+export interface JobSearchResponse {
+  results: FeedJob[];
+  count: number;
+  scanned: number;
+  next_cursor: string | null;
+  query: {
+    q: string;
+    tokens: string[];
+    company: string | null;
+    location: string | null;
+    type: string | null;
+    seniority: string | null;
+    limit: number;
+  };
 }
 
 export interface JobFeedbackRequest {
@@ -1295,6 +1349,27 @@ class ApiService {
     });
   }
 
+  // Generate cold first-touch emails and create Gmail drafts for the given
+  // contacts. Server backfills resume_text, user_profile, email template, and
+  // signoff from Firestore — the caller can pass an empty/minimal contact
+  // (Name/Email/Company/Title only) and the generator falls back to
+  // title+company anchors (no PDL enrichment, no PDL credit spent). Creates a
+  // contact doc at pipelineStage="draft_created" as a side effect, deduped by
+  // lowercased email.
+  async generateAndDraftEmails(payload: {
+    contacts: Array<{ Name?: string; Email: string; Company?: string; Title?: string; [k: string]: any }>;
+  }): Promise<
+    | { success: boolean; draft_count: number; drafts: Array<{ to: string; draftId: string; messageId?: string; threadId?: string; gmailUrl?: string }>; connected_email?: string; skipped_count?: number }
+    | { error: string; message?: string }
+  > {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest('/emails/generate-and-draft', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+  }
+
   // ================================
   // Coffee Chat Prep Endpoints
   // ================================
@@ -1608,10 +1683,15 @@ async generateReplyDraft(contactId: string): Promise<GenerateReplyResult | Error
   });
 }
 
-/** Get auto-generated reply draft (Reply Coach) */
-async getReplyCoachDraft(contactId: string): Promise<ReplyCoachDraft | ErrorResponse> {
+/** Get auto-generated reply draft (Reply Coach).
+ *  Pass refresh=true to bypass the cached draft so the new thread-aware path
+ *  runs. The inbox Generate button always passes refresh=true — see
+ *  reply_coach.get_reply_draft.
+ */
+async getReplyCoachDraft(contactId: string, opts?: { refresh?: boolean }): Promise<ReplyCoachDraft | ErrorResponse> {
   const headers = await this.getAuthHeaders();
-  return this.makeRequest<ReplyCoachDraft | ErrorResponse>(`/contacts/${contactId}/reply-draft`, {
+  const qs = opts?.refresh ? '?refresh=1' : '';
+  return this.makeRequest<ReplyCoachDraft | ErrorResponse>(`/contacts/${contactId}/reply-draft${qs}`, {
     method: 'GET',
     headers,
   });
@@ -1712,6 +1792,18 @@ async getOutboxThreads(params?: {
   return this.makeRequest<{ threads: OutboxThread[] } | { error: string }>(url, { method: 'GET', headers });
 }
 
+/** Get full message chain for one outbox thread. Falls back to a single
+ *  locally-stored emailBody when Gmail is disconnected or the fetch fails —
+ *  the backend never 500s on a missing Gmail connection here.
+ */
+async getOutboxThreadMessages(contactId: string): Promise<ThreadMessagesResponse | { error: string }> {
+  const headers = await this.getAuthHeaders();
+  return this.makeRequest<ThreadMessagesResponse | { error: string }>(
+    `/outbox/threads/${contactId}/messages`,
+    { method: 'GET', headers }
+  );
+}
+
 /** Get outbox pipeline stats */
 async getOutboxStats(): Promise<OutboxStats | { error: string }> {
   const headers = await this.getAuthHeaders();
@@ -1724,6 +1816,20 @@ async patchOutboxStage(contactId: string, stage: PipelineStage): Promise<{ threa
   return this.makeRequest<{ thread: OutboxThread } | { error: string }>(
     `/outbox/threads/${contactId}/stage`,
     { method: 'PUT', headers, body: JSON.stringify({ stage }) }
+  );
+}
+
+/** Send a reply (or follow-up) via Gmail and update outbox state.
+ *  Backed by POST /api/outbox/threads/<id>/send-reply — runs Gmail
+ *  messages.send(), stamps emailSentAt / pipelineStage / lastMessageFrom on
+ *  the contact doc, and clears the cached replyDrafts entry. The inbox Send
+ *  button calls this with the editable draft body.
+ */
+async sendOutboxReply(contactId: string, body: string): Promise<{ thread: OutboxThread } | { error: string }> {
+  const headers = await this.getAuthHeaders();
+  return this.makeRequest<{ thread: OutboxThread } | { error: string }>(
+    `/outbox/threads/${contactId}/send-reply`,
+    { method: 'POST', headers, body: JSON.stringify({ body }) }
   );
 }
 
@@ -1897,6 +2003,25 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
     const qs = searchParams.toString();
     const url = qs ? `/jobs/feed?${qs}` : '/jobs/feed';
     return this.makeRequest<JobFeedResponse>(url, { method: 'GET', headers });
+  }
+
+  // Catalog query over the full jobs store. Distinct from getJobFeed (which
+  // is the personalized ranked surface) by design. Caller decides when to
+  // switch UI between the two; this method does no caching.
+  async searchJobs(params: JobSearchParams): Promise<JobSearchResponse> {
+    const headers = await this.getAuthHeaders();
+    const searchParams = new URLSearchParams();
+    if (params.q) searchParams.set("q", params.q);
+    if (params.company) searchParams.set("company", params.company);
+    if (params.location) searchParams.set("location", params.location);
+    if (params.type) searchParams.set("type", params.type);
+    if (params.seniority) searchParams.set("seniority", params.seniority);
+    if (params.postedAfter) searchParams.set("posted_after", params.postedAfter);
+    if (params.limit) searchParams.set("limit", String(params.limit));
+    if (params.cursor) searchParams.set("cursor", params.cursor);
+    const qs = searchParams.toString();
+    const url = qs ? `/jobs/search?${qs}` : '/jobs/search';
+    return this.makeRequest<JobSearchResponse>(url, { method: 'GET', headers });
   }
 
   async getJobDetail(jobId: string): Promise<Record<string, any>> {
@@ -2151,6 +2276,34 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
     const headers = await this.getAuthHeaders();
     return this.makeRequest<FindRecruiterResponse>(
       '/job-board/find-recruiter',
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          ...params,
+          jobUrl: normalizeUrl(params.jobUrl),
+        }),
+      }
+    );
+  }
+
+  // Find People: peers / teammates on the team behind a posting (find-employee).
+  // Returns the same shape as find-recruiter (people in `recruiters`).
+  async findEmployees(params: {
+    company?: string;
+    jobTitle?: string;
+    jobDescription?: string;
+    location?: string;
+    jobUrl?: string;
+    jobId?: string;
+    maxResults?: number;
+    generateEmails?: boolean;
+    createDrafts?: boolean;
+    mode?: OutreachMode;
+  }): Promise<FindRecruiterResponse> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<FindRecruiterResponse>(
+      '/job-board/find-employee',
       {
         method: 'POST',
         headers,

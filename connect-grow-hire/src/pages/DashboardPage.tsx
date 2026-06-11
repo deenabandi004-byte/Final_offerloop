@@ -17,6 +17,7 @@ import {
   ArrowRight, Mail, Calendar, Users, Building2, Coffee,
   Briefcase, Repeat, Play, X, Clock,
   ChevronRight, ChevronLeft, UserPlus, CircleCheck, Loader2, HelpCircle,
+  Info,
 } from "lucide-react";
 
 import { AppSidebar } from "@/components/AppSidebar";
@@ -26,6 +27,7 @@ import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { CompanyLogo } from "@/components/CompanyLogo";
 
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
@@ -476,7 +478,7 @@ export default function DashboardPage() {
       icon: <Mail className="h-4 w-4" />,
       tone: "var(--accent)",
       text: `${r.contactName} replied to you`,
-      sub: r.company || r.snippet?.slice(0, 60) || "Reply waiting in your tracker",
+      sub: r.company || r.snippet?.slice(0, 60) || "Reply waiting in your inbox",
       cta: "Reply",
       onClick: () => navigate("/tracker", { state: { selectContactId: r.contactId } }),
     });
@@ -620,7 +622,7 @@ export default function DashboardPage() {
 
   /* ---- tools (demoted chip row) ---- */
   const tools = [
-    { icon: <Mail className="h-3.5 w-3.5" />, label: "Tracker", to: "/tracker" },
+    { icon: <Mail className="h-3.5 w-3.5" />, label: "Inbox", to: "/tracker" },
     { icon: <Coffee className="h-3.5 w-3.5" />, label: "Meeting Prep", to: "/coffee-chat-prep" },
     { icon: <Briefcase className="h-3.5 w-3.5" />, label: "Job Board", to: "/job-board" },
   ];
@@ -867,10 +869,7 @@ export default function DashboardPage() {
                       preview: "Filters jobs and contacts to the right metro",
                     }
                   : !hardNos
-                  ? {
-                      text: "Tell us what to filter out →",
-                      preview: "Suppresses roles, companies, or locations you've ruled out",
-                    }
+                  ? { variant: "button" as const }
                   : !personalContext
                   ? {
                       text: "Tell us something the resume doesn't say →",
@@ -905,37 +904,80 @@ export default function DashboardPage() {
                         : "Tell us a bit about yourself — it's how we know what to recommend."}
                     </p>
                     <div style={{ marginTop: 14 }}>
-                      <button
-                        type="button"
-                        onClick={() => navigate("/profile")}
-                        style={{
-                          fontFamily: "var(--font-body)",
-                          fontSize: 13.5,
-                          fontWeight: 600,
-                          color: "var(--accent, #4A60A8)",
-                          background: "transparent",
-                          border: "none",
-                          padding: 0,
-                          cursor: "pointer",
-                          display: "block",
-                        }}
-                        onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
-                      >
-                        {ctaConfig.text}
-                      </button>
-                      <p
-                        style={{
-                          marginTop: 4,
-                          marginBottom: 0,
-                          fontFamily: "var(--font-body)",
-                          fontSize: 11.5,
-                          lineHeight: 1.5,
-                          color: "var(--ink-3, #94A3B8)",
-                        }}
-                      >
-                        {ctaConfig.preview}
-                      </p>
+                      {ctaConfig.variant === "button" ? (
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => navigate("/profile")}
+                            className="inline-flex items-center rounded-md px-3 py-1.5 text-[12.5px] font-semibold text-white transition-opacity hover:opacity-90"
+                            style={{
+                              background: "#1e3a8a",
+                              border: "none",
+                              cursor: "pointer",
+                              fontFamily: "'Inter', sans-serif",
+                            }}
+                          >
+                            Update profile
+                          </button>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button
+                                type="button"
+                                aria-label="Why complete your profile"
+                                className="inline-flex h-6 w-6 items-center justify-center rounded-full text-[#94A3B8] transition-colors hover:text-[#475569] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1"
+                                style={{
+                                  background: "transparent",
+                                  border: "none",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                <Info className="h-4 w-4" />
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent
+                              side="bottom"
+                              align="start"
+                              className="w-72 text-[12.5px] leading-relaxed"
+                            >
+                              The more you include in your profile, the more personalized the messages we can draft, and the more tailored our job and people recommendations get.
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => navigate("/profile")}
+                            style={{
+                              fontFamily: "var(--font-body)",
+                              fontSize: 13.5,
+                              fontWeight: 600,
+                              color: "var(--accent, #4A60A8)",
+                              background: "transparent",
+                              border: "none",
+                              padding: 0,
+                              cursor: "pointer",
+                              display: "block",
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
+                          >
+                            {ctaConfig.text}
+                          </button>
+                          <p
+                            style={{
+                              marginTop: 4,
+                              marginBottom: 0,
+                              fontFamily: "var(--font-body)",
+                              fontSize: 11.5,
+                              lineHeight: 1.5,
+                              color: "var(--ink-3, #94A3B8)",
+                            }}
+                          >
+                            {ctaConfig.preview}
+                          </p>
+                        </>
+                      )}
                     </div>
                   </section>
                 );

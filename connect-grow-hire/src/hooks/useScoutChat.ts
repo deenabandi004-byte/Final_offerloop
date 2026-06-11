@@ -201,6 +201,10 @@ export interface UseScoutChatReturn {
     content: string,
     extras?: { mode?: ScoutMode; cta?: ScoutCta | null },
   ) => void;
+  /** Mirror of appendSyntheticAssistant for the user side. Used by the
+   *  product-tour demo to seed both halves of a conversation without a
+   *  backend round trip. Same local-only / non-persisted semantics. */
+  appendSyntheticUser: (content: string) => void;
 }
 
 /**
@@ -671,6 +675,20 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
     ]);
   }, []);
 
+  const appendSyntheticUser = useCallback((content: string) => {
+    const trimmed = (content || '').trim();
+    if (!trimmed) return;
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `synthetic-user-${Date.now()}`,
+        role: 'user',
+        content: trimmed,
+        timestamp: new Date(),
+      },
+    ]);
+  }, []);
+
   return {
     messages,
     input,
@@ -685,6 +703,7 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
     loadChat,
     isLoadingChat,
     appendSyntheticAssistant,
+    appendSyntheticUser,
   };
 }
 

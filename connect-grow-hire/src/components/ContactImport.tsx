@@ -899,7 +899,7 @@ const ContactImport: React.FC<ContactImportProps> = ({ onImportComplete, onSwitc
                 e.currentTarget.style.transform = 'translateY(0)';
               }}
             >
-              View in Tracker
+              View in Inbox
             </button>
           </div>
         </div>

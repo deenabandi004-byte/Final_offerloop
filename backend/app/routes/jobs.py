@@ -1,5 +1,5 @@
 """
-Jobs API routes — feed, feedback, and filters.
+Jobs API routes, feed, search, feedback, and filters.
 """
 from flask import Blueprint, jsonify, request
 from backend.app.extensions import require_firebase_auth, get_db
@@ -11,8 +11,12 @@ from backend.app.utils.job_ranking import (
     _is_excluded as _is_excluded_job,
     _is_non_us as _is_international_job,
 )
+from backend.pipeline.normalizer import build_search_terms, canonicalize_company
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor
+from google.cloud.firestore_v1.base_query import FieldFilter
+import base64
+import json
 import logging
 import threading
 
@@ -29,6 +33,30 @@ _ranking_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="job-rank")
 
 _pipeline_summary_cache = {"data": None, "cached_at": 0.0}
 PIPELINE_SUMMARY_TTL = 60  # seconds
+
+# Refresh-button rotation. The user's `jobFeedCache.job_ids` stores up to 1000
+# ranked IDs but each response only hydrates `MAX_DISPLAY_TOP_JOBS` of them.
+# A refresh advances `jobFeedOffset` by STRIDE and hydrates a different slice,
+# so successive presses surface genuinely different jobs while staying inside
+# the same personalized ranked list. Wraps to 0 once the offset would leave
+# no docs to surface.
+_FEED_OFFSET_STRIDE = 100
+
+
+def _advance_feed_offset(current: int, cache_len: int, stride: int = _FEED_OFFSET_STRIDE) -> tuple[int, bool]:
+    """Return (new_offset, wrapped) for the next refresh slice.
+
+    Wraps to 0 when the next slice would land at or past the end of the
+    cached list (so we never return an empty hydration). Cache lengths shorter
+    than the stride cause every refresh to wrap, which is the right behavior:
+    the user does not have enough cached jobs to rotate through.
+    """
+    if cache_len <= 0:
+        return 0, False
+    nxt = max(0, current) + max(1, stride)
+    if nxt >= cache_len:
+        return 0, True
+    return nxt, False
 
 
 def _format_freshness(minutes: int | None) -> str:
@@ -247,8 +275,13 @@ def get_feed():
     if not user_doc.exists:
         return jsonify({"error": "User not found"}), 404
 
-    # Clear cache on explicit refresh OR ungated toggle (different feed shape)
-    if refresh or ungated:
+    # ungated changes the feed shape (the gates apply differently), so we
+    # must blow the cache away. refresh used to do the same, which is why
+    # the button felt like a no-op: it forced a fresh rank over identical
+    # inputs and returned the same top 300 in the same order. Now refresh
+    # KEEPS the cache and rotates which slice of the 1000 cached IDs to
+    # hydrate (see _advance_feed_offset and the cache-hit path below).
+    if ungated:
         user_ref.update({"jobFeedCache": None})
 
     profile = user_doc.to_dict()
@@ -366,11 +399,13 @@ def get_feed():
 
         return out
 
-    # Check cache
+    # Check cache. Refresh no longer invalidates the cache; instead it walks
+    # an offset over the same cached ranked list (see _advance_feed_offset).
     cache = profile.get("jobFeedCache") or {}
     cache_ranked_at = cache.get("ranked_at")
     cache_valid = False
-    if cache_ranked_at and not refresh:
+    cache_stale_ok = False
+    if cache_ranked_at:
         if hasattr(cache_ranked_at, "timestamp"):
             cache_age = (now - cache_ranked_at.replace(tzinfo=timezone.utc)).total_seconds()
         elif hasattr(cache_ranked_at, "isoformat"):
@@ -379,10 +414,10 @@ def get_feed():
             cache_age = float("inf")
         cache_valid = cache_age < 1800
         cache_stale_ok = not cache_valid and cache_age < 7200  # 2 hours
-    else:
-        cache_stale_ok = False
 
-    # Check new_matches cache (short TTL — 5 min)
+    # Check new_matches cache (short TTL — 5 min). refresh still bypasses
+    # this so the user gets the latest 24h window on every press, even
+    # though the ranked slice is now rotation-based.
     nm_cache = cache.get("new_matches_cache") or {}
     nm_cached_at = nm_cache.get("cached_at")
     nm_valid = False
@@ -445,17 +480,28 @@ def get_feed():
         return new_matches, False
 
     # Display slice: cache stores up to 1000 ranked job_ids (rich inventory for
-    # future pagination), but each response only hydrates the top 300 for speed.
-    # Cuts Firestore reads from ~10 RPCs to ~3 and payload from ~2.5MB to ~600KB.
+    # rotation), but each response only hydrates MAX_DISPLAY_TOP_JOBS of them.
+    # The slice now starts at `offset` so successive refreshes surface
+    # different jobs from the same ranked pool.
     MAX_DISPLAY_TOP_JOBS = 300
 
-    def _load_top_jobs_from_cache(cached_ids, cached_scores, cached_reasons):
-        """Hydrate top_jobs from cached job IDs (first N for fast first paint)."""
+    def _load_top_jobs_from_cache(cached_ids, cached_scores, cached_reasons, offset: int = 0):
+        """Hydrate top_jobs from cached job IDs starting at `offset`.
+
+        Defensively wraps when offset is past the end of the cached list,
+        so a stale persisted offset (e.g. left over from a longer cache that
+        has since been rebuilt smaller) still surfaces real jobs instead of
+        returning an empty list. The caller's _advance_feed_offset normally
+        prevents this, so the wrap here is belt-and-suspenders.
+        """
         top_jobs = []
         if cached_ids:
-            cached_ids = cached_ids[:MAX_DISPLAY_TOP_JOBS]
-            for i in range(0, len(cached_ids), 100):
-                chunk = cached_ids[i:i + 100]
+            start = max(0, offset)
+            if start >= len(cached_ids):
+                start = 0
+            window = cached_ids[start : start + MAX_DISPLAY_TOP_JOBS]
+            for i in range(0, len(window), 100):
+                chunk = window[i:i + 100]
                 refs = [db.collection("jobs").document(jid) for jid in chunk]
                 docs = db.get_all(refs)
                 for d in docs:
@@ -469,11 +515,30 @@ def get_feed():
             top_jobs.sort(key=lambda j: j.get("match_score") or 0, reverse=True)
         return top_jobs
 
+    # Resolve the hydration offset before the cache paths execute. Reads the
+    # stored offset, and if this is a refresh and the cache exists, advances
+    # by STRIDE (with wrap-to-zero on overflow) and persists the new value.
+    # Non-refresh requests keep the current offset, so a deep-linked reload
+    # of the same page shows the same slice the user last saw.
+    feed_offset = int(profile.get("jobFeedOffset") or 0)
+    feed_wrapped = False
+    cached_ids_len_for_offset = len(cache.get("job_ids") or [])
+    if refresh and cached_ids_len_for_offset > 0:
+        feed_offset, feed_wrapped = _advance_feed_offset(
+            feed_offset, cached_ids_len_for_offset,
+        )
+        try:
+            user_ref.update({"jobFeedOffset": feed_offset})
+        except Exception:
+            logger.exception("[JobsFeed] failed to persist jobFeedOffset for uid=%s", uid)
+
     if cache_valid:
         cached_ids = cache.get("job_ids", [])
         cached_scores = cache.get("scores", {})
         cached_reasons = cache.get("reasons", {})
-        top_jobs = _enrich(_load_top_jobs_from_cache(cached_ids, cached_scores, cached_reasons))
+        top_jobs = _enrich(_load_top_jobs_from_cache(
+            cached_ids, cached_scores, cached_reasons, offset=feed_offset,
+        ))
         new_matches_raw, nm_from_cache = _fetch_new_matches(cached_scores, cached_reasons)
         new_matches = _enrich(new_matches_raw)
         new_matches, top_jobs, gated_info = _apply_gates(new_matches, top_jobs)
@@ -486,6 +551,8 @@ def get_feed():
             "ranked": True,
             "no_resume": False,
             "cached": True,
+            "feed_offset": feed_offset,
+            "feed_wrapped": feed_wrapped,
             "summary": _get_pipeline_summary(),
             "gated": gated_info,
         })
@@ -494,7 +561,9 @@ def get_feed():
         cached_ids = cache.get("job_ids", [])
         cached_scores = cache.get("scores", {})
         cached_reasons = cache.get("reasons", {})
-        top_jobs = _enrich(_load_top_jobs_from_cache(cached_ids, cached_scores, cached_reasons))
+        top_jobs = _enrich(_load_top_jobs_from_cache(
+            cached_ids, cached_scores, cached_reasons, offset=feed_offset,
+        ))
         new_matches_raw, nm_from_cache = _fetch_new_matches(cached_scores, cached_reasons)
         new_matches = _enrich(new_matches_raw)
 
@@ -514,6 +583,8 @@ def get_feed():
             "no_resume": False,
             "cached": True,
             "stale": True,
+            "feed_offset": feed_offset,
+            "feed_wrapped": feed_wrapped,
             "summary": _get_pipeline_summary(),
             "gated": gated_info,
         })
@@ -680,12 +751,314 @@ def _background_rerank(uid: str):
             "reasons": {j["job_id"]: j.get("match_reason") for j in top_jobs},
             "ranked_at": datetime.now(timezone.utc),
         }
-        user_ref.update({"jobFeedCache": cache_data})
+        # Reset the refresh-rotation offset whenever we write a fresh ranked
+        # list. The previous offset was keyed to the OLD job_ids; carrying it
+        # forward would mean the user's next visit hydrates positions e.g.
+        # 500-799 of the NEW ranking instead of the actual top picks. Zero
+        # aligns the user with the top of the freshly-ranked pool.
+        user_ref.update({"jobFeedCache": cache_data, "jobFeedOffset": 0})
         logger.info(f"Background re-rank complete for {uid}")
     except Exception as e:
         logger.warning(f"Background re-rank failed for {uid}: {e}")
     finally:
         _ranking_in_progress.discard(uid)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/jobs/search
+# ---------------------------------------------------------------------------
+#
+# Explicit search and filter over the full `jobs` collection. NOT personalized.
+# Separate from /api/jobs/feed by design: the feed is a ranked, capped,
+# per-user product surface; this route is a catalog query the user drives.
+#
+# Inputs (all query string):
+#   q           free-text. Tokenized with build_search_terms; first token is
+#               sent to Firestore as array_contains("search_terms", token),
+#               remaining tokens are AND-applied in Python.
+#   company     canonical brand string. Run through canonicalize_company so
+#               "AWS" hits Amazon docs.
+#   location    case-insensitive substring match against `location` field.
+#   type        one of FULLTIME, PARTTIME, INTERNSHIP. Exact match.
+#   seniority   "intern" / "entry" / "mid" / "senior". Post-filtered against
+#               structured.title_meta.seniority when the title enricher has
+#               populated it; jobs missing the field pass through (we'd rather
+#               surface than hide on missing metadata).
+#   posted_after  one of "24h", "7d", "30d". Applies a posted_at >= cutoff
+#               range filter at the Firestore level (no post-filter). Unknown
+#               or empty values fail open (no filter applied), so a typo
+#               cannot silently empty the result set.
+#   limit       default 50, max 100.
+#   cursor      opaque base64 token from a previous response's next_cursor.
+#               Pagination is posted_at-desc with job_id as a tiebreaker.
+#
+# Firestore composite indexes required (create before shipping):
+#   1) jobs: search_terms (Arrays) ASC, posted_at DESC, __name__ ASC
+#   2) jobs: company ASC, posted_at DESC, __name__ ASC
+#   3) jobs: type ASC, posted_at DESC, __name__ ASC
+# Without these, the queries below will fail with FAILED_PRECONDITION and the
+# Firestore console will link to the index-create form.
+
+# Conservative ceilings so a bad query can't blow up the worker.
+_SEARCH_MAX_LIMIT = 100
+_SEARCH_DEFAULT_LIMIT = 50
+# How many docs we read from Firestore before applying post-filters. Post-filters
+# can drop most of the page, so we read a multiple of the requested page size.
+# Bounded so a stopword-heavy q like "the engineer" can't read forever.
+_SEARCH_SCAN_MULTIPLIER = 4
+_SEARCH_MAX_SCAN = 1000
+
+# Accepted relative tokens for the posted_after query param. Map to a fixed
+# timedelta; the resolved cutoff timestamp is now - delta. Kept small and
+# explicit so a hostile client cannot pass e.g. "10000d" and force Firestore
+# to scan the whole collection. Add new windows here by name.
+_POSTED_AFTER_DELTAS: dict[str, timedelta] = {
+    "24h": timedelta(hours=24),
+    "7d":  timedelta(days=7),
+    "30d": timedelta(days=30),
+}
+
+
+def _parse_posted_after(raw: str | None) -> datetime | None:
+    """Return the cutoff datetime for `posted_after`, or None if the param is
+    absent / empty / unrecognized. Unknown values fail open (no filter) so a
+    typo never empties the result set silently.
+    """
+    if not raw:
+        return None
+    delta = _POSTED_AFTER_DELTAS.get(raw.strip().lower())
+    if delta is None:
+        logger.warning("search: ignoring unknown posted_after value %r", raw)
+        return None
+    return datetime.now(timezone.utc) - delta
+
+
+def _encode_cursor(posted_at, job_id: str) -> str | None:
+    if posted_at is None or not job_id:
+        return None
+    if hasattr(posted_at, "isoformat"):
+        ts = posted_at.isoformat()
+    else:
+        ts = str(posted_at)
+    payload = json.dumps({"posted_at": ts, "job_id": job_id})
+    return base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii")
+
+
+def _decode_cursor(token: str | None) -> tuple[datetime | None, str | None]:
+    if not token:
+        return None, None
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(token.encode("ascii")).decode("utf-8"))
+        ts_str = payload.get("posted_at")
+        job_id = payload.get("job_id")
+        ts = None
+        if ts_str:
+            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+        return ts, job_id
+    except Exception:
+        logger.warning("invalid search cursor, ignoring", exc_info=True)
+        return None, None
+
+
+def _job_seniority(job: dict) -> str | None:
+    """Pull the enriched seniority value if present. Falls back to None."""
+    structured = job.get("structured")
+    if isinstance(structured, dict):
+        title_meta = structured.get("title_meta")
+        if isinstance(title_meta, dict):
+            val = title_meta.get("seniority")
+            if isinstance(val, str):
+                return val.lower()
+    return None
+
+
+def _matches_post_filters(
+    job: dict,
+    extra_tokens: list[str],
+    location_q: str | None,
+    job_type: str | None,
+    seniority: str | None,
+) -> bool:
+    if extra_tokens:
+        terms = job.get("search_terms") or []
+        if not isinstance(terms, list):
+            return False
+        term_set = set(terms)
+        if not all(t in term_set for t in extra_tokens):
+            return False
+    if location_q:
+        loc = job.get("location") or ""
+        if isinstance(loc, dict):
+            loc = " ".join(str(v) for v in loc.values() if v)
+        elif isinstance(loc, list):
+            loc = " ".join(str(v) for v in loc)
+        if location_q not in str(loc).lower():
+            return False
+    if job_type and (job.get("type") or "").upper() != job_type:
+        return False
+    if seniority:
+        actual = _job_seniority(job)
+        # Missing metadata passes through so users see more, not fewer, results.
+        if actual is not None and actual != seniority:
+            return False
+    if _is_international_job(job) or _is_excluded_job(job):
+        return False
+    return True
+
+
+@jobs_bp.route("/api/jobs/search", methods=["GET"])
+@require_firebase_auth
+def search_jobs():
+    db = get_db()
+    if not db:
+        return jsonify({"error": "Database unavailable"}), 503
+
+    raw_q = (request.args.get("q") or "").strip()
+    company_in = (request.args.get("company") or "").strip()
+    location_in = (request.args.get("location") or "").strip().lower()
+    type_in = (request.args.get("type") or "").strip().upper()
+    seniority_in = (request.args.get("seniority") or "").strip().lower()
+    posted_after_in = (request.args.get("posted_after") or "").strip().lower()
+    posted_after_ts = _parse_posted_after(posted_after_in)
+    try:
+        limit = int(request.args.get("limit") or _SEARCH_DEFAULT_LIMIT)
+    except ValueError:
+        limit = _SEARCH_DEFAULT_LIMIT
+    limit = max(1, min(limit, _SEARCH_MAX_LIMIT))
+
+    cursor_ts, cursor_id = _decode_cursor(request.args.get("cursor"))
+
+    # Short-circuit: a degenerate "show me everything" request would force
+    # Firestore into a bare `order_by(posted_at).order_by(__name__)` query,
+    # which needs its own composite index AND is a wasteful scan of the
+    # whole collection. If the user has not narrowed the query in any way,
+    # return an explanatory empty payload instead. The frontend should not
+    # call this route in that state, but we defend against it anyway.
+    # posted_after counts as a narrowing filter even if it is the only one.
+    if (not raw_q and not company_in and not location_in
+            and not type_in and not seniority_in and posted_after_ts is None):
+        return jsonify({
+            "results": [],
+            "count": 0,
+            "scanned": 0,
+            "next_cursor": None,
+            "query": {
+                "q": "", "tokens": [],
+                "company": None, "location": None,
+                "type": None, "seniority": None,
+                "posted_after": None,
+                "limit": limit,
+            },
+            "message": "Add a keyword or filter to search the catalog.",
+        })
+
+    # Tokenize the user's query. Pick the rarest-looking token (longest)
+    # for the Firestore filter so we minimize the post-filter set.
+    tokens = build_search_terms(raw_q, None, None)
+    primary_token: str | None = None
+    extra_tokens: list[str] = []
+    if tokens:
+        primary_token = max(tokens, key=len)
+        extra_tokens = [t for t in tokens if t != primary_token]
+
+    canonical_company = canonicalize_company(company_in) if company_in else ""
+
+    # Pick the primary Firestore filter. Order of preference:
+    #   1. search_terms (most selective when q is provided)
+    #   2. company (exact match on the canonical brand)
+    #   3. type
+    # Anything else becomes a post-filter so we don't multiply the composite
+    # index matrix.
+    q = db.collection("jobs").order_by(
+        "posted_at", direction="DESCENDING"
+    ).order_by("__name__", direction="ASCENDING")
+
+    if primary_token:
+        q = q.where(filter=FieldFilter("search_terms", "array_contains", primary_token))
+    elif canonical_company:
+        q = q.where(filter=FieldFilter("company", "==", canonical_company))
+    elif type_in:
+        q = q.where(filter=FieldFilter("type", "==", type_in))
+
+    # posted_after composes with the primary filter via the existing composite
+    # indexes (search_terms / company / type each carry posted_at DESC plus
+    # __name__ ASC), and standalone via the posted_at + __name__ index. No
+    # new index is required to ship this. Firestore allows one range filter
+    # per query; the range and the order_by are both on `posted_at`, which
+    # is the allowed shape.
+    if posted_after_ts is not None:
+        q = q.where(filter=FieldFilter("posted_at", ">=", posted_after_ts))
+
+    if cursor_ts is not None:
+        q = q.start_after({"posted_at": cursor_ts, "__name__": cursor_id or ""})
+
+    # Scan budget: read up to limit * multiplier so post-filters have headroom.
+    # Capped so a stopword-only query can't read the whole collection.
+    scan_budget = min(limit * _SEARCH_SCAN_MULTIPLIER, _SEARCH_MAX_SCAN)
+    q = q.limit(scan_budget)
+
+    # If primary_token already filters by search_terms, do not re-apply it
+    # as a post-filter; the array_contains query already enforced it.
+    post_company = canonical_company if (canonical_company and primary_token) else None
+    post_type = type_in if (type_in and (primary_token or canonical_company)) else None
+
+    results: list[dict] = []
+    last_doc = None
+    scanned = 0
+    try:
+        for snap in q.stream():
+            scanned += 1
+            last_doc = snap
+            job = snap.to_dict() or {}
+            if post_company and job.get("company") != post_company:
+                continue
+            if post_type and (job.get("type") or "").upper() != post_type:
+                continue
+            if not _matches_post_filters(
+                job, extra_tokens, location_in or None, type_in or None, seniority_in or None,
+            ):
+                continue
+            results.append(job)
+            if len(results) >= limit:
+                break
+    except Exception:
+        logger.exception(
+            "search_jobs Firestore query failed (likely missing composite index). "
+            "primary_token=%s company=%s type=%s",
+            primary_token, canonical_company, type_in,
+        )
+        return jsonify({
+            "error": "Search index unavailable. If this persists, the Firestore "
+                     "composite index for this query has not been created. See "
+                     "the route docstring for the required indexes.",
+        }), 503
+
+    # Build the cursor from the LAST DOC WE SCANNED, not the last result, so
+    # the next page starts after the doc we stopped on rather than re-scanning
+    # filtered-out docs.
+    next_cursor = None
+    if last_doc is not None and len(results) >= limit:
+        last_dict = last_doc.to_dict() or {}
+        next_cursor = _encode_cursor(last_dict.get("posted_at"), last_doc.id)
+
+    return jsonify({
+        "results": _serialize_jobs(results),
+        "count": len(results),
+        "scanned": scanned,
+        "next_cursor": next_cursor,
+        "query": {
+            "q": raw_q,
+            "tokens": tokens,
+            "company": canonical_company or None,
+            "location": location_in or None,
+            "type": type_in or None,
+            "seniority": seniority_in or None,
+            "posted_after": posted_after_in or None,
+            "limit": limit,
+        },
+    })
 
 
 # ---------------------------------------------------------------------------

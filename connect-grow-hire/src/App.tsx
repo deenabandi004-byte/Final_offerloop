@@ -14,6 +14,7 @@ import { DynamicGradientBackground } from "./components/background/DynamicGradie
 import { LoadingSkeleton } from "./components/LoadingSkeleton";
 import { ScoutSidePanel } from "./components/ScoutSidePanel";
 import FloatingAskScoutButton from "./components/AskScoutButton";
+import { ReplyNotifier } from "./components/ReplyNotifier";
 import { LoadingContainer } from "./components/ui/LoadingBar";
 import { IS_DEV_PREVIEW } from "./lib/devPreview";
 import { useAgentGlobalNotifier } from "./hooks/useAgent";
@@ -462,6 +463,7 @@ const App: React.FC = () => {
                   <TourProvider>
                     <KeyboardShortcutHandler />
                     <AgentNotifierMount />
+                    <ReplyNotifier />
                     <AppRoutes />
                     <ScoutSidePanel />
                     <FloatingAskScoutButton />

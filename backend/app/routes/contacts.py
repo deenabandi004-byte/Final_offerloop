@@ -791,11 +791,18 @@ def refresh_warmth_scores():
 @contacts_bp.route('/<contact_id>/reply-draft', methods=['GET'])
 @require_firebase_auth
 def get_reply_draft(contact_id):
-    """Get or generate a reply draft for a contact."""
+    """Get or generate a reply draft for a contact.
+
+    ?refresh=1 forces a fresh generation, bypassing both the ready-draft cache
+    and the in-flight pending doc. The inbox Generate button always passes
+    this so cached webhook-path drafts (latest-snippet-only, pre-thread-aware)
+    don't surface as stale on the first click for replied contacts.
+    """
     try:
         uid = request.firebase_user['uid']
+        refresh = request.args.get('refresh', '').lower() in ('1', 'true', 'yes')
         from app.services.reply_coach import get_reply_draft as _get_draft
-        draft = _get_draft(uid, contact_id)
+        draft = _get_draft(uid, contact_id, refresh=refresh)
         if draft is None:
             return jsonify({"error": "No reply context available"}), 404
         return jsonify(draft)

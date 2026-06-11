@@ -9,6 +9,7 @@
 import React from "react";
 import { useLocation } from "react-router-dom";
 import { useScout } from "@/contexts/ScoutContext";
+import { useTour } from "@/contexts/TourContext";
 
 import scoutYetiHead from "@/assets/scouts/scout-yeti-head.png";
 import pinThumbtack from "@/assets/scouts/pin-thumbtack.png";
@@ -118,19 +119,31 @@ export const AskScoutButton: React.FC<AskScoutButtonProps> = ({
 };
 
 /**
- * Floating wrapper for App.tsx. Pins to the top-right corner and skips
- * /dashboard (the Scout prompt is already inline in the hero there). Reads
- * tab from the current location automatically.
+ * Floating wrapper for App.tsx. Pins to the top-right corner and skips a
+ * fixed set of routes: /dashboard (the Scout prompt is already inline in the
+ * hero there) plus the public landing page and the For Students page, where
+ * the pill should not appear. Reads tab from the current location
+ * automatically. Exact-path matching is intentional, so a route like "/"
+ * suppresses only the landing page and not every route.
  */
+const HIDE_PILL_ON = new Set(["/dashboard", "/", "/for-students"]);
+
 const FloatingAskScoutButton: React.FC = () => {
   const { openPanel, isPanelOpen } = useScout();
+  const { demoSurface } = useTour();
+  const scoutDemoActive = demoSurface === 'scout';
   const location = useLocation();
 
-  if (isPanelOpen) return null;
-  if (location.pathname === "/dashboard") return null;
+  // Stay visible during the Scout tour demo even when the panel is open, so
+  // the tour's spotlight (anchored on the floating wrapper below) has an
+  // element to land on. Outside the demo the original "hide while panel is
+  // open" behavior is preserved.
+  if (isPanelOpen && !scoutDemoActive) return null;
+  if (HIDE_PILL_ON.has(location.pathname)) return null;
 
   return (
     <div
+      data-tour="tour-scout-button"
       style={{
         position: "fixed",
         top: 24,

@@ -37,12 +37,16 @@ import type { ParsedBrief } from "@/services/agent";
 const LIST_KEY = ["loops", "list"] as const;
 const detailKey = (id: string) => ["loops", "detail", id] as const;
 
-export function useLoopsList() {
+export function useLoopsList(options?: { enabled?: boolean }) {
   return useQuery<{ loops: Loop[]; limits: LoopLimits }>({
     queryKey: LIST_KEY,
     queryFn: listLoops,
     staleTime: 15_000,
     refetchInterval: 20_000, // grid stays live while a Loop is running
+    // Caller can suppress the fetch (and the 20s refetch interval) while a
+    // tour demo seeds the cache via queryClient.setQueryData. Cached data is
+    // still returned when enabled=false, so the seed renders unimpeded.
+    enabled: options?.enabled ?? true,
   });
 }
 

@@ -28,8 +28,16 @@ def _generate_short_code() -> str:
 logger = logging.getLogger(__name__)
 
 # ── Hard caps (guardrails) ─────────────────────────────────────────────────
-MAX_CONTACTS_PER_WEEK = 15
-MAX_CREDITS_PER_WEEK = 150
+# Sized to match what the new cadence sliders can produce at their maximum
+# daily setting. Contacts slider max is 15, daily cadence multiplies by 7,
+# giving a 105 weekly ceiling. Credits ceiling is the same math against the
+# per-cycle max cost in `both` mode (15 contacts × 5 + 10 roles × 2 = 95
+# per cycle, × 7 = 665, rounded up to 700). These are hard upper bounds on
+# the LEGACY per-Loop config; per-tier budget caps in config.py
+# (max_credit_budget_per_week_per_loop: free 150, pro 600, elite None)
+# clamp BELOW these for non-elite users.
+MAX_CONTACTS_PER_WEEK = 105
+MAX_CREDITS_PER_WEEK = 700
 # Raised from 20 to 25 so a user can still do one coffee chat prep (15cr) or
 # half an interview prep after the auto-pause kicks in.
 MIN_CREDIT_BALANCE = 25
@@ -1350,7 +1358,7 @@ def _get_week_start() -> str:
 
 def get_agent_pipeline(uid: str) -> dict:
     """Return per-company pipeline breakdown for the dashboard."""
-    from app.services.agent_actions import _company_to_domain
+    from app.services.agent_actions import _company_to_logo_url
 
     db = get_db()
     companies: dict[str, dict] = {}
@@ -1364,10 +1372,9 @@ def get_agent_pipeline(uid: str) -> dict:
             continue
         key = co.lower()
         if key not in companies:
-            domain = _company_to_domain(co)
             companies[key] = {
                 "name": co,
-                "logoUrl": f"https://logo.clearbit.com/{domain}" if domain else None,
+                "logoUrl": _company_to_logo_url(co),
                 "contacts": 0,
                 "hms": 0,
                 "jobs": 0,
@@ -1395,10 +1402,9 @@ def get_agent_pipeline(uid: str) -> dict:
             continue
         key = co.lower()
         if key not in companies:
-            domain = _company_to_domain(co)
             companies[key] = {
                 "name": co,
-                "logoUrl": f"https://logo.clearbit.com/{domain}" if domain else None,
+                "logoUrl": _company_to_logo_url(co),
                 "contacts": 0,
                 "hms": 0,
                 "jobs": 0,

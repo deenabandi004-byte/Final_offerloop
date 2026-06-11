@@ -14,10 +14,10 @@ export const PAGES = {
     route: "/home",
     name: "Home / Dashboard",
     description: "Your central hub for tracking networking progress, managing emails, and planning your recruiting timeline.",
-    tabs: ["Dashboard", "Outbox", "Calendar"],
+    tabs: ["Dashboard", "Inbox", "Calendar"],
     features: [
       "Activity statistics and progress tracking",
-      "Email thread management in Outbox",
+      "Email thread management in Inbox",
       "Personalized recruiting calendar and timeline"
     ],
     keywords: ["home", "dashboard", "main", "start", "overview", "stats", "activity"]
@@ -144,7 +144,7 @@ export const PAGES = {
 
   outbox: {
     route: "/home?tab=outbox",
-    name: "Outbox",
+    name: "Inbox",
     description: "Manage your email threads and track responses. View drafts, sent emails, and replies. Use the calendar and networking tabs to stay organized.",
     features: [
       "View all email threads",
@@ -152,7 +152,7 @@ export const PAGES = {
       "Regenerate suggested replies",
       "Open emails in Gmail"
     ],
-    keywords: ["outbox", "emails", "drafts", "sent", "replies", "threads", "messages"]
+    keywords: ["inbox", "outbox", "emails", "drafts", "sent", "replies", "threads", "messages"]
   }
 } as const;
 

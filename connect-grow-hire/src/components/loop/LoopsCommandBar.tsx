@@ -8,7 +8,6 @@
 // Plus a live activity ticker along the bottom that rotates through recent finds.
 
 import { useEffect, useState } from "react";
-import { ArrowRight } from "lucide-react";
 import {
   useFleetFeed,
   useFleetWeeklySummary,
@@ -287,17 +286,6 @@ function Ticker({ items }: { items: FleetFeedItem[] }) {
           </span>
         )}
       </div>
-      <button
-        type="button"
-        className="inline-flex items-center gap-1 text-[12px] font-medium shrink-0"
-        style={{ color: "var(--ink-2)" }}
-        onClick={() => {
-          /* TODO: deep-link into a full activity timeline once it exists */
-        }}
-      >
-        View all
-        <ArrowRight className="h-3 w-3" />
-      </button>
     </div>
   );
 }

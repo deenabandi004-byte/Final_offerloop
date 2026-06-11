@@ -6,6 +6,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { useScout } from "@/contexts/ScoutContext";
+import { useTour } from "@/contexts/TourContext";
 import {
   History, Loader2, AlertCircle, Download, Trash2, Building2, Search,
   CheckCircle, X, ChevronRight, ArrowRight, ArrowUp
@@ -84,6 +85,89 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
   const [hasSearched, setHasSearched] = useState(false);
   const [searchProgress, setSearchProgress] = useState<{ current: number, total: number, step: string } | null>(null);
   const [searchComplete, setSearchComplete] = useState(false);
+
+  // ── Tour demo state ──────────────────────────────────────────────────────
+  // Mirrors the People / Hiring Manager pattern: the tour step declares
+  // `demoSurface: 'companies'`, which flips `companiesDemoActive` here. The
+  // effect types the example query into the real input, briefly flashes the
+  // page's native "Searching for companies" modal, then seeds a single inert
+  // firm card. The seam at the top of `handleSearch` short-circuits every
+  // real-search trigger (button, Enter, suggestion chip) while the demo is
+  // live; `handleViewContacts` and `handleDeleteFirm` guard the per-card
+  // actions. Cleanup wipes every demo state write on tour-end or unmount.
+  const { demoSurface } = useTour();
+  const companiesDemoActive = demoSurface === 'companies';
+  const COMPANIES_DEMO_QUERY = 'AI startups, 20-50 employees, Los Angeles, California';
+  const COMPANIES_DEMO_FIRM = {
+    id: 'demo-offerloop',
+    name: 'Offerloop',
+    location: { display: 'Los Angeles, CA' },
+    industry: 'AI / Career Tech',
+    sizeBucket: 'small',
+    sizeRange: '5-10',
+    // `demo` isn't on the Firm interface (Firm is the API contract); the
+    // handler guards downcast to read it so the seed stays type-safe at
+    // its source but the runtime flag still flows through.
+    demo: true as const,
+  } as Firm & { demo: true };
+
+  useEffect(() => {
+    if (!companiesDemoActive) return;
+    let cancelled = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const TYPE_DELAY_MS = 32;
+    const SEARCHING_HOLD_MS = 1500;
+    const POST_TYPE_PAUSE_MS = 250;
+
+    setQuery('');
+    setResults([]);
+    setSearchComplete(false);
+    setIsSearching(false);
+    setHasSearched(false);
+    setSearchProgress(null);
+    setError(null);
+
+    for (let i = 1; i <= COMPANIES_DEMO_QUERY.length; i++) {
+      timers.push(
+        setTimeout(() => {
+          if (cancelled) return;
+          setQuery(COMPANIES_DEMO_QUERY.slice(0, i));
+        }, i * TYPE_DELAY_MS),
+      );
+    }
+
+    const typingDoneAt = COMPANIES_DEMO_QUERY.length * TYPE_DELAY_MS + POST_TYPE_PAUSE_MS;
+    timers.push(
+      setTimeout(() => {
+        if (cancelled) return;
+        setIsSearching(true);
+        setSearchProgress({ current: 1, total: 1, step: 'Surfacing companies that match your criteria' });
+      }, typingDoneAt),
+    );
+    timers.push(
+      setTimeout(() => {
+        if (cancelled) return;
+        setIsSearching(false);
+        setSearchProgress(null);
+        setResults([COMPANIES_DEMO_FIRM]);
+        setHasSearched(true);
+        setSearchComplete(true);
+      }, typingDoneAt + SEARCHING_HOLD_MS),
+    );
+
+    return () => {
+      cancelled = true;
+      timers.forEach(clearTimeout);
+      setQuery('');
+      setResults([]);
+      setIsSearching(false);
+      setSearchComplete(false);
+      setHasSearched(false);
+      setSearchProgress(null);
+      setError(null);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companiesDemoActive]);
 
   // History state
   const [showHistory, setShowHistory] = useState(false);
@@ -375,6 +459,10 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
 
   // Handle search submission
   const handleSearch = async (searchQuery?: string) => {
+    // Hard short-circuit while the tour's demo is active on this surface.
+    // Catches button click, Enter key, and chip-driven prefills in one
+    // guard. No API call fires.
+    if (companiesDemoActive) return;
     const q = searchQuery || query;
 
     if (!q.trim()) {
@@ -540,6 +628,9 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
 
   // Handle "View Contacts" - navigate to contact search with company/location pre-filled
   const handleViewContacts = (firm: Firm) => {
+    // Inert during the tour's companies demo — the seeded firm isn't a real
+    // contact source, so navigating with its name would dead-end on Find.
+    if ((firm as Firm & { demo?: boolean }).demo) return;
     const params = new URLSearchParams();
     params.set('company', firm.name);
 
@@ -560,6 +651,9 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
 
   // Handle delete firm
   const handleDeleteFirm = async (firm: Firm) => {
+    // Inert during the tour's companies demo — apiService.deleteFirm hits
+    // Firestore; a demo card has no row to delete.
+    if ((firm as Firm & { demo?: boolean }).demo) return;
     const firmKey = getFirmKey(firm);
     setDeletingFirmId(firmKey);
 
@@ -1033,7 +1127,7 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
                           onFocus={() => setInputFocused(true)}
                           onBlur={() => setInputFocused(false)}
                           placeholder={FIRM_PLACEHOLDERS[placeholderIdx]}
-                          disabled={isSearching}
+                          disabled={isSearching || companiesDemoActive}
                           style={{
                             width: '100%',
                             border: 'none',

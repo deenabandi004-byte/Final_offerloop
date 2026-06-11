@@ -640,6 +640,65 @@ def get_latest_message_from_thread(gmail_service, thread_id, sent_to_email=None)
         return None
 
 
+def get_full_thread_chain(gmail_service, thread_id, sent_to_email=None, user_email=None):
+    """
+    Fetch every message in a Gmail thread with bodies decoded, returned
+    oldest -> newest. Used by the outbox thread-view endpoint so the panel can
+    render the actual conversation instead of the latest-snippet fallback.
+
+    Each message dict:
+        messageId, sender (raw From header), isFromRecipient (bool, matched on
+        sent_to_email), isFromUser (bool, matched on user_email), sentAt (ISO
+        UTC string), subject, body (extract_message_body output — signature and
+        quoted-reply stripping is desirable for clean chain display).
+    """
+    try:
+        thread = gmail_service.users().threads().get(
+            userId='me',
+            id=thread_id,
+            format='full',
+        ).execute()
+    except Exception as e:
+        print(f"Error fetching full thread chain {thread_id}: {e}")
+        raise
+
+    messages = thread.get('messages', []) or []
+    chain = []
+    for msg in messages:
+        headers = msg.get('payload', {}).get('headers', []) or []
+        from_header = next((h.get('value', '') for h in headers if (h.get('name') or '').lower() == 'from'), '')
+        subject = next((h.get('value', '') for h in headers if (h.get('name') or '').lower() == 'subject'), '')
+
+        is_from_recipient = bool(sent_to_email) and sent_to_email.lower() in (from_header or '').lower()
+        is_from_user = bool(user_email) and user_email.lower() in (from_header or '').lower()
+
+        sent_at = None
+        ts = msg.get('internalDate')
+        if ts:
+            try:
+                sent_at = datetime.utcfromtimestamp(int(ts) / 1000).isoformat() + "Z"
+            except Exception:
+                pass
+
+        # Full body for display — pass max_length=None so we don't truncate.
+        body = extract_message_body(msg, max_length=None)
+
+        chain.append({
+            'messageId': msg.get('id'),
+            'sender': from_header,
+            'isFromRecipient': is_from_recipient,
+            'isFromUser': is_from_user,
+            'sentAt': sent_at,
+            'subject': subject,
+            'body': body,
+        })
+
+    # Sort oldest -> newest by sentAt (internalDate); messages already arrive
+    # in this order from Gmail but sort defensively in case of edge cases.
+    chain.sort(key=lambda m: m.get('sentAt') or '')
+    return chain
+
+
 def sync_thread_message(gmail_service, thread_id, sent_to_email=None, user_email=None):
     """
     Sync the latest message from a Gmail thread and return message snippet with status.

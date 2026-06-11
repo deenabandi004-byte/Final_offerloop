@@ -26,7 +26,9 @@ import { AppHeader } from "@/components/AppHeader";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import {
   apiService,
+  type FeedJob,
   type JobFeedResponse,
+  type JobSearchParams,
   type SavedJob,
 } from "@/services/api";
 import { JobBoardSkeleton } from "@/components/JobBoardSkeleton";
@@ -43,6 +45,8 @@ import {
   MoreFiltersPanel,
   type MoreFiltersState,
 } from "@/components/jobs/MoreFiltersPanel";
+// moreFiltersToParams is defined below the imports so it can reference the
+// imported MoreFiltersState type.
 import {
   IconClose,
   IconFilter,
@@ -54,22 +58,66 @@ import {
 
 import {
   buildSectionedJobs,
+  feedJobToProto,
   type ProtoJob,
 } from "./jobBoardAdapter";
 import "./JobBoardEditorial.redesign.css";
 
-// Quick-filter chip seeds. Counts mirror the design frames; chips are visual
-// only this pass and do not filter the job list.
-// Counts intentionally absent: chips do not actually filter the loaded
-// feed yet, so a number next to them would imply an action they cannot
-// take. Real counts return only when the chip is wired to filter, per
-// the no-fake-numbers rule.
-const QUICK_FILTERS: Array<{ key: string; label: string }> = [
-  { key: "Remote",      label: "Remote" },
-  { key: "Full-time",   label: "Full-time" },
-  { key: "$100k+",      label: "$100k+" },
-  { key: "Quick Apply", label: "Quick Apply" },
+// Quick-filter chips. Each chip carries the JobSearchParams delta it
+// contributes when active. The handler in catalogParamsFromChips merges them
+// into a single query before calling apiService.searchJobs.
+//
+// Counts intentionally absent: badge numbers would lie until the catalog
+// query has returned, so we leave them off rather than render stale ones.
+type QuickFilter = { key: string; label: string; toParams: Partial<JobSearchParams> };
+
+const QUICK_FILTERS: QuickFilter[] = [
+  { key: "Remote",      label: "Remote",      toParams: { location: "remote" } },
+  { key: "Full-time",   label: "Full-time",   toParams: { type: "FULLTIME" } },
+  { key: "Internship",  label: "Internship",  toParams: { type: "INTERNSHIP" } },
+  { key: "Entry-level", label: "Entry-level", toParams: { seniority: "entry" } },
 ];
+
+// Merge active chip params into one JobSearchParams object. Later chips win
+// on key conflicts (e.g. Full-time + Internship both set `type` -> the last
+// one wins). The chip UI already prevents selecting conflicting chips by
+// removing one when the other is added; this is a defensive last step.
+function catalogParamsFromChips(
+  active: string[],
+  defs: QuickFilter[],
+): Partial<JobSearchParams> {
+  const out: Partial<JobSearchParams> = {};
+  for (const def of defs) {
+    if (active.includes(def.key)) Object.assign(out, def.toParams);
+  }
+  return out;
+}
+
+// Map the drawer state into backend params.
+//
+// Experience Level: "Internship" routes to `type` (the backend treats
+// internships as an employment type, not a seniority). The rest route to
+// `seniority`. Company Size and Visa Sponsorship were not re-added because
+// the data audit found 0% coverage; this helper does not need to handle them.
+//
+// Date Posted maps the human label to the backend's relative-window token
+// vocabulary ("24h" / "7d" / "30d"). "Any time" means no filter, so we omit
+// the param entirely rather than send an empty string.
+function moreFiltersToParams(
+  state: MoreFiltersState | null,
+): Partial<JobSearchParams> {
+  if (!state) return {};
+  const out: Partial<JobSearchParams> = {};
+  const exp = state.experience[0];
+  if (exp === "Internship") out.type = "INTERNSHIP";
+  else if (exp === "Entry Level") out.seniority = "entry";
+  else if (exp === "Mid Level") out.seniority = "mid";
+  else if (exp === "Senior") out.seniority = "senior";
+  if (state.datePosted === "Past 24h") out.postedAfter = "24h";
+  else if (state.datePosted === "Past week") out.postedAfter = "7d";
+  else if (state.datePosted === "Past month") out.postedAfter = "30d";
+  return out;
+}
 
 // Cards rendered on the first synchronous paint after a feed loads. The rest
 // are revealed on the next idle tick (see revealAll). Keeps first paint cheap
@@ -96,9 +144,12 @@ export const JobBoardPage: React.FC = () => {
 
   // ---- Local UI state -----------------------------------------------------
   const [search, setSearch] = useState("");
-  const [activeFilters, setActiveFilters] = useState<string[]>(
-    QUICK_FILTERS.map((f) => f.key)
-  );
+  // No chips active on first render. Earlier the chips defaulted to "all on"
+  // because they were visual-only and the user had no way to "turn them on"
+  // anyway; now that each chip narrows the query, we start neutral so the
+  // initial paint shows the personalized feed rather than a 4-way filtered
+  // catalog query.
+  const [activeFilters, setActiveFilters] = useState<string[]>([]);
   // Chips coming from the More Filters drawer (experience, date, size, visa).
   // These are removable just like quick filters; visual-only.
   const [moreFilterChips, setMoreFilterChips] = useState<string[]>([]);
@@ -109,6 +160,10 @@ export const JobBoardPage: React.FC = () => {
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [showAddDropdown, setShowAddDropdown] = useState(false);
   const [findHumansJob, setFindHumansJob] = useState<FindHumansJob | null>(null);
+  // Which search the Find the Humans modal runs, plus the requested count for
+  // the employee / hiring-manager flows.
+  const [findHumansKind, setFindHumansKind] = useState<"employee" | "hiring-manager">("hiring-manager");
+  const [findHumansCount, setFindHumansCount] = useState(3);
 
   // Saved snapshots (full job data, not just IDs). Drive the Saved
   // top-level tab. Storing the full snapshot means a bookmarked job stays
@@ -188,6 +243,16 @@ export const JobBoardPage: React.FC = () => {
       setRevealAll(false);
       const data = await apiService.getJobFeed({ refresh });
       setFeed(data);
+      // Refresh-rotation toast. The backend advances an offset into the
+      // user's cached ranked list on every refresh and signals feed_wrapped
+      // when that offset wraps back to the top. Show the user a brief
+      // notice so a wrap does not look like "nothing changed".
+      if (refresh && data.feed_wrapped) {
+        toast({
+          title: "Back to your top picks",
+          description: "You have seen the freshest matches. Starting over from the top of your ranking.",
+        });
+      }
     } catch (err) {
       console.error("getJobFeed failed", err);
       toast({
@@ -218,18 +283,75 @@ export const JobBoardPage: React.FC = () => {
 
   // ---- Adapter ------------------------------------------------------------
   const sections = useMemo(() => buildSectionedJobs(feed), [feed]);
-  const allProtoJobs = useMemo(
-    () => [...sections.recent, ...sections.recommended],
-    [sections]
-  );
 
-  const searchedRecent = useMemo(
-    () => applySearch(sections.recent, search),
-    [sections.recent, search]
-  );
-  const searchedRecommended = useMemo(
-    () => applySearch(sections.recommended, search),
-    [sections.recommended, search]
+  // ---- Catalog mode (search + filter chips hit /api/jobs/search) ---------
+  // The discover view shows the personalized, ranked, capped feed. When the
+  // user types a query or activates any chip we switch to "catalog mode":
+  // the same UI renders results returned by the catalog query over the full
+  // jobs store, with no per-company cap. Empty query AND no active chips
+  // means the personalized feed renders.
+  const isCatalogMode =
+    search.trim().length > 0 ||
+    activeFilters.length > 0 ||
+    moreFilterChips.length > 0;
+
+  const [catalogResults, setCatalogResults] = useState<ProtoJob[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [catalogScanned, setCatalogScanned] = useState(0);
+  const [catalogNextCursor, setCatalogNextCursor] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isCatalogMode) {
+      // Drop any prior catalog state when leaving the mode so a re-entry
+      // does not render stale results for a moment before the new query
+      // returns.
+      setCatalogResults([]);
+      setCatalogError(null);
+      setCatalogScanned(0);
+      setCatalogNextCursor(null);
+      return;
+    }
+    let cancelled = false;
+    const handle = window.setTimeout(async () => {
+      setCatalogLoading(true);
+      setCatalogError(null);
+      try {
+        const params: JobSearchParams = {
+          ...catalogParamsFromChips(activeFilters, QUICK_FILTERS),
+          ...moreFiltersToParams(moreFiltersState),
+          q: search.trim() || undefined,
+          limit: 50,
+        };
+        const r = await apiService.searchJobs(params);
+        if (cancelled) return;
+        setCatalogResults(r.results.map((j: FeedJob) => feedJobToProto(j, "recommended")));
+        setCatalogScanned(r.scanned);
+        setCatalogNextCursor(r.next_cursor);
+      } catch (err) {
+        if (cancelled) return;
+        console.error("searchJobs failed", err);
+        setCatalogError("Search is temporarily unavailable.");
+        setCatalogResults([]);
+      } finally {
+        if (!cancelled) setCatalogLoading(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [isCatalogMode, search, activeFilters, moreFilterChips, moreFiltersState]);
+
+  // When in catalog mode the personalized sections collapse to empty so the
+  // existing render code naturally hides them; results flow through what was
+  // previously the Recommended section, retitled below.
+  const searchedRecent: ProtoJob[] = isCatalogMode ? [] : sections.recent;
+  const searchedRecommended: ProtoJob[] = isCatalogMode ? catalogResults : sections.recommended;
+
+  const allProtoJobs = useMemo(
+    () => (isCatalogMode ? catalogResults : [...sections.recent, ...sections.recommended]),
+    [isCatalogMode, catalogResults, sections]
   );
 
   // Once the feed is loaded, reveal the full list on the next idle tick. The
@@ -354,17 +476,12 @@ export const JobBoardPage: React.FC = () => {
 
   const handleApplyMoreFilters = (state: MoreFiltersState) => {
     setMoreFiltersState(state);
-    if (state.describe) {
-      // Push the description into the main search input so the list narrows.
-      setSearch(state.describe);
-    }
-    const chips: string[] = [];
-    chips.push(...state.experience);
+    // Render the picker selections as removable chips in the chip bar.
+    // "Any time" is the no-filter default and should not appear as a chip.
+    const chips: string[] = [...state.experience];
     if (state.datePosted && state.datePosted !== "Any time") {
       chips.push(state.datePosted);
     }
-    chips.push(...state.companySize);
-    if (state.visa) chips.push("Visa Sponsorship");
     setMoreFilterChips(chips);
   };
 
@@ -390,7 +507,15 @@ export const JobBoardPage: React.FC = () => {
     };
   };
 
-  const openFindHumans = (j: ProtoJob) => setFindHumansJob(toFindHumansJob(j));
+  const openFindHumans = (
+    j: ProtoJob,
+    kind: "employee" | "hiring-manager" = "hiring-manager",
+    count = 3,
+  ) => {
+    setFindHumansKind(kind);
+    setFindHumansCount(count);
+    setFindHumansJob(toFindHumansJob(j));
+  };
 
   // Minimal converter for rendering Saved / Applied snapshots in JobCard.
   // Live feed enrichment (tags, match signals, salary, description) isn't
@@ -480,11 +605,6 @@ export const JobBoardPage: React.FC = () => {
   // ---- Render -------------------------------------------------------------
   if (authLoading) return <JobBoardSkeleton />;
 
-  // Header counts: prototype shows "100 new jobs · 100 currently saved jobs".
-  // Wire to real numbers from feed + savedIds.
-  const newCount = sections.recent.length;
-  const savedCount = savedIds.size;
-
   return (
     <SidebarProvider>
       <div className="flex h-screen w-full overflow-hidden">
@@ -498,9 +618,6 @@ export const JobBoardPage: React.FC = () => {
                 <div className="jb-fb-row">
                   <div>
                     <h1 className="jb-fb-title">Discover Opportunities</h1>
-                    <p className="jb-fb-subtitle">
-                      {newCount} new jobs · {savedCount} saved
-                    </p>
                   </div>
                 </div>
 
@@ -569,7 +686,7 @@ export const JobBoardPage: React.FC = () => {
                   })}
                 </div>
 
-                <div className="jb-fb-actions">
+                <div className="jb-fb-actions" data-tour="tour-job-board-filters">
                   <div className="jb-search">
                     <span className="jb-search-icon"><IconSearch /></span>
                     <input
@@ -709,7 +826,7 @@ export const JobBoardPage: React.FC = () => {
 
               {/* ---- Two-pane body (independent scroll) ---- */}
               <div className="jb-twopane">
-                <div className="jb-list">
+                <div className="jb-list" data-tour="tour-job-board-list">
                   {!feedLoading &&
                     feed?.summary?.freshness_label &&
                     feed.summary.freshness_label !== "Unknown" && (
@@ -732,17 +849,33 @@ export const JobBoardPage: React.FC = () => {
                       </div>
                     )}
 
-                  {feedLoading && <ListSkeleton />}
+                  {feedLoading && !isCatalogMode && <ListSkeleton />}
+                  {isCatalogMode && catalogLoading && <ListSkeleton />}
 
-                  {!feedLoading && searchedRecent.length === 0 && searchedRecommended.length === 0 && (
+                  {isCatalogMode && catalogError && (
                     <div className="jb-empty" style={{ margin: "16px 8px" }}>
-                      <div className="h">No roles match your search.</div>
+                      <div className="h">{catalogError}</div>
                       <div className="b">
-                        Try clearing the search box or check back after the
-                        next pipeline run.
+                        Try again, or remove some filters. The catalog index
+                        may still be warming up after a recent deploy.
                       </div>
                     </div>
                   )}
+
+                  {!feedLoading &&
+                    !catalogLoading &&
+                    !catalogError &&
+                    searchedRecent.length === 0 &&
+                    searchedRecommended.length === 0 && (
+                      <div className="jb-empty" style={{ margin: "16px 8px" }}>
+                        <div className="h">No roles match your search.</div>
+                        <div className="b">
+                          {isCatalogMode
+                            ? `Scanned ${catalogScanned} jobs. Try a different keyword or remove a filter.`
+                            : "Try clearing the search box or check back after the next pipeline run."}
+                        </div>
+                      </div>
+                    )}
 
                   {activeJobTab === "discover" && !feedLoading && searchedRecent.length > 0 && (
                     <>
@@ -789,8 +922,16 @@ export const JobBoardPage: React.FC = () => {
                         >
                           ▾
                         </span>
-                        Recommended for you
+                        {isCatalogMode ? "Search results" : "Recommended for you"}
                         <span className="jb-section-count">{searchedRecommended.length}</span>
+                        {isCatalogMode && catalogNextCursor && (
+                          <span
+                            className="jb-section-more"
+                            style={{ marginLeft: 8, color: "var(--ink-3, #94A3B8)", fontSize: 12 }}
+                          >
+                            more available
+                          </span>
+                        )}
                       </button>
                       {!collapsedSections.recommended && recommendedToRender.map((j) => (
                         <JobCard
@@ -846,9 +987,10 @@ export const JobBoardPage: React.FC = () => {
                           toast({ title: "Job link copied" });
                         }
                       }}
-                      onFindPeople={() => openFindHumans(selectedJob)}
-                      userPlan="free"
-                      currentCredits={210}
+                      onFindPeople={() => openFindHumans(selectedJob, "hiring-manager")}
+                      onFindEmployees={(count) => openFindHumans(selectedJob, "employee", count)}
+                      userPlan={user?.tier ?? "free"}
+                      currentCredits={user?.credits ?? 0}
                     />
                   ) : (
                     <div className="jb-loading">Select a role to see details.</div>
@@ -875,6 +1017,8 @@ export const JobBoardPage: React.FC = () => {
         open={!!findHumansJob}
         onOpenChange={(o) => !o && setFindHumansJob(null)}
         job={findHumansJob}
+        kind={findHumansKind}
+        count={findHumansCount}
       />
     </SidebarProvider>
   );

@@ -2,6 +2,7 @@
 Fetch job listings from Greenhouse, Lever, Ashby, and Fantastic.jobs APIs.
 Outputs a list of pre-normalized job dicts ready for the normalizer/writer.
 """
+import html
 import logging
 import os
 import re
@@ -154,7 +155,11 @@ def _fetch_greenhouse(slug: str) -> list[dict]:
         if job.get("location"):
             location_name = job["location"].get("name", "")
 
-        content = _strip_html(job.get("content", ""))[:8000]
+        # Greenhouse returns content with HTML entities already encoded
+        # (`&lt;p&gt;...` instead of `<p>...`). Unescape first so _strip_html
+        # can see the real tags and remove them; otherwise the entities
+        # survive into Firestore and render as visible `&lt;p&gt;` in the SPA.
+        content = _strip_html(html.unescape(job.get("content", "")))[:8000]
 
         jobs.append({
             "job_id": f"greenhouse_{slug}_{job['id']}",

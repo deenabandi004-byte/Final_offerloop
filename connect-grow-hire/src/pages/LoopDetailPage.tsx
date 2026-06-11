@@ -238,7 +238,7 @@ export default function LoopDetailPage() {
                         )
                     }
                     onRemove={() => {
-                      if (!confirm("Remove this Loop? Drafts already created will stay in your tracker.")) return;
+                      if (!confirm("Remove this Loop? Drafts already created will stay in your inbox.")) return;
                       deleteMut.mutateAsync(loop.id).then(() => {
                         toast({ title: LOOP_COPY.toasts.loopDeleted });
                         navigate("/agent");
@@ -886,7 +886,7 @@ function OverviewTab({
                 {loop.unreadReplies}
               </div>
               <div className="text-[12.5px]" style={{ color: "var(--ink-2)" }}>
-                unread {loop.unreadReplies === 1 ? "reply" : "replies"} · open in tracker →
+                unread {loop.unreadReplies === 1 ? "reply" : "replies"} · open in inbox →
               </div>
             </Link>
           ) : (

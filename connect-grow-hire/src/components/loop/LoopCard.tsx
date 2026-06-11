@@ -9,6 +9,7 @@ import { ArrowRight, Pause, Play, Trash2 } from "lucide-react";
 import { LOOP_COPY, loopCopy } from "@/lib/loopCopy";
 import type { Loop, LoopStatus } from "@/services/loops";
 import { useDeleteLoop, usePauseLoop, useResumeLoop, useStartLoop } from "@/hooks/useLoops";
+import { useTour } from "@/contexts/TourContext";
 
 const STATUS_META: Record<
   LoopStatus,
@@ -101,6 +102,8 @@ export function LoopCard({ loop }: { loop: Loop }) {
   const pauseMut = usePauseLoop();
   const resumeMut = useResumeLoop();
   const deleteMut = useDeleteLoop();
+  const { demoSurface } = useTour();
+  const loopsDemoActive = demoSurface === 'loops';
 
   const found = loop.totalContactsFound;
   const target = Math.max(1, loop.weeklyTarget);
@@ -124,6 +127,7 @@ export function LoopCard({ loop }: { loop: Loop }) {
     // Inline play/pause button stops the card click from firing.
     e.stopPropagation();
     e.preventDefault();
+    if (loopsDemoActive) return;
     if (loop.status === "running") pauseMut.mutate(loop.id);
     else if (loop.status === "paused") resumeMut.mutate(loop.id);
     else if (loop.status === "idle") startMut.mutate(loop.id);
@@ -132,8 +136,17 @@ export function LoopCard({ loop }: { loop: Loop }) {
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    if (!confirm(`Remove "${loop.name}"? Drafts already created stay in your tracker.`)) return;
+    if (loopsDemoActive) return;
+    if (!confirm(`Remove "${loop.name}"? Drafts already created stay in your inbox.`)) return;
     deleteMut.mutate(loop.id);
+  };
+
+  // The whole card is a <Link to=/agent/:loopId> — navigation to the seeded
+  // demo loop's detail page would dead-end on a real /agent/:id route. Guard
+  // the click at the Link level so the spotlight target stays interactive
+  // visually but doesn't navigate.
+  const handleCardClick = (e: React.MouseEvent) => {
+    if (loopsDemoActive) e.preventDefault();
   };
 
   const showLifecycleButton = loop.status !== "done";
@@ -141,6 +154,7 @@ export function LoopCard({ loop }: { loop: Loop }) {
   return (
     <Link
       to={`/agent/${loop.id}`}
+      onClick={handleCardClick}
       className="group relative flex flex-col gap-[13px] border bg-white p-5 transition-all hover:shadow-md hover:-translate-y-0.5"
       style={{
         borderColor: "var(--line)",

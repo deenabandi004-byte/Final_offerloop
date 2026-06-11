@@ -32,7 +32,8 @@ interface User {
   name: string;
   picture?: string;
   accessToken?: string;
-  tier: "free" | "pro";
+  tier: "free" | "pro" | "elite";
+  subscriptionTier?: "free" | "pro" | "elite";
   credits: number;
   maxCredits: number;
   subscriptionId?: string;
@@ -138,14 +139,19 @@ export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ childr
       const snap = await getDoc(userDocRef);
       if (snap.exists()) {
         const d = snap.data() as Partial<User>;
+        // subscriptionTier is the source of truth; tier is a legacy fallback
+        // that can be stale (e.g. "free") on upgraded Pro/Elite accounts. Read
+        // both so tier-gated UI (e.g. ProGate) sees the real plan.
+        const resolvedTier = d.subscriptionTier || d.tier || "free";
         const userData = {
           uid: firebaseUser.uid,
           email: firebaseUser.email || "",
           name: firebaseUser.displayName || "",
           picture: firebaseUser.photoURL || undefined,
-          tier: d.tier || "free",
-          credits: d.credits ?? initialCreditsByTier(d.tier || "free"),
-          maxCredits: d.maxCredits ?? initialCreditsByTier(d.tier || "free"),
+          tier: resolvedTier,
+          subscriptionTier: resolvedTier,
+          credits: d.credits ?? initialCreditsByTier(resolvedTier),
+          maxCredits: d.maxCredits ?? initialCreditsByTier(resolvedTier),
           stripeCustomerId: d.stripeCustomerId,
           stripeSubscriptionId: d.stripeSubscriptionId,
           subscriptionStatus: d.subscriptionStatus,

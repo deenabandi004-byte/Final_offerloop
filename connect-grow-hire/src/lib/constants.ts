@@ -1,6 +1,19 @@
 export const COFFEE_CHAT_CREDITS = 15;
 export const TIMELINE_CREDITS = 10;
 
+// Sidebar CreditsPanel urgency thresholds. Percent of remaining credits.
+// At or below CREDITS_LOW_PCT, the panel switches to "low" (amber).
+// At or below CREDITS_CRITICAL_PCT, the panel switches to "critical" (rose).
+// Above CREDITS_LOW_PCT, the panel is "ample" (indigo).
+export const CREDITS_LOW_PCT = 25;
+export const CREDITS_CRITICAL_PCT = 10;
+
+export type CreditsTier = "ample" | "low" | "critical";
+
+export const CREDITS_TIER_AMPLE: CreditsTier = "ample";
+export const CREDITS_TIER_LOW: CreditsTier = "low";
+export const CREDITS_TIER_CRITICAL: CreditsTier = "critical";
+
 export const TIER_CONFIGS = {
   free: {
     maxContacts: 3,

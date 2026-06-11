@@ -14,8 +14,9 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { X, Send, Loader2, Trash2, MessageSquarePlus, History, Lock } from 'lucide-react';
+import { X, ArrowUp, Loader2, Trash2, MessageSquarePlus, History, Lock } from 'lucide-react';
 import { useScout, SearchHelpResponse } from '@/contexts/ScoutContext';
+import { useTour } from '@/contexts/TourContext';
 import { useScoutChat, formatMessage, type ScoutNavigate, type ScoutMode, type ScoutCta, type ScoutPlanStep } from '@/hooks/useScoutChat';
 import { SUGGESTED_QUESTIONS, SCOUT_CHIPS_BY_PAGE } from '@/data/scout-knowledge';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
@@ -114,6 +115,7 @@ export function ScoutSidePanel() {
   const { user } = useFirebaseAuth();
   const {
     isPanelOpen,
+    openPanel,
     closePanel,
     searchHelpContext,
     searchHelpResponse,
@@ -122,6 +124,8 @@ export function ScoutSidePanel() {
     pendingMessage,
     clearPendingMessage,
   } = useScout();
+  const { demoSurface } = useTour();
+  const scoutDemoActive = demoSurface === 'scout';
   const panelRef = useRef<HTMLDivElement>(null);
   const [isLoadingSearchHelp, setIsLoadingSearchHelp] = useState(false);
 
@@ -145,6 +149,7 @@ export function ScoutSidePanel() {
     loadChat,
     isLoadingChat,
     appendSyntheticAssistant,
+    appendSyntheticUser,
   } = useScoutChat(location.pathname);
 
   // -------------------------------------------------------------------------
@@ -183,11 +188,16 @@ export function ScoutSidePanel() {
   // first turn lands and the title generation finishes).
   useEffect(() => {
     if (!isPanelOpen) return;
+    // Suppress the sidebar history fetch during the Scout tour demo — the
+    // demo seeds a synthetic Mark Cuban conversation and a real chat-list
+    // refetch would surface the user's persisted threads alongside it.
+    if (scoutDemoActive) return;
     void refreshChats();
-  }, [isPanelOpen, refreshChats]);
+  }, [isPanelOpen, refreshChats, scoutDemoActive]);
 
   useEffect(() => {
     if (!isPanelOpen) return;
+    if (scoutDemoActive) return;
     // Small debounce: the backend writes the title asynchronously after the
     // turn responds, so wait briefly before refetching so we pick the new
     // title up on the same render that surfaced the chat_id.
@@ -195,10 +205,13 @@ export function ScoutSidePanel() {
       void refreshChats();
     }, 1500);
     return () => clearTimeout(t);
-  }, [chatId, isPanelOpen, refreshChats]);
+  }, [chatId, isPanelOpen, refreshChats, scoutDemoActive]);
 
   const handleSidebarChatClick = useCallback(
     async (id: string) => {
+      // Inert during the Scout tour demo — loading a real chat would
+      // clobber the seeded Mark Cuban conversation.
+      if (scoutDemoActive) return;
       if (id === chatId) return;
       setActiveRowId(id);
       try {
@@ -207,12 +220,45 @@ export function ScoutSidePanel() {
         setActiveRowId(null);
       }
     },
-    [chatId, loadChat],
+    [chatId, loadChat, scoutDemoActive],
   );
 
   const handleNewChatClick = useCallback(() => {
+    if (scoutDemoActive) return;
     startNewChat();
-  }, [startNewChat]);
+  }, [startNewChat, scoutDemoActive]);
+
+  // ── Tour Scout demo orchestration ──────────────────────────────────────
+  // When the tour reaches step 10 (Ask Scout), open the panel programmatically
+  // and seed a two-turn strategist conversation about reaching Mark Cuban.
+  // The seed uses the existing appendSyntheticUser / appendSyntheticAssistant
+  // helpers (purely local, never persisted), and the sidebar history refetch
+  // is gated above so the user's real chat list won't pop in alongside the
+  // demo. Cleanup closes the panel and clears the seeded thread.
+  useEffect(() => {
+    if (!scoutDemoActive) return;
+
+    // Open the panel if it isn't already, and start from a clean thread so
+    // the demo isn't mixed with a real in-progress chat.
+    openPanel();
+    clearChat();
+    appendSyntheticUser('I want to talk to Mark Cuban');
+    appendSyntheticAssistant(
+      "Smart goal. Mark's reachable but the angle has to be sharp. Here's how I'd run this:\n\n" +
+      "1. Map the path. I'll surface mutual LinkedIn connections with bias toward Shark Tank investors, Cost Plus Drugs operators, and Mavericks-adjacent execs.\n\n" +
+      "2. Pick the channel. Skip the public Mavs email (zero signal). Target a referral through someone he's engaged with in the last 30 days.\n\n" +
+      "3. Frame the ask. One concrete idea aligned with what he's publicly focused on right now, kept under five sentences.\n\n" +
+      "Want me to start mapping connections?"
+    );
+
+    return () => {
+      // Wipe the seeded thread and close the panel. clearChat is local-only
+      // (setMessages([]) + setChatId(null)), so no backend write fires.
+      clearChat();
+      closePanel();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scoutDemoActive]);
 
   // -------------------------------------------------------------------------
   // Navigate execution + the auto-execute effect
@@ -560,7 +606,7 @@ export function ScoutSidePanel() {
           <div className="flex items-center gap-1">
             {!isSearchHelpMode && messages.length > 0 && (
               <button
-                onClick={clearChat}
+                onClick={() => { if (scoutDemoActive) return; clearChat(); }}
                 className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                 aria-label="Clear chat"
               >
@@ -812,7 +858,7 @@ export function ScoutSidePanel() {
                         {(SCOUT_CHIPS_BY_PAGE[location.pathname] ?? SUGGESTED_QUESTIONS).map((question, idx) => (
                           <button
                             key={idx}
-                            onClick={() => sendMessage(question)}
+                            onClick={() => { if (scoutDemoActive) return; void sendMessage(question); }}
                             className="text-left px-3 py-2.5 rounded-xl bg-white border border-gray-200 hover:border-[#3B82F6] hover:bg-[#FAFBFF]/50 text-sm text-gray-700 transition-colors"
                           >
                             {question}
@@ -962,12 +1008,12 @@ export function ScoutSidePanel() {
                     disabled={isLoading}
                   />
                   <button
-                    onClick={() => sendMessage()}
+                    onClick={() => { if (scoutDemoActive) return; void sendMessage(); }}
                     disabled={!input.trim() || isLoading}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg text-white bg-[#0F172A] hover:bg-[#1E293B] disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg text-white bg-[#4C62A8] hover:bg-[#3E5395] disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
                     aria-label="Send message"
                   >
-                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" strokeWidth={2.5} />}
                   </button>
                 </div>
                 <p className="text-xs text-gray-400 text-center mt-2">Free to chat</p>
