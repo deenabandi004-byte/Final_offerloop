@@ -36,6 +36,10 @@ export type TourDemoSurface =
   | 'loops';
 
 export interface TourStepConfig {
+  // Stable identifier for steps that need explicit per-step handling (e.g.
+  // the welcome step's centered styling). Match on this, never on array
+  // index, so reordering steps later can't restyle the wrong one.
+  id?: string;
   target: string;
   title: string;
   content: string;
@@ -61,6 +65,7 @@ export const TOUR_STEPS: TourStepConfig[] = [
   // 0 — Welcome (centered modal, no anchor). Shares Find People's route so
   // there's no navigation between this step and the next.
   {
+    id: 'welcome',
     target: 'body',
     title: "Let's get started",
     content: 'Learn how everything works in Offerloop.',
@@ -151,6 +156,11 @@ export const TOUR_STEPS: TourStepConfig[] = [
     title: 'Ask Scout',
     content: "Stuck anywhere in Offerloop? Press Cmd+K or click Ask Scout for help from your AI copilot.",
     route: '/agent',
+    // Centered, not anchored: the Scout panel opens right-0 full-height for
+    // this step's seeded demo. A 'bottom' tooltip anchored on the top-right
+    // scout button lands over the panel and covers the demo, so center the
+    // tooltip in the viewport (clear of the 420px panel) instead.
+    placement: 'center',
     demoSurface: 'scout',
   },
   // 11 — Loops. The closer. Seeds a single running Loop into the React
@@ -448,9 +458,9 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [showCompletion, dismissCompletion]);
 
-  // Per-step style override for the centered welcome modal. Applied only
-  // when a step declares placement === 'center' (i.e. the opening step) so
-  // the anchored steps keep the moderate-sized treatment from the global
+  // Per-step style override for the centered welcome modal. Gated on
+  // id === 'welcome' (NOT placement) so other centered steps (e.g. the
+  // Ask Scout step) keep the moderate-sized treatment from the global
   // styles below. Title and content are centered horizontally; the footer
   // is centered too so the "Get Started" button sits in the middle of the
   // modal rather than floating right.
@@ -470,7 +480,7 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
     disableBeacon: true,
     placement: (s.placement ?? 'bottom') as 'bottom' | 'center',
     ...(s.nextLabel ? { locale: { next: s.nextLabel } } : {}),
-    ...(s.placement === 'center' ? { styles: WELCOME_STEP_STYLES } : {}),
+    ...(s.id === 'welcome' ? { styles: WELCOME_STEP_STYLES } : {}),
   }));
 
   // Demo surface is live only while the tour is actually running on a step

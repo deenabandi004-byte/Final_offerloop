@@ -183,7 +183,7 @@ interface LoopsEmptyStateProps {
 
 // Fold the user's dream companies (profile `targetFirms`) into the
 // AI-drafted sentence. If a target firm is already mentioned in the draft
-// we don't double-up; otherwise we tack on "— focused on Stripe, Ramp,
+// we don't double-up; otherwise we tack on ", focused on Stripe, Ramp,
 // Notion." so the brief reflects the student's own stated preferences,
 // not just what Scout inferred from the resume.
 function composeBriefWithDreamCos(sentence: string, dreamCos: string[]): string {
@@ -193,7 +193,7 @@ function composeBriefWithDreamCos(sentence: string, dreamCos: string[]): string 
   if (!missing.length) return sentence;
   const trimmed = sentence.trim().replace(/\.\s*$/, "");
   const list = missing.slice(0, 5).join(", ");
-  return `${trimmed} — focused on ${list}.`;
+  return `${trimmed}, focused on ${list}.`;
 }
 
 export function LoopsEmptyState({ onStart }: LoopsEmptyStateProps) {
