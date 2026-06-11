@@ -275,10 +275,55 @@ _ASHBY_TYPE_MAP = {
 }
 
 
+def _parse_ashby_compensation(comp) -> tuple:
+    """Extract (salary_min, salary_max, salary_period) from an Ashby
+    compensation object.
+
+    Honors only USD Salary components on YEAR or HOUR intervals; equity,
+    non-USD currencies, and unsupported intervals (e.g. '1 MONTH') skip
+    to None so existing downstream null-handling kicks in. Source data
+    inspected 2026-06-02 on openai, ramp, notion live API.
+    """
+    if not isinstance(comp, dict):
+        return None, None, None
+    components = comp.get("summaryComponents") or []
+    if not isinstance(components, list):
+        return None, None, None
+    for c in components:
+        if not isinstance(c, dict):
+            continue
+        if c.get("compensationType") != "Salary":
+            continue
+        currency = c.get("currencyCode")
+        if currency and currency != "USD":
+            # Downstream display + normalizer assume USD; show "Not listed"
+            # instead of mislabeling a foreign-currency number.
+            continue
+        interval = (c.get("interval") or "").upper().strip()
+        if "YEAR" in interval:
+            period = "YEAR"
+        elif "HOUR" in interval:
+            period = "HOUR"
+        else:
+            continue
+        mn = c.get("minValue")
+        mx = c.get("maxValue")
+        return (
+            float(mn) if isinstance(mn, (int, float)) else None,
+            float(mx) if isinstance(mx, (int, float)) else None,
+            period,
+        )
+    return None, None, None
+
+
 def _fetch_ashby(slug: str) -> list[dict]:
     url = f"https://api.ashbyhq.com/posting-api/job-board/{slug}"
     try:
-        resp = requests.get(url, timeout=REQUEST_TIMEOUT)
+        resp = requests.get(
+            url,
+            params={"includeCompensation": "true"},
+            timeout=REQUEST_TIMEOUT,
+        )
         resp.raise_for_status()
         data = resp.json()
     except Exception as exc:
@@ -291,6 +336,7 @@ def _fetch_ashby(slug: str) -> list[dict]:
         location = job.get("locationName") or "Remote"
         description = _strip_html(job.get("descriptionHtml") or "")[:8000]
         employment_type = job.get("employmentType") or ""
+        sal_min, sal_max, sal_period = _parse_ashby_compensation(job.get("compensation"))
 
         jobs.append({
             "job_id": f"ashby_{slug}_{job['id']}",
@@ -303,9 +349,9 @@ def _fetch_ashby(slug: str) -> list[dict]:
             "description_raw": description,
             "apply_url": job.get("jobUrl", ""),
             "posted_at": job.get("publishedAt"),
-            "salary_min": None,
-            "salary_max": None,
-            "salary_period": None,
+            "salary_min": sal_min,
+            "salary_max": sal_max,
+            "salary_period": sal_period,
             "_employment_type": _ASHBY_TYPE_MAP.get(employment_type, ""),
         })
 

@@ -1,5 +1,5 @@
 import React, { Suspense, useState, useEffect, useRef } from "react";
-import { useSearchParams, useLocation } from "react-router-dom";
+import { useSearchParams, useLocation, useNavigate } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
@@ -16,6 +16,7 @@ import { GoalsPromptBanner } from "@/components/find/GoalsPromptBanner";
 import { IS_DEV_PREVIEW, DEV_MOCK_USER } from "@/lib/devPreview";
 import { getUniversityShortName } from "@/lib/universityUtils";
 import { PersonalizationStrip } from "@/components/personalization/PersonalizationStrip";
+import { TrialBanner } from "@/components/TrialBanner";
 
 const ContactSearchPage = React.lazy(() => import("./ContactSearchPage"));
 const FirmSearchPage = React.lazy(() => import("./FirmSearchPage"));
@@ -231,6 +232,7 @@ const FindPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = resolveTab(searchParams.get("tab"));
   const routerLocation = useLocation();
+  const navigate = useNavigate();
   const { user: authUser } = useFirebaseAuth();
   const user = IS_DEV_PREVIEW ? DEV_MOCK_USER : authUser;
 
@@ -348,6 +350,15 @@ const FindPage: React.FC = () => {
           <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
             {/* Page title */}
             <div style={{ flexShrink: 0 }}>
+              {/* Pro trial banner — auto-hides for paid and post-trial users.
+                  Renders "Try Pro free" CTA for eligible users, or an active-trial
+                  countdown mid-trial. Mounted the way Nick had it on the Find surface. */}
+              <div style={{ maxWidth: 1000, margin: '0 auto', padding: '16px 40px 0' }}>
+                <TrialBanner
+                  variant="full"
+                  onUpgrade={() => navigate('/pricing')}
+                />
+              </div>
               <div style={{ maxWidth: 1000, margin: '0 auto', padding: '36px 40px 6px' }}>
                 <PageTitle
                   align="center"

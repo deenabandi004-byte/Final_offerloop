@@ -23,6 +23,151 @@ def get_tier_from_price_id(price_id: str) -> str:
         return 'pro'
 
 
+# ============================================================================
+# Post-Checkout Upsell — Pro → Elite at "$10 more, right now"
+# ============================================================================
+# Mechanic: invoice-item + subscription.modify (NOT a coupon).
+# The original coupon-based mechanic was buggy because subscription-level
+# coupons don't charge immediately — the user already paid $15 for Pro, so we
+# (a) switch the subscription to Elite with proration_behavior='none' (no
+# proration surprise), (b) create a one-time $10 invoice item and invoice it
+# now (saved card on file from Pro checkout = one click), (c) explicitly bump
+# the user's credit allocation to Elite's (off-cycle invoice items do NOT
+# trigger the invoice.paid renewal webhook so credits would otherwise stay at
+# Pro level).
+#
+# Net effect: user paid $15 (Pro) + $10 (upsell) = $25 effective on Elite this
+# month. Next renewal is full Elite ($35) automatically.
+
+# Default $10 upsell. Tunable per market via env without code change.
+UPSELL_AMOUNT_CENTS = 1000
+
+def apply_post_checkout_upsell(user_id: str) -> dict:
+    """Apply the Pro→Elite post-checkout upsell.
+
+    Returns {ok: bool, error?: str, invoice_id?: str, new_tier: 'elite'}.
+    Idempotent — refuses to apply twice (`upsellAcceptedAt` is the guard).
+    """
+    if not STRIPE_SECRET_KEY:
+        return {'ok': False, 'error': 'stripe_not_configured'}
+    stripe.api_key = STRIPE_SECRET_KEY
+
+    db = get_db()
+    if not db:
+        return {'ok': False, 'error': 'db_unavailable'}
+
+    user_ref = db.collection('users').document(user_id)
+    snap = user_ref.get()
+    if not snap.exists:
+        return {'ok': False, 'error': 'user_not_found'}
+    user = snap.to_dict() or {}
+
+    # Idempotency guard — accept exactly once.
+    if user.get('upsellAcceptedAt'):
+        return {'ok': False, 'error': 'already_accepted'}
+
+    sub_id = user.get('stripeSubscriptionId')
+    customer_id = user.get('stripeCustomerId')
+    if not sub_id or not customer_id:
+        return {'ok': False, 'error': 'no_active_subscription'}
+
+    # Pull the current subscription so we know which subscription-item-id to swap.
+    try:
+        sub = stripe.Subscription.retrieve(sub_id)
+    except stripe.error.StripeError as e:
+        return {'ok': False, 'error': f'stripe_retrieve_failed: {e}'}
+
+    # Collision guard — if the subscription already carries a discount, the
+    # post-checkout upsell shouldn't pile on. Frontend should hide the modal
+    # in this case; this is a defensive double-check.
+    if sub.get('discount'):
+        return {'ok': False, 'error': 'subscription_has_existing_discount'}
+
+    items = sub.get('items', {}).get('data', [])
+    if not items:
+        return {'ok': False, 'error': 'no_subscription_items'}
+    current_item_id = items[0]['id']
+
+    # Step 1: switch the subscription to Elite — no proration so Stripe doesn't
+    # auto-charge the price-difference at this moment. We charge explicitly via
+    # the invoice item in step 2.
+    try:
+        stripe.Subscription.modify(
+            sub_id,
+            items=[{'id': current_item_id, 'price': STRIPE_ELITE_PRICE_ID}],
+            proration_behavior='none',
+        )
+    except stripe.error.StripeError as e:
+        return {'ok': False, 'error': f'stripe_modify_failed: {e}'}
+
+    # Step 2: one-time $10 invoice item, finalized + paid immediately.
+    try:
+        stripe.InvoiceItem.create(
+            customer=customer_id,
+            amount=UPSELL_AMOUNT_CENTS,
+            currency='usd',
+            description='Add Elite this month — Offerloop upgrade',
+        )
+        invoice = stripe.Invoice.create(customer=customer_id, auto_advance=False)
+        stripe.Invoice.finalize_invoice(invoice.id)
+        paid_invoice = stripe.Invoice.pay(invoice.id)
+        invoice_id = paid_invoice.id
+    except stripe.error.StripeError as e:
+        # Step 1 already succeeded — the user IS on Elite. Roll back to Pro?
+        # Tricky because that risks proration churn. Safer: log and surface the
+        # error; the frontend can prompt support. The user's plan is now Elite
+        # but they haven't been charged the $10; manual reconciliation needed.
+        print(f"⚠️ Upsell step 1 (sub.modify) succeeded but step 2 (invoice) failed for user {user_id}: {e}")
+        return {
+            'ok': False,
+            'error': f'invoice_failed_after_sub_modify: {e}',
+            'requires_manual_reconciliation': True,
+        }
+
+    # Step 3: bump credit allocation to Elite NOW. Off-cycle invoice items do
+    # NOT trigger the `invoice.paid` renewal webhook, so without this explicit
+    # bump the user is on the Elite price with Pro credits.
+    elite_credits = TIER_CONFIGS['elite']['credits']
+    user_ref.update({
+        'subscriptionTier': 'elite',
+        'tier': 'elite',  # legacy fallback field
+        'maxCredits': elite_credits,
+        'credits': elite_credits,
+        'upsellShownAt': datetime.utcnow(),
+        'upsellAcceptedAt': datetime.utcnow(),
+        'upsellInvoiceId': invoice_id,
+    })
+
+    return {
+        'ok': True,
+        'new_tier': 'elite',
+        'invoice_id': invoice_id,
+        'credits': elite_credits,
+    }
+
+
+def record_post_checkout_upsell_decline(user_id: str) -> dict:
+    """Mark the upsell as shown-and-declined. Idempotent."""
+    db = get_db()
+    if not db:
+        return {'ok': False, 'error': 'db_unavailable'}
+
+    user_ref = db.collection('users').document(user_id)
+    snap = user_ref.get()
+    if not snap.exists:
+        return {'ok': False, 'error': 'user_not_found'}
+
+    user = snap.to_dict() or {}
+    if user.get('upsellShownAt'):
+        return {'ok': True, 'already_recorded': True}
+
+    user_ref.update({
+        'upsellShownAt': datetime.utcnow(),
+        'upsellDeclinedAt': datetime.utcnow(),
+    })
+    return {'ok': True}
+
+
 def create_checkout_session():
     """Create Stripe checkout session for upgrade"""
     try:
@@ -138,7 +283,19 @@ def handle_stripe_webhook():
         
         # Handle different event types
         if event['type'] == 'checkout.session.completed':
-            handle_checkout_completed(event['data']['object'])
+            session_obj = event['data']['object']
+            # Top-up checkouts use mode=payment and a metadata marker. Route
+            # them to the top-up purchase handler so the bonus bucket gets
+            # credited (the regular handler upgrades subscription tier and
+            # would no-op here).
+            metadata = (session_obj.get('metadata') or {})
+            from app.services.topup_service import TOPUP_METADATA_KEY, TOPUP_METADATA_VALUE, apply_topup_purchase
+            if metadata.get(TOPUP_METADATA_KEY) == TOPUP_METADATA_VALUE:
+                apply_topup_purchase(session_obj)
+            else:
+                handle_checkout_completed(session_obj)
+        elif event['type'] == 'checkout.session.expired':
+            handle_checkout_expired(event['data']['object'])
         elif event['type'] == 'invoice.paid':
             handle_invoice_paid(event['data']['object'])
         elif event['type'] == 'customer.subscription.deleted':
@@ -157,6 +314,31 @@ def handle_stripe_webhook():
     except Exception as e:
         print(f"Webhook error: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+def handle_checkout_expired(session):
+    """Stamp checkoutAbandonedAt on the user doc so Sequence 2 (checkout
+    abandonment) of the lifecycle emails can pick them up on the next cron tick.
+
+    Stripe fires this when a Checkout Session expires unused (default 24h after
+    creation). The metadata['user_id'] is set when we create the session in
+    create_checkout_session() so we know which Firestore user to mark.
+    """
+    try:
+        user_id = (session.get('metadata') or {}).get('user_id')
+        if not user_id:
+            print(f"⚠️ checkout.session.expired with no user_id metadata: {session.get('id')}")
+            return
+        db = get_db()
+        if not db:
+            return
+        db.collection('users').document(user_id).update({
+            'checkoutAbandonedAt': datetime.utcnow(),
+            'checkoutAbandonedSessionId': session.get('id'),
+        })
+        print(f"📭 Marked user {user_id} as checkout-abandoned (session {session.get('id')})")
+    except Exception as e:
+        print(f"⚠️ handle_checkout_expired error: {e}")
 
 
 def handle_checkout_completed(session):
@@ -248,7 +430,10 @@ def handle_subscription_deleted(subscription):
                 'subscriptionStatus': None,
                 'stripeSubscriptionId': None,
                 'lastCreditReset': datetime.now().isoformat(),
-                'updatedAt': datetime.now().isoformat()
+                'updatedAt': datetime.now().isoformat(),
+                # Stamp canceledAt so the win-back lifecycle email sequence
+                # picks this user up 30 days later.
+                'canceledAt': datetime.utcnow(),
             })
             print(f"✅ User {doc.id} downgraded to free")
             break

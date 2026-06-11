@@ -27,6 +27,8 @@ import UscBeta from "@/pages/UscBeta";
 
 // Lazy load heavy pages for code splitting
 const AboutUs = React.lazy(() => import("./pages/AboutUs"));
+const ForStudentsPage = React.lazy(() => import("./pages/ForStudentsPage"));
+const PromoPage = React.lazy(() => import("./pages/PromoPage"));
 const CoffeeChatLibrary = React.lazy(() => import("./pages/CoffeeChatLibrary"));
 const ContactUs = React.lazy(() => import("./pages/ContactUs"));
 const PrivacyPolicy = React.lazy(() => import("./pages/PrivacyPolicy"));
@@ -308,7 +310,7 @@ const AppRoutes: React.FC = () => {
       <Route path="/contact-directory" element={<Navigate to="/my-network/people" replace />} />
       <Route path="/coffee-chat-library" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoffeeChatLibrary /></Suspense></ProtectedRoute>} />
       <Route path="/account-settings" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AccountSettings /></Suspense></ProtectedRoute>} />
-      <Route path="/pricing" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><Pricing /></Suspense></ProtectedRoute>} />
+      <Route path="/pricing" element={<Suspense fallback={<PageLoader />}><Pricing /></Suspense>} />
       <Route path="/documentation" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><DocumentationPage /></Suspense></ProtectedRoute>} />
       <Route path="/payment-success" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><PaymentSuccess /></Suspense></ProtectedRoute>} />
       
@@ -355,6 +357,8 @@ const AppRoutes: React.FC = () => {
 
       {/* Public informational pages */}
       <Route path="/about" element={<Suspense fallback={<PageLoader />}><AboutUs /></Suspense>} />
+      <Route path="/for-students" element={<Suspense fallback={<PageLoader />}><ForStudentsPage /></Suspense>} />
+      <Route path="/promo" element={<Suspense fallback={<PageLoader />}><PromoPage /></Suspense>} />
       <Route path="/contact" element={<Navigate to="/contact-us" replace />} />
       <Route path="/contact-us" element={<Suspense fallback={<PageLoader />}><ContactUs /></Suspense>} />
 
