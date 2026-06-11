@@ -9,6 +9,7 @@
 import React from "react";
 import { useLocation } from "react-router-dom";
 import { useScout } from "@/contexts/ScoutContext";
+import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useTour } from "@/contexts/TourContext";
 
 import scoutYetiHead from "@/assets/scouts/scout-yeti-head.png";
@@ -133,6 +134,11 @@ const FloatingAskScoutButton: React.FC = () => {
   const { demoSurface } = useTour();
   const scoutDemoActive = demoSurface === 'scout';
   const location = useLocation();
+  const { user } = useFirebaseAuth();
+
+  // Logged-out visitors (public landing / marketing pages) never see the
+  // floating Scout pill.
+  if (!user) return null;
 
   // Stay visible during the Scout tour demo even when the panel is open, so
   // the tour's spotlight (anchored on the floating wrapper below) has an

@@ -286,6 +286,10 @@ function Ticker({ items }: { items: FleetFeedItem[] }) {
           </span>
         )}
       </div>
+      {/* "View all" affordance removed: the fleet-wide activity timeline
+          page it should deep-link to (and the backend /api/agent/loops/feed
+          endpoint that would power it) aren't built yet. Restore this button
+          alongside that page in a future PR. */}
     </div>
   );
 }

@@ -403,6 +403,15 @@ const ConditionalBackground: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 };
 
+/* ---------------- Promo overlay gate ----------------
+   The /promo route is a scripted screen-capture surface. Suppress floating
+   Scout UI on that path so it doesn't bleed into recordings. */
+const NotOnPromo: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { pathname } = useLocation();
+  if (pathname === '/promo') return null;
+  return <>{children}</>;
+};
+
 /* ---------------- Keyboard Shortcut Handler ---------------- */
 const KeyboardShortcutHandler: React.FC = () => {
   const { openPanel, isPanelOpen, togglePanel } = useScout();
@@ -469,8 +478,10 @@ const App: React.FC = () => {
                     <AgentNotifierMount />
                     <ReplyNotifier />
                     <AppRoutes />
-                    <ScoutSidePanel />
-                    <FloatingAskScoutButton />
+                    <NotOnPromo>
+                      <ScoutSidePanel />
+                      <FloatingAskScoutButton />
+                    </NotOnPromo>
                   </TourProvider>
                 </ScoutProvider>
               </ConditionalBackground>
