@@ -9,6 +9,7 @@
 import React from "react";
 import { useLocation } from "react-router-dom";
 import { useScout } from "@/contexts/ScoutContext";
+import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 
 import scoutYetiHead from "@/assets/scouts/scout-yeti-head.png";
 import pinThumbtack from "@/assets/scouts/pin-thumbtack.png";
@@ -124,8 +125,10 @@ export const AskScoutButton: React.FC<AskScoutButtonProps> = ({
  */
 const FloatingAskScoutButton: React.FC = () => {
   const { openPanel, isPanelOpen } = useScout();
+  const { user } = useFirebaseAuth();
   const location = useLocation();
 
+  if (!user) return null;
   if (isPanelOpen) return null;
   if (location.pathname === "/dashboard") return null;
 

@@ -23,6 +23,7 @@ import Index from "./pages/Index";
 import SignIn from "./pages/SignIn";
 import AuthCallback from "./pages/AuthCallback";
 import UscBeta from "@/pages/UscBeta";
+const ForStudentsPage = React.lazy(() => import("./pages/ForStudentsPage"));
 
 // Lazy load heavy pages for code splitting
 const AboutUs = React.lazy(() => import("./pages/AboutUs"));
@@ -82,6 +83,7 @@ const ColdEmailGuidePage = React.lazy(() => import("./pages/ColdEmailGuidePage")
 const CoffeeChatGuidePage = React.lazy(() => import("./pages/CoffeeChatGuidePage"));
 const RoleNetworkingGuidePage = React.lazy(() => import("./pages/RoleNetworkingGuidePage"));
 const CompanyComparisonPage = React.lazy(() => import("./pages/CompanyComparisonPage"));
+const PromoPage = React.lazy(() => import("./pages/PromoPage"));
 
 // Optimized QueryClient with caching
 const queryClient = new QueryClient({
@@ -229,8 +231,12 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 const AppRoutes: React.FC = () => {
   return (
     <Routes>
+      {/* Promo walkthrough — public, no auth. Scripted animation for screen capture. */}
+      <Route path="/promo" element={<Suspense fallback={<PageLoader />}><PromoPage /></Suspense>} />
+
       {/* Public Landing */}
       <Route path="/" element={<PublicRoute><Index /></PublicRoute>} />
+      <Route path="/for-students" element={<PublicRoute><ForStudentsPage /></PublicRoute>} />
       <Route path="/usc-beta" element={<UscBeta />} />
 
       {/* Auth */}
@@ -307,7 +313,7 @@ const AppRoutes: React.FC = () => {
       <Route path="/contact-directory" element={<Navigate to="/my-network/people" replace />} />
       <Route path="/coffee-chat-library" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoffeeChatLibrary /></Suspense></ProtectedRoute>} />
       <Route path="/account-settings" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AccountSettings /></Suspense></ProtectedRoute>} />
-      <Route path="/pricing" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><Pricing /></Suspense></ProtectedRoute>} />
+      <Route path="/pricing" element={<Suspense fallback={<PageLoader />}><Pricing /></Suspense>} />
       <Route path="/documentation" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><DocumentationPage /></Suspense></ProtectedRoute>} />
       <Route path="/payment-success" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><PaymentSuccess /></Suspense></ProtectedRoute>} />
       
@@ -387,7 +393,7 @@ const ScoutRedirect: React.FC = () => {
 const ConditionalBackground: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const isLandingPage = location.pathname === '/';
-  
+
   return (
     <div className="relative min-h-screen">
       {isLandingPage && <DynamicGradientBackground />}
@@ -396,6 +402,15 @@ const ConditionalBackground: React.FC<{ children: React.ReactNode }> = ({ childr
       </div>
     </div>
   );
+};
+
+/* ---------------- Promo overlay gate ----------------
+   The /promo route is a scripted screen-capture surface. Suppress floating
+   Scout UI on that path so it doesn't bleed into recordings. */
+const NotOnPromo: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { pathname } = useLocation();
+  if (pathname === '/promo') return null;
+  return <>{children}</>;
 };
 
 /* ---------------- Keyboard Shortcut Handler ---------------- */
@@ -463,8 +478,10 @@ const App: React.FC = () => {
                     <KeyboardShortcutHandler />
                     <AgentNotifierMount />
                     <AppRoutes />
-                    <ScoutSidePanel />
-                    <FloatingAskScoutButton />
+                    <NotOnPromo>
+                      <ScoutSidePanel />
+                      <FloatingAskScoutButton />
+                    </NotOnPromo>
                   </TourProvider>
                 </ScoutProvider>
               </ConditionalBackground>
