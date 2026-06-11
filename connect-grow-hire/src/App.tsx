@@ -10,7 +10,6 @@ import { ScoutProvider, useScout } from "./contexts/ScoutContext";
 import { TourProvider } from "./contexts/TourContext";
 import { HelmetProvider } from "react-helmet-async";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { DynamicGradientBackground } from "./components/background/DynamicGradientBackground";
 import { ScoutSidePanel } from "./components/ScoutSidePanel";
 import FloatingAskScoutButton from "./components/AskScoutButton";
 import { ReplyNotifier } from "./components/ReplyNotifier";
@@ -18,11 +17,23 @@ import { LoadingContainer } from "./components/ui/LoadingBar";
 import { IS_DEV_PREVIEW } from "./lib/devPreview";
 import { useAgentGlobalNotifier } from "./hooks/useAgent";
 
-// Keep critical pages non-lazy for faster initial load
-import Index from "./pages/Index";
+// Keep critical auth pages non-lazy for faster initial load
 import SignIn from "./pages/SignIn";
 import AuthCallback from "./pages/AuthCallback";
 import UscBeta from "@/pages/UscBeta";
+
+// Landing page is lazy: authed users get redirected to /dashboard and never
+// render it, so its heavy image/component tree must stay out of the critical
+// entry chunk.
+const Index = React.lazy(() => import("./pages/Index"));
+// The WebGL gradient background (ogl) is landing-only and decorative. Lazy so
+// the WebGL code never ships on the critical path; mounts with a null fallback
+// only when an unauthenticated visitor actually sees the landing page.
+const DynamicGradientBackground = React.lazy(() =>
+  import("./components/background/DynamicGradientBackground").then((m) => ({
+    default: m.DynamicGradientBackground,
+  })),
+);
 
 // Lazy load heavy pages for code splitting
 const AboutUs = React.lazy(() => import("./pages/AboutUs"));
@@ -231,7 +242,7 @@ const AppRoutes: React.FC = () => {
   return (
     <Routes>
       {/* Public Landing */}
-      <Route path="/" element={<PublicRoute><Index /></PublicRoute>} />
+      <Route path="/" element={<PublicRoute><Suspense fallback={<PageLoader />}><Index /></Suspense></PublicRoute>} />
       <Route path="/usc-beta" element={<UscBeta />} />
 
       {/* Auth */}
@@ -386,14 +397,29 @@ const ScoutRedirect: React.FC = () => {
   return <Navigate to="/dashboard" replace />;
 };
 
-/* ---------------- Conditional Background Wrapper ---------------- */
+/* ---------------- Conditional Background Wrapper ----------------
+   Decides whether to mount the landing WebGL tree BEFORE rendering it.
+   Authed users are redirected off "/" by PublicRoute, and during auth
+   resolution we show a full-screen loader — in neither case should the
+   ogl/WebGL background mount. So gate it on a visitor who will actually
+   see the landing: on "/", not loading, and either signed out or no user. */
 const ConditionalBackground: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
+  const { user, isLoading } = useFirebaseAuth();
+
+  const params = new URLSearchParams(location.search);
+  const isSignedOut = params.get('signedOut') === 'true';
   const isLandingPage = location.pathname === '/';
-  
+  const showLandingBackground =
+    isLandingPage && !isLoading && (!user || isSignedOut);
+
   return (
     <div className="relative min-h-screen">
-      {isLandingPage && <DynamicGradientBackground />}
+      {showLandingBackground && (
+        <Suspense fallback={null}>
+          <DynamicGradientBackground />
+        </Suspense>
+      )}
       <div className="relative z-10">
         {children}
       </div>
