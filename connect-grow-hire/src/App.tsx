@@ -11,7 +11,6 @@ import { TourProvider } from "./contexts/TourContext";
 import { HelmetProvider } from "react-helmet-async";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { DynamicGradientBackground } from "./components/background/DynamicGradientBackground";
-import { LoadingSkeleton } from "./components/LoadingSkeleton";
 import { ScoutSidePanel } from "./components/ScoutSidePanel";
 import FloatingAskScoutButton from "./components/AskScoutButton";
 import { ReplyNotifier } from "./components/ReplyNotifier";
@@ -55,7 +54,10 @@ const CoffeeChatPrepPage = React.lazy(() => import("./pages/CoffeeChatPrepPage")
 const FindPage = React.lazy(() => import("./pages/FindPage"));
 const EmailTemplatesPage = React.lazy(() => import("./pages/EmailTemplatesPage"));
 const RecruitingTimelinePage = React.lazy(() => import("./pages/RecruitingTimelinePage"));
-const DashboardPage = React.lazy(() => import("./pages/DashboardPage"));
+// Factory extracted so we can prefetch the chunk the moment auth resolves
+// (see DashboardPrefetch), making the post-redirect Suspense fallback instant.
+const importDashboardPage = () => import("./pages/DashboardPage");
+const DashboardPage = React.lazy(importDashboardPage);
 const AgentPage = React.lazy(() => import("./pages/AgentPage"));
 const AgentSetup = React.lazy(() => import("./pages/AgentSetup"));
 const LoopsPage = React.lazy(() => import("./pages/LoopsPage"));
@@ -98,12 +100,18 @@ const queryClient = new QueryClient({
   },
 });
 
-// Loading fallback component
-const PageLoader = () => (
-  <div className="min-h-screen flex items-center justify-center">
-    <LoadingSkeleton />
+// Unified full-screen loader — used for BOTH auth resolution (route guards)
+// and lazy-route Suspense fallbacks. Sharing one component keeps the two
+// phases visually continuous instead of swapping between a spinner and a
+// skeleton, which read as a "double load".
+const FullScreenLoader = () => (
+  <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+    <LoadingContainer label="Loading Offerloop..." sublabel="Please wait" />
   </div>
 );
+
+// Suspense fallback (name kept for existing call sites).
+const PageLoader = FullScreenLoader;
 
 // Phase 3 stationery aesthetic — always-on (shipped).
 // Formerly gated by VITE_FLAG_NEW_AESTHETIC env var during dev preview.
@@ -142,14 +150,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
   if (isLoading) {
     devLog("🔒 [PROTECTED ROUTE] Still loading auth state, showing loading bar");
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-        <LoadingContainer
-          label="Loading Offerloop..."
-          sublabel="Please wait"
-        />
-      </div>
-    );
+    return <FullScreenLoader />;
   }
 
   // If signed out flag is present, redirect to landing page instead of signin
@@ -196,14 +197,11 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     needsOnboarding: user?.needsOnboarding || false
   });
   
-  // Show loading spinner instead of null to avoid blank page
+  // Use the same full-screen loader as the protected routes and Suspense
+  // fallbacks so auth resolution never visually swaps loaders.
   if (isLoading) {
-    devLog("🛣️ [PUBLIC ROUTE] Still loading auth state, showing spinner");
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-      </div>
-    );
+    devLog("🛣️ [PUBLIC ROUTE] Still loading auth state, showing loader");
+    return <FullScreenLoader />;
   }
 
   // If explicitly signed out, always show the landing page regardless of user state
@@ -451,6 +449,21 @@ function AgentNotifierActive() {
   return null;
 }
 
+/* ---------------- Dashboard Prefetch ----------------
+   The moment auth resolves to an onboarded user, start downloading the
+   dashboard chunk. By the time PublicRoute redirects "/" → "/dashboard",
+   the lazy chunk is already in flight (or cached), so the post-redirect
+   Suspense fallback is near-instant instead of a second visible load. */
+const DashboardPrefetch: React.FC = () => {
+  const { user, isLoading } = useFirebaseAuth();
+  useEffect(() => {
+    if (!isLoading && user && !user.needsOnboarding) {
+      importDashboardPage();
+    }
+  }, [isLoading, user]);
+  return null;
+};
+
 /* ---------------- App Root ---------------- */
 const App: React.FC = () => {
   useEffect(() => {
@@ -463,6 +476,7 @@ const App: React.FC = () => {
       <TooltipProvider>
         <FirebaseAuthProvider>
           <ErrorBoundary>
+            <DashboardPrefetch />
             <BrowserRouter
               future={{
                 v7_startTransition: true,
