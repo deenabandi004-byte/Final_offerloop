@@ -74,15 +74,17 @@ A Loop brief is one natural-sounding sentence describing who the student wants t
   - "Reaching out to product managers at Stripe, Plaid, and Mercury for advice on breaking in."
   - "Want to chat with USC alumni working in management consulting at MBB firms."
 
-You're given the student's resume highlights and onboarding profile. From them, draft:
+You're given the student's resume highlights, onboarding profile, AND a `direction` block of preferences they explicitly stated during onboarding (dream companies, target industries, roles they want, locations). From them, draft:
   1. ONE natural-language sentence the student would actually say. Write in first person, no jargon, no "as a student passionate about..." filler. Keep it under 25 words.
-  2. The chip lists that match the sentence — companies, roles, industries, locations. Use proper canonical names ("Morgan Stanley" not "MS"). Leave a list empty if the resume/profile doesn't justify a specific value.
+  2. The chip lists that match the sentence — companies, roles, industries, locations. Use proper canonical names ("Morgan Stanley" not "MS"). Leave a list empty if nothing justifies a specific value.
 
 Rules:
-  - Don't invent companies the student didn't show interest in. If the resume mentions Goldman Sachs, you can suggest it; if it doesn't, don't.
-  - If the profile names a careerTrack (e.g. "Investment Banking", "Consulting", "Tech"), translate it into the appropriate industries + canonical companies for that track.
-  - If the profile is empty AND the resume is empty, return empty arrays + an empty sentence.
-  - Locations come from the resume/profile, not invented. "Remote" only if mentioned.
+  - `direction.targetFirms` is the student's DREAM COMPANY list. Treat it as authoritative — mention these companies in the sentence and put them at the FRONT of `companies`, ahead of anything you infer from the resume.
+  - `direction.targetIndustries` / `direction.extractedRoles` / `direction.preferredLocations` are also stated preferences — weight them above resume inferences for the same field.
+  - Beyond `direction`, don't invent companies the student didn't show interest in. If the resume mentions Goldman Sachs, you can suggest it; if it doesn't, don't.
+  - If the profile names a careerTrack (e.g. "Investment Banking", "Consulting", "Tech"), translate it into the appropriate industries + canonical companies for that track — but only when `direction` is silent on that field.
+  - If `direction`, profile, AND resume are all empty, return empty arrays + an empty sentence.
+  - Locations come from `direction`, resume, or profile — never invented. "Remote" only if mentioned.
   - Return STRICT JSON matching:
       {"sentence": "...", "companies": [...], "roles": [...], "industries": [...], "locations": [...]}
     No prose, no markdown, no leading explanation."""
@@ -92,8 +94,13 @@ def propose_brief(
     *,
     resume_text: str | None = None,
     profile: dict | None = None,
+    direction: dict | None = None,
 ) -> ProposedBrief:
     """Draft a starting Loop brief from the user's resume + onboarding profile.
+
+    `direction` carries the chip-style preferences the student set in
+    onboarding (dream companies, target industries, roles, locations).
+    Claude is instructed to treat these as authoritative — see SYSTEM_PROMPT.
 
     See module docstring for the contract.
     """
@@ -102,8 +109,9 @@ def propose_brief(
         resume_clean = resume_clean[:MAX_RESUME_CHARS]
 
     profile_clean = _clean_profile(profile or {})
+    direction_clean = _clean_direction(direction or {})
 
-    if not resume_clean and not profile_clean:
+    if not resume_clean and not profile_clean and not direction_clean:
         # Nothing to work from — don't burn a Claude call.
         return dict(EMPTY_PROPOSAL)  # type: ignore[return-value]
 
@@ -112,7 +120,7 @@ def propose_brief(
         logger.warning("brief_proposer: Anthropic client unavailable")
         return {**EMPTY_PROPOSAL, "status": "failed"}
 
-    user_msg = _build_user_message(resume_clean, profile_clean)
+    user_msg = _build_user_message(resume_clean, profile_clean, direction_clean)
 
     raw = "{}"
     try:
@@ -124,7 +132,10 @@ def propose_brief(
             messages=[{"role": "user", "content": user_msg}],
         )
         raw = _extract_text(resp)
-        parsed = json.loads(raw)
+        # Claude often wraps JSON output in a ```json … ``` markdown fence
+        # even when the system prompt forbids it. Strip the fence before
+        # parsing so a cosmetic formatting habit doesn't blow up every call.
+        parsed = json.loads(_strip_json_fence(raw))
     except json.JSONDecodeError:
         logger.exception("brief_proposer: invalid JSON from Claude, raw=%s", raw[:200])
         return {**EMPTY_PROPOSAL, "status": "failed"}
@@ -155,14 +166,36 @@ def _clean_profile(profile: dict) -> dict:
     return out
 
 
-def _build_user_message(resume_text: str, profile: dict) -> str:
-    """Assemble the per-request user message. Profile + resume are passed as
-    a delimited block so the model can tell them apart from the system prompt."""
+def _clean_direction(direction: dict) -> dict:
+    """Whitelist + cap the Direction-extractor chip lists. Same defensive
+    posture as _clean_profile: drop empties, cap value lengths, cap array
+    length so a malicious onboarding doc can't blow the prompt budget."""
+    keys = ("targetFirms", "targetIndustries", "extractedRoles", "preferredLocations")
+    out: dict = {}
+    for k in keys:
+        v = direction.get(k)
+        if isinstance(v, list):
+            items = [str(x).strip()[:MAX_PROFILE_FIELD_CHARS] for x in v if str(x).strip()]
+            if items:
+                out[k] = items[:10]
+    return out
+
+
+def _build_user_message(resume_text: str, profile: dict, direction: dict) -> str:
+    """Assemble the per-request user message. Direction (stated chips),
+    profile (onboarding metadata), and resume are each delimited in their
+    own tag so the model can weight them per SYSTEM_PROMPT rules."""
+    direction_block = (
+        json.dumps(direction, ensure_ascii=False, indent=2) if direction else "{}"
+    )
     profile_block = (
         json.dumps(profile, ensure_ascii=False, indent=2) if profile else "{}"
     )
     resume_block = resume_text if resume_text else "(no resume on file)"
     return (
+        "<direction>\n"
+        f"{direction_block}\n"
+        "</direction>\n\n"
         "<profile>\n"
         f"{profile_block}\n"
         "</profile>\n\n"
@@ -170,6 +203,28 @@ def _build_user_message(resume_text: str, profile: dict) -> str:
         f"{resume_block}\n"
         "</resume_highlights>"
     )
+
+
+def _strip_json_fence(text: str) -> str:
+    """Strip a leading/trailing markdown ```json … ``` fence if Claude wrapped
+    its JSON response in one. Tolerant of:
+      - ``` or ```json or ```JSON (any language tag)
+      - leading/trailing whitespace and newlines
+      - partial trailing fence (truncated max_tokens)
+    Returns the text unchanged if no fence is present."""
+    s = (text or "").strip()
+    if not s.startswith("```"):
+        return s
+    # Drop the opening fence + optional language tag through the first newline.
+    nl = s.find("\n")
+    if nl == -1:
+        return s
+    s = s[nl + 1:]
+    # Drop the closing fence if present.
+    end = s.rfind("```")
+    if end != -1:
+        s = s[:end]
+    return s.strip()
 
 
 def _extract_text(resp) -> str:

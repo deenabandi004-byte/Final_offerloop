@@ -2,12 +2,13 @@
 //
 // State machine:
 //   - Loading   → centered spinner
-//   - 0 Loops   → StartLoopHero (page variant, with marketing cards)
+//   - 0 Loops   → LoopsEmptyState (Scout greeter + resume-derived suggestion)
 //   - 1+ Loops  → LoopGrid (with the LoopsCommandBar above it)
 //
 // The inline composer was removed in the Variation D redesign. The full
-// `/agent/setup` page now owns Loop creation in every path — the fleet's
-// "Start another Loop" CTA navigates there directly.
+// `/agent/setup` page owns Loop creation. The first-run empty state is now
+// a dedicated screen (per the Loops-redesign handoff) — its CTAs navigate
+// into /agent/setup instead of dumping the user into a blank wizard.
 
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
@@ -17,7 +18,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { useLoopsList } from "@/hooks/useLoops";
 import { LoopGrid } from "@/components/loop/LoopGrid";
-import { StartLoopHero } from "@/components/loop/StartLoopHero";
+import { LoopsEmptyState, type InitialBriefParsed } from "@/components/loop/LoopsEmptyState";
 import { LOOP_COPY } from "@/lib/loopCopy";
 
 export default function LoopsPage() {
@@ -27,7 +28,17 @@ export default function LoopsPage() {
   const loops = query.data?.loops ?? [];
   const limits = query.data?.limits;
 
-  const goToSetup = () => navigate("/agent/setup");
+  const goToSetup = (initialBrief?: string, initialBriefParsed?: InitialBriefParsed) => {
+    // Only include state when we actually have something to seed — the
+    // fleet-view "Start another Loop" path passes neither and lands on
+    // Step 01 of the wizard as today.
+    const state =
+      initialBrief || initialBriefParsed
+        ? { initialBrief, initialBriefParsed }
+        : undefined;
+    navigate("/agent/setup", { state });
+  };
+  const isEmpty = !query.isLoading && loops.length === 0;
 
   return (
     <SidebarProvider>
@@ -63,9 +74,7 @@ export default function LoopsPage() {
               </div>
             )}
 
-            {!query.isLoading && loops.length === 0 && (
-              <StartLoopHero variant="page" />
-            )}
+            {isEmpty && <LoopsEmptyState onStart={goToSetup} />}
 
             {!query.isLoading && loops.length > 0 && limits && (
               <LoopGrid

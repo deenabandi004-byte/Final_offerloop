@@ -832,11 +832,21 @@ def _apply_plan_safety_net(
 
     People mode: must include find. Same target dependency as before.
 
-    No-op if `plan` is empty (the planner returned nothing — likely a
-    skip-emitting plan or a credit floor was hit upstream).
+    Empty `plan` is the most important case for the safety net to handle —
+    it means the planner either regressed (Claude returned `[]` or
+    `_parse_plan` failed to parse JSON) or wasn't called. Without
+    synthesizing default actions here, the cycle runs to completion with
+    zero work done and stamps the Loop with found=0/drafted=0. The old
+    `if not plan: return` guard at the top of this function silently
+    short-circuited exactly that recovery path.
     """
     if not plan:
-        return
+        logger.warning(
+            "Planner returned empty plan — safety net synthesizing default "
+            "actions for loop_mode=%s targets=%d roles=%d. Likely a planner "
+            "regression (Claude returned []) or a JSON parse failure.",
+            loop_mode, len(targets or []), len(roles_list or []),
+        )
     role = roles_list[0] if roles_list else ""
 
     has_find = any(a.get("action") == "find" for a in plan)
@@ -940,6 +950,12 @@ def _run_cycle(uid: str, config: dict, cycle_id: str | None = None) -> dict:
         pause_agent(uid)
         return {"cycleId": cycle_id, "status": "paused", "reason": "Insufficient credits"}
 
+    # Do NOT read `reviewBeforeSend` here. For Loops V2, that flag is a
+    # send-time signal (derived into autoSendMode in loop_service); it
+    # must not gate action execution. loop_jobs.py hardcodes
+    # approvalMode="autopilot" precisely so this stays False. Reading
+    # reviewBeforeSend re-arms the dormant `if is_review_first: continue`
+    # block below and silently no-ops every cycle (found=0/drafted=0).
     is_review_first = config.get("approvalMode") == "review_first"
 
     # Create cycle doc. shortCode is what users will text back to send drafts

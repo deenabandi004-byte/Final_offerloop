@@ -65,10 +65,11 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
 
     loop = loop_doc.to_dict() or {}
     bp = loop.get("briefParsed") or {}
-    # Old Loop docs predate loopMode — default to "people" to preserve today's
-    # behavior. loop_service writes "people" on create, so this default only
-    # fires for pre-Slice-1 records.
-    loop_mode = loop.get("loopMode") or "people"
+    # Default mirrors the wizard's "both" — every Loop pursues networking +
+    # job-search. Old loop_service default was "people"; new default is
+    # "both" (loop_service._loop_defaults updated alongside). This fallback
+    # only fires for pre-V2 docs that never persisted loopMode at all.
+    loop_mode = loop.get("loopMode") or "both"
     synthetic_config = {
         **DEFAULT_AGENT_CONFIG,
         "briefText": loop.get("briefText", ""),
@@ -101,12 +102,70 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
 
     try:
         result = _run_cycle(uid, synthetic_config, cycle_id=cycle_id)
-    except Exception:
+    except Exception as cycle_err:
+        # Distinguish "planner can't run" (config issue, recoverable by
+        # ops) from a generic cycle crash. The planner-unavailable case
+        # gets a specific pauseReason so the user sees a real status
+        # instead of an ambiguous "idle".
+        from app.services.agent_planner import PlannerUnavailableError
+
+        is_planner_unavailable = isinstance(cycle_err, PlannerUnavailableError)
         logger.exception("run_loop_cycle_job: _run_cycle crashed uid=%s loop=%s", uid, loop_id)
         try:
-            loop_ref.update({"status": "idle"})
+            if is_planner_unavailable:
+                loop_ref.update({
+                    "status": "paused",
+                    "pauseReason": "planner_unavailable",
+                })
+            else:
+                loop_ref.update({
+                    "status": "idle",
+                    "lastCycleError": str(cycle_err)[:300],
+                })
         except Exception:
             pass
+
+        # Also push a notification so the user actually finds out (S2.3).
+        # Wrapped — if the bell write fails, the cycle's real status flip
+        # above is already saved.
+        #
+        # NOTE: do NOT add `from datetime import datetime, timezone` here.
+        # `datetime` is already imported at module scope; re-importing it
+        # inside this function makes it a function-local name, which then
+        # raises UnboundLocalError at the module-scope use below (line 197
+        # `now_iso = datetime.now(...)`) even when this branch never runs.
+        try:
+            from app.services.loop_notifications import write_loop_run_notification
+
+            failure_kind = "planner_unavailable" if is_planner_unavailable else "cycle_error"
+            failure_snippet = (
+                "Your Loop couldn't plan its next moves — check Settings or contact support."
+                if is_planner_unavailable
+                else "Your Loop hit an unexpected error mid-cycle. Try Run it now from the fleet view."
+            )
+            write_loop_run_notification(
+                uid=uid,
+                db=db,
+                items=[{
+                    "kind": "loop_run",
+                    "failureKind": failure_kind,
+                    "loopId": loop_id,
+                    "cycleId": cycle_id,
+                    "contactId": f"loop:{loop_id}",
+                    "contactName": loop.get("name") or "Untitled Loop",
+                    "loopName": loop.get("name") or "Untitled Loop",
+                    "company": "",
+                    "snippet": failure_snippet,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "read": False,
+                }],
+            )
+        except Exception:
+            logger.exception(
+                "Failure-notification write failed (non-fatal) uid=%s loop=%s",
+                uid, loop_id,
+            )
+
         # Release the concurrency lock so the next scheduler tick can
         # actually run this Loop — without this, a crashed cycle would
         # leave cycleRunning=True until STALE_LOCK_AFTER_MINUTES elapsed.
@@ -180,6 +239,29 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
             "Loop %s vanished mid-cycle (likely deleted by user); "
             "skipping counter update. err=%s",
             loop_id, e,
+        )
+
+    # Surface a single "Loop ran" notification per cycle into the user's
+    # in-app bell. Independent of LOOPS_ALERT_EMAILS_ENABLED — this is the
+    # in-product surface, not outbound email. Failures here never
+    # propagate; the cycle's real work is already saved.
+    try:
+        from app.services.loop_notifications import (
+            assess_cycle_results,
+            write_loop_run_notification,
+        )
+        items = assess_cycle_results(
+            loop_id=loop_id,
+            loop_name=loop.get("name") or "Untitled Loop",
+            cycle_id=cycle_id,
+            result=result,
+        )
+        if items:
+            write_loop_run_notification(uid=uid, items=items, db=db)
+    except Exception:
+        logger.exception(
+            "Loop run notification failed (non-fatal) uid=%s loop=%s cycle=%s",
+            uid, loop_id, cycle_id,
         )
 
     return {

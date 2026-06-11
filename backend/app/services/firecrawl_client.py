@@ -60,6 +60,47 @@ def _extract_markdown_and_meta(result) -> dict:
     return {"markdown": md or "", "metadata": meta or {}}
 
 
+def _scrape_with_retry(fc, url: str, *, formats: list, timeout: int = 30000):
+    """Wrap Firecrawl `scrape` with a small backoff for transient 429s.
+
+    Firecrawl SDK currently raises on rate-limit; without this, a single
+    429 cascaded all the way out to the bare `except Exception: pass` in
+    agent_actions and the job/company was saved un-enriched (S4.5).
+    Three quick attempts is enough for transient bursts; sustained rate
+    limiting should pause the Loop via the rate-limit strike counter
+    (caller maps to RateLimitError on final failure).
+    """
+    import time
+
+    last_err: Exception | None = None
+    for attempt in range(3):
+        try:
+            return fc.scrape(url, formats=formats, timeout=timeout)
+        except Exception as e:
+            last_err = e
+            msg = str(e).lower()
+            # SDK doesn't surface a typed RateLimitError today; sniff the
+            # message. Conservative: only retry on clear rate-limit signals.
+            if "429" in msg or "rate limit" in msg or "ratelimit" in msg:
+                sleep_s = 0.5 * (2 ** attempt)  # 0.5, 1.0, 2.0
+                logger.warning(
+                    "[Firecrawl] 429 on attempt %d/3 for %s — sleeping %.1fs",
+                    attempt + 1, url, sleep_s,
+                )
+                time.sleep(sleep_s)
+                continue
+            # Non-rate-limit failure — don't burn retries on it
+            raise
+    # Sustained rate limiting — let the loop's rate-limit-strike counter
+    # see it and pause the Loop after the threshold (matches Apify path).
+    if last_err is not None:
+        from app.utils.exceptions import RateLimitError
+        raise RateLimitError(
+            message=f"Firecrawl rate limit exhausted retries for {url}",
+        )
+    return None
+
+
 # ── Core scrape functions ────────────────────────────────────────────────
 
 
@@ -85,7 +126,8 @@ def extract_job_posting(url: str) -> dict:
     from app.services.extraction_schemas import JobPostingExtract
 
     try:
-        result = fc.scrape(
+        result = _scrape_with_retry(
+            fc,
             url,
             formats=[{
                 "type": "json",
@@ -98,6 +140,10 @@ def extract_job_posting(url: str) -> dict:
             set_cached("job_posting", cache_key, extracted)
         return extracted
     except Exception:
+        # Includes RateLimitError after retry exhaustion — bubble up so
+        # the loop's rate-limit strike counter can pause the Loop. The
+        # agent_actions call site catches Exception and proceeds with
+        # un-enriched data, so we don't break a single cycle.
         logger.warning("Firecrawl extract_job_posting failed for %s", url, exc_info=True)
         return {}
 
@@ -121,7 +167,8 @@ def extract_company_profile(url: str) -> dict:
     from app.services.extraction_schemas import CompanyProfileExtract
 
     try:
-        result = fc.scrape(
+        result = _scrape_with_retry(
+            fc,
             url,
             formats=[{
                 "type": "json",

@@ -117,6 +117,47 @@ def test_propose_brief_returns_failed_when_claude_returns_non_json(monkeypatch):
     assert result["status"] == "failed"
 
 
+def test_propose_brief_strips_markdown_json_fence(monkeypatch):
+    """Production regression — Claude often wraps the JSON in a ```json …
+    ``` fence even when the system prompt forbids it. Stripping the fence
+    must happen before json.loads, otherwise every call fails."""
+    fenced = (
+        "```json\n"
+        '{"sentence": "Looking for data science roles at Apple, Google, Amazon.", '
+        '"companies": ["Apple", "Google", "Amazon"], '
+        '"roles": ["Data Scientist", "ML Engineer"], '
+        '"industries": ["Technology"], '
+        '"locations": []}\n'
+        "```"
+    )
+    client = _claude_returning(fenced)
+    monkeypatch.setattr(brief_proposer, "get_anthropic_client", lambda: client)
+
+    result = propose_brief(
+        resume_text="USC senior — Data Science.",
+        profile={"university": "USC"},
+    )
+
+    assert result["status"] == "ok"
+    assert result["companies"] == ["Apple", "Google", "Amazon"]
+    assert result["roles"] == ["Data Scientist", "ML Engineer"]
+    assert result["industries"] == ["Technology"]
+
+
+def test_propose_brief_strips_bare_triple_backticks(monkeypatch):
+    """Variant: Claude sometimes drops the language tag — `\\`\\`\\`\\n…\\n\\`\\`\\``.
+    Same fix path."""
+    fenced = '```\n{"sentence": "ok", "companies": [], "roles": [], "industries": [], "locations": []}\n```'
+    client = _claude_returning(fenced)
+    monkeypatch.setattr(brief_proposer, "get_anthropic_client", lambda: client)
+
+    result = propose_brief(resume_text="x", profile={})
+
+    # status == "ok" only if sentence + chips parse cleanly
+    assert result["status"] == "ok"
+    assert result["sentence"] == "ok"
+
+
 # ── Happy path: shape + normalization ────────────────────────────────────
 
 

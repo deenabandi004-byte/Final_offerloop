@@ -137,7 +137,10 @@ export function AppSidebar() {
 
   const { startTour } = useTour();
   const { notifications } = useNotifications();
-  const unreadCount = notifications.unreadReplyCount;
+  // Badge totals replies + loop-run summaries. Loop runs are a new in-app
+  // surface (fix #4) and surface the same way replies do.
+  const unreadCount =
+    notifications.unreadReplyCount + notifications.unreadLoopRunCount;
 
   const agentStatus = useAgentSidebarStatus();
   const mainNavItems: NavItemDef[] = [

@@ -8,17 +8,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { updateAgentConfig, deployAgent, parseBrief, type ParsedBrief } from "@/services/agent";
+import { parseBrief, type ParsedBrief } from "@/services/agent";
 import { firebaseApi } from "@/services/firebaseApi";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useCreateLoop } from "@/hooks/useLoops";
 import useDebounce from "@/hooks/use-debounce";
 import { useProposedBrief, type UseProposedBriefState } from "@/hooks/useProposedBrief";
-import { usePreviewTargets } from "@/hooks/usePreviewTargets";
 import { useSubscription } from "@/hooks/useSubscription";
-import { InlinePreview } from "@/components/agent/InlinePreview";
 import {
   estimatedWeeklyCreditsPeople,
   weeklyTargetForTier,
@@ -245,6 +242,13 @@ interface FormState {
   industries: string[];
   roles: string[];
   locations: string[];
+  // The parser extracts WHY the student is reaching out ("breaking into
+  // fintech", "summer internship recruiting") and any explicit constraints
+  // ("avoid recruiters", "alumni only"). Both feed the planner prompt
+  // and the email-draft prompt, so we carry them through to deploy rather
+  // than nulling them at the boundary.
+  emailPurpose: string | null;
+  constraints: string[];
   preferAlumni: boolean;
   approvalMode: "review_first" | "autopilot";
   loopMode: LoopModeForCopy;
@@ -323,7 +327,6 @@ function ParseStatusLine({
 
 function StepGoals({
   form,
-  set,
   briefText,
   setBriefText,
   parsePhase,
@@ -334,7 +337,6 @@ function StepGoals({
   showAiDraftLabel,
 }: {
   form: FormState;
-  set: (patch: Partial<FormState>) => void;
   briefText: string;
   setBriefText: (v: string) => void;
   parsePhase: ParsePhase;
@@ -439,6 +441,58 @@ function StepGoals({
 
   return (
     <div>
+      {/* Scout greeter — warm intro, then steps back. From the Loops
+          redesign handoff (screen-newloop.jsx) so Step 01 reads as a
+          conversation, not a form. */}
+      <div
+        className="mb-6 flex items-center gap-3"
+        style={{ fontFamily: "'Inter', sans-serif" }}
+      >
+        <img
+          src="/scout-find.png"
+          alt=""
+          aria-hidden
+          style={{
+            width: 52,
+            height: 52,
+            objectFit: "contain",
+            flexShrink: 0,
+            filter: "drop-shadow(0 6px 10px rgba(30,45,77,.16))",
+          }}
+        />
+        <div
+          style={{
+            position: "relative",
+            background: "rgba(74, 96, 168, 0.08)",
+            border: "1px solid rgba(74, 96, 168, 0.20)",
+            borderRadius: 14,
+            padding: "11px 16px",
+            maxWidth: 440,
+          }}
+        >
+          <div style={{ fontSize: 13.5, color: "var(--ink-2)", lineHeight: 1.5 }}>
+            Tell me who you're chasing and I'll line up real people to reach.
+            <strong style={{ color: "#1E2D4D", fontWeight: 600 }}>
+              {" "}Everything here is editable.
+            </strong>
+          </div>
+          <span
+            aria-hidden
+            style={{
+              position: "absolute",
+              left: -6,
+              top: 17,
+              width: 11,
+              height: 11,
+              background: "rgba(74, 96, 168, 0.08)",
+              borderLeft: "1px solid rgba(74, 96, 168, 0.20)",
+              borderBottom: "1px solid rgba(74, 96, 168, 0.20)",
+              transform: "rotate(45deg)",
+            }}
+          />
+        </div>
+      </div>
+
       {/* Suggest-from-profile button — sits above the textarea per the
           design spec so the AI assist is always visible without taking
           the textarea's prominence. */}
@@ -550,30 +604,28 @@ function StepGoals({
 
       </div>
 
-      <div
-        className="flex items-center justify-between"
-        style={{
-          paddingTop: 18,
-          borderTop: "1px solid var(--line-2)",
-          fontFamily: "'Inter', sans-serif",
-        }}
-      >
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ink)" }}>
-            {copy.preferAlumniLabel}
-          </div>
-          <div style={{ fontSize: 12.5, marginTop: 2, color: "var(--ink-3)" }}>
-            {hasUniversity
-              ? copy.preferAlumniHint
-              : "Set your university in Account Settings to use this."}
-          </div>
+      {/* Prefer-alumni is now always on — the toggle was removed because
+          alumni boost is strictly additive (PDL filter narrows results
+          when the student has a university on file, no-ops otherwise).
+          We surface a one-line confirmation so the behavior isn't
+          completely silent. */}
+      {hasUniversity && (
+        <div
+          style={{
+            marginTop: 18,
+            padding: "10px 14px",
+            borderRadius: 12,
+            background: "rgba(74, 96, 168, 0.06)",
+            border: "1px solid rgba(74, 96, 168, 0.16)",
+            fontFamily: "'Inter', sans-serif",
+            fontSize: 12.5,
+            color: "#1E2D4D",
+            lineHeight: 1.5,
+          }}
+        >
+          {copy.preferAlumniHint}
         </div>
-        <Switch
-          checked={hasUniversity && form.preferAlumni}
-          disabled={!hasUniversity}
-          onCheckedChange={(v) => set({ preferAlumni: v })}
-        />
-      </div>
+      )}
     </div>
   );
 }
@@ -599,9 +651,12 @@ function StepReview({
       k: "Industries",
       v: form.industries.length ? form.industries.join(", ") : "—",
     },
+    // Alumni priority is now always on — the toggle was removed. We
+    // still surface it in the review so the student sees what's
+    // happening on their behalf.
     {
       k: "Alumni priority",
-      v: form.preferAlumni ? (university ? `On — ${university}` : "On") : "Off",
+      v: university ? `On — ${university}` : "On (set your university in Account Settings to activate)",
     },
   ];
 
@@ -714,11 +769,45 @@ function StepReview({
 
 // ── Main component ─────────────────────────────────────────────────────
 
-export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
+export function AgentSetupInline({
+  onDeployed,
+  initialBrief,
+  initialBriefParsed,
+  onBackToEntry,
+}: {
+  onDeployed: () => void;
+  // Optional seed brief — passed in when the user already wrote/edited
+  // their goal somewhere upstream (e.g. the Loops empty-state card). When
+  // present we preload the textarea and skip the AI auto-apply so we
+  // don't clobber the user's words.
+  initialBrief?: string;
+  // Optional seed chips that arrive alongside initialBrief. Used so the
+  // wizard's Step 02 review can show real roles / industries even when
+  // the brief text doesn't explicitly name them — the parser would
+  // otherwise return empty for those fields and Step 02 would render
+  // Roles=— even when the resume implied them.
+  initialBriefParsed?: {
+    companies?: string[];
+    industries?: string[];
+    roles?: string[];
+    locations?: string[];
+  };
+  // Where to send the user when they hit Back from the step they
+  // entered on. When the empty-state card brought them straight to
+  // Step 02, Back should return them to the empty state, not to the
+  // wizard's Step 01 they never saw.
+  onBackToEntry?: () => void;
+}) {
   const { toast } = useToast();
   const { user } = useFirebaseAuth();
   const createLoopMut = useCreateLoop();
-  const [stepIdx, setStepIdx] = useState(0);
+  // When the empty-state already collected the brief (initialBrief is
+  // present), Step 01 (Goals) would just re-show the same Scout greeter
+  // and textarea the student already used — pure redundancy. Jump
+  // directly to Step 02 (Review & launch). The server still re-parses
+  // the brief on POST when briefParsed is empty (loops.py:165-171), so a
+  // 1-2s parse round-trip in the background doesn't block the deploy.
+  const [stepIdx, setStepIdx] = useState(initialBrief ? 1 : 0);
   const [deploying, setDeploying] = useState(false);
   // null = still loading, "" = onboarded but no school, "USC" = set.
   const [university, setUniversity] = useState<string | null>(null);
@@ -748,11 +837,18 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
       .catch(() => setUniversity(""));
   }, [user?.uid]);
 
+  // Seed the form chips from the empty-state's parsed proposal when
+  // provided. Without this, a brief like "opportunities at Apple, IBM,
+  // Google in Tech" lands on Step 02 with Roles=— because the parser
+  // correctly found no role token in the brief — even though the
+  // resume-derived proposal had roles.
   const [form, setForm] = useState<FormState>({
-    companies: [],
-    industries: [],
-    roles: [],
-    locations: [],
+    companies: initialBriefParsed?.companies ?? [],
+    industries: initialBriefParsed?.industries ?? [],
+    roles: initialBriefParsed?.roles ?? [],
+    locations: initialBriefParsed?.locations ?? [],
+    emailPurpose: null,
+    constraints: [],
     preferAlumni: true,
     approvalMode: "review_first",
     // Every Loop pursues both networking + job-search against one budget.
@@ -765,8 +861,11 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
   // AI-proposed starting brief — Claude drafts a sentence from the user's
   // resume + profile on mount so students never face a blank page. User
   // edits beat AI; we never overwrite anything the user typed.
+  // When the caller passed an initialBrief (e.g. from the empty-state
+  // editable card), treat the auto-apply as already done so Claude's
+  // response can never overwrite the user's words.
   const proposedBrief = useProposedBrief({ enabled: true });
-  const aiDraftAppliedRef = useRef(false);
+  const aiDraftAppliedRef = useRef(!!initialBrief);
 
   // Read the user's tier so the wizard can derive cadence + low-balance
   // hint without exposing credit math in the UI. Subscription is fetched
@@ -781,32 +880,12 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
   })();
   const steps: ReadonlyArray<StepDescriptor> = STEPS;
 
-  // Inline preview: feeds the right-side "Who you'd reach" panel. Only
-  // enabled on Step 01 (Goals) — the hook short-circuits when off so we
-  // don't refetch as the user navigates to Step 02. Brief is built from
-  // the form so chip-only flows still show a preview.
-  const briefForPreview: ParsedBrief = {
-    companies: form.companies,
-    industries: form.industries,
-    roles: form.roles,
-    locations: form.locations,
-    emailPurpose: null,
-    constraints: [],
-    targetCount: null,
-    mode: "both",
-  };
-  const previewState = usePreviewTargets({
-    enabled: stepIdx === 0,
-    briefParsed: briefForPreview,
-  });
-
   // ── Prompt-first brief state ─────────────────────────────────────────
   // The textarea is the only input on Step 01. Its value debounces into a
   // parser call (parseBrief) that populates the four extracted-entity
-  // lists on the form; those drive the InlinePreview side panel. No
-  // chip rows means no manual-edit sticky tracking — the parser always
-  // wins.
-  const [briefText, setBriefText] = useState("");
+  // lists on the form. No chip rows means no manual-edit sticky tracking —
+  // the parser always wins.
+  const [briefText, setBriefText] = useState(initialBrief ?? "");
   const [parsePhase, setParsePhase] = useState<ParsePhase>("idle");
   // Guard against stale parses overwriting fresh results (user types fast).
   const lastParseTokenRef = useRef(0);
@@ -838,14 +917,30 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
         }
         // ok — populate the extracted-entity lists from parser output.
         // Mode is locked to "both"; the parser's mode classification is
-        // ignored. These four lists are never user-visible chips — they
-        // exist only to feed InlinePreview + the deploy payload.
+        // ignored. These six fields are never user-visible chips — they
+        // feed the deploy payload. emailPurpose and constraints flow
+        // through to the planner + email-draft prompts so cycles know
+        // *why* the student is reaching out, not just *who*.
+        //
+        // Important: a parser result of `[]` for a field means "I didn't
+        // see this in the brief", not "the user wants nothing here". We
+        // only overwrite a field when the parser returned a non-empty
+        // value — otherwise the resume-derived seed from
+        // `initialBriefParsed` stays intact. Without this guard, a brief
+        // like "opportunities at Apple, IBM, Google in Tech" wipes
+        // seeded roles because the parser correctly found no role token.
+        const replaceIf = <T,>(parsedVal: T[] | undefined, current: T[]): T[] => {
+          if (Array.isArray(parsedVal) && parsedVal.length > 0) return parsedVal;
+          return current;
+        };
         setForm((f) => ({
           ...f,
-          companies: parsed?.companies ?? f.companies,
-          industries: parsed?.industries ?? f.industries,
-          roles: parsed?.roles ?? f.roles,
-          locations: parsed?.locations ?? f.locations,
+          companies: replaceIf(parsed?.companies, f.companies),
+          industries: replaceIf(parsed?.industries, f.industries),
+          roles: replaceIf(parsed?.roles, f.roles),
+          locations: replaceIf(parsed?.locations, f.locations),
+          emailPurpose: parsed?.emailPurpose ?? f.emailPurpose,
+          constraints: replaceIf(parsed?.constraints, f.constraints),
         }));
         setParsePhase("ok");
       })
@@ -933,44 +1028,26 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
       // briefParsed reflects the user's CURRENT chip state (post-edits),
       // not the parser's raw output — chips are the source of truth at
       // deploy. Mode is always "both" — every Loop pursues networking +
-      // job-search against one budget.
+      // job-search against one budget. emailPurpose + constraints carry
+      // the parser's "why" through to the planner and email drafter so
+      // cycles know what the student is actually chasing.
       const finalBriefParsed: ParsedBrief = {
         companies: form.companies,
         industries: form.industries,
         roles: form.roles,
         locations: form.locations,
-        emailPurpose: null,
-        constraints: [],
+        emailPurpose: form.emailPurpose,
+        constraints: form.constraints,
         targetCount: weeklyTarget,
         mode: "both",
       };
 
-      // Derive weeklyTarget + creditBudgetPerWeek from the user's tier so
-      // the agent_config audit doc reads sensibly and matches what the
-      // backend's tier-default fallback would compute.
-      const persistedCreditBudget = estimatedWeeklyCreditsPeople(weeklyTarget);
-
-      await updateAgentConfig({
-        targetCompanies: form.companies,
-        targetIndustries: form.industries,
-        targetRoles: form.roles,
-        // Don't send preferAlumni=true if the user has no university on file —
-        // it would silently boost nothing. Gate to actual school presence.
-        preferAlumni: hasUniversity && form.preferAlumni,
-        weeklyContactTarget: weeklyTarget,
-        creditBudgetPerWeek: persistedCreditBudget,
-        approvalMode: form.approvalMode,
-      });
-      await deployAgent();
-
-      // The Loops fleet view at /agent reads from a different collection
-      // (users/{uid}/loops/*) than the legacy single-agent config above
-      // (users/{uid}/settings/agent_config). Without this createLoop the
-      // wizard "deploys" but no card ever shows up in the fleet view —
-      // useCreateLoop invalidates the list query so /agent refetches.
-      // creditBudgetPerWeek is omitted so the backend's create_loop
-      // tier-default derivation runs.
-      await createLoopMut.mutateAsync({
+      // S3.3 — the legacy updateAgentConfig + deployAgent pair used to run
+      // here too, writing to users/{uid}/settings/agent_config. No Loop
+      // surface ever read those fields (the fleet uses users/{uid}/loops/*),
+      // and the legacy singleton's cycle path stamped counters that nothing
+      // consumed. Removed — createLoop alone is the source of truth.
+      const created = await createLoopMut.mutateAsync({
         briefText: finalBriefText,
         briefParsed: finalBriefParsed,
         name: deriveLoopName(form),
@@ -981,10 +1058,25 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
         loopMode: "both",
       });
 
-      toast({
-        title: "Loop deployed!",
-        description: "Your loop is chasing roles AND networking together.",
-      });
+      // Backend returns autoStartError when the Loop was saved but the
+      // auto-start failed (S2.4 — used to be silent). Surface it so the
+      // student knows to use Run it now from the fleet view.
+      const autoStartError = (created as { autoStartError?: string } | null)?.autoStartError;
+      const autoStartMessage = (created as { autoStartMessage?: string } | null)?.autoStartMessage;
+      if (autoStartError) {
+        toast({
+          title: "Loop saved, but didn't start",
+          description:
+            autoStartMessage ||
+            "Tap Run it now from the fleet view to kick off the first cycle.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Loop deployed!",
+          description: "Your loop is chasing roles AND networking together.",
+        });
+      }
       onDeployed();
     } catch (e: unknown) {
       toast({
@@ -1068,7 +1160,6 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
             {stepIdx === 0 && (
               <StepGoals
                 form={form}
-                set={set}
                 briefText={briefText}
                 setBriefText={(v) => {
                   if (aiDraftActive && v !== briefText) setAiDraftActive(false);
@@ -1098,29 +1189,49 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
             className="flex justify-between items-center mt-7 pt-5"
             style={{ borderTop: "1px solid var(--line-2)" }}
           >
-            <button
-              type="button"
-              onClick={() => stepIdx > 0 && setStepIdx(stepIdx - 1)}
-              disabled={stepIdx === 0}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "10px 16px",
-                fontFamily: "'Inter', sans-serif",
-                fontSize: 14,
-                fontWeight: 500,
-                color: stepIdx === 0 ? "var(--ink-3)" : "var(--ink-2)",
-                background: "#FFFFFF",
-                border: "1px solid var(--line)",
-                borderRadius: 3,
-                cursor: stepIdx === 0 ? "not-allowed" : "pointer",
-                opacity: stepIdx === 0 ? 0.6 : 1,
-              }}
-            >
-              <ChevronLeft className="h-4 w-4" />
-              Back
-            </button>
+            {/* Back behavior is "step back when possible, otherwise exit
+                to the surface that brought us here". For users who came
+                from the empty-state card and skipped Step 01, exit means
+                returning to /agent — going to Step 01 they never saw
+                would be a worse experience. */}
+            {(() => {
+              const entryStep = initialBrief ? 1 : 0;
+              const canStepBack = stepIdx > entryStep;
+              const canExitToEntry = stepIdx === entryStep && !!onBackToEntry;
+              const enabled = canStepBack || canExitToEntry;
+              const onBackClick = () => {
+                if (canStepBack) {
+                  setStepIdx(stepIdx - 1);
+                } else if (canExitToEntry) {
+                  onBackToEntry!();
+                }
+              };
+              return (
+                <button
+                  type="button"
+                  onClick={onBackClick}
+                  disabled={!enabled}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "10px 16px",
+                    fontFamily: "'Inter', sans-serif",
+                    fontSize: 14,
+                    fontWeight: 500,
+                    color: enabled ? "var(--ink-2)" : "var(--ink-3)",
+                    background: "#FFFFFF",
+                    border: "1px solid var(--line)",
+                    borderRadius: 3,
+                    cursor: enabled ? "pointer" : "not-allowed",
+                    opacity: enabled ? 1 : 0.6,
+                  }}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Back
+                </button>
+              );
+            })()}
 
             <div className="flex items-center gap-3">
               <span
@@ -1207,18 +1318,6 @@ export function AgentSetupInline({ onDeployed }: { onDeployed: () => void }) {
         </div>
       </div>
 
-      {/* Right rail: real PDL samples on Step 01; nothing on Step 02
-          (the review surface is the focus there). */}
-      {stepIdx === 0 && (
-        <div style={{ width: 320, flexShrink: 0 }}>
-          <InlinePreview
-            contacts={previewState.contacts}
-            loading={previewState.loading}
-            error={previewState.error}
-            hasSignal={previewState.hasSignal}
-          />
-        </div>
-      )}
     </div>
   );
 }

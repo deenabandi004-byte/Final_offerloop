@@ -9,7 +9,7 @@
  * Disabled while a briefing is already in-flight (isLoading) so the user
  * can't fan out duplicate requests.
  */
-import { Sparkles, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 
 interface BriefingButtonProps {
   onClick: () => void
@@ -33,10 +33,8 @@ export function BriefingButton({ onClick, isLoading }: BriefingButtonProps) {
         'transition-colors duration-150',
       ].join(' ')}
     >
-      {isLoading ? (
+      {isLoading && (
         <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-      ) : (
-        <Sparkles className="h-4 w-4" aria-hidden="true" />
       )}
       <span>{isLoading ? 'Putting together your plan…' : 'Get my game plan'}</span>
     </button>

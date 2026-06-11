@@ -903,10 +903,13 @@ export function formatMessage(content: string): string {
   // Markdown links: [text](url). We have already HTML-escaped the content,
   // so & in URLs is `&amp;`; un-escape it inside the href so the URL still
   // works when the user clicks (React Router params depend on real `&`).
+  // The URL group allows whitespace because the strategist prompt emits
+  // briefs with raw spaces (e.g. `?brief=8 USC alumni at Stripe`); we
+  // encodeURI the captured href so the resulting <a href> is a valid URL.
   const withLinks = escaped.replace(
-    /\[([^\]]+)\]\(([^)\s]+)\)/g,
+    /\[([^\]]+)\]\(([^)]+)\)/g,
     (_full, text, href) => {
-      const realHref = href.replace(/&amp;/g, '&')
+      const realHref = encodeURI(href.replace(/&amp;/g, '&').trim())
       const isExternal = /^https?:\/\//i.test(realHref)
       const attrs = isExternal
         ? `href="${realHref}" target="_blank" rel="noopener noreferrer"`

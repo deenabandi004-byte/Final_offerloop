@@ -54,4 +54,21 @@ describe('formatMessage', () => {
     const out = formatMessage('line one\nline two')
     expect(out).toContain('line one<br />line two')
   })
+
+  // The strategist prompt explicitly tells the LLM not to URL-encode briefs,
+  // so Loop CTAs arrive with raw spaces in the query string. formatMessage
+  // must still render those as chips, encoding the href on the way in.
+  it('renders a Loop CTA whose href contains raw spaces as a chip', () => {
+    const out = formatMessage(
+      '[Start this Loop →](/agent/setup?brief=8 USC alumni at Stripe&mode=people)'
+    )
+    expect(out).toContain('<a ')
+    expect(out).toContain('data-scout-link="1"')
+    expect(out).toContain('rounded-full')
+    expect(out).toContain(
+      'href="/agent/setup?brief=8%20USC%20alumni%20at%20Stripe&mode=people"'
+    )
+    // The raw-text fallback must NOT survive — that's the regression we're guarding.
+    expect(out).not.toContain('[Start this Loop')
+  })
 })

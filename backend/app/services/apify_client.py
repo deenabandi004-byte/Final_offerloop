@@ -177,7 +177,14 @@ def batch_enrich_linkedin_posts_via_apify(contacts: list[dict]) -> dict[int, dic
             },
             timeout=APIFY_TIMEOUT_S,
         )
-        # Apify's run-sync endpoint returns 201 (Created) on success
+        # Apify's run-sync endpoint returns 201 (Created) on success.
+        # 429 = rate-limited; map to RateLimitError so loop_budget's
+        # rate-limit-strike counter (S4.4 in the loops audit) can
+        # accumulate strikes and pause the Loop after the threshold.
+        if response.status_code == 429:
+            logger.warning("[Apify] HTTP 429 rate-limited")
+            from app.utils.exceptions import RateLimitError
+            raise RateLimitError(retry_after=int(response.headers.get("Retry-After") or 60))
         if response.status_code not in (200, 201):
             logger.error(f"[Apify] HTTP {response.status_code}: {response.text[:400]}")
             return results

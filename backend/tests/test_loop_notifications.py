@@ -169,11 +169,60 @@ def test_send_calls_adapter_when_flag_true(monkeypatch):
     assert captured["headers"]["List-Unsubscribe"] == "<https://x/u/abc>"
 
 
-# ── Stubs ───────────────────────────────────────────────────────────────────
+# ── assess_cycle_results ────────────────────────────────────────────────────
 
 
-def test_assess_cycle_results_is_stub():
-    assert assess_cycle_results("any-cycle-id") == []
+def test_assess_cycle_results_summarizes_a_real_cycle():
+    """Happy path: a cycle that found contacts + hms produces one summary
+    item with a human-readable snippet, kind='loop_run', and stable keys
+    the frontend useNotifications hook can read."""
+    items = assess_cycle_results(
+        loop_id="loop-1",
+        loop_name="JPMorgan IB",
+        cycle_id="cycle-abc",
+        result={
+            "contactsFound": 3,
+            "emailsDrafted": 3,
+            "hmsFound": 1,
+            "jobsFound": 0,
+            "companiesDiscovered": 0,
+        },
+    )
+    assert len(items) == 1
+    it = items[0]
+    assert it["kind"] == "loop_run"
+    assert it["loopId"] == "loop-1"
+    assert it["loopName"] == "JPMorgan IB"
+    assert it["cycleId"] == "cycle-abc"
+    assert it["read"] is False
+    assert "3 contacts" in it["snippet"]
+    assert "1 hiring manager" in it["snippet"]
+
+
+def test_assess_cycle_results_empty_for_empty_cycles():
+    """Don't spam the bell when a cycle did nothing — empty result means
+    no notification, even if the cycle technically succeeded."""
+    assert assess_cycle_results(
+        loop_id="l", loop_name="n", cycle_id="c",
+        result={"contactsFound": 0, "emailsDrafted": 0, "jobsFound": 0,
+                "hmsFound": 0, "companiesDiscovered": 0},
+    ) == []
+
+
+def test_assess_cycle_results_plural_grammar():
+    """Snippet uses correct singular/plural forms — 1 contact, 1 hiring
+    manager (not 'contacts' or 'managers')."""
+    items = assess_cycle_results(
+        loop_id="l", loop_name="n", cycle_id="c",
+        result={"contactsFound": 1, "hmsFound": 1, "jobsFound": 1,
+                "companiesDiscovered": 1, "emailsDrafted": 0},
+    )
+    assert len(items) == 1
+    snip = items[0]["snippet"]
+    assert "1 contact," in snip and "1 contacts" not in snip
+    assert "1 hiring manager," in snip and "managers" not in snip
+    assert "1 job," in snip and "jobs" not in snip
+    assert "1 company." in snip and "companies." not in snip
 
 
 def test_idempotency_key_format_no_date():

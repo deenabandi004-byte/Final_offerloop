@@ -708,6 +708,19 @@ def get_job_detail(job_id: str):
     return jsonify(job)
 
 
+# Lazy per-job description. Feed strips description_raw to keep the list
+# response under ~600KB; the SPA fetches the real text on click.
+@jobs_bp.route("/api/jobs/<job_id>/description", methods=["GET"])
+@require_firebase_auth
+def get_job_description(job_id: str):
+    db = get_db()
+    doc = db.collection("jobs").document(job_id).get()
+    if not doc.exists:
+        return jsonify({"error": "Job not found"}), 404
+    data = doc.to_dict() or {}
+    return jsonify({"description": data.get("description_raw") or None})
+
+
 # ---------------------------------------------------------------------------
 # POST /api/jobs/feedback
 # ---------------------------------------------------------------------------

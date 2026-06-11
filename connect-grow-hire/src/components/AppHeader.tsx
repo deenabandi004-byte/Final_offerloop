@@ -21,20 +21,27 @@ export function AppHeader(_props: AppHeaderProps) {
   const location = useLocation();
   const { notifications } = useNotifications();
   const { toast } = useToast();
-  const prevUnreadCountRef = useRef(notifications.unreadReplyCount);
+  const prevReplyCountRef = useRef(notifications.unreadReplyCount);
+  const prevLoopRunCountRef = useRef(notifications.unreadLoopRunCount);
   const hasInitializedRef = useRef(false);
 
   useEffect(() => {
     if (!hasInitializedRef.current) {
-      prevUnreadCountRef.current = notifications.unreadReplyCount;
+      prevReplyCountRef.current = notifications.unreadReplyCount;
+      prevLoopRunCountRef.current = notifications.unreadLoopRunCount;
       hasInitializedRef.current = true;
       return;
     }
-    const prev = prevUnreadCountRef.current;
-    const curr = notifications.unreadReplyCount;
-    prevUnreadCountRef.current = curr;
-    if (curr > prev && location.pathname !== '/tracker') {
-      const firstUnread = notifications.items.find((i) => !i.read) ?? notifications.items[0];
+
+    // Reply toast — existing behavior. Suppressed on /tracker since the
+    // user is already looking at the surface that just updated.
+    const prevReply = prevReplyCountRef.current;
+    const currReply = notifications.unreadReplyCount;
+    prevReplyCountRef.current = currReply;
+    if (currReply > prevReply && location.pathname !== '/tracker') {
+      const firstUnread =
+        notifications.items.find((i) => !i.read && (i.kind ?? 'reply') === 'reply') ??
+        notifications.items.find((i) => (i.kind ?? 'reply') === 'reply');
       if (firstUnread) {
         toast({
           title: `${firstUnread.contactName} responded to you!`,
@@ -44,7 +51,32 @@ export function AppHeader(_props: AppHeaderProps) {
         });
       }
     }
-  }, [notifications.unreadReplyCount, notifications.items, location.pathname, toast]);
+
+    // Loop-run toast — new in fix #4. Suppressed on /agent since the user
+    // is already looking at the fleet surface; toast on every other page.
+    const prevLoopRun = prevLoopRunCountRef.current;
+    const currLoopRun = notifications.unreadLoopRunCount;
+    prevLoopRunCountRef.current = currLoopRun;
+    if (currLoopRun > prevLoopRun && location.pathname !== '/agent') {
+      const firstLoopRun =
+        notifications.items.find((i) => !i.read && i.kind === 'loop_run') ??
+        notifications.items.find((i) => i.kind === 'loop_run');
+      if (firstLoopRun) {
+        toast({
+          title: `Your Loop "${firstLoopRun.loopName ?? 'Untitled Loop'}" ran`,
+          description: firstLoopRun.snippet
+            ? firstLoopRun.snippet.slice(0, 100) + (firstLoopRun.snippet.length > 100 ? '…' : '')
+            : undefined,
+        });
+      }
+    }
+  }, [
+    notifications.unreadReplyCount,
+    notifications.unreadLoopRunCount,
+    notifications.items,
+    location.pathname,
+    toast,
+  ]);
 
   return null;
 }

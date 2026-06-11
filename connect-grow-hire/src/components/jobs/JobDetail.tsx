@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import type { ProtoJob } from "@/pages/jobBoardAdapter";
+import { apiService } from "@/services/api";
 import { CompanyLogo } from "./CompanyLogo";
 import {
   IconArrowRight,
@@ -30,11 +32,6 @@ interface JobDetailProps {
   currentCredits?: number;
 }
 
-const FALLBACK_DESCRIPTION_PARAGRAPHS = [
-  "We're building the collaborative AI workspace where knowledge, projects, meetings, and AI tools live side by side, so work feels faster, clearer, and less fragmented. Our team believes the best products are born from deep empathy with users, and we're looking for a designer who shares that conviction.",
-  "In this role you'll shape end-to-end experiences across our core product surface, partnering closely with product, engineering, and research to define what \"collaborative and intelligent\" looks like at every touchpoint. You'll own the design language for new feature areas, run rapid concept sprints, and raise the bar for craft across the entire design team.",
-];
-
 export function JobDetail({
   job,
   isSaved,
@@ -45,12 +42,38 @@ export function JobDetail({
   userPlan,
   currentCredits,
 }: JobDetailProps) {
-  // Prefer real job description; fall back to prototype filler so the
-  // panel never looks empty on jobs that lack a description string.
-  const description = job.description?.trim();
-  const paragraphs = description
-    ? splitParagraphs(description)
-    : FALLBACK_DESCRIPTION_PARAGRAPHS;
+  const seeded = job.description?.trim() || null;
+  const [description, setDescription] = useState<string | null>(seeded);
+  const [loading, setLoading] = useState<boolean>(!seeded);
+
+  useEffect(() => {
+    const initial = job.description?.trim() || null;
+    setDescription(initial);
+    if (initial) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    let cancelled = false;
+    apiService
+      .getJobDescription(job.id)
+      .then((res) => {
+        if (cancelled) return;
+        setDescription(res.description?.trim() || null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setDescription(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [job.id, job.description]);
+
+  const paragraphs = description ? splitParagraphs(description) : [];
 
   return (
     <>
@@ -124,9 +147,15 @@ export function JobDetail({
 
         <div className="jb-detail-section">
           <h3>JOB DESCRIPTION</h3>
-          {paragraphs.map((p, i) => (
-            <p key={`p-${i}`} className="jb-detail-paragraph">{p}</p>
-          ))}
+          {loading ? (
+            <p className="jb-detail-paragraph">Loading description...</p>
+          ) : paragraphs.length > 0 ? (
+            paragraphs.map((p, i) => (
+              <p key={`p-${i}`} className="jb-detail-paragraph">{p}</p>
+            ))
+          ) : (
+            <p className="jb-detail-paragraph">No description provided for this role.</p>
+          )}
         </div>
 
         <div className="jb-divider" />

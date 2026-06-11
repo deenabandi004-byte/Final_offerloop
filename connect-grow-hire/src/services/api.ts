@@ -1904,6 +1904,14 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
     return this.makeRequest<Record<string, any>>(`/jobs/${encodeURIComponent(jobId)}`, { method: 'GET', headers });
   }
 
+  async getJobDescription(jobId: string): Promise<{ description: string | null }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ description: string | null }>(
+      `/jobs/${encodeURIComponent(jobId)}/description`,
+      { method: 'GET', headers },
+    );
+  }
+
   async postJobFeedback(params: JobFeedbackRequest): Promise<{ success: boolean }> {
     return this.makeRequest<{ success: boolean }>('/jobs/feedback', {
       method: 'POST',

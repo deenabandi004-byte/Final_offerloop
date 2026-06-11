@@ -371,11 +371,5 @@ export function loopCopy(
           : `${n} NEW SINCE YOU LAST CHECKED`,
     },
 
-    // ── H carve-out: StartLoopHero composer states ────────────────────
-    composer: {
-      // Shown next to the ModeIndicator while the parser is still
-      // working out the brief. Mono, lowercase per the wizard pattern.
-      modeThinking: "thinking…",
-    },
   };
 }

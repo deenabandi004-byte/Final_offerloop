@@ -124,14 +124,37 @@ def test_safety_net_skips_when_find_jobs_already_present():
     assert find_jobs[0]["company"] == "Stripe"  # original, not auto-added
 
 
-def test_safety_net_skips_empty_plan():
-    """No-op when the planner returned an empty plan (e.g. weekly cap
-    already met → only "skip" action would have been emitted upstream).
-    Mutating an empty plan to inject random work would burn credits
-    against the user's explicit skip-this-cycle signal."""
+def test_safety_net_recovers_empty_plan_with_targets():
+    """When the planner returns an empty list — Claude regressed or the
+    JSON parse fell back to [] — the safety net MUST synthesize
+    mode-required actions. Pre-fix, the `if not plan: return` guard
+    bailed out here and the cycle stamped found=0/drafted=0 with errors=0
+    (the user's loop ran for ~10s and produced nothing).
+
+    The author's original assumption was that an empty plan signaled
+    "planner deliberately chose to skip" — but a real skip-signal is
+    `[{"action": "skip"}]`, not `[]`. Empty is always a regression."""
     plan: list = []
-    _apply_plan_safety_net(plan, "roles", ["Stripe"], ["SWE"])
-    assert plan == []
+    _apply_plan_safety_net(plan, "both", ["Stripe", "Linear"], ["SWE"])
+    # both mode with targets → safety net should inject both `find` and
+    # `find_jobs` for the top 2 companies.
+    actions = [a.get("action") for a in plan]
+    assert actions.count("find") == 2
+    assert actions.count("find_jobs") == 2
+    companies = sorted([a.get("company") for a in plan])
+    assert companies == ["Linear", "Linear", "Stripe", "Stripe"]
+
+
+def test_safety_net_recovers_empty_plan_no_targets_roles_mode():
+    """Even without targets, roles-mode loops must produce at least one
+    broad find_jobs action so the cycle isn't a no-op. Without this, a
+    targetless brief like 'Summer 2027 SWE internships' would silently
+    do nothing when the planner regressed."""
+    plan: list = []
+    _apply_plan_safety_net(plan, "roles", [], ["SWE Intern"])
+    assert len(plan) == 1
+    assert plan[0]["action"] == "find_jobs"
+    assert plan[0].get("role") == "SWE Intern"
 
 
 # ── _propagate_source_job_id_to_plan — gap B: H pairing key ───────────────

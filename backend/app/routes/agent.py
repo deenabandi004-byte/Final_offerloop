@@ -15,7 +15,6 @@ from flask import Blueprint, current_app, jsonify, request
 from app.extensions import get_db, require_firebase_auth, require_tier
 from app.services.agent_brief_parser import parse_brief
 from app.services.brief_proposer import propose_brief
-from app.services.preview_search import preview_targets
 from app.utils.exceptions import ValidationError
 from app.utils.validation import (
     AgentBriefRequest,
@@ -130,40 +129,30 @@ def propose_brief_route():
     resume_text = user_data.get("resumeText") or ""
     profile = user_data.get("professionalInfo") or {}
 
-    proposal = propose_brief(resume_text=resume_text, profile=profile)
+    # Direction extractor stores chip-style preferences at the top level
+    # (targetFirms / targetIndustries / extractedRoles / preferredLocations).
+    # Pass them through so Claude drafts a sentence aligned with the
+    # student's stated preferences, not just resume inference. Legacy doc
+    # shape kept the dream-companies list under `dreamCompanies`; honored
+    # here so older accounts still benefit.
+    direction = {
+        "targetFirms": user_data.get("targetFirms") or user_data.get("dreamCompanies") or [],
+        "targetIndustries": user_data.get("targetIndustries") or [],
+        "extractedRoles": user_data.get("extractedRoles") or [],
+        "preferredLocations": user_data.get("preferredLocations") or [],
+    }
+
+    proposal = propose_brief(
+        resume_text=resume_text,
+        profile=profile,
+        direction=direction,
+    )
     if proposal["status"] == "failed":
         return jsonify({
             **proposal,
             "error": "Brief proposer is temporarily unavailable.",
         }), 502
     return jsonify(proposal)
-
-
-@agent_bp.route("/preview-targets", methods=["POST"])
-@require_firebase_auth
-def preview_targets_route():
-    """Return up to 8 sample contacts for the brief currently in the wizard.
-
-    Used by the V2 Loops setup wizard's InlinePreview panel. The PDL
-    search underneath is cached for 30 days in Firestore (see pdl_cache)
-    so re-firing this for the same brief costs 0 credits. Not tier-gated.
-
-    Body: {"briefParsed": {...}}
-    Returns: {"contacts": [...]} — always 200 with an empty list on
-    insufficient-signal briefs so the wizard doesn't paint an error
-    state mid-typing.
-    """
-    uid = request.firebase_user["uid"]
-    data = request.get_json() or {}
-    parsed = data.get("briefParsed") if isinstance(data.get("briefParsed"), dict) else None
-
-    db = get_db()
-    snap = db.collection("users").document(uid).get()
-    user_data = snap.to_dict() if snap.exists else {}
-    profile = user_data.get("professionalInfo") or {}
-
-    contacts = preview_targets(parsed_brief=parsed, user_profile=profile)
-    return jsonify({"contacts": contacts})
 
 
 @agent_bp.route("/deploy", methods=["POST"])
