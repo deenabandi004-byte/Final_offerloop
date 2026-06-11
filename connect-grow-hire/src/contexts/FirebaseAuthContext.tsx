@@ -3,7 +3,7 @@
 "use client";
 
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 import {
   User as FirebaseUser,
   signInWithPopup,
@@ -78,6 +78,9 @@ export const useFirebaseAuth = () => {
 export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  // Tracks the uid whose Firestore profile we've already loaded, so token
+  // refreshes (which also fire onIdTokenChanged) don't re-fetch the user doc.
+  const lastLoadedUidRef = useRef<string | null>(null);
 
   useEffect(() => {
     let unsub: undefined | (() => void);
@@ -94,11 +97,21 @@ export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ childr
             userId: firebaseUser?.uid || "none"
           });
           if (firebaseUser) {
-            console.log("[AUTH CONTEXT] Loading user data");
-            await loadUserData(firebaseUser);
-            console.log("🔐 [AUTH CONTEXT] User data loaded");
+            // onIdTokenChanged also fires on hourly token refreshes and on any
+            // getIdToken(true) call (e.g. completeOnboarding). Only (re)load the
+            // Firestore profile when the signed-in uid actually changes — a token
+            // refresh for the same user must not re-fetch the doc or churn state.
+            if (lastLoadedUidRef.current !== firebaseUser.uid) {
+              lastLoadedUidRef.current = firebaseUser.uid;
+              console.log("[AUTH CONTEXT] Loading user data");
+              await loadUserData(firebaseUser);
+              console.log("🔐 [AUTH CONTEXT] User data loaded");
+            } else {
+              console.log("🔐 [AUTH CONTEXT] Token refresh for same uid, skipping reload");
+            }
           } else {
             console.log("🔐 [AUTH CONTEXT] No Firebase user, setting user state to null");
+            lastLoadedUidRef.current = null;
             setUser(null);
           }
           setIsLoading(false);
