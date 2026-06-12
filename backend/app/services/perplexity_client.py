@@ -289,7 +289,14 @@ def search_jobs_live(
         f"array of objects with keys: title, company, location, url, summary."
     )
 
-    extra: dict = {"search_recency_filter": "month"}
+    # `year` recency, not `month`. Diagnostic runs (scratch_diag_perplexity_jobs.py
+    # on 2026-06-11) showed Sonar returns a literal empty array on ~half of
+    # niche-role calls under `month`, but consistently returns 3-5 real
+    # postings under `year`. FAANG/big-co job postings sit open for weeks to
+    # months, so a 30-day window was buying nothing real and was doubling our
+    # flake rate. The placeholder validator + URL-shape prompt still filter
+    # out stale/closed postings at the boundary.
+    extra: dict = {"search_recency_filter": "year"}
     if domain_filter:
         extra["search_domain_filter"] = list(domain_filter)
 
