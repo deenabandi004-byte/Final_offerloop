@@ -42,7 +42,8 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { LOOP_COPY, loopCopy } from "@/lib/loopCopy";
+import { LOOP_COPY, cadenceLabel, loopCopy, pauseReasonLabel } from "@/lib/loopCopy";
+import { relativeTime as relativeTimeBidi } from "@/lib/relativeTime";
 import type { Loop, LoopActivityItem, LoopActivityType } from "@/services/loops";
 
 // Editorial monospace — small caps, kickers, addresses.
@@ -499,6 +500,27 @@ function LoopHero({
         ? `Loop ${loop.shortCode} · idle`
         : `Loop ${loop.shortCode}`;
 
+  // Cadence / last-fired / next-fire line. Surfaces data the user previously
+  // had no way to see (nextRunAt, lastRunAt, cadence all live in Firestore
+  // but were never rendered). Shape changes per status:
+  //   running, manual cadence → "Cadence: manual · Last fired Xh ago"
+  //   running                 → "Cadence: every other day · Last fired Xh ago · Next in Yh"
+  //   paused                  → "Paused · {reason short label} · Last fired Xh ago"
+  //   idle                    → null (no useful timestamps yet)
+  let rhythmLine: string | null = null;
+  if (isRunning) {
+    const parts = [`Cadence: ${cadenceLabel(loop.cadence)}`];
+    if (loop.lastRunAt) parts.push(`Last fired ${relativeTimeBidi(loop.lastRunAt)}`);
+    if (loop.cadence !== "manual" && loop.nextRunAt) {
+      parts.push(`Next ${relativeTimeBidi(loop.nextRunAt)}`);
+    }
+    rhythmLine = parts.join(" · ");
+  } else if (isPaused) {
+    const parts = [`Paused · ${pauseReasonLabel(loop.pauseReason)}`];
+    if (loop.lastRunAt) parts.push(`Last fired ${relativeTimeBidi(loop.lastRunAt)}`);
+    rhythmLine = parts.join(" · ");
+  }
+
   const dayCount = daysRunning(loop.createdAt);
   const startLabel = startedLabel(loop.createdAt);
 
@@ -627,6 +649,19 @@ function LoopHero({
           />
           {statusKicker}
         </div>
+        {rhythmLine && (
+          <div
+            style={{
+              marginTop: 6,
+              fontFamily: MONO,
+              fontSize: 11.5,
+              letterSpacing: "0.04em",
+              color: "var(--ink-3)",
+            }}
+          >
+            {rhythmLine}
+          </div>
+        )}
         <h1
           style={{
             margin: "12px 0 0",
@@ -937,9 +972,13 @@ function EmailRow({
         display: "flex",
         gap: 18,
         alignItems: "flex-start",
-        padding: "16px 4px",
+        padding: "16px 14px",
+        margin: "0 -10px",
+        borderRadius: 10,
         borderBottom: last ? "none" : "1px solid var(--line-2)",
+        transition: "background-color .15s ease",
       }}
+      className="hover:bg-[var(--paper-2)]"
     >
       <span
         style={{

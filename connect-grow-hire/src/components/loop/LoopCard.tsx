@@ -11,7 +11,8 @@
 import { Link } from "react-router-dom";
 import { useState } from "react";
 import { ArrowRight, Pause, Play, Trash2 } from "lucide-react";
-import { LOOP_COPY, loopCopy } from "@/lib/loopCopy";
+import { LOOP_COPY, cadenceLabel, loopCopy, pauseReasonLabel } from "@/lib/loopCopy";
+import { relativeTime } from "@/lib/relativeTime";
 import type { Loop, LoopStatus } from "@/services/loops";
 import { useDeleteLoop, usePauseLoop, useResumeLoop, useStartLoop } from "@/hooks/useLoops";
 
@@ -46,8 +47,25 @@ const STATUS_META: Record<
   },
 };
 
-function StatusTag({ status }: { status: LoopStatus }) {
+function StatusTag({ loop }: { loop: Loop }) {
+  const status = loop.status;
   const s = STATUS_META[status];
+
+  // Sub-label answers "when does this actually fire?" without making the
+  // user open the detail page. Picked per status:
+  //   running + cadence=manual → "manual — Run now"
+  //   running + nextRunAt set  → "Next: in 4h" (or "tomorrow 9am", etc)
+  //   paused                   → reason short-label ("weekly budget hit")
+  //   idle / done              → none
+  let sub: string | null = null;
+  if (status === "running") {
+    if (loop.cadence === "manual") sub = "manual · Run now to fire";
+    else if (loop.nextRunAt) sub = `Next: ${relativeTime(loop.nextRunAt)}`;
+    else sub = cadenceLabel(loop.cadence);
+  } else if (status === "paused") {
+    sub = pauseReasonLabel(loop.pauseReason);
+  }
+
   return (
     <span className="inline-flex items-center" style={{ gap: 8 }}>
       <span
@@ -73,6 +91,19 @@ function StatusTag({ status }: { status: LoopStatus }) {
       >
         {s.label}
       </span>
+      {sub && (
+        <span
+          style={{
+            fontFamily: MONO,
+            fontSize: 10.5,
+            letterSpacing: "0.06em",
+            color: "var(--ink-3)",
+            opacity: 0.75,
+          }}
+        >
+          · {sub}
+        </span>
+      )}
     </span>
   );
 }
@@ -265,7 +296,7 @@ export function LoopCard({ loop }: { loop: Loop }) {
       {/* Top row: status (left) + company stack (right) — with hover lifecycle
           buttons sitting on top of the badges. */}
       <div className="flex items-center justify-between" style={{ gap: 10 }}>
-        <StatusTag status={loop.status} />
+        <StatusTag loop={loop} />
         <div className="flex items-center gap-2">
           <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1.5">
             {showLifecycleButton && (

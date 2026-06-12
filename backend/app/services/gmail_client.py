@@ -1202,6 +1202,70 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}"
 
 
+def find_draft_for_recipient(user_email, user_id, recipient_email, subject=None):
+    """Look up an existing Gmail draft addressed to a specific recipient.
+
+    Used to backfill gmailDraftUrl on Loop-found contacts whose draft was
+    created before the (id/url → draft_id/draft_url) field-name bug was
+    fixed in agent_actions.py. Same compose URL shape that
+    create_gmail_draft_for_user returns, so the activity feed can deep-link
+    to the exact draft (matching Find People spreadsheet behavior).
+
+    Returns {draft_id, message_id, draft_url, thread_id} on a match, else None.
+    """
+    if not recipient_email:
+        return None
+    try:
+        service = get_gmail_service_for_user(user_email, user_id=user_id)
+        if not service:
+            return None
+        # Gmail search query — narrow to drafts addressed to this recipient.
+        # Subject is included when available to disambiguate multiple drafts
+        # to the same person (e.g. an initial outreach + a follow-up).
+        q = f'in:drafts to:{recipient_email}'
+        if subject:
+            # Strip quotes from the subject so the Gmail query parser doesn't
+            # see unbalanced ones. Surround the whole thing in quotes for an
+            # exact phrase match.
+            clean = subject.replace('"', '').strip()
+            if clean:
+                q += f' subject:"{clean}"'
+        resp = service.users().messages().list(userId='me', q=q, maxResults=5).execute()
+        messages = resp.get('messages') or []
+        if not messages:
+            return None
+        # Take the first match. message.id is the underlying message; threadId
+        # is the conversation. We need draft_id too — fetch the message to
+        # confirm it's actually a draft and to get the draft envelope.
+        message_id = messages[0].get('id')
+        thread_id = messages[0].get('threadId')
+        if not message_id:
+            return None
+        # Locate the draft envelope by listing drafts and matching message id.
+        # drafts.list returns up to 500 at a time; for users with thousands of
+        # drafts this would need pagination, but the common case fits in one
+        # page.
+        draft_id = ''
+        try:
+            drafts_resp = service.users().drafts().list(userId='me', maxResults=500).execute()
+            for d in drafts_resp.get('drafts') or []:
+                if (d.get('message') or {}).get('id') == message_id:
+                    draft_id = d.get('id') or ''
+                    break
+        except Exception:
+            pass
+        draft_url = f"https://mail.google.com/mail/u/0/#drafts?compose={message_id}"
+        return {
+            'draft_id': draft_id,
+            'message_id': message_id,
+            'draft_url': draft_url,
+            'thread_id': thread_id or '',
+        }
+    except Exception as e:
+        print(f"[GmailClient] find_draft_for_recipient failed for {recipient_email}: {e}")
+        return None
+
+
 # ISSUE 3 FIX: Parallel Gmail draft creation with rate limiting
 def create_drafts_parallel(contacts_with_emails, resume_bytes=None, resume_filename=None, user_info=None, user_id=None, tier='free', user_email=None, resume_url=None):
     """

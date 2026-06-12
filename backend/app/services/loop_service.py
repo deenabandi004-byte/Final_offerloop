@@ -644,13 +644,15 @@ def get_loop_activity(uid: str, loop_id: str, limit: int = 50) -> list[dict]:
     items.sort(key=lambda x: x.get("createdAt") or "", reverse=True)
     items = items[:limit]
 
-    # Re-resolve draft items from the live contact doc. The snapshot in
-    # agent_actions.result is frozen at write time, so it misses anything
-    # the contact picked up later — Gmail send, thread sync, reply detection.
-    # The contact subcollection is the source of truth, so we batch-read it
-    # and overwrite the click target + email subtitle on draft rows.
+    # Re-resolve contact/hm/draft items from the live contact doc. The
+    # snapshot in agent_actions.result is frozen at write time, so it misses
+    # anything the contact picked up later — Gmail send, thread sync, reply
+    # detection. The contact subcollection is the source of truth, so we
+    # batch-read it and overwrite the click target so clicking lands on the
+    # current Gmail thread/draft for that person.
+    resolvable_types = {"contact", "hm", "draft"}
     contact_ids = [it.get("_contactId") for it in items
-                   if it.get("type") == "draft" and it.get("_contactId")]
+                   if it.get("type") in resolvable_types and it.get("_contactId")]
     if contact_ids:
         contacts_ref = db.collection("users").document(uid).collection("contacts")
         refs = [contacts_ref.document(cid) for cid in set(contact_ids)]
@@ -662,8 +664,17 @@ def get_loop_activity(uid: str, loop_id: str, limit: int = 50) -> list[dict]:
             }
         except Exception:
             contact_map = {}
+
+        # Backfill missing draft URLs for legacy contacts. Before the
+        # agent_actions.py id/url → draft_id/draft_url fix, Loop-created
+        # drafts were saved with empty gmailDraftUrl, so clicking fell
+        # back to the tracker. We look those up in Gmail by recipient +
+        # subject and write the URL back to the contact doc so future
+        # clicks land on the exact draft.
+        _backfill_draft_urls_for_contacts(uid, contact_map)
+
         for it in items:
-            if it.get("type") != "draft":
+            if it.get("type") not in resolvable_types:
                 continue
             cid = it.pop("_contactId", None)
             if not cid:
@@ -674,13 +685,14 @@ def get_loop_activity(uid: str, loop_id: str, limit: int = 50) -> list[dict]:
             thread_id = (cdata.get("gmailThreadId") or "").strip()
             draft_url = (cdata.get("gmailDraftUrl") or "").strip()
             email = (cdata.get("email") or "").strip()
-            if thread_id:
-                it["linkTo"] = f"https://mail.google.com/mail/u/0/#inbox/{thread_id}"
-                it["external"] = True
-            elif draft_url:
-                it["linkTo"] = draft_url
-                it["external"] = True
-            if email:
+            link, external = _gmail_link_for_contact(
+                thread_id=thread_id,
+                draft_url=draft_url,
+                fallback=it.get("linkTo") or "/tracker",
+            )
+            it["linkTo"] = link
+            it["external"] = external
+            if email and it.get("type") == "draft":
                 it["subtitle"] = email
                 it["email"] = email
     else:
@@ -688,6 +700,73 @@ def get_loop_activity(uid: str, loop_id: str, limit: int = 50) -> list[dict]:
             it.pop("_contactId", None)
 
     return items
+
+
+def _backfill_draft_urls_for_contacts(uid: str, contact_map: dict) -> None:
+    """Look up gmailDraftUrl in Gmail for contacts that are missing it.
+
+    Mutates contact_map in place so the caller sees the freshly-stamped
+    URLs in this same request. Also writes the URLs back to Firestore so
+    subsequent polls skip the lookup. Idempotent: contacts where lookup
+    already ran (whether or not a draft was found) carry a
+    gmailDraftBackfilled flag and are skipped.
+    """
+    # Pick contacts that look like they SHOULD have a draft URL but don't.
+    # An emailSubject means a draft was attempted; an email address is
+    # required to search Gmail for it. Skip contacts already backfilled.
+    needs_backfill = []
+    for cid, cdata in contact_map.items():
+        if not cdata:
+            continue
+        if cdata.get("gmailDraftBackfilled"):
+            continue
+        if (cdata.get("gmailDraftUrl") or "").strip():
+            continue
+        if (cdata.get("gmailThreadId") or "").strip():
+            continue
+        if not (cdata.get("emailSubject") or "").strip():
+            continue
+        if not (cdata.get("email") or "").strip():
+            continue
+        needs_backfill.append((cid, cdata))
+
+    if not needs_backfill:
+        return
+
+    db = get_db()
+    user_snap = db.collection("users").document(uid).get()
+    user_data = (user_snap.to_dict() or {}) if user_snap.exists else {}
+    user_email = (user_data.get("email") or "").strip()
+    if not user_email:
+        return
+
+    from app.services.gmail_client import find_draft_for_recipient
+
+    contacts_ref = db.collection("users").document(uid).collection("contacts")
+    for cid, cdata in needs_backfill:
+        match = find_draft_for_recipient(
+            user_email=user_email,
+            user_id=uid,
+            recipient_email=cdata.get("email"),
+            subject=cdata.get("emailSubject"),
+        )
+        update = {"gmailDraftBackfilled": True}
+        if match:
+            update["gmailDraftId"] = match.get("draft_id") or ""
+            update["gmailDraftUrl"] = match.get("draft_url") or ""
+            if match.get("thread_id") and not (cdata.get("gmailThreadId") or "").strip():
+                update["gmailThreadId"] = match["thread_id"]
+            # Mirror the update into the in-memory map so the same request
+            # resolves linkTo without a re-read.
+            cdata["gmailDraftId"] = update["gmailDraftId"]
+            cdata["gmailDraftUrl"] = update["gmailDraftUrl"]
+            if "gmailThreadId" in update:
+                cdata["gmailThreadId"] = update["gmailThreadId"]
+        cdata["gmailDraftBackfilled"] = True
+        try:
+            contacts_ref.document(cid).update(update)
+        except Exception as e:
+            logger.warning("Draft URL backfill write failed for %s: %s", cid, e)
 
 
 # Names that almost certainly came from a scraper hitting a broken page.
@@ -713,6 +792,26 @@ def _looks_like_garbage(name: str) -> bool:
     if not lowered:
         return True
     return any(tok in lowered for tok in _GARBAGE_NAME_TOKENS)
+
+
+def _gmail_link_for_contact(
+    *,
+    thread_id: str,
+    draft_url: str,
+    fallback: str,
+) -> tuple[str, bool]:
+    """Best Gmail destination for a Loop-found contact.
+
+    Priority: live thread → captured draft URL (the exact compose URL we
+    stamped on the contact at draft-creation time, same one the Find People
+    spreadsheet links to). Falls back to the passed-in internal route when
+    we have neither — better to land on the tracker than guess at Gmail.
+    """
+    if thread_id:
+        return f"https://mail.google.com/mail/u/0/#inbox/{thread_id}", True
+    if draft_url:
+        return draft_url, True
+    return fallback, False
 
 
 def _action_to_items(
@@ -749,10 +848,22 @@ def _action_to_items(
             subtitle = ", ".join([s for s in [role, company] if s])
             contact_id = c.get("contactId") or c.get("id") or ""
 
-            # Deep-link to the exact record. /tracker?contact=<id> tells the
-            # tracker page to scroll to and highlight that one contact.
+            # Click target priority for ANY Loop-found contact row:
+            # Gmail thread (if sent) > Gmail draft (if drafted) > Gmail
+            # search for the recipient's email > tracker fallback. The
+            # whole point of the activity feed is to drop the student
+            # straight onto the conversation; the tracker is only a
+            # last resort when we have no email at all.
+            contact_email = (c.get("email") or "").strip()
+            thread_id = (c.get("gmailThreadId") or "").strip()
+            draft_url = (c.get("gmailDraftUrl") or "").strip()
             base = "/hiring-manager-tracker" if is_hm else "/tracker"
-            link = f"{base}?contact={contact_id}" if contact_id else base
+            tracker_fallback = f"{base}?contact={contact_id}" if contact_id else base
+            link, external = _gmail_link_for_contact(
+                thread_id=thread_id,
+                draft_url=draft_url,
+                fallback=tracker_fallback,
+            )
             # role_search HMs carry a foreign key into the find_jobs item
             # they were paired with. Surface it on the activity items so the
             # feed can render the founder draft inline below its source
@@ -765,29 +876,19 @@ def _action_to_items(
                 "title": name,
                 "subtitle": subtitle or "—",
                 "linkTo": link,
+                "external": external,
                 "createdAt": created_at,
+                # Internal: lets get_loop_activity re-resolve the live
+                # contact doc so older items pick up a thread/draft URL
+                # that was stamped after the action ran. Stripped before
+                # the item leaves the backend.
+                "_contactId": contact_id,
             }
             if source_job_id:
                 contact_item["groupKey"] = source_job_id
             out.append(contact_item)
             # If a draft was generated alongside, surface it as its own row.
-            # Click target priority: Gmail thread (if sent) > Gmail draft
-            # (if drafted) > tracker fallback. Both Gmail URLs open in a new
-            # tab; the subtitle shows the recipient's email address so users
-            # can scan who each draft went to without drilling in.
             if c.get("emailSubject") or c.get("emailBodyPreview"):
-                thread_id = (c.get("gmailThreadId") or "").strip()
-                draft_url = (c.get("gmailDraftUrl") or "").strip()
-                contact_email = (c.get("email") or "").strip()
-                if thread_id:
-                    link = f"https://mail.google.com/mail/u/0/#inbox/{thread_id}"
-                    external = True
-                elif draft_url:
-                    link = draft_url
-                    external = True
-                else:
-                    link = f"/tracker?contact={contact_id}" if contact_id else "/tracker"
-                    external = False
                 draft_item = {
                     "id": f"{action_id}-d{i}",
                     "type": "draft",
@@ -797,11 +898,7 @@ def _action_to_items(
                     "linkTo": link,
                     "external": external,
                     "createdAt": created_at,
-                    # Internal: lets get_loop_activity re-resolve the live
-                    # contact doc so legacy actions (saved before email /
-                    # gmailThreadId were stamped on saved_contacts) still
-                    # render the right address and click target. Stripped
-                    # before the item leaves the backend.
+                    # Same re-resolution hook as the contact row above.
                     "_contactId": contact_id,
                 }
                 if source_job_id:

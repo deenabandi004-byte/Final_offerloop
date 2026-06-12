@@ -164,6 +164,35 @@ export const LOOP_COPY = {
 
 export type LoopModeForCopy = "people" | "roles" | "both";
 export type LoopCadenceForCopy = "daily" | "every_other_day" | "weekly" | "manual";
+
+// Short cadence label for status-line use ("daily", "every other day", "weekly", "manual").
+// Distinct from LOOP_COPY.cadence.options.*.title, which are picker titles
+// ("Just when I ask"). These read mid-sentence.
+export function cadenceLabel(c: LoopCadenceForCopy | undefined | null): string {
+  switch (c) {
+    case "daily": return "daily";
+    case "every_other_day": return "every other day";
+    case "weekly": return "weekly";
+    case "manual": return "manual";
+    default: return "every other day";
+  }
+}
+
+// Short pause-reason label for chip use ("weekly budget hit", etc).
+// Distinct from LOOP_COPY.pauseReason.*, which are full sentences for banners.
+export type LoopPauseReasonForCopy =
+  | "credits_capped" | "budget_capped" | "inactivity"
+  | "quiet_hours" | "paused" | null | undefined;
+export function pauseReasonLabel(r: LoopPauseReasonForCopy): string {
+  switch (r) {
+    case "budget_capped": return "weekly budget hit";
+    case "credits_capped": return "monthly credits low";
+    case "inactivity": return "drafts waiting";
+    case "quiet_hours": return "quiet hours";
+    case "paused":
+    default: return "paused";
+  }
+}
 // Mirror of services/loops.ts LoopAutoSendMode. Duplicated locally to keep
 // lib/ free of service imports.
 export type LoopAutoSendModeForCopy = "approve_each" | "draft_only" | "send_for_me";

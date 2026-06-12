@@ -791,8 +791,8 @@ def execute_find_and_draft(
                     user_id=uid,
                 )
                 if draft_result and isinstance(draft_result, dict):
-                    contact_doc["gmailDraftId"] = draft_result.get("id", "")
-                    contact_doc["gmailDraftUrl"] = draft_result.get("url", "")
+                    contact_doc["gmailDraftId"] = draft_result.get("draft_id", "")
+                    contact_doc["gmailDraftUrl"] = draft_result.get("draft_url", "")
             except Exception as e:
                 logger.warning("Gmail draft creation failed: %s", e)
 
@@ -1486,8 +1486,8 @@ def execute_find_hiring_managers(
                     user_id=uid,
                 )
                 if draft and isinstance(draft, dict):
-                    contact_doc["gmailDraftId"] = draft.get("id", "")
-                    contact_doc["gmailDraftUrl"] = draft.get("url", "")
+                    contact_doc["gmailDraftId"] = draft.get("draft_id", "")
+                    contact_doc["gmailDraftUrl"] = draft.get("draft_url", "")
             except Exception as e:
                 logger.warning("Gmail draft creation for HM failed: %s", e)
 

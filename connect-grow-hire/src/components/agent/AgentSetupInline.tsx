@@ -1053,7 +1053,7 @@ export function AgentSetupInline({
         name: deriveLoopName(form),
         reviewBeforeSend: form.approvalMode === "review_first",
         weeklyTarget,
-        cadence: "weekly",
+        cadence: "daily",
         automationEnabled: form.approvalMode === "autopilot",
         loopMode: "both",
       });

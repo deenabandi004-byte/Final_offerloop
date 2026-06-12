@@ -16,6 +16,43 @@ from datetime import datetime, timezone
 logger = logging.getLogger(__name__)
 
 
+def _write_loop_counters_with_retry(loop_ref, updates: dict, loop_id: str) -> None:
+    # Two failure modes look the same as "Exception" but mean very different
+    # things. NotFound = user deleted the Loop mid-cycle; counters are gone
+    # for good but the cycle's contacts/jobs/drafts still saved to their own
+    # subcollections. Anything else (most often grpc RemoteDisconnected on
+    # the SA token refresh) is transient — one retry fixes it ~always.
+    import time
+    from google.api_core import exceptions as gax
+
+    for attempt in (1, 2):
+        try:
+            loop_ref.update(updates)
+            return
+        except gax.NotFound as e:
+            logger.info(
+                "Loop %s deleted mid-cycle; counter update skipped "
+                "(cycle results saved to subcollections). err=%s",
+                loop_id, e,
+            )
+            return
+        except Exception as e:
+            if attempt == 1:
+                logger.warning(
+                    "Loop %s counter update attempt %d failed (will retry): %s",
+                    loop_id, attempt, e,
+                )
+                time.sleep(0.5)
+                continue
+            logger.error(
+                "Loop %s counter update FAILED after retry; Loop totals are "
+                "stale but cycle results are persisted. Run "
+                "scripts/backfill_loop_counters.py to reconcile. err=%s",
+                loop_id, e,
+            )
+            return
+
+
 def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> dict:
     """RQ worker entrypoint: run one Loop cycle end-to-end.
 
@@ -232,14 +269,7 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
         # Clean cycle resets the streak.
         updates["consecutiveRateLimitCycles"] = 0
 
-    try:
-        loop_ref.update(updates)
-    except Exception as e:
-        logger.info(
-            "Loop %s vanished mid-cycle (likely deleted by user); "
-            "skipping counter update. err=%s",
-            loop_id, e,
-        )
+    _write_loop_counters_with_retry(loop_ref, updates, loop_id)
 
     # Surface a single "Loop ran" notification per cycle into the user's
     # in-app bell. Independent of LOOPS_ALERT_EMAILS_ENABLED — this is the
