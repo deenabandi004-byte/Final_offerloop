@@ -496,6 +496,7 @@ def execute_find_and_draft(
         )
         # Returns (filtered_list, retry_level, already_saved, adjacency_metadata)
         raw_contacts = result[0] if isinstance(result, tuple) else result
+        adjacency_metadata = result[3] if isinstance(result, tuple) and len(result) > 3 else None
         logger.info("Agent find first attempt: %d contacts for %s", len(raw_contacts) if raw_contacts else 0, company)
 
         # If no results found with alumni+location+industry filters, retry
@@ -525,6 +526,7 @@ def execute_find_and_draft(
                 user_profile=user_profile,
             )
             raw_contacts = result[0] if isinstance(result, tuple) else result
+            adjacency_metadata = result[3] if isinstance(result, tuple) and len(result) > 3 else adjacency_metadata
             logger.info("Agent find relaxed retry: %d contacts for %s", len(raw_contacts) if raw_contacts else 0, company)
 
     except Exception as e:
@@ -778,8 +780,18 @@ def execute_find_and_draft(
         if contact.get("company_description"):
             contact_doc["companyDescription"] = contact["company_description"][:1000]
 
+        # Phase 2.2: when pdl_client flags the batch as low email quality
+        # (no verified addresses, all best-guesses), skip Gmail draft creation
+        # so we don't ship pattern-synthesized addresses straight to the
+        # student's inbox. The contact is still surfaced so the user can
+        # decide whether to re-find / verify; the UI reads
+        # emailVerificationStatus="needs_verification" to warn.
+        low_email_quality = (adjacency_metadata or {}).get("email_quality") == "low"
+        if low_email_quality:
+            contact_doc["emailVerificationStatus"] = "needs_verification"
+
         # Create Gmail draft if possible
-        if email_data and email.strip():
+        if email_data and email.strip() and not low_email_quality:
             try:
                 from app.services.gmail_client import create_gmail_draft_for_user
                 draft_result = create_gmail_draft_for_user(

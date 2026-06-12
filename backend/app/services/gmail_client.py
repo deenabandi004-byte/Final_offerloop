@@ -1032,7 +1032,20 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         if not recipient_email:
             print(f"[GmailClient] No valid email found for contact - creating mock draft")
             return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}_no_email"
-        
+
+        # Phase 2.4: suppression gate. If this address has bounced before
+        # (per-user OR globally), skip the draft. Returns a sentinel matching
+        # the existing "no_email" shape so downstream callers treat it as
+        # "no real draft" without crashing.
+        try:
+            from app.services.suppression import is_suppressed
+            if is_suppressed(user_id, recipient_email):
+                print(f"[GmailClient] SUPPRESSED — skipping draft for {recipient_email} (previous bounce)")
+                return f"suppressed_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}"
+        except Exception as supp_err:
+            # Suppression lookup must never block sending a draft.
+            print(f"[GmailClient] Suppression check failed (proceeding with draft): {supp_err}")
+
         # Create multipart message
         message = MIMEMultipart('mixed')
         message['to'] = recipient_email

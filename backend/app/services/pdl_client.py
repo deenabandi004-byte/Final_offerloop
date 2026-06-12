@@ -1221,6 +1221,78 @@ def determine_job_level(job_title):
         return 'mid'  # Default to mid-level
 
 
+def _parse_pdl_date(s):
+    """Parse a PDL date string. Returns timezone-aware UTC datetime or None.
+
+    Per docs.peopledatalabs.com, PDL uses ISO-8601 UTC for top-level
+    timestamps (`job_last_updated`, `job_last_changed`,
+    `experience[].last_updated`), e.g. ``2024-03-15T21:32:10Z``. Experience
+    start/end dates can be partial (``YYYY-MM`` or ``YYYY-MM-DD``).
+    """
+    if not s or not isinstance(s, str):
+        return None
+    from datetime import datetime, timezone
+    s = s.strip()
+    # ISO-8601 with optional Z. Python 3.11+ parses 'Z' natively; older
+    # versions need it swapped for '+00:00'.
+    try:
+        normalized = s[:-1] + "+00:00" if s.endswith("Z") else s
+        dt = datetime.fromisoformat(normalized)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except (ValueError, TypeError):
+        pass
+    # Partial-date fallback for experience start_date / end_date.
+    for fmt in ("%Y-%m-%d", "%Y-%m"):
+        try:
+            return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+# Phase 2.1: PDL emails older than this fall back to Hunter/NeverBounce instead
+# of being trusted blindly. People change jobs without PDL noticing; stale
+# `emails[]` entries are the #1 source of Loop bounces.
+_PDL_EMAIL_MAX_AGE_DAYS = 180
+
+
+def _pdl_email_is_fresh(person: dict, chosen_email: str = None, max_age_days: int = _PDL_EMAIL_MAX_AGE_DAYS) -> bool:
+    """Return True only when PDL has recent evidence the person is still at the
+    job the email belongs to.
+
+    Uses only documented PDL fields (per peopledatalabs.com schema):
+      - `person.job_last_updated` — primary signal, ISO-8601 UTC.
+      - `experience[].last_updated` on a current job (`is_current=True`) — fallback.
+
+    Per-email `first_seen` / `last_seen` are NOT in the public schema, so we
+    don't depend on them even when the response happens to include them.
+
+    Defaults to False on missing/unparseable dates — re-verifying via Hunter
+    is cheaper than sending to a dead address and burning a contact slot.
+    """
+    from datetime import datetime, timezone, timedelta
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+
+    when = _parse_pdl_date(person.get("job_last_updated"))
+    if when and when >= cutoff:
+        return True
+
+    for job in person.get("experience") or []:
+        if not isinstance(job, dict):
+            continue
+        if not job.get("is_current"):
+            continue
+        when = _parse_pdl_date(job.get("last_updated"))
+        if when and when >= cutoff:
+            return True
+        # Only the first current-job entry matters; PDL puts it at experience[0].
+        break
+
+    return False
+
+
 def _choose_best_email(emails: list[dict], recommended: str | None = None) -> str | None:
     """Choose the best email from a list of emails"""
     def is_valid(addr: str) -> bool:
@@ -1810,9 +1882,11 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
 
         # ⚡ Short-circuit: skip batch verification if all contacts already have valid PDL work emails
         # BUT: never short-circuit when there's a target company — PDL emails may be from old jobs
+        # AND: require recent PDL evidence (Phase 2.1) — stale work emails point at the previous job.
         _PERSONAL_DOMAINS = {'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com', 'protonmail.com', 'me.com', 'live.com', 'msn.com', 'aol.com'}
         _all_have_pdl_email = True
         _pdl_emails_by_idx = {}
+        _stale_count = 0
         if not target_company:
             for _sc_idx, _sc_person in enumerate(unique_persons):
                 _sc_emails = _sc_person.get('emails') or []
@@ -1822,7 +1896,13 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
                         or _sc_email.split('@')[1].lower().strip() in _PERSONAL_DOMAINS):
                     _all_have_pdl_email = False
                     break
+                if not _pdl_email_is_fresh(_sc_person, _sc_email):
+                    _stale_count += 1
+                    _all_have_pdl_email = False
+                    break
                 _pdl_emails_by_idx[_sc_idx] = _sc_email
+            if _stale_count:
+                print(f"[BatchEmailVerification] PDL email staleness detected — falling back to Hunter verification (max_age={_PDL_EMAIL_MAX_AGE_DAYS}d)")
         else:
             _all_have_pdl_email = False  # Force batch verification for target company searches
 
