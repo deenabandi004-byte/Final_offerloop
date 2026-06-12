@@ -78,6 +78,26 @@ Investigation found that scores 70-79 (`hunter_finder_risky`) and catch-alls (`n
 - Surface "address suppressed / bounced previously" in UI rather than silent skip.
 - Bounce-rate dashboard (rolling 7-day from `metrics_events.email_bounced`) for admin and personal use.
 
+### Find People — `email_quality` gate deferred (2026-06-12)
+
+The Phase 2.2 `email_quality="low"` gate currently only fires in `agent_actions.execute_find_and_draft` (Loops + HM finder). The Find People draft path goes through `routes/runs.py` → `gmail_client.create_drafts_parallel` → `create_gmail_draft_for_user` and **does not read the flag**. A live dogfood bounce (`ahmademad@google.com`, 2026-06-12) confirmed Find People still ships pattern-synthesized guesses.
+
+Why deferred — the obvious widening to the chokepoint trades a real cost we don't want without data:
+
+- Today, `search_contacts_from_prompt` returns ONLY verified contacts when any exist (line ~3461). If the batch has 5 PDL hits and 1 is verified, the student gets 1 — and **we already paid PDL for the other 4 records that were silently dropped**. We're burning PDL credits on records we don't surface.
+- Blindly widening the gate to Find People would surface those zero-draft cases as "contact, no draft" — a draft-volume regression for the student without recovering the PDL spend.
+- Overfetching from PDL (1.5–2x) to top up the verified count multiplies the credit burn — worst margin path, especially for free tier.
+
+Right next move (lower-cost, higher ROI): tighten the PDL query at issue time. PDL supports filtering by `work_email` existence — same per-record cost but a higher % of returned records carry a usable address. Combined with Phase 2.1's staleness gate, this should raise the verified-rate enough that the Find People gate is cheap to widen.
+
+Plan:
+1. **Telemetry first.** Log per-search `pdl_records_returned` vs `verified_returned` vs `dropped_unverified` to `metrics_events` so we can see the actual waste rate in production. ~1 hour.
+2. **Tighter PDL query.** Add `work_email IS NOT NULL` (or PDL's equivalent) to the `search_contacts_from_prompt` filter. Measure verified-rate delta. ~2 hours + dogfood.
+3. **Widen Phase 2.2 to Find People.** Once verified-rate is high enough that draft-volume regression is acceptable. Cleanest spot: per-contact `EmailSource` check inside `gmail_client.create_gmail_draft_for_user` (covers Find People + contact_import + linkedin_import + referral_email in one shot). ~30 min.
+4. **Opt-in topup (later).** "Find more" button on Find People results that runs another PDL search and charges the credit transparently. Aligns incentives. Product call, not engineering blocker.
+
+Don't widen the gate to Find People before step 2 lands. It's a clean draft-volume regression today.
+
 ## How to resume tomorrow
 
 Phase 1 + all of Phase 2 are shipped to the working tree (uncommitted). Tomorrow:
