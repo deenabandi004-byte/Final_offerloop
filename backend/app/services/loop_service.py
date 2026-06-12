@@ -840,6 +840,19 @@ def _action_to_items(
                 "external": external,
                 "createdAt": created_at,
             }
+            # Broadening telemetry → UI badge inputs. Absent on pre-PR docs.
+            broaden_level = j.get("broadenLevel")
+            if isinstance(broaden_level, int) and broaden_level > 0:
+                job_item["broadenLevel"] = broaden_level
+                original_role = j.get("originalRole") or ""
+                target_company = j.get("targetCompany") or ""
+                wider_location = j.get("widerLocation") or ""
+                if original_role:
+                    job_item["originalRole"] = original_role
+                if target_company:
+                    job_item["targetCompany"] = target_company
+                if wider_location:
+                    job_item["widerLocation"] = wider_location
             # Emit groupKey only when some founder-draft contact in this Loop
             # references this exact job item — pairs the job row with its
             # inline founder-draft sub-card. Unpaired large-co postings stay

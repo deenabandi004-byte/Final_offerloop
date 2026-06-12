@@ -20,6 +20,12 @@ from app.config import (
 from app.services.openai_client import get_openai_client
 from app.services.metering import meter_call
 from app.utils.retry import retry_with_backoff
+from app.utils.role_taxonomy import (
+    _TITLE_FAMILY_EXPANSIONS,
+    _SENIORITY_ADJACENT_TITLES,
+    _expand_titles_for_broadening,
+    _expand_titles_seniority_adjacent,
+)
 
 # Create a session with connection pooling for better performance.
 # Accept-Encoding: gzip is a free ~5× response-size reduction per PDL docs.
@@ -2736,122 +2742,10 @@ def search_contacts_with_pdl(job_title, company, location, max_contacts=8):
     return search_contacts_with_pdl_optimized(job_title, company, location, max_contacts)
 
 
-# Role-family expansion for the title-broadening retry rung (retry_level=1).
-# Each key is a canonical role; the value is a list of adjacent titles that often
-# overlap with the user's intent when the strict match_phrase query returns too few
-# results. Used by `_expand_titles_for_broadening`.
-#
-# WHY: PDL's strict match_phrase on "data scientist" at Google+USC returns 6 hits.
-# Expanding to {data scientist, data analyst, data engineer, data science manager}
-# lifts that to 8 — a meaningful gain when the initial query has 0 new contacts
-# after dedup. See /tmp/pdl_diagnostic.py for the raw counts.
-_TITLE_FAMILY_EXPANSIONS = {
-    # Data family
-    "data scientist":   ["data scientist", "data analyst", "data engineer", "data science manager", "machine learning engineer"],
-    "data analyst":     ["data analyst", "data scientist", "business analyst", "analytics manager"],
-    "data engineer":    ["data engineer", "data scientist", "software engineer", "machine learning engineer"],
-    # Software family
-    "software engineer":        ["software engineer", "software developer", "backend engineer", "frontend engineer", "full stack engineer"],
-    "software developer":       ["software developer", "software engineer", "backend developer", "frontend developer"],
-    "machine learning engineer":["machine learning engineer", "ml engineer", "data scientist", "ai engineer"],
-    # Product family
-    "product manager":  ["product manager", "product owner", "technical program manager", "program manager", "associate product manager"],
-    # Finance family
-    "investment banking analyst":   ["investment banking analyst", "analyst", "financial analyst", "banking analyst"],
-    "investment banking associate": ["investment banking associate", "associate", "banking associate"],
-    "financial analyst":            ["financial analyst", "investment analyst", "analyst"],
-    # Consulting family
-    "consultant":           ["consultant", "management consultant", "associate consultant", "business analyst"],
-    "management consultant":["management consultant", "consultant", "associate consultant", "strategy consultant"],
-    # Recruiting family
-    "recruiter":    ["recruiter", "technical recruiter", "talent acquisition specialist", "sourcer"],
-}
-
-
-def _expand_titles_for_broadening(title_variations):
-    """
-    Given the prompt parser's `title_variations` list, return a broadened list that
-    adds role-family cousins from _TITLE_FAMILY_EXPANSIONS. Used by retry_level=1.
-
-    - Preserves the original titles as the first entries (priority for scoring).
-    - Adds family cousins only for titles that have a family entry; others pass
-      through unchanged.
-    - Deduplicates case-insensitively while preserving first-seen order.
-    """
-    if not title_variations:
-        return []
-    seen = set()
-    expanded = []
-    for t in title_variations:
-        tl = (t or "").strip().lower()
-        if not tl or tl in seen:
-            continue
-        expanded.append(tl)
-        seen.add(tl)
-    # Second pass: for each original title, pull in matching family variants
-    for tl in list(expanded):
-        for family_key, family_variants in _TITLE_FAMILY_EXPANSIONS.items():
-            if tl == family_key or (family_key in tl) or (tl in family_key and len(tl) >= 5):
-                for v in family_variants:
-                    vl = v.strip().lower()
-                    if vl and vl not in seen:
-                        expanded.append(vl)
-                        seen.add(vl)
-    return expanded
-
-
-_SENIORITY_ADJACENT_TITLES = {
-    "analyst": ["analyst", "associate", "research associate", "junior associate", "senior analyst"],
-    "associate": ["associate", "analyst", "senior analyst", "consultant", "senior associate"],
-    "manager": ["manager", "director", "senior manager", "team lead", "associate director"],
-    "engineer": ["engineer", "developer", "software engineer", "senior engineer", "staff engineer"],
-    "consultant": ["consultant", "associate", "analyst", "advisor", "senior consultant"],
-    "intern": ["intern", "co-op", "fellow", "trainee", "analyst"],
-    "director": ["director", "senior director", "vice president", "manager", "head"],
-    "vice president": ["vice president", "director", "senior vice president", "managing director"],
-}
-
-
-def _expand_titles_seniority_adjacent(title_variations):
-    """
-    Given title variations, expand to adjacent seniority levels.
-    E.g. "analyst" → ["analyst", "associate", "research associate", "junior associate", "senior analyst"]
-    Used by retry_level=2 to maintain role intent while broadening seniority.
-    """
-    if not title_variations:
-        return []
-    seen = set()
-    expanded = []
-
-    # First pass: include originals
-    for t in title_variations:
-        tl = (t or "").strip().lower()
-        if not tl or tl in seen:
-            continue
-        expanded.append(tl)
-        seen.add(tl)
-
-    # Second pass: for each original, find matching seniority family
-    for tl in list(expanded):
-        for seniority_key, adjacent in _SENIORITY_ADJACENT_TITLES.items():
-            # Match if the seniority key appears in the title or vice versa
-            if seniority_key in tl or tl in seniority_key:
-                for adj in adjacent:
-                    adj_lower = adj.strip().lower()
-                    if adj_lower and adj_lower not in seen:
-                        expanded.append(adj_lower)
-                        seen.add(adj_lower)
-                break  # Only match one seniority family per title
-
-    # Also include the role-family expansions from level 1
-    family_expanded = _expand_titles_for_broadening(title_variations)
-    for t in family_expanded:
-        tl = t.strip().lower()
-        if tl and tl not in seen:
-            expanded.append(tl)
-            seen.add(tl)
-
-    return expanded
+# Role-family + seniority-adjacent title expansions used by retry_level=1
+# and retry_level=2 live in `app.utils.role_taxonomy` so the Perplexity
+# job-search broadening flow can reuse the same dicts. Imported at the top
+# of this module; behavior is byte-identical to the prior inline copy.
 
 
 def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:

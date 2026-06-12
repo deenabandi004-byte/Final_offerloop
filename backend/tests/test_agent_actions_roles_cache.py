@@ -181,7 +181,10 @@ def test_discover_companies_cache_hit_skips_perplexity(monkeypatch):
 
 
 def test_find_jobs_cache_hit_skips_perplexity(monkeypatch):
+    # find_jobs uses the level-0-only cache check; both kept patched so the
+    # test is robust to either path being hit.
     monkeypatch.setattr(agent_actions, "_has_fresh_cached_rows", lambda *a, **kw: True)
+    monkeypatch.setattr(agent_actions, "_has_fresh_exact_level_jobs", lambda *a, **kw: True)
     monkeypatch.setattr(agent_actions, "get_db", lambda: MagicMock())
 
     def _explode(*a, **kw):

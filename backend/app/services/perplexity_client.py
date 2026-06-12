@@ -264,25 +264,40 @@ def search_jobs_live(
     if cached and isinstance(cached, list):
         return cached
 
-    domains = domain_filter or [
-        "linkedin.com", "greenhouse.io", "lever.co",
-        "workday.com", "indeed.com",
-    ]
-    domain_str = ", ".join(domains)
-
+    # Three things matter for quality here:
+    # 1. NO domain whitelist in the prompt. The old list excluded every FAANG
+    #    careers system (jobs.apple.com, careers.google.com, etc.) so niche
+    #    queries at big-tech targets came back empty — and Sonar would then
+    #    hallucinate a placeholder to satisfy the "find N" instruction.
+    # 2. Empty-on-miss instruction. Without "return [] if nothing matches",
+    #    the LLM invents a generic "Job Posting" row pointing at the company's
+    #    careers landing page rather than admitting zero results.
+    # 3. URL-shape instruction. A real posting has a job ID; a careers search
+    #    page does not. Telling the model to skip landing/search pages weeds
+    #    out the most common placeholder pattern at source.
+    # Caller-supplied domain_filter is still honored if explicitly passed —
+    # via Perplexity's actual API param, not as a soft prompt hint.
     prompt = (
-        f"Find {limit} current job openings matching: {query} in {location}. "
-        f"Only include postings from these domains: {domain_str}. "
-        f"For each job return: title, company name, location, URL to the posting, "
-        f"and a brief summary. Return as a JSON array of objects with keys: "
-        f"title, company, location, url, summary."
+        f"Find up to {limit} SPECIFIC current job postings matching: {query} "
+        f"in {location}. Each result MUST be a concrete posting with its own "
+        f"unique URL (a job ID in the path). Do NOT return careers landing "
+        f"pages, search-result pages, or generic placeholders. If you cannot "
+        f"find any real specific postings, return an empty JSON array. "
+        f"For each job return: title (the actual role title — never "
+        f"'Job Posting' or similar generic text), company name, location, "
+        f"URL to the specific posting, and a brief summary. Return as a JSON "
+        f"array of objects with keys: title, company, location, url, summary."
     )
+
+    extra: dict = {"search_recency_filter": "month"}
+    if domain_filter:
+        extra["search_domain_filter"] = list(domain_filter)
 
     try:
         response = client.chat.completions.create(
             model="sonar",
             messages=[{"role": "user", "content": prompt}],
-            extra_body={"search_recency_filter": "month"},
+            extra_body=extra,
         )
         content = response.choices[0].message.content
         parsed = _parse_json_response(content)
