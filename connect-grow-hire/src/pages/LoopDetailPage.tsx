@@ -41,6 +41,7 @@ import {
 } from "@/hooks/useLoops";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { LOOP_COPY, loopCopy } from "@/lib/loopCopy";
 import type { Loop, LoopActivityItem, LoopActivityType } from "@/services/loops";
 
@@ -1100,6 +1101,20 @@ function RepliesSection({ loop }: { loop: Loop }) {
 
 // ── Discovered along the way (Option 2 — collapsed, expandable) ─────────────
 
+// Copy for the "we widened your search" chip rendered on L1/L2/L3 job rows.
+// Returns null at L0 so the chip is skipped on exact-match results.
+function broadenChipCopy(j: LoopActivityItem): string | null {
+  const level = j.broadenLevel;
+  if (!level || level <= 0) return null;
+  const role = j.originalRole || "your role";
+  const company = j.targetCompany || "your target";
+  const wider = j.widerLocation || "a wider area";
+  if (level === 1) return `closely related to ${role}`;
+  if (level === 2) return `adjacent to your brief — ${role} at ${company}`;
+  if (level === 3) return `widened to ${wider}`;
+  return null;
+}
+
 function DiscoveredRow({
   companies,
   jobs,
@@ -1224,13 +1239,40 @@ function DiscoveredRow({
                 lineHeight: 1.25,
               }}
             >
-              <em style={{ fontStyle: "italic", color: "var(--accent)" }}>
-                {nJobs} {nJobs === 1 ? "role" : "roles"}
-              </em>{" "}
-              at{" "}
-              <em style={{ fontStyle: "italic", color: "var(--accent)" }}>
-                {nCo} {nCo === 1 ? "company" : "companies"}
-              </em>
+              {nJobs > 0 && nCo > 0 && (
+                <>
+                  <em style={{ fontStyle: "italic", color: "var(--accent)" }}>
+                    {nJobs} {nJobs === 1 ? "role" : "roles"}
+                  </em>{" "}
+                  and{" "}
+                  <em style={{ fontStyle: "italic", color: "var(--accent)" }}>
+                    {nCo} new {nCo === 1 ? "company" : "companies"}
+                  </em>
+                </>
+              )}
+              {nJobs > 0 && nCo === 0 && (() => {
+                const broadenedCount = jobs.filter(
+                  (j) => (j.broadenLevel ?? 0) >= 1,
+                ).length;
+                if (broadenedCount > 0) {
+                  return (
+                    <em style={{ fontStyle: "italic", color: "var(--accent)" }}>
+                      {nJobs} {nJobs === 1 ? "role" : "roles"} to explore — including{" "}
+                      {broadenedCount} closely related
+                    </em>
+                  );
+                }
+                return (
+                  <em style={{ fontStyle: "italic", color: "var(--accent)" }}>
+                    {nJobs} {nJobs === 1 ? "role" : "roles"} to explore
+                  </em>
+                );
+              })()}
+              {nJobs === 0 && nCo > 0 && (
+                <em style={{ fontStyle: "italic", color: "var(--accent)" }}>
+                  {nCo} new {nCo === 1 ? "company" : "companies"}
+                </em>
+              )}
               <span
                 style={{
                   fontFamily: "var(--font-body)",
@@ -1398,6 +1440,22 @@ function DiscoveredRow({
                               {j.subtitle}
                             </div>
                           )}
+                          {(() => {
+                            const copy = broadenChipCopy(j);
+                            return copy ? (
+                              <Badge
+                                variant="secondary"
+                                style={{
+                                  marginTop: 4,
+                                  fontSize: 10.5,
+                                  fontWeight: 500,
+                                  letterSpacing: "-0.005em",
+                                }}
+                              >
+                                {copy}
+                              </Badge>
+                            ) : null;
+                          })()}
                         </div>
                         <span style={{ fontSize: 11, color: "var(--ink-3)" }}>
                           {relativeTime(j.createdAt)}

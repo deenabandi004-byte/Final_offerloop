@@ -233,6 +233,22 @@ export interface LoopActivityItem {
    *   - people-mode networking contacts (today's flat row layout)
    *   - legacy items written before H shipped. */
   groupKey?: string;
+  /** Broadening level reached by the find_jobs retry loop. Only present on
+   *  type='job' items where the level was > 0 (a relaxed query produced the
+   *  result). Used by the dashboard to render a "we widened your search"
+   *  badge. Absent on level-0 items and on pre-PR data. */
+  broadenLevel?: number;
+  /** Original role string from the brief — surfaced in the L1/L2 badge copy
+   *  ("closely related to {originalRole}"). Absent when broadenLevel is 0 or
+   *  on pre-PR data. */
+  originalRole?: string;
+  /** Target company from the action — surfaced in the L2 badge copy
+   *  ("adjacent to your brief — {originalRole} at {targetCompany}"). Absent
+   *  when broadenLevel is 0 or on pre-PR data. */
+  targetCompany?: string;
+  /** The widened location used for L3 ("widened to {widerLocation}"). Only
+   *  present when broadenLevel === 3. */
+  widerLocation?: string;
 }
 
 // ── CRUD ────────────────────────────────────────────────────────────────
