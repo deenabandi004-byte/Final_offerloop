@@ -377,6 +377,10 @@ export interface OutboxThread {
   // True when a draft has been in draft_created state > 24h with no matched
   // Gmail thread (webhook silent-drop). UI should nudge the user to Refresh.
   needsManualSync?: boolean;
+  // Provenance — "agent" for Loop-discovered contacts, "" for manual. Drives
+  // the "Loop" badge in the tracker / My Network.
+  source?: string;
+  loopId?: string;
   // Legacy aliases — used by Outbox.tsx and Dashboard.tsx until migrated
   contactName?: string;
   jobTitle?: string;

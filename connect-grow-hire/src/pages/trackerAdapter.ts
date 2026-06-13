@@ -53,6 +53,9 @@ export interface ProtoContact {
   // archived. Drives Archive ↔ Unarchive in the detail header and gates which
   // segment a contact appears under.
   archivedAt: string | null;
+  // Provenance — "agent" for Loop-discovered contacts, "" for manual. Drives
+  // the inline "Loop" badge on the people card.
+  source: string;
 }
 
 // ── 11-stage backend → 5-stage prototype (read-side bucketing only) ──────────
@@ -190,6 +193,7 @@ export function outboxThreadToProto(t: OutboxThread): ProtoContact {
       : TERMINAL_LABELS[t.pipelineStage ?? ""] ?? "—",
     companyLogoFallbackUrl: buildContactLogoFallbackUrl(t.email || ""),
     archivedAt: t.archivedAt ?? null,
+    source: t.source || "",
   };
 }
 

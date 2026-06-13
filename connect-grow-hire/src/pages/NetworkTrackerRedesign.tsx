@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -42,6 +42,7 @@ export default function NetworkTrackerRedesign() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   // Tour inbox-demo state. When the tour reaches step 9 (Inbox) the surface
   // flips to 'inbox'; both data queries below disable themselves via
   // `enabled` and the orchestration effect lower in this file seeds a fake
@@ -60,6 +61,9 @@ export default function NetworkTrackerRedesign() {
   // load (effect below). Once set, later deselects, navigation, or background
   // refetches never re-force a selection.
   const autoSelectDoneRef = useRef(false);
+  // Gates the ?contact=<id> deep-link from a Loop activity card so it applies
+  // once per target id, not on every render or background refetch.
+  const contactParamAppliedRef = useRef<string | null>(null);
 
   // The active-list data query. Same key as the production /tracker page so
   // they share the React Query cache. 30s refetch matches existing behavior.
@@ -322,6 +326,26 @@ export default function NetworkTrackerRedesign() {
     setSelectedContactId(target.id);
   }, [location.key, location.state, protoContacts]);
 
+  // ── Deep-link focus from a Loop activity card (/outbox?contact=<id>) ──────
+  // Loop feed cards link by contact id (not email/route-state), so we read the
+  // query param here. Once the list contains the target, expand its stage
+  // group, select it, and scroll it into view. Applies once per target id.
+  useEffect(() => {
+    const target = searchParams.get("contact");
+    if (!target) return;
+    if (contactParamAppliedRef.current === target) return;
+    const match = protoContacts.find((c) => c.id === target);
+    if (!match) return;
+    contactParamAppliedRef.current = target;
+    if (match.stage) setOpenGroups((prev) => ({ ...prev, [match.stage!]: true }));
+    setSelectedContactId(target);
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-contact-id="${target}"]`)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  }, [searchParams, protoContacts]);
+
   // ── Auto-select the first sensible contact on initial load ─────────────
   // Once both data queries have resolved, pick the highest-priority bucket
   // with people in it (Contacted first — those have an in-flight send;
@@ -342,12 +366,15 @@ export default function NetworkTrackerRedesign() {
     if (selectedContactId !== null) return;
     const state = location.state as { focusEmail?: string } | null;
     if (state?.focusEmail) return;
+    // A ?contact= deep-link owns selection — don't override it with the
+    // first-Contacted auto-pick.
+    if (searchParams.get("contact")) return;
     const firstContacted = stageGroups.contacted[0] ?? stageGroups.drafted[0];
     if (!firstContacted) return;
     const targetStage = firstContacted.stage ?? "contacted";
     setOpenGroups((prev) => ({ ...prev, [targetStage]: true }));
     setSelectedContactId(firstContacted.id);
-  }, [isLoading, isError, threadsData, recruiterList, stageGroups, selectedContactId, location.state]);
+  }, [isLoading, isError, threadsData, recruiterList, stageGroups, selectedContactId, location.state, searchParams]);
 
   // ── Local UI handlers (no writes) ───────────────────────────────────────
   const toggleFilter = useCallback((id: string) => {

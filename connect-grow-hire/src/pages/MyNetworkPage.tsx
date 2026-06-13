@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { useParams, useNavigate, Navigate } from "react-router-dom";
+import { useParams, useNavigate, Navigate, useSearchParams } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
@@ -260,6 +260,8 @@ interface PersonRow {
   isAlumni?: boolean;
   notes?: string;
   createdAt?: string;
+  // Provenance — "agent" for Loop-discovered contacts, "" for manual.
+  source?: string;
 }
 
 type SortCol = "name" | "company" | "role" | "school" | null;
@@ -400,6 +402,9 @@ interface PeopleTableProps {
   groupedView: "list" | "grid";
   recencyDir: "newest" | "oldest";
   highlightSince: number;
+  // Contact id deep-linked via ?contact=<id> (from a Loop activity card).
+  // The matching row gets scrolled into view and briefly ring-highlighted.
+  focusId?: string;
   onDelete?: (id: string) => void;
   onSaveNote?: (id: string, note: string) => void;
   // Selection is controlled by the parent so the bulk-delete pill can live
@@ -425,6 +430,7 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
   groupedView,
   recencyDir,
   highlightSince,
+  focusId,
   onDelete,
   onSaveNote,
   selected,
@@ -452,6 +458,15 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [generatingMailId, setGeneratingMailId] = useState<string | null>(null);
+
+  // Scroll the ?contact= deep-link target into view once the rows are present.
+  // The row's ring-highlight comes from rowBaseBg; this just brings it on
+  // screen. Re-runs when rows arrive so a freshly-fetched target still lands.
+  useEffect(() => {
+    if (!focusId) return;
+    const el = document.querySelector(`[data-contact-id="${focusId}"]`);
+    if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [focusId, rows]);
 
   const handleMailClick = useCallback(async (row: PersonRow) => {
     // Inert during the tour's My Network demo. The mail icon is the hero of
@@ -677,6 +692,7 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
   // spot what's new at a glance. The tint replaces the normal alternating
   // background for that row.
   const rowBaseBg = (row: PersonRow, idx: number): string => {
+    if (focusId && row.id === focusId) return "rgba(59,130,246,0.14)";
     const ts = row.createdAt ? Date.parse(row.createdAt) : 0;
     if (highlightSince && ts > highlightSince) return "rgba(59,130,246,0.08)";
     return idx % 2 === 1 ? "var(--paper-2, #FAFBFF)" : "white";
@@ -689,6 +705,7 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
     return (
       <React.Fragment key={row.id}>
         <div
+      data-contact-id={row.id}
       className={`grid items-center transition-colors ${
         isLast && !noteOpen ? "" : "border-b border-line-2"
       }`}
@@ -725,7 +742,29 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
         )}
       </div>
       <div style={{ minWidth: 0 }}>
-        <div className="truncate" style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink, #0F172A)" }}>{row.name}</div>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <div className="truncate" style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink, #0F172A)" }}>{row.name}</div>
+          {row.source === "agent" && (
+            <span
+              title="Discovered by a Loop"
+              style={{
+                flexShrink: 0,
+                fontSize: 9.5,
+                fontWeight: 600,
+                letterSpacing: "0.05em",
+                textTransform: "uppercase",
+                color: "var(--ink-3, #64748B)",
+                background: "var(--paper-2, #FAFBFF)",
+                border: "1px solid var(--line, #E2E8F0)",
+                borderRadius: 4,
+                padding: "0 5px",
+                lineHeight: "15px",
+              }}
+            >
+              Loop
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-2 mt-0.5">
           {row.email && (
             <span className="font-mono text-[10.5px] text-ink-3 truncate">{row.email}</span>
@@ -2042,6 +2081,13 @@ const MyNetworkPage: React.FC = () => {
 
   const activeTab: TabId = tab === "companies" ? "companies" : tab === "managers" ? "managers" : "people";
 
+  // ?contact=<id> deep-link from a Loop activity card. Only honored on the
+  // People tab — companies/managers have their own surfaces.
+  const [searchParams] = useSearchParams();
+  const focusContactId = activeTab === "people"
+    ? (searchParams.get("contact") || undefined)
+    : undefined;
+
   const [people, setPeople] = useState<PersonRow[]>([]);
   const [managers, setManagers] = useState<ManagerRow[]>([]);
   // Saved firms from Find > Companies (firm-search history). The Companies tab
@@ -2444,6 +2490,7 @@ const MyNetworkPage: React.FC = () => {
             isAlumni: !!c.isAlumni,
             notes: c.notes || undefined,
             createdAt: c.createdAt || c.firstContactDate || undefined,
+            source: c.source || undefined,
           };
         })
       );
@@ -3122,6 +3169,7 @@ const MyNetworkPage: React.FC = () => {
                   groupedView={peopleGroupedView}
                   recencyDir={peopleSortDir}
                   highlightSince={peopleHighlightSince}
+                  focusId={focusContactId}
                   selected={peopleSelected}
                   onSelectionChange={setPeopleSelected}
                   addingMode={addingPerson}
