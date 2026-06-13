@@ -384,3 +384,89 @@ def test_prod_guard_allows_when_pointed_at_non_prod_project(monkeypatch):
     app = Flask(__name__)
     flask_mount.register_mcp_blueprint(app)
     assert "mcp" in app.blueprints
+
+
+# ── 14. Smithery gateway: rate-limit key resolution ──────────────────────────
+
+
+class _FakeReq:
+    """Minimal Flask-request-like object for extract_client_ip tests.
+
+    extract_client_ip only touches req.headers.get(name) and
+    req.remote_addr; nothing else.
+    """
+    def __init__(self, headers: dict | None = None, remote_addr: str = "10.0.0.1"):
+        self.headers = headers or {}
+        self.remote_addr = remote_addr
+
+
+def test_smithery_request_with_user_header_uses_connection_id(caplog):
+    """Path 1: Smithery gateway request with X-Smithery-Connection sets
+    the rate-limit key to 'smithery:{connection_id}' so each Smithery
+    user lands in their own bucket regardless of shared gateway IP."""
+    from app.mcp_server.ip_utils import extract_client_ip, hash_ip
+
+    req = _FakeReq(headers={
+        "X-Smithery-Connection": "conn_alice_123",
+        "User-Agent": "SmitheryBot/1.0",
+        "X-Forwarded-For": "203.0.113.7",  # gateway IP, shared across all Smithery users
+    })
+
+    with caplog.at_level("INFO"):
+        key = extract_client_ip(req)
+
+    assert key == "smithery:conn_alice_123"
+    assert any("smithery_user resolved" in r.message for r in caplog.records)
+
+    # And confirm two different Smithery users get distinct hash buckets
+    # despite hitting from the same gateway IP.
+    other = _FakeReq(headers={
+        "X-Smithery-Connection": "conn_bob_456",
+        "User-Agent": "SmitheryBot/1.0",
+        "X-Forwarded-For": "203.0.113.7",
+    })
+    other_key = extract_client_ip(other)
+    assert other_key == "smithery:conn_bob_456"
+    assert hash_ip(key) != hash_ip(other_key)
+
+
+def test_direct_request_without_smithery_header_uses_xff(caplog):
+    """Path 3: a direct (non-Smithery) request uses X-Forwarded-For
+    first hop, preserving the pre-Smithery behavior."""
+    from app.mcp_server.ip_utils import extract_client_ip
+
+    req = _FakeReq(headers={
+        "X-Forwarded-For": "198.51.100.42, 10.0.0.1",
+        "User-Agent": "curl/8.4.0",
+    })
+
+    with caplog.at_level("INFO"):
+        key = extract_client_ip(req)
+
+    assert key == "198.51.100.42"
+    assert any("direct_ip resolved" in r.message for r in caplog.records)
+
+
+def test_smithery_request_without_user_header_falls_back_with_warning(caplog):
+    """Path 2 (edge case): a request that LOOKS like Smithery (UA / host
+    signal) but is missing X-Smithery-Connection must fall back to the
+    gateway IP and emit a WARNING so we notice if Smithery's convention
+    changes. Rate limits collapse onto the gateway IP until fixed; that
+    is the correct fail-safe, with the warning making it visible."""
+    from app.mcp_server.ip_utils import extract_client_ip
+
+    req = _FakeReq(headers={
+        # No X-Smithery-Connection. But UA reveals it's Smithery traffic.
+        "User-Agent": "Smithery/0.5 (gateway)",
+        "X-Forwarded-For": "203.0.113.7",
+    })
+
+    with caplog.at_level("WARNING"):
+        key = extract_client_ip(req)
+
+    assert key == "203.0.113.7", "must fall back to gateway IP, not return empty/None"
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert any("smithery_gateway_no_user_header" in r.message for r in warnings), (
+        f"expected a 'smithery_gateway_no_user_header' WARNING; got: "
+        f"{[(r.levelname, r.message) for r in caplog.records]}"
+    )
