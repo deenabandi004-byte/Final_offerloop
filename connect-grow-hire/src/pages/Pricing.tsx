@@ -276,6 +276,11 @@ const Pricing = () => {
   const proStop = proStops[proStopIdx];
   const eliteStop = eliteStops[eliteStopIdx];
 
+  // Annual SKUs exist only for the default credit stop on each tier (Pro 2K,
+  // Elite 5K). Annual billing is selectable only when both sliders sit on their
+  // default stop, so checkout always resolves to a real annual Stripe Price.
+  const annualAvailable = Boolean(proStop?.default) && Boolean(eliteStop?.default);
+
   // Audience (student vs list) drives both display and Stripe Price ID resolution.
   const audience = showStudentPrice ? 'student' : 'list';
 
@@ -354,6 +359,15 @@ const Pricing = () => {
     // Intentionally one-shot on first load — user drags after this are preserved.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tierConfig]);
+
+  // If either slider moves off its default stop while Annual is selected, fall
+  // back to Monthly. Annual Stripe Prices only exist for the default stop, so
+  // staying on Annual at a non-default stop would resolve to the wrong SKU.
+  useEffect(() => {
+    if (billingCadence === 'annual' && !annualAvailable) {
+      setBillingCadence('monthly');
+    }
+  }, [billingCadence, annualAvailable]);
 
   useEffect(() => {
     const handleScroll = () => setNavbarScrolled(window.scrollY > 50);
@@ -986,12 +1000,14 @@ const Pricing = () => {
                 Monthly
               </button>
               <button
-                onClick={() => setBillingCadence('annual')}
+                onClick={() => annualAvailable && setBillingCadence('annual')}
+                disabled={!annualAvailable}
+                title={annualAvailable ? undefined : 'Annual billing is available on the default credit amount. Reset the credit slider to its default to pay annually.'}
                 className={`px-5 py-2 text-sm font-semibold rounded-full transition-all flex items-center gap-2 ${
                   billingCadence === 'annual'
                     ? 'bg-[#0F172A] text-white shadow'
                     : 'text-gray-600 hover:text-gray-900'
-                }`}
+                } ${!annualAvailable ? 'opacity-40 cursor-not-allowed' : ''}`}
               >
                 Annual
                 <span

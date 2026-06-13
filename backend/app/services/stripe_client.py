@@ -4,23 +4,75 @@ Stripe client service - payment processing and subscription management
 import stripe
 from datetime import datetime
 from flask import request, jsonify
-from app.config import STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, TIER_CONFIGS, STRIPE_PRO_PRICE_ID, STRIPE_ELITE_PRICE_ID
+from app.config import STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, TIER_CONFIGS, STRIPE_PRO_PRICE_ID, STRIPE_ELITE_PRICE_ID, STRIPE_PRICE_CATALOG
 from app.extensions import get_db
 from app.services.auth import check_and_reset_credits
 
 
+def _build_price_id_index(catalog: dict) -> dict:
+    """Invert STRIPE_PRICE_CATALOG into {price_id: {tier, cadence, audience, credits}}.
+
+    One walk, one source of truth. Used for both tier resolution and trial-length
+    resolution so neither can drift from the catalog. Empty slots (SKU not wired
+    yet) are skipped. Built once at import, so adding a Stripe Price only means
+    setting its env var, not editing this file.
+    """
+    index = {}
+    for tier in ('pro', 'elite'):
+        for cadence, audiences in (catalog.get(tier) or {}).items():
+            for audience, by_credits in audiences.items():
+                for credits, price_id in by_credits.items():
+                    if price_id:
+                        index[price_id] = {
+                            'tier': tier,
+                            'cadence': cadence,
+                            'audience': audience,
+                            'credits': credits,
+                        }
+    season_pass = (catalog.get('season_pass') or {}).get('one_time') or {}
+    for audience, price_id in season_pass.items():
+        if price_id:
+            index[price_id] = {
+                'tier': 'season_pass',
+                'cadence': 'one_time',
+                'audience': audience,
+                'credits': None,
+            }
+    return index
+
+
+# Built once at import. Every catalog SKU (current and future) resolves here.
+_PRICE_ID_INDEX = _build_price_id_index(STRIPE_PRICE_CATALOG)
+
+
 def get_tier_from_price_id(price_id: str) -> str:
-    """Determine tier from Stripe price ID"""
+    """Determine tier from a Stripe price ID via the inverted catalog index."""
     if not price_id:
         return 'pro'
+    meta = _PRICE_ID_INDEX.get(price_id)
+    if meta:
+        return meta['tier']
+    # Legacy flat constants: still honored for existing subscribers whose
+    # subscription points at the original Price ID after the 2K slot is
+    # repointed to a new $14.99 SKU in env.
     if price_id == STRIPE_ELITE_PRICE_ID:
         return 'elite'
-    elif price_id == STRIPE_PRO_PRICE_ID:
+    if price_id == STRIPE_PRO_PRICE_ID:
         return 'pro'
-    else:
-        # Unknown price ID: default to pro for backward compatibility; log so we can spot Elite price ID mismatch
-        print(f"⚠️ Unknown Stripe price_id={price_id!r}, defaulting to 'pro'. Check STRIPE_ELITE_PRICE_ID ({STRIPE_ELITE_PRICE_ID!r}) / STRIPE_PRO_PRICE_ID ({STRIPE_PRO_PRICE_ID!r}).")
-        return 'pro'
+    # Genuinely unknown: warn loudly (never silent) and fall back to 'pro'.
+    print(f"WARNING unknown Stripe price_id={price_id!r} not in STRIPE_PRICE_CATALOG or legacy constants; falling back to 'pro'. Wire its env var so it resolves to the correct tier.")
+    return 'pro'
+
+
+def _user_has_used_trial(user_id: str) -> bool:
+    """True if the user already consumed their one lifetime trial. Reuses the
+    same trialUsedAt field services/trial_service.start_trial writes, so Path A
+    and the Stripe path share one invariant."""
+    db = get_db()
+    if not db or not user_id:
+        return False
+    snap = db.collection('users').document(user_id).get()
+    return bool((snap.to_dict() or {}).get('trialUsedAt')) if snap.exists else False
 
 
 # ============================================================================
@@ -204,7 +256,19 @@ def create_checkout_session():
         
         # Intended tier from price ID so webhook can use it as fallback if price ID mapping fails
         intended_tier = get_tier_from_price_id(price_id) if price_id else 'pro'
-        # Prepare session parameters (1-month free trial for Pro and Elite)
+        # Option A: Stripe Checkout never starts a free trial. Free trials run
+        # only on the no-card Path A (services/trial_service.start_trial). This
+        # path is reserved for direct paid signups and post-trial upgrades.
+        CHECKOUT_TRIAL_DAYS = 0
+        # Decision #5 (defense in depth): never grant more than one trial per
+        # account, lifetime, using the shared trialUsedAt field. No-op while
+        # CHECKOUT_TRIAL_DAYS is 0, but keeps the invariant if a trial is ever
+        # reintroduced on this path.
+        trial_days = CHECKOUT_TRIAL_DAYS
+        if trial_days > 0 and _user_has_used_trial(user_id):
+            print(f"[Stripe] user {user_id} already used their trial; checkout will not grant another.")
+            trial_days = 0
+        # Prepare session parameters (direct paid checkout; trials live on Path A)
         session_params = {
             'payment_method_types': ['card'],
             'mode': 'subscription',
@@ -217,7 +281,7 @@ def create_checkout_session():
                 'tier': intended_tier,
             },
             'subscription_data': {
-                'trial_period_days': 30,
+                'trial_period_days': trial_days,
             },
         }
         
@@ -384,7 +448,7 @@ def handle_checkout_completed(session):
         print(f"[Stripe] User upgraded to {tier} (metadata={tier_from_metadata}, price_id={price_id})")
 
         user_ref = db.collection('users').document(user_id)
-        user_ref.update({
+        update_payload = {
             'subscriptionTier': tier,
             'tier': tier,  # Keep for backward compatibility
             'maxCredits': tier_config['credits'],
@@ -395,7 +459,12 @@ def handle_checkout_completed(session):
             'lastCreditReset': datetime.now().isoformat(),
             'upgraded_at': datetime.now().isoformat(),
             'updatedAt': datetime.now().isoformat()
-        })
+        }
+        # Decision #5: if this checkout began as a trial, consume the one-per-
+        # account trial token so neither path can grant a second one.
+        if sub_status == 'trialing':
+            update_payload['trialUsedAt'] = datetime.utcnow()
+        user_ref.update(update_payload)
         
     except Exception as e:
         print(f"Error handling checkout: {e}")

@@ -16,7 +16,7 @@ import { careerTrackByLabel } from "@/utils/careerTrackMapping";
 import { EMPTY_PREFILL } from "@/utils/onboardingPrefill";
 import OfferloopLogo from "@/assets/offerloop_logo2.png";
 
-// Mirrors Pricing.tsx — checkout adds the 30-day trial server-side.
+// Mirrors Pricing.tsx; checkout adds the trial server-side (audience-aware length).
 const STRIPE_PUBLISHABLE_KEY =
   "pk_live_51S4BB8ERY2WrVHp1acXrKE6RBG7NBlfHcMZ2kf7XhCX2E5g8Lasedx6ntcaD1H4BsoUMBGYXIcKHcAB4JuohLa2B00j7jtmWnB";
 const stripePromise = loadStripe(STRIPE_PUBLISHABLE_KEY);
@@ -202,12 +202,29 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
     }
   };
 
-  const handleStartTrial = async (priceId: string) => {
+  const handleStartTrial = async (tier: 'pro' | 'elite', priceId: string) => {
     if (submitting) return;
     setSubmitting(true);
     try {
       await persistOnboarding();
       const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+
+      // Pro trials run on the no-card Path A. Elite has no standalone trial
+      // (the pricing page declares Elite trial = no), so it goes straight to
+      // direct paid checkout. A Pro user who already used their trial returns
+      // 409 here and falls through to checkout too.
+      if (tier === 'pro') {
+        const trialRes = await fetch(`${BACKEND_URL}/api/users/start-trial`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({}),
+        });
+        if (trialRes.ok) {
+          navigate(resolveDestination(), { replace: true });
+          return;
+        }
+      }
+
       const res = await fetch(`${BACKEND_URL}/api/create-checkout-session`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -225,11 +242,11 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
         await stripe.redirectToCheckout({ sessionId: data.sessionId });
         return;
       }
-      toast.error("Couldn't start checkout — you're on the free plan for now.");
+      toast.error("Couldn't start checkout. You're on the free plan for now.");
       navigate(resolveDestination(), { replace: true });
     } catch (e) {
       console.error("Trial checkout failed:", e);
-      toast.error("Couldn't start checkout — you're on the free plan for now.");
+      toast.error("Couldn't start checkout. You're on the free plan for now.");
       navigate(resolveDestination(), { replace: true });
     }
   };
