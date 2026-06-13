@@ -226,6 +226,15 @@ export interface LoopActivityItem {
    *  agent_actions started persisting it. */
   email?: string;
   createdAt: string;
+  /** Firestore contact id, for the per-card action buttons (My Network /
+   *  Inbox / Find). Absent on job/company items and legacy rows. */
+  contactId?: string;
+  /** True when the contact has outreach (a draft, thread, or stage past new).
+   *  Gates the "View in Inbox" button — bare contacts show only My Network. */
+  hasOutreach?: boolean;
+  /** True for hiring-manager rows — routes the card button to the Find >
+   *  Hiring Managers tab instead of the My Network / Inbox pair. */
+  isHm?: boolean;
   /** Pairs a job posting with its founder-draft sub-card in the activity
    *  feed. Items that share a groupKey render as a hierarchy (job primary,
    *  draft secondary) in roles mode. Absent on:

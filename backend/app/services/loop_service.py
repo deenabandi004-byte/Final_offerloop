@@ -788,6 +788,11 @@ def _action_to_items(
                 "subtitle": subtitle or "—",
                 "linkTo": link,
                 "createdAt": created_at,
+                # Explicit fields for the per-card action buttons (My Network /
+                # Inbox / Find), so the frontend doesn't parse them out of linkTo.
+                "contactId": contact_id,
+                "hasOutreach": person_has_outreach,
+                "isHm": is_hm,
             }
             if source_job_id:
                 contact_item["groupKey"] = source_job_id
@@ -819,6 +824,12 @@ def _action_to_items(
                     "linkTo": link,
                     "external": external,
                     "createdAt": created_at,
+                    # A draft always means outreach exists. isHm keeps the card's
+                    # button routing aligned with the contact-row rule (HM -> Find
+                    # tab; person -> My Network + Inbox).
+                    "contactId": contact_id,
+                    "hasOutreach": True,
+                    "isHm": is_hm,
                     # Internal: lets get_loop_activity re-resolve the live
                     # contact doc so legacy actions (saved before email /
                     # gmailThreadId were stamped on saved_contacts) still

@@ -12,8 +12,10 @@ import {
   ArrowLeft,
   ArrowRight,
   Briefcase,
+  Building2,
   Calendar,
   ChevronDown,
+  Inbox,
   Loader2,
   Mail,
   Pause,
@@ -914,6 +916,30 @@ function EmailsSection({ items, loop }: { items: LoopActivityItem[]; loop: Loop 
   );
 }
 
+// Small bordered-pill action button used on the email/contact cards. Mirrors
+// the "Remove" button vocabulary in the hero (white bg, 1px var(--line)) —
+// explicitly not a colored pill, per the AI-slop guardrails.
+function CardActionButton({
+  to,
+  icon: Icon,
+  label,
+}: {
+  to: string;
+  icon: typeof Users;
+  label: string;
+}) {
+  return (
+    <Link
+      to={to}
+      className="inline-flex items-center gap-1.5 rounded-md border bg-white px-2.5 py-1.5 text-[12px] font-medium transition-colors hover:bg-[var(--paper-2)]"
+      style={{ borderColor: "var(--line)", color: "var(--ink-2)", textDecoration: "none" }}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {label}
+    </Link>
+  );
+}
+
 function EmailRow({
   item,
   index,
@@ -927,10 +953,12 @@ function EmailRow({
   // surface it as the secondary line. Real per-contact reply status isn't
   // in the per-Loop feed yet; everything reads as "Sent" until the
   // backend joins reply state into the activity stream.
-  const linkProps = item.external
-    ? { href: item.linkTo, target: "_blank" as const, rel: "noreferrer" }
-    : null;
-  const inner = (
+  const contactId = item.contactId || "";
+  // HM cards keep their single Find-tab destination; person cards get the
+  // My Network / Inbox pair. "View in Inbox" only when the contact has
+  // outreach (a draft, thread, or stage past new) — bare contacts show only
+  // "View in My Network".
+  return (
     <div
       style={{
         display: "flex",
@@ -992,6 +1020,32 @@ function EmailRow({
             </span>
           </div>
         )}
+        {contactId && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+            {item.isHm ? (
+              <CardActionButton
+                to={`/find?tab=hiring-managers&contact=${contactId}`}
+                icon={Building2}
+                label="View in Find"
+              />
+            ) : (
+              <>
+                <CardActionButton
+                  to={`/my-network/people?contact=${contactId}`}
+                  icon={Users}
+                  label="View in My Network"
+                />
+                {item.hasOutreach && (
+                  <CardActionButton
+                    to={`/outbox?contact=${contactId}`}
+                    icon={Inbox}
+                    label="View in Inbox"
+                  />
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
       <div
         style={{
@@ -1008,18 +1062,6 @@ function EmailRow({
         </span>
       </div>
     </div>
-  );
-  return linkProps ? (
-    <a {...linkProps} style={{ display: "block", textDecoration: "none", color: "inherit" }}>
-      {inner}
-    </a>
-  ) : (
-    <Link
-      to={item.linkTo}
-      style={{ display: "block", textDecoration: "none", color: "inherit" }}
-    >
-      {inner}
-    </Link>
   );
 }
 
