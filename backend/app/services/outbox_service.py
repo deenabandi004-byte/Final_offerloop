@@ -185,6 +185,11 @@ def _contact_to_dict(contact_id, data):
         "lastSyncError": data.get("lastSyncError"),
         "lastSyncAt": data.get("lastSyncAt"),
         "needsManualSync": needs_manual_sync,
+        # Provenance — lets the tracker / My Network badge a Loop-sourced row
+        # and lets approve-send verify Loop ownership. Empty string for manual
+        # contacts (source is only set by the agent / queue / HM paths).
+        "source": data.get("source") or "",
+        "loopId": data.get("loopId") or "",
         # Legacy aliases for frontend compatibility (remove after Outbox.tsx migration)
         "contactName": name,
         "jobTitle": data.get("jobTitle") or "",

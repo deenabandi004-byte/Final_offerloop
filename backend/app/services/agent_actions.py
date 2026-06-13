@@ -38,6 +38,70 @@ def _perplexity_only(uid: str) -> bool:
         return False
 
 
+# Identity + enrichment fields a Loop may FILL on an adopted contact, but
+# never overwrite. Deliberately excludes pipelineStage, emailSubject/Body,
+# gmailDraftId/Url/ThreadId, inOutbox, and source — a "pure adopt" enriches
+# and attributes an existing contact, it never stomps their outreach state or
+# relabels a manually-added contact as agent-sourced.
+_ADOPT_FILL_KEYS = (
+    "firstName", "lastName", "linkedinUrl", "company", "jobTitle",
+    "college", "location", "city", "state", "pdlId",
+    "warmthScore", "warmthTier", "warmthLabel",
+    "enrichmentTalkingPoints", "enrichmentRecentActivity",
+    "enrichmentCitations", "enrichedAt",
+    "perplexityMediaAppearances", "perplexityPublishedWriting",
+    "perplexityNewsMentions", "linkedinRecentPosts",
+    "companyRecentNews", "companyDescription",
+)
+
+
+def _find_existing_contact(contacts_ref, email: str):
+    """Re-query by lowercased email AT WRITE TIME so a contact a Loop just
+    re-discovered is adopted instead of duplicated. This is the race mitigation
+    for the discover->write window: the upstream exclusion sets are built once
+    at the top of the cycle, so a contact added (manually or by a sibling Loop)
+    mid-cycle would otherwise slip through and create a duplicate.
+
+    Returns (doc_id, data) for the first match, or (None, None)."""
+    key = (email or "").strip().lower()
+    if not key:
+        return None, None
+    snap = list(contacts_ref.where("email", "==", key).limit(1).stream())
+    if snap:
+        return snap[0].id, (snap[0].to_dict() or {})
+    return None, None
+
+
+def _build_adopt_update(existing: dict, incoming: dict, loop_id: str,
+                        now_iso: str) -> dict:
+    """Build a NON-DESTRUCTIVE update for a contact a Loop re-discovered.
+
+    Rules (locked with the unification decision):
+      - fill empty fields only; never overwrite manually-entered data
+      - stamp loopId only if absent (don't steal a contact from another Loop)
+      - backfill draftToEmail for Gmail reply-match parity
+      - never regress pipelineStage; never touch the draft / thread / email body
+      - leave `source` untouched (a manual contact stays manual)
+
+    Returns {} when there is nothing to fill, so the caller can skip the write.
+    """
+    update: dict = {}
+    for k in _ADOPT_FILL_KEYS:
+        v = incoming.get(k)
+        if v not in (None, "", [], {}) and not existing.get(k):
+            update[k] = v
+    if loop_id and not existing.get("loopId"):
+        update["loopId"] = loop_id
+    key_email = (incoming.get("email") or "").strip().lower()
+    if key_email and not existing.get("draftToEmail"):
+        update["draftToEmail"] = key_email
+    if update:
+        # Only surface the adopt on the tracker timeline if we actually
+        # changed something.
+        update["lastActivityAt"] = now_iso
+    return update
+
+
 def _try_auto_send(
     uid: str,
     config: dict,
@@ -683,6 +747,10 @@ def execute_find_and_draft(
     # Phase 9 — accumulates AUTO_SEND_CREDIT_COST per contact whose send
     # actually fired. Added to credits_spent at the bottom.
     auto_send_credits = 0
+    # Contacts the Loop re-discovered that already existed. Adopted contacts are
+    # enriched in place and NOT appended to saved_contacts, so they cost no
+    # discovery credits and don't inflate contactsFound / the activity feed.
+    adopted_count = 0
 
     for idx, contact in enumerate(filtered):
         email = (contact.get("Email") or contact.get("WorkEmail") or contact.get("email") or "").strip()
@@ -694,6 +762,7 @@ def execute_find_and_draft(
             "firstName": first_name,
             "lastName": last_name,
             "email": email,
+            "draftToEmail": email.strip().lower(),
             "linkedinUrl": (contact.get("LinkedIn") or contact.get("linkedinUrl") or "").strip(),
             "company": (contact.get("Company") or contact.get("company") or "").strip(),
             "jobTitle": (contact.get("Title") or contact.get("jobTitle") or "").strip(),
@@ -759,6 +828,24 @@ def execute_find_and_draft(
         if contact.get("company_description"):
             contact_doc["companyDescription"] = contact["company_description"][:1000]
 
+        # Non-destructive adopt: re-query by email at write time. If this
+        # person already exists (manual add or a sibling Loop mid-cycle),
+        # enrich them in place and move on — never draft, send, duplicate,
+        # or charge for a contact that was already theirs.
+        existing_id, existing_data = _find_existing_contact(contacts_ref, email)
+        if existing_id:
+            update = _build_adopt_update(
+                existing_data, contact_doc, config.get("loopId", ""), now_iso
+            )
+            if update:
+                contacts_ref.document(existing_id).update(update)
+            adopted_count += 1
+            logger.info(
+                "agent_adopt uid=%s contact_id=%s loop=%s filled=%s",
+                uid, existing_id, config.get("loopId", ""), sorted(update.keys()),
+            )
+            continue
+
         # Create Gmail draft if possible
         if email_data and email.strip():
             try:
@@ -820,6 +907,7 @@ def execute_find_and_draft(
 
     return {
         "contactsFound": len(saved_contacts),
+        "contactsAdopted": adopted_count,
         "emailsDrafted": sum(1 for c in saved_contacts if c["hasEmail"]),
         "contacts": saved_contacts,
         "creditsSpent": credits_spent,
@@ -1254,6 +1342,9 @@ def execute_find_hiring_managers(
     saved = []
     # Phase 9 — see execute_find_and_draft for rationale.
     auto_send_credits = 0
+    # See execute_find_and_draft — adopted HMs are enriched in place and not
+    # appended to `saved`, so they cost nothing and don't inflate hmsFound.
+    hm_adopted = 0
 
     for idx, hm in enumerate(hms):
         # Get email data from the emails list if available
@@ -1302,6 +1393,23 @@ def execute_find_hiring_managers(
             source_job_id=source_job_id,
             loop_id=loop_id,
         )
+
+        # Non-destructive adopt (same contract as execute_find_and_draft).
+        # Also closes a latent dup bug: this path previously .add()ed HM
+        # contacts with no dedup at all.
+        existing_id, existing_data = _find_existing_contact(contacts_ref, hm_email)
+        if existing_id:
+            update = _build_adopt_update(
+                existing_data, contact_doc, loop_id, now_iso
+            )
+            if update:
+                contacts_ref.document(existing_id).update(update)
+            hm_adopted += 1
+            logger.info(
+                "agent_adopt_hm uid=%s contact_id=%s loop=%s filled=%s",
+                uid, existing_id, loop_id, sorted(update.keys()),
+            )
+            continue
 
         # Create Gmail draft
         if email_body and hm_email:
@@ -1362,7 +1470,7 @@ def execute_find_hiring_managers(
             logger.warning("HM credit deduction failed for agent uid=%s", uid)
 
     logger.info("Agent find_hiring_managers: uid=%s found %d HMs at %s", uid, len(saved), company)
-    return {"hmsFound": len(saved), "contacts": saved, "creditsSpent": credits}
+    return {"hmsFound": len(saved), "hmsAdopted": hm_adopted, "contacts": saved, "creditsSpent": credits}
 
 
 # ── FOLLOW_UP executor ────────────────────────────────────────────────────
