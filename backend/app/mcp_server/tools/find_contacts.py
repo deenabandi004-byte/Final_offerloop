@@ -248,15 +248,17 @@ def _build_contacts(raw_contacts: list[dict], warmth: dict) -> list[Contact]:
     out: list[Contact] = []
     for idx, c in enumerate(raw_contacts):
         w = warmth.get(idx) or {}
+        signals = w.get("signals") or []
+        matched_school = _matched_school_from_signals(signals)
         out.append(Contact(
             name=_compose_name(c),
             title=c.get("Title") or c.get("JobTitle") or None,
             company=c.get("Company") or c.get("company") or None,
             linkedin_url=c.get("LinkedIn") or c.get("linkedin_url") or None,
-            education=_compose_education(c),
+            education=_compose_education(c, matched_school=matched_school),
             recent_career_move=_compose_recent_move(c),
             personalization_hook=w.get("label") or _fallback_hook(c, w),
-            relationship_type=_relationship_type_from_signals(w.get("signals") or []),
+            relationship_type=_relationship_type_from_signals(signals),
             warmth=w.get("tier"),
         ))
     return out
@@ -269,11 +271,103 @@ def _compose_name(c: dict) -> str:
     return name or (c.get("full_name") or c.get("Name") or "Unknown")
 
 
-def _compose_education(c: dict) -> Optional[str]:
+def _compose_education(c: dict, *, matched_school: Optional[str] = None) -> Optional[str]:
+    """Return the contact's displayed education.
+
+    When warmth scoring fires the same_university signal, `matched_school`
+    is set to the school that triggered the match. In that case, surface
+    THAT school's entry (with degree + year context from EducationTop)
+    rather than the contact's `College` field. PDL sets `College` to the
+    chronological-first non-high-school entry (typically undergrad), so
+    for a contact who did undergrad at BYU and a master's at USC, the
+    raw `College` says BYU but the alumni connection that warmth detected
+    is the USC degree. Without this override, the displayed education
+    contradicts the relationship_type=alumni tag.
+
+    When no same_university signal fired, fall back to the existing
+    `College`-only display.
+    """
+    if matched_school:
+        override = _format_matched_education_entry(c, matched_school)
+        if override:
+            return override
+
     college = (c.get("College") or "").strip()
     if not college:
         return None
     return college
+
+
+def _matched_school_from_signals(signals: list[dict]) -> Optional[str]:
+    """Return the matched school name when same_university signal is present.
+
+    The detail payload format varies: warmth_scoring.py emits it as a string
+    (just the school name), but defensively handle a dict shape too
+    ({"university": ..., "university_short": ..., "mascot": ...}) since
+    that's how detect_commonality builds it before assignment.
+    """
+    for s in signals:
+        if (s.get("signal") or "").strip() != "same_university":
+            continue
+        d = s.get("detail")
+        if isinstance(d, dict):
+            uni = (d.get("university") or "").strip()
+            if uni:
+                return uni
+        elif isinstance(d, str):
+            uni = d.strip()
+            if uni:
+                return uni
+    return None
+
+
+def _format_matched_education_entry(c: dict, matched_school: str) -> Optional[str]:
+    """Look up the matched school's entry in `EducationTop` to preserve
+    degree + year context (e.g. "University of Southern California - MBA
+    (2022 - 2024)").
+
+    `EducationTop` is the pre-formatted education history that
+    pdl_client._format_pdl_contact builds (line 1442-1445), of the form
+    "School - Degree (start - end); School - Degree (start - end)".
+    We split on '; ' and find the entry whose school portion matches
+    `matched_school` via the same variant-set logic personalization.py
+    uses (get_university_variants intersection). When EducationTop is
+    missing or no entry matches, return just `matched_school` so the
+    displayed value at least names the right school, even without degree
+    context.
+    """
+    matched_school = (matched_school or "").strip()
+    if not matched_school:
+        return None
+
+    edu_top = (c.get("EducationTop") or "").strip()
+    if not edu_top or edu_top.lower() == "not available":
+        return matched_school
+
+    try:
+        from app.utils.users import get_university_variants
+        matched_variants = get_university_variants(matched_school)
+    except Exception:
+        matched_variants = set()
+
+    matched_lower = matched_school.lower()
+
+    for entry in edu_top.split(";"):
+        entry = entry.strip()
+        if not entry:
+            continue
+        # Each entry is "School Name - Degree (start - end)"; pull off
+        # the school portion before the degree separator.
+        school_portion = entry.split(" - ", 1)[0].strip()
+        if not school_portion:
+            continue
+        if matched_variants:
+            if matched_variants & get_university_variants(school_portion):
+                return entry
+        elif matched_lower in school_portion.lower():
+            return entry
+
+    return matched_school
 
 
 def _compose_recent_move(c: dict) -> Optional[str]:

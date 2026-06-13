@@ -522,3 +522,69 @@ def test_smithery_request_without_user_header_falls_back_with_warning(caplog):
         f"expected a 'smithery_gateway_no_user_header' WARNING; got: "
         f"{[(r.levelname, r.message) for r in caplog.records]}"
     )
+
+
+# ── 15. find_contacts education display reflects the matched school ─────────
+
+
+def test_find_contacts_education_field_uses_matched_school_when_alumni_signal_fires():
+    """When PDL returns a contact whose educationArray contains BOTH the
+    user's school (e.g. USC) AND another school (e.g. BYU), and warmth
+    scoring fires same_university because USC appears in their full
+    education history, the displayed `education` field must surface
+    USC's entry (with degree + year context from EducationTop), NOT
+    the contact's `College` field — which PDL sets to the chronological-
+    first non-high-school entry (typically undergrad).
+
+    Without this fix, a BYU-undergrad + USC-MBA contact returned by a
+    "USC alumni at Goldman" query would show education="Brigham Young
+    University" alongside relationship_type="alumni", which looks like
+    a false positive even though the alumni connection is real.
+    """
+    from app.mcp_server.tools.find_contacts import _build_contacts
+
+    contact = {
+        "FirstName": "Jordan",
+        "LastName": "Kim",
+        "Title": "Associate",
+        "Company": "Goldman Sachs",
+        "LinkedIn": "https://linkedin.com/in/jordankim",
+        # PDL's normalized contact: College = chronological-first (undergrad)
+        "College": "Brigham Young University",
+        # EducationTop preserves the full history with degree + year context
+        "EducationTop": (
+            "Brigham Young University - bachelor's degree (2016 - 2020); "
+            "University of Southern California - master's degree (2020 - 2022)"
+        ),
+    }
+    warmth = {
+        0: {
+            "tier": "warm",
+            "score": 62,
+            "label": "Fellow Trojan",
+            "signals": [
+                {
+                    "signal": "same_university",
+                    "points": 20,
+                    "detail": "University of Southern California",
+                },
+            ],
+        },
+    }
+
+    [out] = _build_contacts([contact], warmth)
+
+    assert out.relationship_type == "alumni"
+    # Displayed education must reflect USC (the matched school), NOT BYU
+    assert out.education is not None
+    assert "Southern California" in out.education, (
+        f"education must surface the matched school (USC); got: {out.education!r}"
+    )
+    assert "Brigham Young" not in out.education, (
+        f"education must not show the unrelated undergrad (BYU); got: {out.education!r}"
+    )
+    # Degree + year context from EducationTop must be preserved
+    assert "master" in out.education.lower() or "2022" in out.education, (
+        f"override must preserve degree/year context, not just the school name; "
+        f"got: {out.education!r}"
+    )
