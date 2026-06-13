@@ -373,6 +373,12 @@ export default function DashboardPage() {
   /* ---- loops (the agent, reframed) ---- */
   const agentConfig = useAgentConfig();
   const { status: loopStatus, pendingCount: loopPending } = useAgentSidebarStatus();
+  // While the status is still loading (undefined) we render a height-locked
+  // skeleton rather than defaulting to the tall setup card, which would shift
+  // when it resolves to the active-loop card. isLoopSetup keeps treating
+  // undefined as "setup" so the cycles query stays disabled until we know the
+  // real status.
+  const isLoopLoading = loopStatus === undefined;
   const isLoopSetup = loopStatus === "setup" || loopStatus === undefined;
   const cyclesQuery = useAgentCycles(1, !isLoopSetup);
   const { runNow, isRunNowPending, isRunning, cycleProgress } = useCycleRunner();
@@ -447,11 +453,15 @@ export default function DashboardPage() {
   const replyRate = outbox?.replyRate != null
     ? Math.round(outbox.replyRate * (outbox.replyRate <= 1 ? 100 : 1))
     : 0;
+  // Credits come from the auth user (present at first paint), so that cell
+  // never shows a skeleton. The other three are statsQuery-driven, so they
+  // show a value-sized skeleton while it loads instead of flashing 0.
+  const statsPending = statsQuery.isLoading;
   const bandMetrics = [
-    { label: "Intros sent", value: String(sent) },
-    { label: "Replies", value: String(replied) },
-    { label: "Reply rate", value: `${replyRate}%` },
-    { label: "Credits left", value: String(user?.credits ?? 0) },
+    { label: "Intros sent", value: String(sent), pending: statsPending },
+    { label: "Replies", value: String(replied), pending: statsPending },
+    { label: "Reply rate", value: `${replyRate}%`, pending: statsPending },
+    { label: "Credits left", value: String(user?.credits ?? 0), pending: false },
   ];
 
   /* ---- welcome line - replies waiting + loop actions to review ---- */
@@ -760,7 +770,11 @@ export default function DashboardPage() {
                         key={m.label}
                         className="rounded-st-xl border border-white/15 bg-white/10 px-3.5 py-2"
                       >
-                        <p className="font-serif text-[22px] leading-none text-white">{m.value}</p>
+                        {m.pending ? (
+                          <Skeleton className="h-[22px] w-9 rounded bg-white/25" />
+                        ) : (
+                          <p className="font-serif text-[22px] leading-none text-white">{m.value}</p>
+                        )}
                         <p className="mt-1 text-[11.5px] font-medium text-white/70">{m.label}</p>
                       </div>
                     ))}
@@ -798,6 +812,25 @@ export default function DashboardPage() {
                   /account-settings for now (Phase 1). Phase 2 swaps that to a
                   new free-flow /profile page. */}
               {(() => {
+                // Reserve the widget height and show a skeleton while the
+                // profile loads, so the prose (1 to 3 lines) never reflows the
+                // page and we never flash the "set up your profile" fallback at
+                // users who already have one. minHeight matches the loaded
+                // section so the swap causes no shift.
+                if (profileQuery.isLoading) {
+                  return (
+                    <section
+                      className="rounded-st-xl border border-line bg-white"
+                      style={{ padding: "20px 24px", minHeight: 132 }}
+                    >
+                      <div className="space-y-3">
+                        <Skeleton className="h-[20px] w-[94%] rounded" />
+                        <Skeleton className="h-[20px] w-[60%] rounded" />
+                      </div>
+                      <Skeleton className="mt-[18px] h-[20px] w-48 rounded" />
+                    </section>
+                  );
+                }
                 const p = profileQuery.data as Profile | undefined;
                 const uni = p?.university;
                 const role = p?.preferredJobRole || p?.extractedRoles?.[0] || p?.careerTrack;
@@ -888,7 +921,7 @@ export default function DashboardPage() {
                 return (
                   <section
                     className="animate-fadeInUp rounded-st-xl border border-line bg-white"
-                    style={{ padding: "20px 24px" }}
+                    style={{ padding: "20px 24px", minHeight: 132 }}
                   >
                     <p
                       style={{
@@ -987,12 +1020,9 @@ export default function DashboardPage() {
               <section className="animate-fadeInUp">
                 <ZoneHeader title="Needs you now" count={needs.length} />
                 {dataLoading ? (
-                  <div className="space-y-2">
-                    <Skeleton className="h-[58px] w-full rounded-st-xl" />
-                    <Skeleton className="h-[58px] w-full rounded-st-xl" />
-                  </div>
+                  <Skeleton className="h-[58px] w-full rounded-st-xl" />
                 ) : needs.length === 0 ? (
-                  <div className={`${CARD} flex items-center gap-2.5 px-4 py-3`}>
+                  <div className={`${CARD} flex min-h-[58px] items-center gap-2.5 px-4 py-3`}>
                     <CircleCheck className="h-[18px] w-[18px] text-[var(--accent)]" />
                     <p className="text-[13.5px] text-[#475569]">
                       You're all caught up - nothing needs you right now.
@@ -1071,7 +1101,9 @@ export default function DashboardPage() {
                   }
                 />
 
-                {isLoopSetup ? (
+                {isLoopLoading ? (
+                  <Skeleton className="h-[140px] w-full rounded-st-2xl" />
+                ) : isLoopSetup ? (
                   <div
                     className="rounded-st-2xl border border-[#BBF7D0] p-5 sm:p-6"
                     style={{ background: "linear-gradient(135deg,#F0FDF4 0%,#FFFFFF 65%)" }}
@@ -1170,8 +1202,10 @@ export default function DashboardPage() {
               </section>
 
               {/* ── 5. Follow-ups (demoted) ───────────────────────── */}
-              {(recCards.length > 0 || dataLoading) && (
-                <section className="animate-fadeInUp">
+              {/* Always mounted so it reserves space. When there are no
+                  follow-ups it shows an empty state instead of unmounting,
+                  which would collapse the Tools row upward. */}
+              <section className="animate-fadeInUp">
                   <ZoneHeader
                     title="Follow-ups"
                     action={
@@ -1185,8 +1219,15 @@ export default function DashboardPage() {
                   />
                   {dataLoading ? (
                     <div className="grid gap-3 sm:grid-cols-2">
-                      <Skeleton className="h-[110px] rounded-st-xl" />
-                      <Skeleton className="h-[110px] rounded-st-xl" />
+                      <Skeleton className="h-[150px] rounded-st-xl" />
+                      <Skeleton className="h-[150px] rounded-st-xl" />
+                    </div>
+                  ) : recCards.length === 0 ? (
+                    <div className={`${CARD} flex min-h-[72px] items-center gap-2.5 px-4 py-3`}>
+                      <CircleCheck className="h-[18px] w-[18px] text-[var(--accent)]" />
+                      <p className="text-[13.5px] text-[#475569]">
+                        No follow-ups right now. Scout will surface them as conversations go quiet.
+                      </p>
                     </div>
                   ) : (
                     <div className="grid gap-3 sm:grid-cols-2">
@@ -1219,8 +1260,7 @@ export default function DashboardPage() {
                       ))}
                     </div>
                   )}
-                </section>
-              )}
+              </section>
 
               {/* ── 6. Tools (demoted chip row) ───────────────────── */}
               <section className="animate-fadeInUp">

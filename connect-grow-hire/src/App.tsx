@@ -26,9 +26,9 @@ import UscBeta from "@/pages/UscBeta";
 // render it, so its heavy image/component tree must stay out of the critical
 // entry chunk.
 const Index = React.lazy(() => import("./pages/Index"));
-// The WebGL gradient background (ogl) is landing-only and decorative. Lazy so
-// the WebGL code never ships on the critical path; mounts with a null fallback
-// only when an unauthenticated visitor actually sees the landing page.
+// The gradient background is landing-only and decorative (pure CSS/React, no
+// WebGL). Lazy so it never ships on the critical path. Mounts with a null
+// fallback only when an unauthenticated visitor actually sees the landing page.
 const DynamicGradientBackground = React.lazy(() =>
   import("./components/background/DynamicGradientBackground").then((m) => ({
     default: m.DynamicGradientBackground,
@@ -398,10 +398,10 @@ const ScoutRedirect: React.FC = () => {
 };
 
 /* ---------------- Conditional Background Wrapper ----------------
-   Decides whether to mount the landing WebGL tree BEFORE rendering it.
+   Decides whether to mount the landing background tree BEFORE rendering it.
    Authed users are redirected off "/" by PublicRoute, and during auth
-   resolution we show a full-screen loader — in neither case should the
-   ogl/WebGL background mount. So gate it on a visitor who will actually
+   resolution we show a full-screen loader, so in neither case should the
+   decorative background mount. Gate it on a visitor who will actually
    see the landing: on "/", not loading, and either signed out or no user. */
 const ConditionalBackground: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
