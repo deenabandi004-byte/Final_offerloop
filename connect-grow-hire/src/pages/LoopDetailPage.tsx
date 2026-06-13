@@ -442,6 +442,7 @@ export default function LoopDetailPage() {
                   </div>
 
                   <EmailsSection items={partitioned.drafts} loop={loop} />
+                  <FoundContactsSection items={partitioned.contacts} />
                   <RepliesSection loop={loop} />
                   <DiscoveredRow
                     companies={partitioned.companies}
@@ -1057,6 +1058,148 @@ function EmailRow({
         }}
       >
         <StatusTag status="sent" align="right" />
+        <span style={{ fontSize: 11, color: "var(--ink-3)" }}>
+          {relativeTime(item.createdAt)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ── Found, not yet emailed — people the Loop surfaced but hasn't drafted to ──
+
+function FoundContactsSection({ items }: { items: LoopActivityItem[] }) {
+  // Only people with no outreach yet (no draft / thread / stage past new).
+  // The drafted ones already live in the Emails section above; rendering them
+  // here too would double-list the same person. Adopted contacts (people the
+  // Loop re-discovered that were already in your network) are not in this
+  // stream — the adopt path enriches them in place without emitting an
+  // activity item — so they don't appear here.
+  const notEmailed = useMemo(() => items.filter((it) => !it.hasOutreach), [items]);
+  if (notEmailed.length === 0) return null;
+  return (
+    <div style={{ marginTop: 36 }}>
+      <SectionHead
+        kicker="Not yet contacted"
+        title="Found,"
+        italic="not yet emailed."
+        right={
+          <span style={{ fontFamily: MONO, fontSize: 11.5, color: "var(--ink-3)" }}>
+            {notEmailed.length} found
+          </span>
+        }
+      />
+      <div
+        style={{
+          border: "1px solid var(--line)",
+          borderRadius: 16,
+          background: "#fff",
+          padding: "6px 18px",
+          boxShadow: "var(--shadow-sm)",
+        }}
+      >
+        {notEmailed.map((it, i) => (
+          <ContactRow key={it.id} item={it} index={i + 1} last={i === notEmailed.length - 1} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ContactRow({
+  item,
+  index,
+  last,
+}: {
+  item: LoopActivityItem;
+  index: number;
+  last: boolean;
+}) {
+  // Same card vocabulary as EmailRow, minus the "Sent" status and the Inbox
+  // button — these contacts have no outreach by definition, so the only
+  // action is opening them in My Network.
+  const contactId = item.contactId || "";
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 18,
+        alignItems: "flex-start",
+        padding: "16px 4px",
+        borderBottom: last ? "none" : "1px solid var(--line-2)",
+      }}
+    >
+      <span
+        style={{
+          fontFamily: "var(--font-display)",
+          fontSize: 22,
+          color: "var(--ink-3)",
+          width: 30,
+          fontVariantNumeric: "tabular-nums",
+          lineHeight: 1.3,
+          flexShrink: 0,
+        }}
+      >
+        {String(index).padStart(2, "0")}
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 9,
+            flexWrap: "wrap",
+            marginBottom: 4,
+          }}
+        >
+          <span
+            style={{
+              fontSize: 14.5,
+              fontWeight: 600,
+              color: "var(--ink)",
+              letterSpacing: "-0.01em",
+            }}
+          >
+            {item.title}
+          </span>
+        </div>
+        {item.subtitle && item.subtitle !== "—" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+            <Briefcase size={13} style={{ color: "var(--ink-3)" }} />
+            <span
+              style={{
+                fontFamily: MONO,
+                fontSize: 12.5,
+                color: "var(--ink-2)",
+                fontWeight: 500,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {item.subtitle}
+            </span>
+          </div>
+        )}
+        {contactId && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+            <CardActionButton
+              to={`/my-network/people?contact=${contactId}`}
+              icon={Users}
+              label="View in My Network"
+            />
+          </div>
+        )}
+      </div>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-end",
+          gap: 8,
+          flexShrink: 0,
+        }}
+      >
         <span style={{ fontSize: 11, color: "var(--ink-3)" }}>
           {relativeTime(item.createdAt)}
         </span>
