@@ -208,6 +208,14 @@ def create_app() -> Flask:
     app.register_blueprint(loop_notifications_bp)
     app.register_blueprint(metrics_bp)
 
+    # --- MCP server (anonymous IP-based, mounts /mcp + /api/mcp/health) ---
+    from .app.mcp_server.flask_mount import register_mcp_blueprint
+    register_mcp_blueprint(app)
+
+    # --- /claim?token=xyz attribution landing for MCP paywall ---
+    from .app.routes.claim import claim_bp
+    app.register_blueprint(claim_bp)
+
     # --- Debug route to check frontend build (dev only) ---
     @app.route('/api/debug/frontend')
     def debug_frontend():
