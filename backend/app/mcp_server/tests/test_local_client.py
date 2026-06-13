@@ -432,7 +432,8 @@ def test_smithery_request_with_user_header_uses_connection_id(caplog):
 
 def test_direct_request_without_smithery_header_uses_xff(caplog):
     """Path 3: a direct (non-Smithery) request uses X-Forwarded-For
-    first hop, preserving the pre-Smithery behavior."""
+    first hop, preserving the pre-Smithery behavior. Logged at DEBUG
+    (not INFO) so prod logs stay quiet."""
     from app.mcp_server.ip_utils import extract_client_ip
 
     req = _FakeReq(headers={
@@ -440,11 +441,62 @@ def test_direct_request_without_smithery_header_uses_xff(caplog):
         "User-Agent": "curl/8.4.0",
     })
 
-    with caplog.at_level("INFO"):
+    with caplog.at_level("DEBUG"):
         key = extract_client_ip(req)
 
     assert key == "198.51.100.42"
-    assert any("direct_ip resolved" in r.message for r in caplog.records)
+    assert any("direct_ip resolved" in r.message and r.levelname == "DEBUG"
+               for r in caplog.records)
+
+
+def test_x_smithery_header_from_non_smithery_traffic_is_ignored(caplog):
+    """Trust-boundary regression: a request that sends
+    X-Smithery-Connection but does NOT look like Smithery traffic
+    (no Smithery UA, no smithery.ai / run.tools Origin/Referer) must
+    have the header IGNORED. Otherwise a scraper reading our public
+    source could rotate the header value to mint unlimited
+    rate-limit buckets and bypass the cap entirely.
+
+    The key returned must be the X-Forwarded-For IP, never
+    'smithery:{anything}'. A WARNING is logged so the attempt is
+    auditable.
+    """
+    from app.mcp_server.ip_utils import extract_client_ip
+
+    req = _FakeReq(headers={
+        "X-Smithery-Connection": "attacker_chosen_1",
+        "User-Agent": "curl/8.4.0",  # clearly not Smithery
+        "X-Forwarded-For": "198.51.100.42",
+    })
+
+    with caplog.at_level("WARNING"):
+        key = extract_client_ip(req)
+
+    assert not key.startswith("smithery:"), (
+        f"untrusted X-Smithery-Connection must be ignored; got {key!r}"
+    )
+    assert key == "198.51.100.42"
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert any("x_smithery_header_without_smithery_context" in r.message
+               for r in warnings), (
+        "expected a WARNING audit log when the header is sent without "
+        f"Smithery context; got: {[(r.levelname, r.message) for r in caplog.records]}"
+    )
+
+    # And rotating attacker-chosen values must keep landing in the
+    # same IP-based bucket, not unique per-value buckets.
+    from app.mcp_server.ip_utils import hash_ip
+    bucket_a = hash_ip(key)
+    req2 = _FakeReq(headers={
+        "X-Smithery-Connection": "attacker_chosen_2",
+        "User-Agent": "curl/8.4.0",
+        "X-Forwarded-For": "198.51.100.42",
+    })
+    bucket_b = hash_ip(extract_client_ip(req2))
+    assert bucket_a == bucket_b, (
+        "rotating X-Smithery-Connection without Smithery context must NOT "
+        "split into separate rate-limit buckets"
+    )
 
 
 def test_smithery_request_without_user_header_falls_back_with_warning(caplog):
