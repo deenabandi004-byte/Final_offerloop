@@ -671,12 +671,14 @@ def get_loop_activity(uid: str, loop_id: str, limit: int = 50) -> list[dict]:
             cdata = contact_map.get(cid)
             if not cdata:
                 continue
-            thread_id = (cdata.get("gmailThreadId") or "").strip()
             draft_url = (cdata.get("gmailDraftUrl") or "").strip()
             email = (cdata.get("email") or "").strip()
-            if thread_id:
-                it["linkTo"] = f"https://mail.google.com/mail/u/0/#inbox/{thread_id}"
-                it["external"] = True
+            # In-app first: land on the tracker row (Gmail is reached from
+            # there). draft_url is a fallback only if the live contact somehow
+            # lost its id binding.
+            if cid:
+                it["linkTo"] = f"/outbox?contact={cid}"
+                it["external"] = False
             elif draft_url:
                 it["linkTo"] = draft_url
                 it["external"] = True
@@ -715,6 +717,22 @@ def _looks_like_garbage(name: str) -> bool:
     return any(tok in lowered for tok in _GARBAGE_NAME_TOKENS)
 
 
+def _feed_contact_link(contact_id: str, is_hm: bool, has_outreach: bool) -> str:
+    """In-app deep link for a Loop activity card. Gmail is reached FROM the
+    tracker row, never linked directly from a feed card:
+      HM            -> Find > Hiring Managers tab
+      has outreach  -> tracker row (/outbox)
+      bare person   -> My Network people row
+    contact_id is the one already stamped on the saved-contact snapshot."""
+    if not contact_id:
+        return "/outbox"
+    if is_hm:
+        return f"/find?tab=hiring-managers&contact={contact_id}"
+    if has_outreach:
+        return f"/outbox?contact={contact_id}"
+    return f"/my-network/people?contact={contact_id}"
+
+
 def _action_to_items(
     action_id: str,
     action: dict,
@@ -749,10 +767,14 @@ def _action_to_items(
             subtitle = ", ".join([s for s in [role, company] if s])
             contact_id = c.get("contactId") or c.get("id") or ""
 
-            # Deep-link to the exact record. /tracker?contact=<id> tells the
-            # tracker page to scroll to and highlight that one contact.
-            base = "/hiring-manager-tracker" if is_hm else "/tracker"
-            link = f"{base}?contact={contact_id}" if contact_id else base
+            # In-app deep link to the exact record (see _feed_contact_link):
+            # a drafted/sent person points at their tracker row, a bare person
+            # at their My Network row, an HM at the Find > Hiring Managers tab.
+            person_has_outreach = bool(
+                c.get("emailSubject") or c.get("emailBodyPreview")
+                or (c.get("gmailThreadId") or "").strip()
+            )
+            link = _feed_contact_link(contact_id, is_hm, person_has_outreach)
             # role_search HMs carry a foreign key into the find_jobs item
             # they were paired with. Surface it on the activity items so the
             # feed can render the founder draft inline below its source
@@ -771,22 +793,22 @@ def _action_to_items(
                 contact_item["groupKey"] = source_job_id
             out.append(contact_item)
             # If a draft was generated alongside, surface it as its own row.
-            # Click target priority: Gmail thread (if sent) > Gmail draft
-            # (if drafted) > tracker fallback. Both Gmail URLs open in a new
-            # tab; the subtitle shows the recipient's email address so users
-            # can scan who each draft went to without drilling in.
+            # In-app first: the draft's tracker row is where Gmail is reached,
+            # so we never link a feed card straight to Gmail. The raw draft URL
+            # is a fallback only when there is no contact row to land on. The
+            # subtitle shows the recipient's email so users can scan who each
+            # draft went to without drilling in.
             if c.get("emailSubject") or c.get("emailBodyPreview"):
-                thread_id = (c.get("gmailThreadId") or "").strip()
                 draft_url = (c.get("gmailDraftUrl") or "").strip()
                 contact_email = (c.get("email") or "").strip()
-                if thread_id:
-                    link = f"https://mail.google.com/mail/u/0/#inbox/{thread_id}"
-                    external = True
+                if contact_id:
+                    link = f"/outbox?contact={contact_id}"
+                    external = False
                 elif draft_url:
                     link = draft_url
                     external = True
                 else:
-                    link = f"/tracker?contact={contact_id}" if contact_id else "/tracker"
+                    link = "/outbox"
                     external = False
                 draft_item = {
                     "id": f"{action_id}-d{i}",
