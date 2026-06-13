@@ -42,16 +42,24 @@ def extract_client_ip(req) -> str:
 
     Resolution order:
 
-      1. Smithery gateway with user header -> "smithery:{connection_id}"
-         The strongest signal; the explicit per-user identifier.
+      1. Smithery gateway (UA/Origin/Referer confirms it) AND
+         X-Smithery-Connection present -> "smithery:{connection_id}".
+         Both conditions required; the X-Smithery-Connection header
+         alone is untrusted because anyone reading our public source
+         could rotate values to mint unlimited rate-limit buckets.
 
-      2. Smithery gateway WITHOUT user header -> gateway X-Forwarded-For
-         hop, logged at WARNING. Smithery's convention may have changed
-         and rate limiting will collapse onto the gateway IP until we
-         catch up. Surfacing the warning lets us notice.
+      2. Smithery gateway WITHOUT X-Smithery-Connection -> gateway
+         X-Forwarded-For hop, logged at WARNING. Smithery's convention
+         may have changed and rate limiting will collapse onto the
+         gateway IP until we catch up. Surfacing the warning lets us
+         notice.
 
       3. Direct (non-Smithery) request -> X-Forwarded-For first hop,
          or request.remote_addr in dev.
+
+      4. (Suspicious sub-case of path 3) X-Smithery-Connection sent
+         from non-Smithery context: ignored, logged at WARNING, falls
+         through to IP-based limits. Likely a scraper probing.
 
     Function name is preserved for backward compatibility with the
     initial v1 build, but the return value is the rate-limit key, not
@@ -59,14 +67,35 @@ def extract_client_ip(req) -> str:
     """
     user_id = (req.headers.get(_SMITHERY_USER_HEADER, "") or "").strip()
     is_smithery = _is_smithery_request(req)
+    direct_ip = _extract_direct_ip(req)
 
-    if user_id:
+    if user_id and is_smithery:
         # Path 1: Smithery + explicit user id. Best case.
+        # CRITICAL: both conditions required. Trusting X-Smithery-Connection
+        # without the Smithery-context check (UA / Origin / Referer) means
+        # any scraper that learns the header name can rotate its value to
+        # mint unlimited per-key rate-limit buckets, bypassing the cap
+        # entirely. Requiring is_smithery raises the bar to "must also
+        # spoof Smithery-like context" and produces an INFO log line we
+        # can audit.
         logger.info("[MCP rate-limit-key] smithery_user resolved (header=%s)",
                     _SMITHERY_USER_HEADER)
         return f"smithery:{user_id}"
 
-    direct_ip = _extract_direct_ip(req)
+    if user_id and not is_smithery:
+        # Suspicious: someone sent X-Smithery-Connection but the request
+        # doesn't look like it came from Smithery (no Smithery UA, no
+        # smithery.ai / run.tools Origin/Referer). Most likely a scraper
+        # probing the header name. Ignore the header and fall through
+        # to IP-based limits. Logged at WARNING so we'll see it.
+        logger.warning(
+            "[MCP rate-limit-key] x_smithery_header_without_smithery_context: "
+            "header=%s value_len=%d User-Agent=%r — ignoring header, "
+            "falling through to IP-based limits.",
+            _SMITHERY_USER_HEADER,
+            len(user_id),
+            req.headers.get("User-Agent"),
+        )
 
     if is_smithery:
         # Path 2: Smithery traffic but the expected user header is
@@ -84,8 +113,8 @@ def extract_client_ip(req) -> str:
         )
         return direct_ip
 
-    # Path 3: direct traffic.
-    logger.info("[MCP rate-limit-key] direct_ip resolved (ip=%s)", direct_ip)
+    # Path 3: direct traffic. Logged at DEBUG so prod logs stay quiet.
+    logger.debug("[MCP rate-limit-key] direct_ip resolved (ip=%s)", direct_ip)
     return direct_ip
 
 
