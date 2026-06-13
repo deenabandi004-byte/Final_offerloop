@@ -13,8 +13,8 @@ Goal: cut the bounce rate on Find People + Loops outreach. Root-cause analysis l
 | 2.4 | Query suppression list before drafting | ✅ shipped |
 | 2.5 | Explicit Hunter 429 detection (don't silently fall through to pattern synthesis) | ✅ shipped |
 | 3a | PDL lazy topup — only fetch more when initial batch is short on verified | ✅ shipped |
-| 3b | Tighter PDL query (work_email existence filter at issue time) | ⏭ next |
-| 3c | Widen Find People `email_quality` gate (depends on 3a + 3b lifting verified-rate) | ⏭ blocked on telemetry |
+| 3b | Tighter PDL query (work_email existence filter at level 0) | ✅ shipped |
+| 3c | Per-contact low-confidence gate in `create_gmail_draft_for_user` (covers Find People) | ✅ shipped |
 | 3d | Architectural cleanup (consolidate Hunter entry points, send-time re-verify, UI suppression surface) | ⏭ later |
 
 ## Phase 1 — shipped
@@ -92,34 +92,37 @@ Investigation found that scores 70-79 (`hunter_finder_risky`) and catch-alls (`n
 
 Cost shape: 0 extra credits on easy searches, +30–50% on average across all searches (only the short ones pay), capped at 2x per search. Vs. blind overfetch which would be +100% on every search.
 
-### Find People — `email_quality` gate deferred (2026-06-12)
+## Phase 3b — shipped (tighter PDL query at level 0)
 
-The Phase 2.2 `email_quality="low"` gate currently only fires in `agent_actions.execute_find_and_draft` (Loops + HM finder). The Find People draft path goes through `routes/runs.py` → `gmail_client.create_drafts_parallel` → `create_gmail_draft_for_user` and **does not read the flag**. A live dogfood bounce (`ahmademad@google.com`, 2026-06-12) confirmed Find People still ships pattern-synthesized guesses.
+| File | Change |
+|---|---|
+| `backend/app/services/pdl_client.py:build_query_from_prompt` | At `retry_level == 0` only, append `{"exists": {"field": "work_email"}}` to the must list. Records that pass this filter are more likely to T1-hit the email waterfall (top-level work_email → verified). Broader rungs (1+) drop the filter so the lazy-topup loop can surface any reachable candidate. |
+| `backend/tests/test_phase_3b_3c.py` | Level 0 query carries `exists:work_email`; levels 1/2/3 don't; the pre-existing `exists:emails` filter stays at every level. |
 
-Why deferred — the obvious widening to the chokepoint trades a real cost we don't want without data:
+Effect: level 0 returns fewer but better-curated records. When too few pass through the email-quality filter, Phase 3a's lazy-topup broadens automatically.
 
-- Today, `search_contacts_from_prompt` returns ONLY verified contacts when any exist (line ~3461). If the batch has 5 PDL hits and 1 is verified, the student gets 1 — and **we already paid PDL for the other 4 records that were silently dropped**. We're burning PDL credits on records we don't surface.
-- Blindly widening the gate to Find People would surface those zero-draft cases as "contact, no draft" — a draft-volume regression for the student without recovering the PDL spend.
-- Overfetching from PDL (1.5–2x) to top up the verified count multiplies the credit burn — worst margin path, especially for free tier.
+## Phase 3c — shipped (per-contact low-confidence gate at draft chokepoint)
 
-Right next move (lower-cost, higher ROI): tighten the PDL query at issue time. PDL supports filtering by `work_email` existence — same per-record cost but a higher % of returned records carry a usable address. Combined with Phase 2.1's staleness gate, this should raise the verified-rate enough that the Find People gate is cheap to widen.
+| File | Change |
+|---|---|
+| `backend/app/services/gmail_client.py:create_gmail_draft_for_user` | After the Phase 2.4 suppression gate, new per-contact check: if `contact["EmailSource"]` is in `LOW_CONFIDENCE_SOURCES = {pattern, domain_generated, pdl_fallback, hunter_finder_risky, neverbounce_acceptall}`, skip drafting and return `low_confidence_{tier}_draft_{firstname}` sentinel. Manual contacts (no `EmailSource` field) are unaffected — absence is treated as "unclassified, trust the caller." |
+| `backend/tests/test_phase_3b_3c.py` | All 5 low-confidence sources blocked; all 3 high-confidence sources proceed; missing/empty `EmailSource` proceeds (manual contacts unaffected). |
 
-Plan:
-1. **Telemetry first.** Log per-search `pdl_records_returned` vs `verified_returned` vs `dropped_unverified` to `metrics_events` so we can see the actual waste rate in production. ~1 hour.
-2. **Tighter PDL query.** Add `work_email IS NOT NULL` (or PDL's equivalent) to the `search_contacts_from_prompt` filter. Measure verified-rate delta. ~2 hours + dogfood.
-3. **Widen Phase 2.2 to Find People.** Once verified-rate is high enough that draft-volume regression is acceptable. Cleanest spot: per-contact `EmailSource` check inside `gmail_client.create_gmail_draft_for_user` (covers Find People + contact_import + linkedin_import + referral_email in one shot). ~30 min.
-4. **Opt-in topup (later).** "Find more" button on Find People results that runs another PDL search and charges the credit transparently. Aligns incentives. Product call, not engineering blocker.
+Net effect: Phase 2.2's batch-level gate (Loops + HM) is now mirrored at the chokepoint, so Find People + contact_import + linkedin_import + referral_email all enforce the same rule without per-route code changes. Combined with 3a (lazy topup) and 3b (better level-0 selection), low-confidence drafts are blocked across every flow while the verified-rate stays high enough that draft volume isn't crushed.
 
-Don't widen the gate to Find People before step 2 lands. It's a clean draft-volume regression today.
+### Find People gate — history (resolved 2026-06-13)
 
-## How to resume tomorrow
+The Phase 2.2 `email_quality="low"` gate originally lived only in `agent_actions.execute_find_and_draft` (Loops + HM finder). A live dogfood bounce (`ahmademad@google.com`, 2026-06-12) surfaced that Find People still shipped pattern-synthesized guesses, and the chokepoint widening was deferred pending PDL-credit-waste concerns. Phase 3a (lazy topup), 3b (tighter level-0 query), and 3c (per-contact gate at the draft chokepoint) together resolved this: low-confidence drafts are now blocked on every flow without overfetching every search.
 
-Phase 1 + all of Phase 2 are shipped to the working tree (uncommitted). Tomorrow:
+## How to resume
 
-1. Review the diff: `git diff backend/app/routes/gmail_webhook.py backend/app/services/pdl_client.py backend/app/services/hunter.py backend/app/services/gmail_client.py backend/app/services/agent_actions.py backend/app/utils/metrics_events.py` plus the new files (`suppression.py`, four test files, this plan).
-2. Decide whether to commit as one large "deliverability" commit or split (e.g. one per phase). Easy to split: each phase touched distinct files.
-3. After deploy: watch the `metrics_events` collection for `event_type` in `{"email_bounced", "hunter_rate_limited"}`. Both rates should be visible and trending — that's the Phase 1 instrument validating Phase 2's impact.
-4. Optional Phase 3 follow-ups (see below) only if bounce rate doesn't drop enough.
+After deploy, watch the `metrics_events` collection for:
+- `email_bounced` — should trend DOWN as the gates take effect
+- `hunter_rate_limited` — should stay low (was uncountable before Phase 2.5)
+- `pdl_topup_triggered` + `pdl_budget_cap_hit` — distribution tells us whether the 2x budget cap is right
+- New low-confidence skip rate via the `low_confidence_*` sentinel in `create_gmail_draft_for_user` logs
+
+If bounce rate doesn't drop sufficiently, Phase 3d below is the next lever.
 
 ## Decisions locked in
 

@@ -1046,6 +1046,27 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
             # Suppression lookup must never block sending a draft.
             print(f"[GmailClient] Suppression check failed (proceeding with draft): {supp_err}")
 
+        # Phase 3c: per-contact low-confidence gate. Same intent as Phase 2.2's
+        # batch-level email_quality gate in agent_actions.execute_find_and_draft,
+        # but here at the chokepoint so it catches Find People + contact_import
+        # + linkedin_import + referral paths too. Only fires when EmailSource is
+        # explicitly low-confidence — manual contacts (no EmailSource) are
+        # unaffected.
+        LOW_CONFIDENCE_SOURCES = {
+            "pattern",
+            "domain_generated",
+            "pdl_fallback",
+            "hunter_finder_risky",
+            "neverbounce_acceptall",
+        }
+        email_source = (contact.get("EmailSource") or "").strip()
+        if email_source and email_source in LOW_CONFIDENCE_SOURCES:
+            print(
+                f"[GmailClient] LOW-CONFIDENCE source={email_source} — skipping draft "
+                f"for {recipient_email} (contact surfaces, no Gmail draft)"
+            )
+            return f"low_confidence_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}"
+
         # Create multipart message
         message = MIMEMultipart('mixed')
         message['to'] = recipient_email
