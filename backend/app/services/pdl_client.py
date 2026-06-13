@@ -2828,7 +2828,8 @@ def search_contacts_with_pdl(job_title, company, location, max_contacts=8):
 # of this module; behavior is byte-identical to the prior inline copy.
 
 
-def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:
+def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0,
+                             exclude_pdl_ids: list | None = None) -> dict:
     """
     Build PDL Elasticsearch bool query from structured prompt parser output.
     Uses same patterns as es_title_block, try_metro_search_optimized (location, company, schools).
@@ -2847,6 +2848,11 @@ def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:
     Company is dropped at level 4+; school filter is the only thing that survives
     to level 5. The user's intent is "find someone from my network" — at the floor
     we ensure they at least see SOMEONE from the school they care about.
+
+    exclude_pdl_ids: optional list of PDL person ids to filter OUT via a must_not
+    clause. Used by lazy-topup in search_contacts_from_prompt so broader retry
+    attempts return NEW people instead of re-fetching the same names a stricter
+    rung already returned.
     """
     must = []
 
@@ -3027,7 +3033,18 @@ def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:
     # P0 FIX: Only return contacts that have email addresses
     must.append({"exists": {"field": "emails"}})
 
-    query_obj = {"bool": {"must": must}}
+    bool_clause = {"must": must}
+
+    # Lazy-topup support: exclude PDL ids already returned by an earlier (stricter)
+    # retry rung so this rung surfaces NEW people instead of paging through the
+    # same set. PDL caps `terms` clauses at ~1024 values — well above our use case
+    # of <= PDL_BUDGET_CAP per search.
+    if exclude_pdl_ids:
+        clean_ids = [i for i in exclude_pdl_ids if i]
+        if clean_ids:
+            bool_clause["must_not"] = [{"terms": {"id": clean_ids}}]
+
+    query_obj = {"bool": bool_clause}
     if retry_level > 0:
         print(f"[build_query_from_prompt] Retry level {retry_level} query:\n{json.dumps(query_obj, indent=2)}")
     else:
@@ -3303,6 +3320,21 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
     post_filter_dropped = 0
     drop_reason_counts = {}  # Track why contacts were dropped across all attempts
 
+    # Lazy-topup state (Phase 3 of email deliverability plan). Accumulate
+    # filtered contacts ACROSS retry attempts instead of replacing the set
+    # each rung. Break only when verified count meets the requested max OR
+    # the PDL budget cap is reached, whichever comes first. Pre-topup
+    # behavior was: any new contacts at a rung → stop. That silently dropped
+    # 3 of 5 PDL records on hard searches (paid for, filtered out, not
+    # returned). See docs/EMAIL_DELIVERABILITY_PLAN.md.
+    cumulative_filtered: list = []
+    cumulative_seen_keys: set = set()
+    cumulative_seen_pdl_ids: list = []  # ordered for stable must_not clauses
+    records_fetched_total = 0
+    PDL_BUDGET_CAP_MULTIPLIER = 2.0
+    pdl_budget_cap = int(max_contacts * PDL_BUDGET_CAP_MULTIPLIER) + buffer
+    topup_triggered = False
+
     companies_from_prompt = parsed_prompt.get("companies") or []
     schools_from_prompt = parsed_prompt.get("schools") or []
 
@@ -3333,7 +3365,29 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
                 print(f"[PDL Retry] Attempt 2: drop title + industry filters (keep company + school + location)")
             elif attempt == 3:
                 print(f"[PDL Retry] Attempt 3: drop title + industry + location (keep company + school only)")
-        query_obj = build_query_from_prompt(parsed_prompt, retry_level=attempt)
+
+            # Lazy-topup telemetry: mark only ONCE, on the first re-entry past
+            # level 0. Tracks "did we have to broaden to top up verified count?"
+            if not topup_triggered:
+                topup_triggered = True
+                try:
+                    from app.utils.metrics_events import log_event
+                    log_event(None, "pdl_topup_triggered", {
+                        "max_contacts": max_contacts,
+                        "verified_at_level_0": sum(
+                            1 for c in cumulative_filtered
+                            if c.get("EmailSource") in HIGH_CONFIDENCE_EMAIL_SOURCES
+                        ),
+                        "cumulative_at_level_0": len(cumulative_filtered),
+                    })
+                except Exception:
+                    pass
+
+        query_obj = build_query_from_prompt(
+            parsed_prompt,
+            retry_level=attempt,
+            exclude_pdl_ids=cumulative_seen_pdl_ids,
+        )
         raw_contacts, status_code = execute_pdl_search(
             headers=headers,
             url=PDL_URL,
@@ -3344,6 +3398,8 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
             verbose=False,
             target_company=target_company,
         )
+        records_fetched_total += len(raw_contacts or [])
+
         if not raw_contacts:
             continue
 
@@ -3375,18 +3431,69 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
                 continue
             attempt_filtered.append(contact)
 
+        # Merge into cumulative (dedup by identity key), update pdlId exclusion list.
+        for c in attempt_filtered:
+            key = get_contact_identity(c)
+            if key in cumulative_seen_keys:
+                continue
+            cumulative_seen_keys.add(key)
+            cumulative_filtered.append(c)
+            pid = c.get("pdlId")
+            if pid:
+                cumulative_seen_pdl_ids.append(pid)
+
         if attempt_filtered:
-            filtered = attempt_filtered
             retry_level_used = attempt
-            post_filter_dropped = attempt_dropped
+            post_filter_dropped += attempt_dropped
             if already_saved:
-                print(f"🔍 Prompt search filtering: raw={len(raw_contacts)}, already_saved={len(already_saved)}, new={len(filtered)} (attempt {attempt})")
-            if post_filter_dropped > 0:
-                print(f"[PostFilter] Kept {len(filtered)} contacts after post-validation (dropped {post_filter_dropped} non-matching)")
+                print(f"🔍 Prompt search filtering: raw={len(raw_contacts)}, already_saved={len(already_saved)}, new_this_rung={len(attempt_filtered)}, cumulative={len(cumulative_filtered)} (attempt {attempt})")
+            if attempt_dropped > 0:
+                print(f"[PostFilter] Kept {len(attempt_filtered)} contacts at attempt {attempt} (dropped {attempt_dropped} non-matching)")
+
+        # Break condition: enough verified contacts cumulated.
+        verified_count = sum(
+            1 for c in cumulative_filtered
+            if c.get("EmailSource") in HIGH_CONFIDENCE_EMAIL_SOURCES
+        )
+        if verified_count >= max_contacts:
+            print(f"[PDL Retry] Verified target met at attempt {attempt}: verified={verified_count} >= max_contacts={max_contacts} (records_fetched={records_fetched_total})")
             break
-        # No NEW contacts on this rung (all hits were already saved or post-filter dropped).
-        # Try the next broader rung. Aggregated `already_saved` carries across attempts.
-        print(f"[PDL Retry] Attempt {attempt}: raw={len(raw_contacts)}, already_saved_cumulative={len(already_saved)}, new=0 — trying next rung")
+
+        # Budget cap: stop spending PDL credits past the configured ceiling.
+        if records_fetched_total >= pdl_budget_cap:
+            print(f"[PDL Retry] Budget cap hit at attempt {attempt}: records_fetched={records_fetched_total} >= cap={pdl_budget_cap}")
+            try:
+                from app.utils.metrics_events import log_event
+                log_event(None, "pdl_budget_cap_hit", {
+                    "records_fetched": records_fetched_total,
+                    "budget_cap": pdl_budget_cap,
+                    "verified_count": verified_count,
+                    "max_contacts": max_contacts,
+                })
+            except Exception:
+                pass
+            break
+
+        if not attempt_filtered:
+            # No NEW contacts on this rung — broaden further.
+            print(f"[PDL Retry] Attempt {attempt}: raw={len(raw_contacts)}, already_saved_cumulative={len(already_saved)}, new=0 — trying next rung")
+
+    filtered = cumulative_filtered
+
+    if topup_triggered:
+        try:
+            from app.utils.metrics_events import log_event
+            log_event(None, "pdl_topup_records_fetched", {
+                "records_fetched_total": records_fetched_total,
+                "retry_level_reached": retry_level_used,
+                "verified_count_final": sum(
+                    1 for c in cumulative_filtered
+                    if c.get("EmailSource") in HIGH_CONFIDENCE_EMAIL_SOURCES
+                ),
+                "cumulative_count_final": len(cumulative_filtered),
+            })
+        except Exception:
+            pass
 
     # Build adjacency metadata to explain what happened
     adjacency_metadata = None

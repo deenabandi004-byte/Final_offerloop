@@ -12,7 +12,10 @@ Goal: cut the bounce rate on Find People + Loops outreach. Root-cause analysis l
 | 2.3 | Drop NeverBounce catch-all addresses from candidate pool | ✅ shipped (scoped down) |
 | 2.4 | Query suppression list before drafting | ✅ shipped |
 | 2.5 | Explicit Hunter 429 detection (don't silently fall through to pattern synthesis) | ✅ shipped |
-| 3 | Architectural cleanup (consolidate Hunter entry points, send-time re-verify, UI suppression surface) | ⏭ later |
+| 3a | PDL lazy topup — only fetch more when initial batch is short on verified | ✅ shipped |
+| 3b | Tighter PDL query (work_email existence filter at issue time) | ⏭ next |
+| 3c | Widen Find People `email_quality` gate (depends on 3a + 3b lifting verified-rate) | ⏭ blocked on telemetry |
+| 3d | Architectural cleanup (consolidate Hunter entry points, send-time re-verify, UI suppression surface) | ⏭ later |
 
 ## Phase 1 — shipped
 
@@ -77,6 +80,17 @@ Investigation found that scores 70-79 (`hunter_finder_risky`) and catch-alls (`n
 - Re-verify at send-time always, not just `send_for_me` (per `agent_send_gate.py:142`). NeverBounce single call is $0.005.
 - Surface "address suppressed / bounced previously" in UI rather than silent skip.
 - Bounce-rate dashboard (rolling 7-day from `metrics_events.email_bounced`) for admin and personal use.
+
+## Phase 3a — shipped (PDL lazy topup)
+
+| File | Change |
+|---|---|
+| `backend/app/services/pdl_client.py:build_query_from_prompt` | New `exclude_pdl_ids` param emits a `must_not: [{terms: {id: [...]}}]` clause so topup attempts return NEW people instead of paging through the same broad-rung results. |
+| `backend/app/services/pdl_client.py:search_contacts_from_prompt` | Retry loop now accumulates contacts across attempts (was: replace per rung), breaks when verified count >= max_contacts OR records_fetched_total >= `PDL_BUDGET_CAP` (`= max_contacts * 2.0 + buffer`). Passes the cumulative pdlId list to `build_query_from_prompt` on each topup attempt. |
+| `backend/app/utils/metrics_events.py` | New events: `pdl_topup_triggered`, `pdl_topup_records_fetched`, `pdl_budget_cap_hit`. |
+| `backend/tests/test_pdl_lazy_topup.py` (new) | 4 cases: enough at level 0 → no topup; short → topup fills target; cumulative pdlIds excluded on each rung; budget cap stops further fetching. |
+
+Cost shape: 0 extra credits on easy searches, +30–50% on average across all searches (only the short ones pay), capped at 2x per search. Vs. blind overfetch which would be +100% on every search.
 
 ### Find People — `email_quality` gate deferred (2026-06-12)
 
