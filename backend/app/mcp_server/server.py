@@ -71,20 +71,35 @@ _DRAFT_OUTREACH_DESCRIPTION = (
 TOOLS = [
     {
         "name": "find_contacts",
+        "title": "Find Contacts",
         "description": _FIND_CONTACTS_DESCRIPTION,
         "inputSchema": FindContactsInput.model_json_schema(),
+        "annotations": {
+            "title": "Find Contacts",
+            "readOnlyHint": True,
+        },
         "handler": find_contacts_tool.handle,
     },
     {
         "name": "get_company_intel",
+        "title": "Get Company Intel",
         "description": _GET_COMPANY_INTEL_DESCRIPTION,
         "inputSchema": GetCompanyIntelInput.model_json_schema(),
+        "annotations": {
+            "title": "Get Company Intel",
+            "readOnlyHint": True,
+        },
         "handler": get_company_intel_tool.handle,
     },
     {
         "name": "draft_outreach",
+        "title": "Draft Outreach",
         "description": _DRAFT_OUTREACH_DESCRIPTION,
         "inputSchema": DraftOutreachInput.model_json_schema(),
+        "annotations": {
+            "title": "Draft Outreach",
+            "readOnlyHint": True,
+        },
         "handler": draft_outreach_tool.handle,
     },
 ]
@@ -118,8 +133,10 @@ def handle_jsonrpc(
             "tools": [
                 {
                     "name": t["name"],
+                    "title": t["title"],
                     "description": t["description"],
                     "inputSchema": t["inputSchema"],
+                    "annotations": t["annotations"],
                 }
                 for t in TOOLS
             ],
