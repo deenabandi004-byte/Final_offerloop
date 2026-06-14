@@ -21,7 +21,7 @@ class FindContactsInput(BaseModel):
     school: Optional[str] = Field(
         None,
         description=(
-            "Student's school. When provided, alumni at that school rank "
+            "Your school. When provided, alumni at that school rank "
             "higher and surface an alumni connection hook."
         ),
     )
@@ -83,8 +83,8 @@ class GetCompanyIntelInput(BaseModel):
     user_school: Optional[str] = Field(
         None,
         description=(
-            "Student's school. When provided, returns alumni density at that "
-            "school for this company."
+            "Your school. When provided, returns how many alumni from that "
+            "school work at the company."
         ),
     )
     career_field: Optional[str] = Field(
@@ -141,7 +141,7 @@ class ContactRef(BaseModel):
 
 class DraftOutreachInput(BaseModel):
     contact: ContactRef
-    user_school: str = Field(..., description="Student's school. Required.")
+    user_school: str = Field(..., description="Your school. Required.")
     user_major: Optional[str] = None
     user_year: Optional[str] = None
     user_career_track: Optional[str] = None
@@ -152,7 +152,7 @@ class DraftOutreachInput(BaseModel):
     )
     personal_note: Optional[str] = Field(
         None,
-        description="Free-text context the student wants worked into the email.",
+        description="Free-text context to include in the email.",
     )
 
 
