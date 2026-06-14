@@ -163,7 +163,7 @@ def _initialize_result(params: dict) -> dict:
             "version": SERVER_VERSION,
         },
         "instructions": (
-            "Offerloop helps college students network into competitive jobs. "
+            "Offerloop helps job seekers network into competitive jobs. "
             "Three tools: find_contacts (who to reach out to at a target "
             "company), get_company_intel (firm overview + alumni density at "
             "the user's school), draft_outreach (personalized cold email "
