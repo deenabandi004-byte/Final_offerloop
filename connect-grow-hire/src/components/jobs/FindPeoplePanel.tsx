@@ -10,10 +10,12 @@ import {
 //   1. Find Hiring Managers -> onFind() (the /find-hiring-manager flow).
 //   2. Find People -> onFindEmployees(count) (the /find-employee flow), with a
 //      1 to 5 quantity slider for how many teammates to surface.
-// Both cost 5 credits per person and are gated to non-free tiers; free users see
-// an upgrade affordance. The actual searches run in the shared FindHumansModal.
+// Costs mirror backend CREDIT_COSTS: HM 10/contact, employee 4/contact. Both
+// gated to non-free tiers; free users see an upgrade affordance. The actual
+// searches run in the shared FindHumansModal.
 
-const PERSON_CREDITS = 5;
+const HM_CREDITS = 10;       // find_hiring_manager
+const EMPLOYEE_CREDITS = 4;  // find_employee
 const MIN_PEOPLE = 1;
 const MAX_PEOPLE = 5;
 const DEFAULT_PEOPLE = 3;
@@ -34,7 +36,9 @@ export function FindPeoplePanel({
   onUpgradeClick,
 }: FindPeoplePanelProps) {
   const hasPremiumAccess = userPlan !== "free";
-  const notEnough = hasPremiumAccess && currentCredits < PERSON_CREDITS;
+  // Per-column credit checks — HM and employee searches cost different amounts.
+  const notEnoughHm = hasPremiumAccess && currentCredits < HM_CREDITS;
+  const notEnoughEmployee = hasPremiumAccess && currentCredits < EMPLOYEE_CREDITS;
   const [count, setCount] = useState(DEFAULT_PEOPLE);
 
   // Filled portion of the slider track, in percent, so the navy fill grows as
@@ -44,13 +48,13 @@ export function FindPeoplePanel({
 
   const hmLabel = !hasPremiumAccess
     ? "Upgrade to Find Hiring Managers"
-    : notEnough
+    : notEnoughHm
       ? "Not enough credits"
       : "Find Hiring Managers";
 
   const peopleLabel = !hasPremiumAccess
     ? "Upgrade to Find People"
-    : notEnough
+    : notEnoughEmployee
       ? "Not enough credits"
       : "Find People";
 
@@ -84,20 +88,20 @@ export function FindPeoplePanel({
             <button
               className="jb-fp-cta"
               type="button"
-              disabled={notEnough}
+              disabled={notEnoughHm}
               onClick={() => {
                 if (!hasPremiumAccess) {
                   onUpgradeClick?.();
                   return;
                 }
-                if (!notEnough) onFind();
+                if (!notEnoughHm) onFind();
               }}
             >
               <IconSearchSmall />
               {hmLabel}
             </button>
             <span style={{ fontSize: 12, color: "var(--ink-7)", textAlign: "center" }}>
-              {PERSON_CREDITS} credits each
+              {HM_CREDITS} credits each
             </span>
           </div>
         </div>
@@ -153,20 +157,20 @@ export function FindPeoplePanel({
             <button
               className="jb-fp-cta"
               type="button"
-              disabled={notEnough}
+              disabled={notEnoughEmployee}
               onClick={() => {
                 if (!hasPremiumAccess) {
                   onUpgradeClick?.();
                   return;
                 }
-                if (!notEnough) onFindEmployees?.(count);
+                if (!notEnoughEmployee) onFindEmployees?.(count);
               }}
             >
               <IconSearchSmall />
               {peopleLabel}
             </button>
             <span style={{ fontSize: 12, color: "var(--ink-7)", textAlign: "center" }}>
-              {PERSON_CREDITS} credits each
+              {EMPLOYEE_CREDITS} credits each
             </span>
           </div>
         </div>

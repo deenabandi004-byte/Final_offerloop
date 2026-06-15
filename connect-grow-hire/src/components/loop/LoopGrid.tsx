@@ -82,7 +82,7 @@ export function LoopGrid({
               className="italic"
               style={{ color: "var(--accent)", fontWeight: 500 }}
             >
-              Loops.
+              Loops
             </em>
           </h1>
           <p

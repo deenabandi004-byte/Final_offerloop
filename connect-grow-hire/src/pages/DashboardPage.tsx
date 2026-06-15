@@ -457,10 +457,14 @@ export default function DashboardPage() {
   // never shows a skeleton. The other three are statsQuery-driven, so they
   // show a value-sized skeleton while it loads instead of flashing 0.
   const statsPending = statsQuery.isLoading;
+  // The three activity metrics are THIS WEEK (outbox stats reset weekly), so
+  // they're labeled as such — otherwise "0 Replies" reads as contradicting the
+  // greeting's "N replies waiting" (which is the all-time unread backlog).
+  // Credits is a live balance, not weekly, so it stays unqualified.
   const bandMetrics = [
-    { label: "Intros sent", value: String(sent), pending: statsPending },
-    { label: "Replies", value: String(replied), pending: statsPending },
-    { label: "Reply rate", value: `${replyRate}%`, pending: statsPending },
+    { label: "Sent this week", value: String(sent), pending: statsPending },
+    { label: "Replies this week", value: String(replied), pending: statsPending },
+    { label: "Reply rate · wk", value: `${replyRate}%`, pending: statsPending },
     { label: "Credits left", value: String(user?.credits ?? 0), pending: false },
   ];
 
@@ -470,8 +474,8 @@ export default function DashboardPage() {
     const m = loopPending;
     const replyW = n === 1 ? "reply" : "replies";
     const actionW = m === 1 ? "action" : "actions";
-    if (n > 0 && m > 0) return `You have ${n} ${replyW} waiting and ${m} loop ${actionW} to review.`;
-    if (n > 0) return `You have ${n} ${replyW} waiting.`;
+    if (n > 0 && m > 0) return `You have ${n} unread ${replyW} and ${m} loop ${actionW} to review.`;
+    if (n > 0) return `You have ${n} unread ${replyW} to review.`;
     if (m > 0) return `You have ${m} loop ${actionW} to review.`;
     return "All caught up - start a new loop when you're ready.";
   }, [unreadReplies.length, loopPending]);

@@ -6,7 +6,12 @@ export interface UseProposedBriefState {
   data: ProposedBrief | null;
   loading: boolean;
   error: Error | null;
-  refetch: () => Promise<void>;
+  /**
+   * Re-runs the proposal fetch. Returns the new ProposedBrief on success
+   * (or null on failure / race-loss) so explicit click handlers can apply
+   * the result immediately without round-tripping through React state.
+   */
+  refetch: () => Promise<ProposedBrief | null>;
 }
 
 /**
@@ -29,18 +34,20 @@ export function useProposedBrief({
   const [error, setError] = useState<Error | null>(null);
   const requestId = useRef(0);
 
-  const refetch = useCallback(async () => {
-    if (!enabled) return;
+  const refetch = useCallback(async (): Promise<ProposedBrief | null> => {
+    if (!enabled) return null;
     const myId = ++requestId.current;
     setLoading(true);
     setError(null);
     try {
       const result = await proposeBrief();
-      if (myId !== requestId.current) return;
+      if (myId !== requestId.current) return null;
       setData(result);
+      return result;
     } catch (e) {
-      if (myId !== requestId.current) return;
+      if (myId !== requestId.current) return null;
       setError(e instanceof Error ? e : new Error(String(e)));
+      return null;
     } finally {
       if (myId === requestId.current) setLoading(false);
     }

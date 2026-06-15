@@ -460,11 +460,12 @@ const Pricing = () => {
   const handleResetCredits = async (tier: 'free' | 'pro' | 'elite') => {
     if (!user) return;
     
-    // Credit amounts based on tier (matches backend/app/config.py TIER_CONFIGS)
+    // Credit amounts based on tier (matches backend/app/config.py TIER_CONFIGS,
+    // doubled 2026-06-10 — see lib/constants.ts TIER_CONFIGS)
     const creditMap = {
-      'free': 500,
-      'pro': 3000,
-      'elite': 12000
+      'free': 300,
+      'pro': 2000,
+      'elite': 5000
     };
     
     const maxCredits = creditMap[tier];
@@ -2070,6 +2071,10 @@ const Pricing = () => {
               gap: 14,
               maxWidth: 760,
               margin: '0 auto',
+              // Top padding so the "★ Best value" badge (top: -10 on its card)
+              // sits inside the grid's box and isn't clipped by the page root's
+              // overflow:hidden.
+              paddingTop: 14,
             }}
           >
             {tierConfig.topup_packs.map((pack) => {

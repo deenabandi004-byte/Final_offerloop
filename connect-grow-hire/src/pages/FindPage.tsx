@@ -13,6 +13,7 @@ import { firebaseApi } from "@/services/firebaseApi";
 import { EliteGateModal } from "@/components/EliteGateModal";
 import { NoSchoolEmptyState } from "@/components/NoSchoolEmptyState";
 import { GoalsPromptBanner } from "@/components/find/GoalsPromptBanner";
+import MountainsLake from "@/assets/for-students/mountains-lake.png";
 import { IS_DEV_PREVIEW, DEV_MOCK_USER } from "@/lib/devPreview";
 import { getUniversityShortName } from "@/lib/universityUtils";
 import { PersonalizationStrip } from "@/components/personalization/PersonalizationStrip";
@@ -347,9 +348,31 @@ const FindPage: React.FC = () => {
           <GoalsPromptBanner />
 
           {/* Scrollable page body */}
-          <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-            {/* Page title */}
-            <div style={{ flexShrink: 0 }}>
+          <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", position: "relative" }}>
+            {/* Mountains as full-page backdrop. Same atmospheric treatment as
+                the Loops surface — anchored bottom-center, soft top fade so
+                the page bg stays readable above the fold. */}
+            <div
+              aria-hidden
+              style={{
+                position: "absolute",
+                inset: 0,
+                pointerEvents: "none",
+                zIndex: 0,
+                backgroundImage: `url(${MountainsLake})`,
+                backgroundSize: "120% auto",
+                backgroundPosition: "center bottom",
+                backgroundRepeat: "no-repeat",
+                opacity: 0.5,
+                maskImage:
+                  "linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 18%, #000 55%, #000 100%)",
+                WebkitMaskImage:
+                  "linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 18%, #000 55%, #000 100%)",
+              }}
+            />
+            {/* Page title — wrapped in a z-index:1 layer so it sits above
+                the mountain backdrop. */}
+            <div style={{ flexShrink: 0, position: "relative", zIndex: 1 }}>
               {/* Pro trial banner — auto-hides for paid and post-trial users.
                   Renders "Try Pro free" CTA for eligible users, or an active-trial
                   countdown mid-trial. Mounted the way Nick had it on the Find surface. */}
@@ -390,7 +413,7 @@ const FindPage: React.FC = () => {
             </div>
 
             {/* Tab bar — segmented control */}
-            <div style={{ flexShrink: 0, marginTop: 8, marginBottom: 18 }}>
+            <div style={{ flexShrink: 0, marginTop: 8, marginBottom: 18, position: "relative", zIndex: 1 }}>
               <div style={{ maxWidth: 1000, margin: "0 auto", padding: "0 40px", display: "flex", justifyContent: "center" }}>
                 <div style={{ display: "inline-flex", background: "#fff", borderRadius: 12, border: "1px solid var(--line, #E5E5E5)", overflow: "hidden", boxShadow: "0 1px 3px rgba(15,18,25,0.06)" }}>
                   {TABS.map((tab, i) => {
@@ -427,7 +450,7 @@ const FindPage: React.FC = () => {
             </div>
 
             {/* Tab body */}
-            <div style={{ flex: 1, overflowY: "auto", borderTop: "none" }}>
+            <div style={{ flex: 1, overflowY: "auto", borderTop: "none", position: "relative", zIndex: 1 }}>
               <div style={{ maxWidth: 1000, margin: "0 auto", padding: "0 40px 44px" }}>
               <Suspense
                 fallback={

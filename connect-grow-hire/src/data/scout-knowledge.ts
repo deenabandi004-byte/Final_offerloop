@@ -36,7 +36,7 @@ export const PAGES = {
       "Import contacts from CSV or manually",
       "Resume matching for better personalization (Pro+)"
     ],
-    creditCost: "15 credits per contact",
+    creditCost: "10 credits per contact",
     keywords: ["contact", "search", "find", "people", "professionals", "network", "networking", "email", "outreach", "connect"]
   },
 
@@ -65,7 +65,7 @@ export const PAGES = {
       "View search history",
       "Scout assistant for refined searches"
     ],
-    creditCost: "5 credits per firm",
+    creditCost: "10 credits per firm",
     keywords: ["firm", "company", "companies", "business", "employer", "find companies", "search firms"]
   },
 
@@ -99,7 +99,7 @@ export const PAGES = {
       "PDF download of prep materials",
       "Saved preps in library"
     ],
-    creditCost: "15 credits per prep",
+    creditCost: "30 credits per prep",
     keywords: ["coffee chat", "prep", "preparation", "networking", "informational", "interview", "questions", "talking points"]
   },
 
@@ -179,7 +179,7 @@ export const FEATURES = {
       "Connect Gmail first to save email drafts automatically",
       "Pro users can upload a resume for better email personalization"
     ],
-    creditCost: 15,
+    creditCost: 10,
     creditUnit: "per contact"
   },
 
@@ -346,12 +346,12 @@ export const WORKFLOWS = {
 
 export const CREDIT_SYSTEM = {
   costs: {
-    contactSearch: { amount: 15, unit: "per contact" },
-    firmSearch: { amount: 5, unit: "per firm" },
-    coffeeChatPrep: { amount: 15, unit: "per prep" },
-    resumeOptimization: { amount: 10, unit: "per optimization" },
-    coverLetter: { amount: 10, unit: "per letter" },
-    recruiterSearch: { amount: 15, unit: "per search" }
+    contactSearch: { amount: 10, unit: "per contact" },
+    firmSearch: { amount: 10, unit: "per firm" },
+    coffeeChatPrep: { amount: 30, unit: "per prep" },
+    resumeOptimization: { amount: 40, unit: "per optimization" },
+    coverLetter: { amount: 20, unit: "per letter" },
+    recruiterSearch: { amount: 6, unit: "per search" }
   },
 
   tiers: {

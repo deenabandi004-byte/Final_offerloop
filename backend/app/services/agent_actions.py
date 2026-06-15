@@ -897,9 +897,24 @@ def execute_find_and_draft(
         })
 
     # Per-contact credit cost — see CREDIT_COSTS in loop_budget.py.
-    # auto_send_credits is the Phase 9 per-send overhead (+1 per actually
-    # sent email; 0 for draft-only and for denied/failed sends).
-    credits_spent = len(saved_contacts) * CREDIT_COSTS["contact"] + auto_send_credits
+    # Charge ONLY for contacts we actually drafted an email to. A found contact
+    # with no usable/verified address (hasEmail False) got the "find" but never
+    # the "draft" half of the bundled cost, so billing it would charge for
+    # output we never delivered — it's free. auto_send_credits is the Phase 9
+    # per-send overhead (+1 per actually sent email; 0 for draft-only/denied).
+    drafted_count = sum(1 for sc in saved_contacts if sc.get("hasEmail"))
+    credits_spent = drafted_count * CREDIT_COSTS["contact"] + auto_send_credits
+    # Learn the real find→email conversion so we can tune the wizard's pace
+    # caps to what we actually deliver (vs. what budget allows). Grep:
+    # "find→email" across logs to see the rate per Loop over time.
+    if saved_contacts:
+        logger.info(
+            "find→email: loop=%s found=%d drafted=%d rate=%d%%",
+            config.get("loopId", ""),
+            len(saved_contacts),
+            drafted_count,
+            round(drafted_count / len(saved_contacts) * 100),
+        )
     try:
         deduct_credits_atomic(uid, credits_spent, "agent_find")
     except Exception:

@@ -118,6 +118,26 @@ export interface Loop {
   automationEnabled: boolean;
   lastReviewedAt: string | null;
   weekCreditsSpent: number;
+  // Contacts this Loop found during the current ISO week (server-computed,
+  // source=agent + createdAt this week). Drives the LoopCard progress line
+  // against weeklyTarget; older clients without it fall back to 0.
+  weekContactsFound?: number;
+  // Cumulative agent finds for this Loop (all-time, live from contacts). Shown
+  // alongside the weekly number so the Monday weekly-reset doesn't read like
+  // every find vanished.
+  liveContactsFound?: number;
+  // Drafts still sitting in draft_created for this Loop (live from contacts).
+  // The action-first LoopCard leads with this — it never resets weekly.
+  liveDraftsWaiting?: number;
+  // Live Found/Emailed/Replied computed from actual contact records, attached
+  // by GET /loops/:id. The detail funnel reads this instead of the drift-prone
+  // totalContactsFound / totalEmailsDrafted counters. Absent on list payloads.
+  liveStats?: {
+    found: number;
+    emailed: number;
+    replied: number;
+    foundThisWeek: number;
+  };
   weekStartedAt: string | null;
   pauseReason: LoopPauseReason;
   loopMode?: LoopMode;
@@ -179,6 +199,7 @@ export type LoopActivityType = "contact" | "draft" | "hm" | "job" | "company";
 // LOOPS_FLEET_REDESIGN_PLAN doc for the rationale).
 export interface FleetWeeklySummary {
   foundThisWeek: number;
+  foundAllTime?: number; // cumulative across live Loops — keeps the Monday reset honest
   weeklySparkline: number[]; // 7 entries, oldest first
   draftsWaiting: number;
   weeklyGoal: number;

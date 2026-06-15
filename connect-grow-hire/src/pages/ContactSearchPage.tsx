@@ -1424,7 +1424,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
         setProgressValue(0);
         toast({
           title: "Insufficient Credits",
-          description: `You have ${currentCredits} credits. You need at least 5 credits to search.`,
+          description: `You have ${currentCredits} credits. You need at least 10 credits to search.`,
           variant: "destructive",
         });
         return;

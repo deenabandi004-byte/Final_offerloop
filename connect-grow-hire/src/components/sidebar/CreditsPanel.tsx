@@ -10,7 +10,9 @@ import {
 } from "@/lib/constants";
 
 export type CreditsPanelProps = {
-  used: number;
+  /** Actual remaining balance to display. */
+  remaining: number;
+  /** Monthly cap for the % bar. */
   total: number;
   onUpgrade: () => void;
 };
@@ -29,9 +31,9 @@ const THEMES: Record<CreditsTier, TierTheme> = {
   ample: {
     wrap: "bg-white/[0.035] border-white/[0.06]",
     label: "text-slate-400",
-    pill: "text-indigo-300 bg-indigo-500/15",
-    bar: "from-indigo-500 to-violet-500",
-    btn: "from-indigo-500 to-violet-600 shadow-[0_4px_14px_rgba(99,102,241,0.32)] hover:shadow-[0_6px_20px_rgba(99,102,241,0.45)]",
+    pill: "text-blue-300 bg-blue-500/15",
+    bar: "from-sky-500 to-blue-500",
+    btn: "from-blue-600 to-blue-700 shadow-[0_4px_14px_rgba(37,99,235,0.32)] hover:shadow-[0_6px_20px_rgba(37,99,235,0.45)]",
     bolt: "text-amber-200",
     cta: "Upgrade Plan",
   },
@@ -61,9 +63,14 @@ function tierFor(pct: number): CreditsTier {
   return CREDITS_TIER_CRITICAL;
 }
 
-export function CreditsPanel({ used, total, onUpgrade }: CreditsPanelProps) {
-  const remaining = Math.max(0, total - used);
-  const pct = total > 0 ? (remaining / total) * 100 : 0;
+export function CreditsPanel({ remaining, total, onUpgrade }: CreditsPanelProps) {
+  // Show the real balance. The % bar is clamped to [0,100] so a grandfathered
+  // balance above the cap (legacy accounts carried more credits than the new
+  // tier cap) reads as "full" instead of pinning the displayed number to the
+  // cap — the previous math did `cap - max(0, cap - credits)`, which froze the
+  // number at the cap whenever credits exceeded it.
+  const safeRemaining = Math.max(0, remaining);
+  const pct = total > 0 ? Math.min(100, Math.max(0, (safeRemaining / total) * 100)) : 0;
   const theme = THEMES[tierFor(pct)];
 
   return (
@@ -79,7 +86,7 @@ export function CreditsPanel({ used, total, onUpgrade }: CreditsPanelProps) {
 
       <div className="mb-2.5 flex items-baseline gap-1.5">
         <span className="text-[19px] font-medium tracking-tight text-slate-50">
-          {remaining.toLocaleString()}
+          {safeRemaining.toLocaleString()}
         </span>
         <span className="text-[11px] text-slate-500">of {total.toLocaleString()}</span>
       </div>

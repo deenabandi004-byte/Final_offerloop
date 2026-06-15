@@ -605,7 +605,7 @@ export function AppSidebar() {
         >
           {!isCollapsed ? (
             <CreditsPanel
-              used={Math.max(0, maxCredits - credits)}
+              remaining={credits}
               total={maxCredits}
               onUpgrade={() => {
                 trackUpgradeClick("sidebar", { from_location: "sidebar" });

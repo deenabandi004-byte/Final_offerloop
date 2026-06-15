@@ -120,14 +120,15 @@ export const AskScoutButton: React.FC<AskScoutButtonProps> = ({
 };
 
 /**
- * Floating wrapper for App.tsx. Pins to the top-right corner and skips a
- * fixed set of routes: /dashboard (the Scout prompt is already inline in the
- * hero there) plus the public landing page and the For Students page, where
- * the pill should not appear. Reads tab from the current location
- * automatically. Exact-path matching is intentional, so a route like "/"
- * suppresses only the landing page and not every route.
+ * Floating wrapper for App.tsx. Pins to the top-right corner and skips
+ * routes where Scout is already rendered inline (the page-owned Scout
+ * companion would otherwise overlap with this floating pin). Hidden on:
+ *   • /dashboard — Scout prompt inline in the hero
+ *   • / and /for-students — public landing pages, no pill
+ *   • /agent and /agent/** — Loops surfaces have ScoutGuide / inline Scouts
  */
 const HIDE_PILL_ON = new Set(["/dashboard", "/", "/for-students"]);
+const HIDE_PILL_PREFIXES = ["/agent"];
 
 const FloatingAskScoutButton: React.FC = () => {
   const { openPanel, isPanelOpen } = useScout();
@@ -146,6 +147,7 @@ const FloatingAskScoutButton: React.FC = () => {
   // open" behavior is preserved.
   if (isPanelOpen && !scoutDemoActive) return null;
   if (HIDE_PILL_ON.has(location.pathname)) return null;
+  if (HIDE_PILL_PREFIXES.some((p) => location.pathname === p || location.pathname.startsWith(p + "/"))) return null;
 
   return (
     <div

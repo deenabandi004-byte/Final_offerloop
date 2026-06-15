@@ -680,7 +680,12 @@ def get_user_subscription():
         return jsonify({
             'tier': tier,
             'credits': user_data.get('credits', 0),
-            'maxCredits': user_data.get('maxCredits', tier_config['credits']),
+            # Always report the tier's CURRENT configured cap, not the stored
+            # maxCredits. Legacy accounts carry a stale maxCredits from before
+            # the credit restructuring (e.g. an elite account still showing the
+            # old 3000 cap), which froze the sidebar credit bar. Deriving from
+            # TIER_CONFIGS makes the cap self-correct on every read.
+            'maxCredits': tier_config['credits'],
             'alumniSearchesUsed': user_data.get('alumniSearchesUsed', 0),
             'alumniSearchesLimit': tier_config['alumni_searches'],
             'coffeeChatPrepsUsed': user_data.get('coffeeChatPrepsUsed', 0),

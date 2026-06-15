@@ -13,7 +13,6 @@ import {
   ArrowRight,
   Briefcase,
   Building2,
-  Calendar,
   ChevronDown,
   Inbox,
   Loader2,
@@ -42,6 +41,8 @@ import {
   useUpdateLoop,
 } from "@/hooks/useLoops";
 import { Textarea } from "@/components/ui/textarea";
+import ScoutYetiFull from "@/assets/scouts/scout-yeti-full.png";
+import { getCompanyLogo } from "@/lib/companyLogos";
 import { Button } from "@/components/ui/button";
 import { LOOP_COPY, loopCopy } from "@/lib/loopCopy";
 import type { Loop, LoopActivityItem, LoopActivityType } from "@/services/loops";
@@ -133,6 +134,33 @@ const COMPANY_TINTS: Record<string, string> = {
 };
 
 function CoBadge({ name, size = 30 }: { name: string; size?: number }) {
+  const logo = getCompanyLogo(name);
+  if (logo) {
+    return (
+      <span
+        style={{
+          width: size,
+          height: size,
+          borderRadius: 8,
+          flexShrink: 0,
+          background: "#ffffff",
+          border: "1px solid rgba(15, 37, 69, 0.08)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+          padding: 3,
+        }}
+        title={name}
+      >
+        <img
+          src={logo}
+          alt={name}
+          style={{ width: "100%", height: "100%", objectFit: "contain" }}
+        />
+      </span>
+    );
+  }
   const c = COMPANY_TINTS[name] || "var(--accent)";
   const fallbackHex = c.startsWith("var(") ? "#4A60A8" : c;
   const initial = (name || "?").charAt(0).toUpperCase();
@@ -152,6 +180,7 @@ function CoBadge({ name, size = 30 }: { name: string; size?: number }) {
         fontSize: size * 0.42,
         fontFamily: "var(--font-body)",
       }}
+      title={name}
     >
       {initial}
     </span>
@@ -264,15 +293,19 @@ export default function LoopDetailPage() {
           <AppHeader title={loop?.name || "Loop"} />
 
           <div className="flex-1 overflow-y-auto" style={{ background: "#fff" }}>
-            <div className="max-w-[980px] mx-auto px-4 sm:px-10 pt-7 pb-20">
+            {/* Top-left back nav — pinned to the page edge so it doesn't read
+                as part of the centered Loop-detail column. */}
+            <div className="pl-4 sm:pl-6 pt-5">
               <Link
                 to="/agent"
-                className="inline-flex items-center gap-1.5 text-[12.5px] mb-6 transition-colors hover:text-[var(--ink)]"
-                style={{ color: "var(--ink-3)" }}
+                className="inline-flex items-center gap-1.5 text-[13px] font-medium transition-colors hover:text-[var(--ink)]"
+                style={{ color: "var(--ink-2)" }}
               >
-                <ArrowLeft className="h-3.5 w-3.5" />
+                <ArrowLeft className="h-4 w-4" />
                 Back to Loops
               </Link>
+            </div>
+            <div className="max-w-[980px] mx-auto px-4 sm:px-10 pt-3 pb-20">
 
               {query.isLoading && (
                 <div className="flex items-center justify-center py-20">
@@ -571,11 +604,11 @@ function LoopHero({
           }}
         >
           <img
-            src="/scout-find.png"
+            src={ScoutYetiFull}
             alt=""
             className={isRunning ? "loop-anim" : undefined}
             style={{
-              width: 128,
+              width: 140,
               objectFit: "contain",
               animation: isRunning ? "rBob 2.6s ease-in-out infinite" : undefined,
               filter: "drop-shadow(0 10px 16px rgba(30,45,77,.16))",
@@ -729,25 +762,60 @@ function LoopHero({
 // ── Funnel — single source of truth for the numbers ─────────────────────────
 
 function Funnel({ loop }: { loop: Loop }) {
+  // Prefer live stats (counted from actual contact records) over the stored
+  // totalContactsFound / totalEmailsDrafted counters, which drift — observed
+  // over-counting 33 vs 6 real, and under-counting 0 vs 2 real. Fall back to
+  // the counters only if the server didn't attach liveStats.
+  const ls = loop.liveStats;
+  // Honest middle-step label: a review-first Loop only DRAFTS (nothing leaves
+  // the user's outbox until they approve), so calling it "Sent"/"Emailed" would
+  // claim we emailed on their behalf. Only autopilot ("send_for_me") sends.
+  const emailedLabel = loop.autoSendMode === "send_for_me" ? "Sent" : "Drafted";
   const steps = [
-    { Icon: Users, label: "Found", n: loop.totalContactsFound, tone: "var(--accent)" },
-    { Icon: Mail, label: "Emailed", n: loop.totalEmailsDrafted, tone: "var(--accent)" },
+    {
+      Icon: Users,
+      label: "Found",
+      n: ls?.found ?? loop.totalContactsFound,
+      tone: "var(--accent)",
+    },
+    {
+      Icon: Mail,
+      label: emailedLabel,
+      n: ls?.emailed ?? loop.totalEmailsDrafted,
+      tone: "var(--accent)",
+    },
     {
       Icon: Reply,
       label: "Replied",
-      n: loop.totalRepliesReceived,
+      n: ls?.replied ?? loop.totalRepliesReceived,
       tone: "var(--action-fg)",
     },
-    // We don't track meetings yet — keep it visible as 0 so the funnel
-    // remains four steps as designed; the moment we wire booked-call
-    // tracking this flips on without a layout change.
-    { Icon: Calendar, label: "Calls booked", n: 0, tone: "var(--action-fg)" },
+    // "Calls booked" intentionally removed 2026-06-14 — no detection logic
+    // exists yet. Re-add as a 4th step once Gmail/Calendar tracking ships;
+    // remember to flip the grid template back to 4-step.
   ];
   return (
+    <div>
+      {/* Timeframe label — these are lifetime totals for the Loop, distinct
+          from the weekly "3 found · 5/wk" pace on the fleet card. Without it,
+          "Found 32" here reads as a contradiction of the card's weekly count. */}
+      <div
+        style={{
+          fontFamily: MONO,
+          fontSize: 10.5,
+          letterSpacing: "0.16em",
+          textTransform: "uppercase",
+          color: "var(--ink-3)",
+          marginBottom: 9,
+        }}
+      >
+        All-time · since this Loop started
+      </div>
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "1fr auto 1fr auto 1fr auto 1fr",
+        // 3-step funnel: Found · Emailed · Replied. "Calls booked" deferred.
+        gridTemplateColumns: "1fr auto 1fr auto 1fr",
         alignItems: "center",
         border: "1px solid var(--line)",
         borderRadius: 16,
@@ -801,6 +869,7 @@ function Funnel({ loop }: { loop: Loop }) {
           )}
         </div>
       ))}
+    </div>
     </div>
   );
 }
@@ -870,15 +939,31 @@ function SectionHead({
 
 function EmailsSection({ items, loop }: { items: LoopActivityItem[]; loop: Loop }) {
   const copy = loopCopy(loop.loopMode ?? "people", { autoSendMode: loop.autoSendMode });
+  // Long lists collapse to the first 8 to keep the page scannable. The
+  // "Show N more" toggle reveals the rest in one click.
+  const [expanded, setExpanded] = useState(false);
+  const COLLAPSED_CAP = 5;
+  const overflow = Math.max(0, items.length - COLLAPSED_CAP);
+  const shown = expanded || overflow === 0 ? items : items.slice(0, COLLAPSED_CAP);
   return (
     <div style={{ marginTop: 36 }}>
       <SectionHead
-        kicker="01 · Already out the door"
+        // Use the mode-aware kicker so it always pairs with the title below.
+        // Previously hardcoded "01 · Already out the door", which contradicted
+        // the draft/approve-mode titles ("Drafts ready for review." /
+        // "Holds waiting your call.") — same section claiming both "sent" and
+        // "not sent". loopCopy pairs each kicker with its title per mode.
+        kicker={copy.overview.mailKicker}
         title={copy.overview.mailTitle}
         italic={copy.overview.mailItalic}
         right={
+          // Live counts so this header agrees with the funnel above, instead
+          // of the drift-prone totalEmailsDrafted counter. "emailed" mirrors
+          // the funnel label (an email exists — drafted or sent).
           <span style={{ fontFamily: MONO, fontSize: 11.5, color: "var(--ink-3)" }}>
-            {loop.totalEmailsDrafted} sent · {loop.totalRepliesReceived} replied
+            {loop.liveStats?.emailed ?? loop.totalEmailsDrafted}{" "}
+            {loop.autoSendMode === "send_for_me" ? "sent" : "drafted"} ·{" "}
+            {loop.liveStats?.replied ?? loop.totalRepliesReceived} replied
           </span>
         }
       />
@@ -908,12 +993,70 @@ function EmailsSection({ items, loop }: { items: LoopActivityItem[]; loop: Loop 
             boxShadow: "var(--shadow-sm)",
           }}
         >
-          {items.map((it, i) => (
-            <EmailRow key={it.id} item={it} index={i + 1} last={i === items.length - 1} />
+          {shown.map((it, i) => (
+            <EmailRow
+              key={it.id}
+              item={it}
+              index={i + 1}
+              last={i === shown.length - 1 && overflow === 0}
+            />
           ))}
+          {overflow > 0 && (
+            <CollapseToggle
+              expanded={expanded}
+              hiddenCount={overflow}
+              onToggle={() => setExpanded((e) => !e)}
+            />
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+// Collapse toggle row used at the bottom of long numbered lists (emails,
+// found-not-emailed contacts). Sits inside the same card border so it reads
+// as part of the list.
+function CollapseToggle({
+  expanded,
+  hiddenCount,
+  onToggle,
+}: {
+  expanded: boolean;
+  hiddenCount: number;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      style={{
+        all: "unset",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        width: "100%",
+        padding: "14px 0",
+        borderTop: "1px solid var(--line-2)",
+        cursor: "pointer",
+        fontFamily: MONO,
+        fontSize: 12,
+        color: "var(--ink-2)",
+        transition: "color 0.15s ease",
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.color = "var(--ink)")}
+      onMouseLeave={(e) => (e.currentTarget.style.color = "var(--ink-2)")}
+    >
+      {expanded ? "Show less" : `Show ${hiddenCount} more`}
+      <ChevronDown
+        className="h-3.5 w-3.5"
+        style={{
+          transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
+          transition: "transform 0.2s ease",
+        }}
+      />
+    </button>
   );
 }
 
@@ -1076,7 +1219,11 @@ function FoundContactsSection({ items }: { items: LoopActivityItem[] }) {
   // stream — the adopt path enriches them in place without emitting an
   // activity item — so they don't appear here.
   const notEmailed = useMemo(() => items.filter((it) => !it.hasOutreach), [items]);
+  const [expanded, setExpanded] = useState(false);
+  const COLLAPSED_CAP = 5;
   if (notEmailed.length === 0) return null;
+  const overflow = Math.max(0, notEmailed.length - COLLAPSED_CAP);
+  const shown = expanded || overflow === 0 ? notEmailed : notEmailed.slice(0, COLLAPSED_CAP);
   return (
     <div style={{ marginTop: 36 }}>
       <SectionHead
@@ -1098,9 +1245,21 @@ function FoundContactsSection({ items }: { items: LoopActivityItem[] }) {
           boxShadow: "var(--shadow-sm)",
         }}
       >
-        {notEmailed.map((it, i) => (
-          <ContactRow key={it.id} item={it} index={i + 1} last={i === notEmailed.length - 1} />
+        {shown.map((it, i) => (
+          <ContactRow
+            key={it.id}
+            item={it}
+            index={i + 1}
+            last={i === shown.length - 1 && overflow === 0}
+          />
         ))}
+        {overflow > 0 && (
+          <CollapseToggle
+            expanded={expanded}
+            hiddenCount={overflow}
+            onToggle={() => setExpanded((e) => !e)}
+          />
+        )}
       </div>
     </div>
   );
@@ -1216,7 +1375,7 @@ function RepliesSection({ loop }: { loop: Loop }) {
   const total = loop.totalRepliesReceived;
   return (
     <div style={{ marginTop: 38 }}>
-      <SectionHead kicker="02 · Waiting on you" title="Replies" italic="that landed." />
+      <SectionHead kicker="02 · Waiting on you" title="Replies that landed" />
       {total === 0 ? (
         <div
           style={{
