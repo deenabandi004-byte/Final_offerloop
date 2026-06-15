@@ -5,6 +5,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import posthog from "./lib/posthog";
 import { FirebaseAuthProvider, useFirebaseAuth } from "./contexts/FirebaseAuthContext";
 import { ScoutProvider, useScout } from "./contexts/ScoutContext";
 import { TourProvider } from "./contexts/TourContext";
@@ -398,6 +399,18 @@ const ConditionalBackground: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 };
 
+/* ---------------- Pageview Tracker ----------------
+   capture_pageview is false in posthog.ts, so PostHog does not auto-fire.
+   This fires exactly one $pageview per location: once on initial mount and
+   once per route change. No double-fire. */
+const PageviewTracker: React.FC = () => {
+  const location = useLocation();
+  useEffect(() => {
+    posthog.capture('$pageview');
+  }, [location.pathname, location.search]);
+  return null;
+};
+
 /* ---------------- Keyboard Shortcut Handler ---------------- */
 const KeyboardShortcutHandler: React.FC = () => {
   const { openPanel, isPanelOpen, togglePanel } = useScout();
@@ -461,6 +474,7 @@ const App: React.FC = () => {
                 <ScoutProvider>
                   <TourProvider>
                     <KeyboardShortcutHandler />
+                    <PageviewTracker />
                     <AgentNotifierMount />
                     <AppRoutes />
                     <ScoutSidePanel />
