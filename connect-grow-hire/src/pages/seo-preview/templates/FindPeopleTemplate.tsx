@@ -69,8 +69,8 @@ const FindPeopleTemplate = () => {
   const isLive = LIVE_FIND_PEOPLE_SLUGS.has(row.slug);
   const onCleanPrefix = location.pathname.startsWith('/people/');
   const canonicalUrl = isLive
-    ? `https://offerloop.ai/people/${row.slug}`
-    : `https://offerloop.ai/seo-preview/find-people/${row.slug}`;
+    ? `https://www.offerloop.ai/people/${row.slug}`
+    : `https://www.offerloop.ai/seo-preview/find-people/${row.slug}`;
 
   const jsonLd = {
     '@context': 'https://schema.org',
