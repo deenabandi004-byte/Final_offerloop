@@ -7,7 +7,7 @@
  * House style: no em dashes, no sparkle icons.
  */
 import { Helmet } from 'react-helmet-async';
-import { useParams } from 'react-router-dom';
+import { useParams, useLocation } from 'react-router-dom';
 import { BadgeCheck, GraduationCap, Linkedin, Search, Users } from 'lucide-react';
 import {
   BRAND, BRAND_DARK, INK, kicker, serif,
@@ -57,13 +57,20 @@ const ExamplePanel = ({ row, firmName }: { row: FindPeopleRow; firmName: string 
 
 const FindPeopleTemplate = () => {
   const { slug } = useParams<{ slug: string }>();
+  const location = useLocation();
   const row = slug ? getFindPeopleRow(slug) : undefined;
   if (!row) return <NotFound slug={slug} />;
   const firm = getFirm(row.firmSlug);
   const school = getSchool(row.schoolSlug);
   if (!firm || !school) return <Misconfigured schoolSlug={row.schoolSlug} firmSlug={row.firmSlug} />;
-  // Only the approved first-batch cells are indexable. Everything else noindex.
+  // Only the approved first-batch cells are indexable, and only at the clean
+  // /people/ prefix. The /seo-preview/ version of a live cell stays noindex and
+  // canonicalizes to /people/ so there is no duplicate indexed URL.
   const isLive = LIVE_FIND_PEOPLE_SLUGS.has(row.slug);
+  const onCleanPrefix = location.pathname.startsWith('/people/');
+  const canonicalUrl = isLive
+    ? `https://offerloop.ai/people/${row.slug}`
+    : `https://offerloop.ai/seo-preview/find-people/${row.slug}`;
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -93,9 +100,9 @@ const FindPeopleTemplate = () => {
     <div className="min-h-screen w-full" style={{ fontFamily: "'DM Sans', system-ui, sans-serif", background: '#FFFFFF' }}>
       <Helmet>
         <title>Find 5 {school.name} Alumni at {firm.shortName} in Seconds (Free People Search) | Offerloop</title>
-        <meta name="robots" content={isLive ? 'index,follow' : 'noindex'} />
+        <meta name="robots" content={isLive && onCleanPrefix ? 'index,follow' : 'noindex'} />
         <meta name="description" content={row.metaDescription} />
-        <link rel="canonical" href={`https://offerloop.ai/seo-preview/find-people/${row.slug}`} />
+        <link rel="canonical" href={canonicalUrl} />
         <script type="application/ld+json">{JSON.stringify(jsonLd)}</script>
       </Helmet>
 

@@ -461,6 +461,7 @@ const AppRoutes: React.FC = () => {
       <Route path="/seo-preview/find-jobs" element={<Suspense fallback={<PageLoader />}><FindJobsPreview /></Suspense>} />
       <Route path="/seo-preview/find-people-usc-google" element={<Suspense fallback={<PageLoader />}><FindPeopleUscGooglePreview /></Suspense>} />
       <Route path="/seo-preview/find-people/:slug" element={<Suspense fallback={<PageLoader />}><FindPeopleTemplate /></Suspense>} />
+      <Route path="/people/:slug" element={<Suspense fallback={<PageLoader />}><FindPeopleTemplate /></Suspense>} />
 
       <Route path="*" element={<Suspense fallback={<PageLoader />}><NotFound /></Suspense>} />
     </Routes>
