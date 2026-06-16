@@ -128,8 +128,8 @@ const PrivacyPolicy = () => {
                   are stored to connect to your email provider.
                 </p>
                 <p className="text-gray-600">
-                  <strong>AI Services (OpenAI/ChatGPT):</strong> When using AI-powered personalization or explanations,
-                  relevant data may be securely sent to AI providers to generate responses.
+                  <strong>AI Services (OpenAI, Anthropic, and other AI/search providers):</strong> When using AI-powered
+                  personalization or explanations, relevant data may be securely sent to AI providers to generate responses.
                 </p>
                 <p className="text-gray-600">
                   <strong>Payment Processors (Stripe):</strong> Stripe processes all payments. We only receive
