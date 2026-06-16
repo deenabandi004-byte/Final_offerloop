@@ -24,6 +24,7 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import { useCreditsView } from "@/hooks/useCreditsView";
 import {
   apiService,
   type FeedJob,
@@ -132,6 +133,7 @@ const descriptionCache = new Map<string, JobDescriptionState>();
 
 export const JobBoardPage: React.FC = () => {
   const { user, isLoading: authLoading } = useFirebaseAuth();
+  const creditsView = useCreditsView();
 
   // ---- Server data --------------------------------------------------------
   const [feed, setFeed] = useState<JobFeedResponse | null>(null);
@@ -990,7 +992,7 @@ export const JobBoardPage: React.FC = () => {
                       onFindPeople={() => openFindHumans(selectedJob, "hiring-manager")}
                       onFindEmployees={(count) => openFindHumans(selectedJob, "employee", count)}
                       userPlan={user?.tier ?? "free"}
-                      currentCredits={user?.credits ?? 0}
+                      currentCredits={creditsView.balance}
                     />
                   ) : (
                     <div className="jb-loading">Select a role to see details.</div>

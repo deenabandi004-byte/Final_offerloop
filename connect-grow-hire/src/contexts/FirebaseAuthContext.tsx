@@ -20,9 +20,10 @@ import posthog from "../lib/posthog";
 
 const getMonthKey = () => new Date().toISOString().slice(0, 7);
 const initialCreditsByTier = (tier: "free" | "pro" | "elite") => {
+  // Keep in sync with TIER_CONFIGS (@/lib/constants) and backend config.py.
   if (tier === "free") return 300;
-  if (tier === "pro") return 1500;
-  if (tier === "elite") return 3000;
+  if (tier === "pro") return 2000;
+  if (tier === "elite") return 5000;
   return 300; // default to free
 };
 

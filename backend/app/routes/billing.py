@@ -30,7 +30,7 @@ from app.config import (
     STRIPE_COUPONS,
     TRIAL_DAYS_STUDENT,
     TRIAL_DAYS_NON_STUDENT,
-    TRIAL_DAILY_CREDITS,
+    TRIAL_CREDITS,
     TRIAL_DAILY_EXPORT_CAP,
     TRIAL_CC_EXTENSION_DAYS,
     FREE_DRAFTS_PER_MONTH,
@@ -64,7 +64,7 @@ def get_tier_config():
         'trial': {
             'days_student':       TRIAL_DAYS_STUDENT,
             'days_non_student':   TRIAL_DAYS_NON_STUDENT,
-            'daily_credits':      TRIAL_DAILY_CREDITS,
+            'credits':            TRIAL_CREDITS,   # one-time grant (single-batch model)
             'daily_export_cap':   TRIAL_DAILY_EXPORT_CAP,
             'cc_extension_days':  TRIAL_CC_EXTENSION_DAYS,
         },

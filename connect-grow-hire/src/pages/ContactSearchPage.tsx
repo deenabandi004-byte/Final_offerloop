@@ -3,6 +3,7 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
+import { useCreditsView } from "@/hooks/useCreditsView";
 import { useScout } from "@/contexts/ScoutContext";
 import { useTour } from "@/contexts/TourContext";
 import {
@@ -17,7 +18,7 @@ import { apiService, BACKEND_URL, isErrorResponse, type EmailTemplate, getEmailT
 import { firebaseApi } from "../services/firebaseApi";
 import type { Contact as ContactApi } from '../services/firebaseApi';
 import { toast } from "@/hooks/use-toast";
-import { TIER_CONFIGS } from "@/lib/constants";
+import { TIER_CONFIGS, CREDIT_COSTS } from "@/lib/constants";
 import { logActivity, generateContactSearchSummary } from "@/utils/activityLogger";
 import { EliteGateModal } from "@/components/EliteGateModal";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
@@ -243,6 +244,8 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
     email: "user@example.com",
     tier: "free" as "free" | "pro" | "elite",
   };
+  // Trial-aware credit balance for display (daily pool during a trial).
+  const creditsView = useCreditsView();
 
   const userTier: "free" | "pro" | "elite" = useMemo(() => {
     // Use the actual tier from the user object, default to "free"
@@ -683,9 +686,9 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
     // Per-tier slider ceiling. Elite raised to 30 (the per-search cap); Pro/Free
     // stay at their prior values.
     const tierMax = userTier === 'free' ? 5 : userTier === 'pro' ? 15 : 30;
-    const creditMax = Math.floor((effectiveUser.credits ?? 0) / 5);
+    const creditMax = Math.floor(creditsView.balance / 5);
     return Math.min(tierMax, creditMax);
-  }, [userTier, effectiveUser.credits]);
+  }, [userTier, creditsView.balance]);
 
   useEffect(() => {
     if (batchSize > maxBatchSize) {
@@ -2365,9 +2368,11 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                   background: '#FAFAF8', border: '1px solid #E5E3DE', borderRadius: 4,
                   fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: '#111418',
                 }}>
-                  {batchSize * 5} credits
+                  {batchSize * CREDIT_COSTS.find_contact} credits
                 </span>
-                <span style={{ color: '#8A8F97' }}>of {effectiveUser.credits ?? 0}</span>
+                <span style={{ color: '#8A8F97' }}>
+                  of {creditsView.balance.toLocaleString()}
+                </span>
               </div>
             </div>
           </div>

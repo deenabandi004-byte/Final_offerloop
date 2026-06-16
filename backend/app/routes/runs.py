@@ -24,6 +24,7 @@ from app.config import TIER_CONFIGS
 from app.utils.exceptions import OfferloopException, InsufficientCreditsError, ExternalAPIError
 from app.utils.warmth_scoring import score_contacts_for_email, score_and_sort_contacts, build_briefing_line
 from app.utils.email_quality import check_email_quality, has_specificity_signal
+from app.utils.users import get_outreach_email
 from email_templates import get_template_instructions
 
 # =============================================================================
@@ -566,6 +567,12 @@ def prompt_search():
                         "dreamCompanies", "hometown", "location", "pastCompanies"):
                 if key in user_data and key not in user_profile:
                     user_profile[key] = user_data[key]
+        # Prefer the user's .edu as the outreach identity. Sets the email used in
+        # the LLM body signature (batch_generate_emails) and the draft/send MIME
+        # signature (user_info below). Falls back to the primary email.
+        _outreach_email = get_outreach_email(user_data)
+        if _outreach_email:
+            user_profile["email"] = _outreach_email
         career_interests = data.get("careerInterests") or (user_data or {}).get("careerInterests", [])
         template_instructions, email_template_purpose, template_subject_line, signoff_config = _resolve_email_template(data.get("emailTemplate"), user_id, db, user_data=user_data)
         # Get resume filename for email body reference

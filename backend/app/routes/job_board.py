@@ -26,6 +26,7 @@ from app.services.auth import deduct_credits_atomic, refund_credits_atomic, chec
 from app.services.openai_client import get_async_openai_client, get_openai_client
 from app.services.ats_scorer import calculate_ats_score
 from app.services.recruiter_finder import find_recruiters, determine_job_type, find_hiring_manager
+from app.utils.users import get_outreach_email
 from app.services.resume_optimizer_v2 import optimize_resume_v2 as run_resume_optimization
 from app.services.resume_capabilities import get_capabilities
 from app.services.pdf_builder import generate_cover_letter_pdf
@@ -7937,7 +7938,7 @@ def find_recruiter_endpoint():
         resume_linkedin = user_resume.get('contact', {}).get('linkedin', '') if isinstance(user_resume.get('contact'), dict) else ''
         user_contact = {
             "name": user_resume.get('name', user_data.get('displayName', '')),
-            "email": user_data.get('email', ''),
+            "email": get_outreach_email(user_data),
             "phone": resume_phone or user_data.get('phone', ''),
             "linkedin": resume_linkedin or user_data.get('linkedin', '')
         }
@@ -8495,7 +8496,7 @@ def find_employee_endpoint():
         resume_linkedin = user_resume.get('contact', {}).get('linkedin', '') if isinstance(user_resume.get('contact'), dict) else ''
         user_contact = {
             "name": user_resume.get('name', user_data.get('displayName', '')),
-            "email": user_data.get('email', ''),
+            "email": get_outreach_email(user_data),
             "phone": resume_phone or user_data.get('phone', ''),
             "linkedin": resume_linkedin or user_data.get('linkedin', '')
         }
@@ -8966,7 +8967,7 @@ def find_hiring_manager_endpoint():
         resume_linkedin = user_resume.get('contact', {}).get('linkedin', '') if isinstance(user_resume.get('contact'), dict) else ''
         user_contact = {
             "name": user_resume.get('name', user_data.get('displayName', '')),
-            "email": user_data.get('email', ''),
+            "email": get_outreach_email(user_data),
             "phone": resume_phone or user_data.get('phone', ''),
             "linkedin": resume_linkedin or user_data.get('linkedin', '')
         }

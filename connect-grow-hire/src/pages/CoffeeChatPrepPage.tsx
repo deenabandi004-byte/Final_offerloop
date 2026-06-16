@@ -44,6 +44,7 @@ import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { CompanyLogo } from "@/components/CompanyLogo";
 import { IS_DEV_PREVIEW } from "@/lib/devPreview";
 import { useSubscription } from "@/hooks/useSubscription";
+import { useCreditsView } from "@/hooks/useCreditsView";
 import { canUseFeature, getFeatureLimit } from "@/utils/featureAccess";
 import { trackFeatureActionCompleted, trackContentViewed, trackError } from "../lib/analytics";
 import meetingPrepBg from "@/assets/meeting-prep-watercolor.png";
@@ -59,6 +60,8 @@ const CoffeeChatPrepPage: React.FC = () => {
     email: "user@example.com",
     tier: "free",
   } as const;
+  // Trial-aware credit balance (daily pool during a trial).
+  const creditsView = useCreditsView();
   
   // Check if user has access to coffee chat prep based on remaining uses
   const currentUsage = subscription?.coffeeChatPrepsUsed || 0;
@@ -72,7 +75,7 @@ const CoffeeChatPrepPage: React.FC = () => {
       )
     : effectiveUser.tier === 'elite';
   
-  const hasEnoughCredits = (effectiveUser.credits ?? 0) >= COFFEE_CHAT_CREDITS;
+  const hasEnoughCredits = creditsView.balance >= COFFEE_CHAT_CREDITS;
   const hasAccess = hasMonthlyAccess && hasEnoughCredits;
 
   // Animated placeholder
@@ -352,7 +355,7 @@ const CoffeeChatPrepPage: React.FC = () => {
       return;
     }
 
-    if ((effectiveUser.credits ?? 0) < COFFEE_CHAT_CREDITS) {
+    if (creditsView.balance < COFFEE_CHAT_CREDITS) {
       toast({
         title: "Insufficient Credits",
         description: `You need ${COFFEE_CHAT_CREDITS} credits to generate a coffee chat prep.`,
@@ -914,7 +917,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                       limit={limit}
                       tier={tier}
                       requiredCredits={COFFEE_CHAT_CREDITS}
-                      currentCredits={effectiveUser.credits ?? 0}
+                      currentCredits={creditsView.balance}
                       featureName="Coffee Chat Preps"
                       nextTier={subscription?.tier === 'free' ? 'Pro' : 'Elite'}
                       showUpgradeButton={!hasMonthlyAccess || !hasEnoughCredits}
@@ -1064,7 +1067,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                     signal "ready to go". */}
                 <button
                   onClick={handleCoffeeChatSubmit}
-                  disabled={!linkedinUrl.trim() || coffeeChatLoading || !hasAccess || (effectiveUser.credits ?? 0) < COFFEE_CHAT_CREDITS}
+                  disabled={!linkedinUrl.trim() || coffeeChatLoading || !hasAccess || creditsView.balance < COFFEE_CHAT_CREDITS}
                   style={{
                     width: '100%',
                     height: 52,

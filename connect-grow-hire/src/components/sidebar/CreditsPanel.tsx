@@ -12,9 +12,13 @@ import {
 export type CreditsPanelProps = {
   /** Actual remaining balance to display. */
   remaining: number;
-  /** Monthly cap for the % bar. */
+  /** Cap for the % bar (monthly allocation, or the daily budget during a trial). */
   total: number;
   onUpgrade: () => void;
+  /** True during a Pro free trial — switches to the daily-budget presentation. */
+  isTrialing?: boolean;
+  /** Days left in the trial (shown in the trial subtext). */
+  daysRemaining?: number;
 };
 
 type TierTheme = {
@@ -63,7 +67,7 @@ function tierFor(pct: number): CreditsTier {
   return CREDITS_TIER_CRITICAL;
 }
 
-export function CreditsPanel({ remaining, total, onUpgrade }: CreditsPanelProps) {
+export function CreditsPanel({ remaining, total, onUpgrade, isTrialing = false, daysRemaining }: CreditsPanelProps) {
   // Show the real balance. The % bar is clamped to [0,100] so a grandfathered
   // balance above the cap (legacy accounts carried more credits than the new
   // tier cap) reads as "full" instead of pinning the displayed number to the
@@ -71,6 +75,55 @@ export function CreditsPanel({ remaining, total, onUpgrade }: CreditsPanelProps)
   // number at the cap whenever credits exceeded it.
   const safeRemaining = Math.max(0, remaining);
   const pct = total > 0 ? Math.min(100, Math.max(0, (safeRemaining / total) * 100)) : 0;
+
+  // ── Trial mode: a one-time Pro pass, not a monthly pool. ──
+  if (isTrialing) {
+    return (
+      <div
+        className="rounded-xl border p-3.5"
+        style={{ background: "rgba(37,99,235,0.10)", borderColor: "rgba(37,99,235,0.35)" }}
+      >
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-200">
+            Pro trial
+          </span>
+          {typeof daysRemaining === "number" && (
+            <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-blue-200">
+              {daysRemaining} day{daysRemaining === 1 ? "" : "s"} left
+            </span>
+          )}
+        </div>
+
+        <div className="mb-1 flex items-baseline gap-1.5">
+          <span className="text-[19px] font-medium tracking-tight text-slate-50">
+            {safeRemaining.toLocaleString()}
+          </span>
+          <span className="text-[11px] text-slate-400">of {total.toLocaleString()} trial credits</span>
+        </div>
+
+        <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-sky-400 to-blue-500 transition-all duration-500"
+            style={{ width: `${Math.max(2, pct)}%` }}
+          />
+        </div>
+
+        <p className="mb-3 text-[10.5px] leading-snug text-slate-400">
+          Upgrade anytime for 2,000 credits a month
+        </p>
+
+        <button
+          type="button"
+          onClick={onUpgrade}
+          className="flex w-full items-center justify-center gap-1.5 rounded-[10px] bg-gradient-to-br from-blue-600 to-blue-700 py-2.5 text-[13px] font-medium text-white shadow-[0_4px_14px_rgba(37,99,235,0.32)] transition-transform duration-150 hover:-translate-y-px active:translate-y-0"
+        >
+          <Zap className="h-3.5 w-3.5 text-amber-200" />
+          Keep Pro
+        </button>
+      </div>
+    );
+  }
+
   const theme = THEMES[tierFor(pct)];
 
   return (

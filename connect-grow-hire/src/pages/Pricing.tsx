@@ -29,6 +29,7 @@ import {
 } from "@/hooks/useTierConfig";
 import { CreditSlider } from "@/components/CreditSlider";
 import { TopUpModal } from "@/components/TopUpModal";
+import { useCreditsView } from "@/hooks/useCreditsView";
 
 // For Students palette — matches /for-students and /about so the marketing
 // surfaces read as one design system.
@@ -143,6 +144,9 @@ interface SubscriptionStatus {
   tier: string;
   status: string;
   hasSubscription: boolean;
+  // Present only when a REAL Stripe subscription exists. Null during the no-card
+  // Pro trial — used to route trial upgrades to checkout, not subscription-modify.
+  subscriptionId?: string | null;
   currentPeriodEnd?: number;
   cancelAtPeriodEnd?: boolean;
 }
@@ -271,6 +275,7 @@ const Pricing = () => {
   // stops, Stripe SKUs, trial days, active promos, top-up packs. Falls back to
   // lib/constants.ts defaults if the endpoint is unreachable.
   const { config: tierConfig } = useTierConfig();
+  const creditsView = useCreditsView();
   const proStops = tierConfig.slider_stops.pro;
   const eliteStops = tierConfig.slider_stops.elite;
   const proStop = proStops[proStopIdx];
@@ -329,7 +334,7 @@ const Pricing = () => {
   // Real coupon-gated urgency badge. Empty active_promos = no badge.
   const hasActivePromo = Object.values(tierConfig.active_promos).some(Boolean);
 
-  // Trial duration — unified at 14 days for everyone. The .edu benefit is the
+  // Trial duration — single value for everyone, from config. The .edu benefit is the
   // price discount, not a longer trial. Simpler to communicate, less confusing.
   const trialDays = tierConfig.trial.days_non_student;
 
@@ -599,7 +604,12 @@ const Pricing = () => {
           // else: fall through to Stripe checkout
         }
 
-        if (hasActiveSubscription) {
+        // Modify-in-place only works with a REAL Stripe subscription. A no-card
+        // trial user has subscriptionStatus 'trialing' but no Stripe sub, so they
+        // must go through checkout (which converts the trial to paid + hands over
+        // the full monthly pool). Gating on subscriptionId, not the trialing flag.
+        const hasRealStripeSub = !!subscriptionStatus?.subscriptionId;
+        if (hasRealStripeSub) {
           await handleSubscriptionUpgrade(planType);
         } else {
           await handleStripeCheckout(planType);
@@ -728,7 +738,7 @@ const Pricing = () => {
       />
       <Helmet>
         <title>Offerloop Pricing - Student Plans for College Networking</title>
-        <meta name="description" content="Students save ~50% with a .edu email. Pro $14.99/mo with 14-day free trial, Elite $34.99/mo, plus annual plans. Offerloop helps college students network into consulting, investment banking, and tech." />
+        <meta name="description" content={`Students save ~50% with a .edu email. Pro $14.99/mo with ${trialDays}-day free trial, Elite $34.99/mo, plus annual plans. Offerloop helps college students network into consulting, investment banking, and tech.`} />
         <link rel="canonical" href="https://offerloop.ai/pricing" />
       </Helmet>
 
@@ -856,7 +866,7 @@ const Pricing = () => {
                     )}
                   </div>
                   <p className="text-sm text-gray-500">
-                    {user?.credits ?? 0} credits remaining
+                    {creditsView.balance.toLocaleString()} credits {creditsView.isTrialing ? 'today' : 'remaining'}
                     {renewalDate && !subscriptionStatus?.cancelAtPeriodEnd && ` • Renews ${renewalDate}`}
                     {subscriptionStatus?.cancelAtPeriodEnd && renewalDate && ` • Cancels ${renewalDate}`}
                   </p>
@@ -1320,7 +1330,7 @@ const Pricing = () => {
                         }
                   }
                 >
-                  {isLoading ? 'Processing...' : currentTier === 'pro' ? 'Manage Subscription' : currentTier === 'elite' ? 'On Elite Plan' : 'Start 14-Day Free Trial'}
+                  {isLoading ? 'Processing...' : currentTier === 'pro' ? 'Manage Subscription' : currentTier === 'elite' ? 'On Elite Plan' : `Start ${trialDays}-Day Free Trial`}
                 </button>
               </div>
             </div>
@@ -1996,7 +2006,7 @@ const Pricing = () => {
                   <ComparisonRow feature="Firm Search" free={false} pro={true} elite={true} />
                   <ComparisonRow feature="Top-Up Credit Packs" free={false} pro={true} elite={true} />
                   <ComparisonRow feature="Priority Queue + Support" free={false} pro={false} elite={true} />
-                  <ComparisonRow feature="14-Day Free Trial" free={false} pro={true} elite={false} />
+                  <ComparisonRow feature={`${trialDays}-Day Free Trial`} free={false} pro={true} elite={false} />
                 </tbody>
               </table>
             </div>
@@ -2240,7 +2250,7 @@ const Pricing = () => {
           <div>
             <FAQItem
               question="How does the free trial work?"
-              answer="You get 14 days of full Pro access — no credit card required. You can cancel anytime, and at the end of the trial you drop to the Free plan automatically (no surprise charges). The trial is for Pro only; Elite users sign up directly or come in via the one-time upgrade offer right after checkout."
+              answer={`You get ${trialDays} days of Pro access with 600 credits to spend — no credit card required. Use them on contact searches, firm search, hiring-manager lookups, and drafts. You can cancel anytime, and at the end of the window you drop to the Free plan automatically (no surprise charges). The trial is for Pro only; Elite users sign up directly or come in via the one-time upgrade offer right after checkout.`}
               isProminent={true}
             />
             <FAQItem
@@ -2268,7 +2278,7 @@ const Pricing = () => {
             />
             <FAQItem
               question="What if I don't have a .edu email?"
-              answer="You can still sign up and use Offerloop - you'll just get the 14-day trial instead of 30 days and pay the public list price. Already a paid alumni? Reach out and we'll verify your old school manually."
+              answer={`You can still sign up and use Offerloop - you'll just get the standard ${trialDays}-day Pro trial and pay the public list price. Already a paid alumni? Reach out and we'll verify your old school manually.`}
             />
             <FAQItem
               question="How do I cancel?"

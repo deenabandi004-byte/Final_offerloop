@@ -82,10 +82,10 @@ def check_and_reset_usage(user_ref, user_data):
     try:
         tier = user_data.get('subscriptionTier') or user_data.get('tier', 'free')
 
-        # Free tier limits are LIFETIME - never reset
-        if tier == 'free':
-            return
-
+        # Usage counters (coffee-chat preps, alumni searches) reset monthly for
+        # EVERY tier, including Free. Previously Free was lifetime-capped, which
+        # created a sour note: a trial user who spent Pro's 10 preps then dropped
+        # to Free could never run another without paying. Monthly Free removes that.
         last_usage_reset = _parse_datetime(user_data.get('lastUsageReset'))
         now = datetime.now()
 

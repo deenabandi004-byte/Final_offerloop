@@ -188,6 +188,7 @@ def apply_post_checkout_upsell(user_id: str) -> dict:
         'upsellShownAt': datetime.utcnow(),
         'upsellAcceptedAt': datetime.utcnow(),
         'upsellInvoiceId': invoice_id,
+        'trialActive': False,  # paid upgrade ends any active no-card trial
     })
 
     return {
@@ -458,7 +459,13 @@ def handle_checkout_completed(session):
             'subscriptionStatus': sub_status,
             'lastCreditReset': datetime.now().isoformat(),
             'upgraded_at': datetime.now().isoformat(),
-            'updatedAt': datetime.now().isoformat()
+            'updatedAt': datetime.now().isoformat(),
+            # End any active no-card Pro trial NOW. Without this, the trial-aware
+            # deduct path (deduct_credits_atomic) would keep spending the 300/day
+            # trial bucket until trialEndsAt, throttling a user who just PAID for
+            # the full monthly pool. Clearing the flag hands over `credits` above
+            # immediately. `trialUsedAt` is preserved so the trial can't restart.
+            'trialActive': False,
         }
         # Decision #5: if this checkout began as a trial, consume the one-per-
         # account trial token so neither path can grant a second one.
@@ -577,6 +584,7 @@ def handle_invoice_paid(invoice):
                 'lastCreditReset': datetime.now().isoformat(),
                 'lastUsageReset': datetime.now().isoformat(),
                 'updatedAt': datetime.now().isoformat(),
+                'trialActive': False,  # a paid invoice means no active no-card trial
             }
             if invoice_id:
                 update_data['lastProcessedInvoiceId'] = invoice_id
@@ -631,7 +639,8 @@ def handle_subscription_updated(subscription):
                 'credits': new_credits,
                 'stripeSubscriptionId': subscription.id,
                 'subscriptionStatus': subscription.status,
-                'updatedAt': datetime.now().isoformat()
+                'updatedAt': datetime.now().isoformat(),
+                'trialActive': False,  # paid subscription change ends any no-card trial
             })
             price_id = subscription.items.data[0].price.id if subscription.items.data else None
             print(f"✅ User {doc.id} subscription updated to {tier} (price_id={price_id})")
@@ -705,7 +714,8 @@ def update_subscription_tier():
             'maxCredits': tier_config['credits'],
             'credits': tier_config['credits'],
             'subscriptionStatus': updated_subscription.status,
-            'updatedAt': datetime.now().isoformat()
+            'updatedAt': datetime.now().isoformat(),
+            'trialActive': False,  # paid tier change ends any no-card trial
         })
 
         print(f"[Stripe] User upgraded subscription to {new_tier}")

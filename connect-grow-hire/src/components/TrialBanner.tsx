@@ -15,14 +15,15 @@ import { Sparkles, Clock, Zap, ChevronRight } from 'lucide-react';
 import { getAuth } from 'firebase/auth';
 import { BACKEND_URL } from '@/services/api';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
+import { useTierConfig } from '@/hooks/useTierConfig';
 
 interface TrialStatus {
   is_active: boolean;
   is_expired_unprocessed?: boolean;
   days_remaining?: number;
   hours_remaining?: number;
-  daily_credits_remaining?: number;
-  daily_credits_max?: number;
+  credits_remaining?: number;
+  credits_total?: number;
   trial_ends_at?: string;
 }
 
@@ -54,6 +55,8 @@ const C = {
 
 export function TrialBanner({ variant = 'full', onStartTrial, onUpgrade }: TrialBannerProps) {
   const { user } = useFirebaseAuth();
+  const { config: tierConfig } = useTierConfig();
+  const trialDays = tierConfig.trial.days_non_student;
   const [data, setData] = useState<TrialStatusResponse | null>(null);
   const [activating, setActivating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -132,8 +135,8 @@ export function TrialBanner({ variant = 'full', onStartTrial, onUpgrade }: Trial
   if (status.is_active) {
     const daysLeft = status.days_remaining ?? 0;
     const hoursLeft = status.hours_remaining ?? 0;
-    const dailyLeft = status.daily_credits_remaining ?? 0;
-    const dailyMax = status.daily_credits_max ?? 300;
+    const dailyLeft = status.credits_remaining ?? 0;
+    const dailyMax = status.credits_total ?? 600;
     const pct = Math.max(0, Math.min(100, (dailyLeft / dailyMax) * 100));
 
     if (variant === 'compact') {
@@ -158,7 +161,7 @@ export function TrialBanner({ variant = 'full', onStartTrial, onUpgrade }: Trial
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
             <Zap size={12} />
             <span style={{ fontSize: 12, fontWeight: 600 }}>
-              {dailyLeft.toLocaleString()} / {dailyMax.toLocaleString()} credits today
+              {dailyLeft.toLocaleString()} / {dailyMax.toLocaleString()} trial credits
             </span>
           </div>
           <div style={{ height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.25)', overflow: 'hidden' }}>
@@ -194,7 +197,7 @@ export function TrialBanner({ variant = 'full', onStartTrial, onUpgrade }: Trial
           </div>
           <div style={{ fontSize: 13, opacity: 0.9 }}>
             <Zap size={11} style={{ display: 'inline', marginRight: 4 }} />
-            {dailyLeft.toLocaleString()} of {dailyMax.toLocaleString()} credits today · resets at midnight UTC
+            {dailyLeft.toLocaleString()} of {dailyMax.toLocaleString()} trial credits · upgrade for 2,000/mo
           </div>
         </div>
         {onUpgrade && (
@@ -252,7 +255,7 @@ export function TrialBanner({ variant = 'full', onStartTrial, onUpgrade }: Trial
           <Sparkles size={10} style={{ display: 'inline', marginRight: 3 }} /> Free Trial
         </div>
         <div style={{ fontSize: 13, fontWeight: 800 }}>
-          {activating ? 'Starting…' : 'Try Pro free · 14 days'}
+          {activating ? 'Starting…' : `Try Pro free · ${trialDays} days`}
         </div>
         <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>No credit card required</div>
       </button>
@@ -280,7 +283,7 @@ export function TrialBanner({ variant = 'full', onStartTrial, onUpgrade }: Trial
           <Sparkles size={11} style={{ display: 'inline', marginRight: 4 }} /> Free Trial
         </div>
         <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 4 }}>
-          Try Pro free for 14 days
+          Try Pro free for {trialDays} days
         </div>
         <div style={{ fontSize: 13, opacity: 0.9 }}>
           <Clock size={11} style={{ display: 'inline', marginRight: 4 }} />

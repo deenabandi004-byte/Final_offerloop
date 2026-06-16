@@ -10,6 +10,7 @@ from ..extensions import require_firebase_auth, get_db
 from ..config import PDL_BASE_URL, PEOPLE_DATA_LABS_API_KEY
 from ..services.reply_generation import batch_generate_emails
 from ..utils.warmth_scoring import score_contacts_for_email
+from ..utils.users import get_outreach_email
 from ..services.gmail_client import create_gmail_draft_for_user, download_resume_from_url
 from ..services.hunter import get_verified_email, get_smart_company_domain
 
@@ -511,6 +512,8 @@ def import_from_linkedin():
         if user_doc.exists:
             user_profile = {
                 'name': user_data.get('name', ''),
+                # Prefer the user's .edu as the outreach identity (body signature).
+                'email': get_outreach_email(user_data),
                 'university': user_data.get('university', ''),
                 'major': user_data.get('major', ''),
                 'year': user_data.get('year', ''),
@@ -592,7 +595,8 @@ def import_from_linkedin():
                         # Build user_info for draft signature (name, email, phone, linkedin)
                         user_info = {
                             'name': user_profile.get('name', '') or user_data.get('name', ''),
-                            'email': user_email or '',
+                            # Prefer .edu for the draft signature identity.
+                            'email': get_outreach_email(user_data) or user_email or '',
                             'phone': user_data.get('phone', '') if user_data else '',
                             'linkedin': user_data.get('linkedin', '') if user_data else '',
                         }

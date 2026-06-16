@@ -31,6 +31,7 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { CompanyLogo } from "@/components/CompanyLogo";
 
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import { useCreditsView } from "@/hooks/useCreditsView";
 import { useScout } from "@/contexts/ScoutContext";
 import { useNotifications } from "@/hooks/useNotifications";
 import {
@@ -363,6 +364,7 @@ function Rail({ children }: { children: React.ReactNode }) {
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { user, isLoading: authLoading } = useFirebaseAuth();
+  const creditsView = useCreditsView();
   const { openPanelWithMessage } = useScout();
   const { notifications } = useNotifications();
 
@@ -465,7 +467,7 @@ export default function DashboardPage() {
     { label: "Sent this week", value: String(sent), pending: statsPending },
     { label: "Replies this week", value: String(replied), pending: statsPending },
     { label: "Reply rate · wk", value: `${replyRate}%`, pending: statsPending },
-    { label: "Credits left", value: String(user?.credits ?? 0), pending: false },
+    { label: creditsView.isTrialing ? "Trial credits left" : "Credits left", value: String(creditsView.balance), pending: false },
   ];
 
   /* ---- welcome line - replies waiting + loop actions to review ---- */

@@ -33,7 +33,7 @@ export interface TopUpPack {
 export interface TrialConfig {
   days_student: number;
   days_non_student: number;
-  daily_credits: number;
+  credits: number; // one-time grant for the whole trial (single-batch model)
   daily_export_cap: number;
   cc_extension_days: number;
 }
@@ -121,9 +121,9 @@ const FALLBACK: TierConfigPayload = {
   ],
   active_promos: {},
   trial: {
-    days_student: 14,
-    days_non_student: 14,
-    daily_credits: 600,
+    days_student: 7,
+    days_non_student: 7,
+    credits: 600,
     daily_export_cap: 25,
     cc_extension_days: 7,
   },

@@ -29,8 +29,8 @@ import { trackNavClick, trackUpgradeClick } from "../lib/analytics";
 import { useAgentSidebarStatus } from "@/hooks/useAgent";
 import { useTour } from "@/contexts/TourContext";
 import { useNotifications } from "@/hooks/useNotifications";
-import { TIER_CONFIGS } from "@/lib/constants";
 import { CreditsPanel } from "./sidebar/CreditsPanel";
+import { useCreditsView } from "@/hooks/useCreditsView";
 
 import {
   Sidebar,
@@ -123,16 +123,11 @@ export function AppSidebar() {
     }
   };
 
-  // Derive credit cap from the user's actual subscription tier rather than
-  // trusting user.maxCredits in Firestore, which can drift stale (e.g. plan
-  // upgraded but maxCredits field wasn't updated). Single source of truth =
-  // TIER_CONFIGS in @/lib/constants. Falls back to free-tier cap.
-  const rawTier = ((user as { subscriptionTier?: string; tier?: string } | null)?.subscriptionTier
-    || (user as { tier?: string } | null)?.tier
-    || "free").toLowerCase();
-  const tierKey = (rawTier in TIER_CONFIGS ? rawTier : "free") as keyof typeof TIER_CONFIGS;
-  const credits = user?.credits ?? 0;
-  const maxCredits = TIER_CONFIGS[tierKey].credits;
+  // Trial-aware single source of truth for the credits widget. During a Pro
+  // trial this returns the daily budget (300/day) instead of the frozen monthly
+  // pool; for free/paid users it returns the normal balance + tier cap (derived
+  // from TIER_CONFIGS, so a stale Firestore maxCredits can't drift the display).
+  const creditsView = useCreditsView();
   const isCollapsed = state === "collapsed";
 
   const { startTour } = useTour();
@@ -605,10 +600,14 @@ export function AppSidebar() {
         >
           {!isCollapsed ? (
             <CreditsPanel
-              remaining={credits}
-              total={maxCredits}
+              remaining={creditsView.balance}
+              total={creditsView.total}
+              isTrialing={creditsView.isTrialing}
+              daysRemaining={creditsView.daysRemaining}
               onUpgrade={() => {
-                trackUpgradeClick("sidebar", { from_location: "sidebar" });
+                trackUpgradeClick("sidebar", {
+                  from_location: creditsView.isTrialing ? "sidebar_trial" : "sidebar",
+                });
                 navigate("/pricing");
               }}
             />
@@ -643,7 +642,9 @@ export function AppSidebar() {
                 <TooltipContent side="right">
                   <div className="text-xs">
                     <p className="font-medium">
-                      Credits: {credits}/{maxCredits}
+                      {creditsView.isTrialing
+                        ? `Trial: ${creditsView.balance}/${creditsView.total} today`
+                        : `Credits: ${creditsView.balance}/${creditsView.total}`}
                     </p>
                     <p className="text-gray-400 mt-0.5">Click to upgrade</p>
                   </div>

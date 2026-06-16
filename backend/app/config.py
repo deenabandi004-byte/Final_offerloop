@@ -331,10 +331,20 @@ TOPUP_PACKS = [
 # Trial duration — unified at 14 days for everyone. We dropped the .edu
 # differentiation because it confused users; the .edu benefit is price, not
 # trial length. Both env vars kept for API back-compat.
-TRIAL_DAYS_STUDENT     = int(os.getenv('TRIAL_DAYS_STUDENT', '14'))
-TRIAL_DAYS_NON_STUDENT = int(os.getenv('TRIAL_DAYS_NON_STUDENT', '14'))
-# Daily credit allocation during trial. Doubled to 600 to keep same email
-# throughput (60 emails/day) after the 2026-06-10 marketing inflation.
+# Single-batch model (2026-06-15): one bounded grant over a SHORT window, no
+# daily refill. Rationale: a daily drip rewarded waiting (don't convert, free
+# credits keep coming), stacked on top of Pro, and gave away ~4x a paid month.
+# A one-time grant flips the incentive — converting is always a gain, never a
+# loss — and bounds give-away to a single batch. 7 days lets the find→send→reply
+# loop close so the payoff lands before the window ends.
+TRIAL_DAYS_STUDENT     = int(os.getenv('TRIAL_DAYS_STUDENT', '7'))
+TRIAL_DAYS_NON_STUDENT = int(os.getenv('TRIAL_DAYS_NON_STUDENT', '7'))
+# One-time credit grant for the whole trial (NOT per day). 600 cr = ~60 contacts
+# at 10 cr each — enough to feel Pro (multiple searches + drafts + a coffee prep),
+# bounded to ~0.3x a Pro month so it can't substitute for paying.
+TRIAL_CREDITS          = int(os.getenv('TRIAL_CREDITS', '600'))
+# Legacy: kept so any old reference resolves; the single-batch model no longer
+# refills daily. TRIAL_CREDITS is the source of truth for the grant.
 TRIAL_DAILY_CREDITS    = int(os.getenv('TRIAL_DAILY_CREDITS', '600'))
 TRIAL_DAILY_EXPORT_CAP = int(os.getenv('TRIAL_DAILY_EXPORT_CAP', '25'))
 # +7-day extension if user adds credit card at trial start (commitment hook)

@@ -45,6 +45,10 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
   const [submitting, setSubmitting] = useState(false);
 
   const [profileBasics, setProfileBasics] = useState<ProfileBasicsData | null>(null);
+  // A .edu the user may add on the trial step purely to unlock student pricing —
+  // kept SEPARATE from their primary email so we never clobber what they signed
+  // up with. Drives the student discount + a school-email outreach signal.
+  const [eduEmail, setEduEmail] = useState("");
   const [source, setSource] = useState<SourceResult | null>(null);
   const [manualAcademics, setManualAcademics] = useState<ManualEntryData | null>(null);
   const [intent, setIntent] = useState("");
@@ -121,13 +125,32 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
         ? { university: manualAcademics.university, major: manualAcademics.major, graduationYear: manualAcademics.graduationYear }
         : src?.resolved || EMPTY_PREFILL;
     const manualDegree = src?.entryPath === "manual" ? manualAcademics?.degree || "" : "";
-    const trackOpt = careerTrackByLabel(trk.careerTrackLabel);
-    const trackValue = trackOpt?.value || trk.careerTrackLabel;
-    const industries = trackOpt?.targetIndustries || [];
+    const trackLabels = trk.careerTrackLabels;
+    const primaryLabel = trackLabels[0] || "";
+    const trackOpt = careerTrackByLabel(primaryLabel);
+    const trackValue = trackOpt?.value || primaryLabel;
+    // All selected track values (deduped), primary first.
+    const trackValues = Array.from(
+      new Set(trackLabels.map((l) => careerTrackByLabel(l)?.value || l))
+    );
+    // Union of target industries across every selected track.
+    const industries = Array.from(
+      new Set(trackLabels.flatMap((l) => careerTrackByLabel(l)?.targetIndustries || []))
+    );
     const hasCompanies = trk.dreamCompanies.length > 0;
     const hasJobTypes = trk.jobTypes.length > 0;
+    // A .edu unlocks student pricing (Pricing.tsx reads `isStudent`) and is a
+    // stronger outreach signal. It can come from the primary email OR a .edu the
+    // user added on the trial step — the latter is stored separately so it never
+    // replaces their primary/sign-up email. Server re-validates audience at checkout.
+    const primaryIsEdu = profile.email.toLowerCase().trim().endsWith(".edu");
+    const addedEdu = eduEmail.toLowerCase().trim();
+    const eduAddress = primaryIsEdu ? profile.email.trim() : addedEdu.endsWith(".edu") ? eduEmail.trim() : "";
+    const isStudent = !!eduAddress;
 
     return {
+      isStudent,
+      ...(eduAddress ? { eduEmail: eduAddress } : {}),
       profile: {
         fullName: profile.fullName,
         firstName,
@@ -145,9 +168,12 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
         graduationYear: academics.graduationYear,
       },
       careerTrack: trackValue,
+      careerTracks: trackValues,
+      careerTrackLabels: trackLabels,
       targetIndustries: industries,
       goals: {
         careerTrack: trackValue,
+        careerTracks: trackValues,
         targetIndustries: industries,
         ...(hasCompanies ? { dreamCompanies: trk.dreamCompanies } : {}),
       },
@@ -220,8 +246,20 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
           body: JSON.stringify({}),
         });
         if (trialRes.ok) {
+          toast.success("Your Pro trial is active — 600 credits to spend, no card.");
           navigate(resolveDestination(), { replace: true });
           return;
+        }
+        // Trial refused (already used it, or already on a paid plan). Tell the
+        // user why instead of silently bouncing them to a Stripe checkout.
+        const reason = (await trialRes.json().catch(() => ({})))?.error;
+        if (reason === "already_subscribed") {
+          toast.info("You're already on a paid plan — taking you in.");
+          navigate(resolveDestination(), { replace: true });
+          return;
+        }
+        if (reason === "trial_already_used") {
+          toast.info("You've already used your free trial. Opening checkout to subscribe.");
         }
       }
 
@@ -268,7 +306,7 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
         </div>
       </div>
 
-      <div className="container mx-auto px-4 pb-12 max-w-xl">
+      <div className={`container mx-auto px-4 pb-12 ${currentStep === "trial" ? "max-w-2xl" : "max-w-xl"}`}>
         {/* Back — lowered, dark + bold so it's clearly visible */}
         <div className="mt-4 mb-1">
           <button
@@ -310,6 +348,12 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
               onStartTrial={handleStartTrial}
               onContinueFree={handleContinueFree}
               submitting={submitting}
+              isStudent={
+                !!profileBasics?.email?.toLowerCase().endsWith(".edu") ||
+                eduEmail.toLowerCase().endsWith(".edu")
+              }
+              // Stored separately — does NOT replace their primary/sign-up email.
+              onEduEmail={(edu) => setEduEmail(edu)}
             />
           )}
         </div>

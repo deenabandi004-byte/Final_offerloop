@@ -5,6 +5,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
+import { useCreditsView } from "@/hooks/useCreditsView";
 import { useScout } from "@/contexts/ScoutContext";
 import { useTour } from "@/contexts/TourContext";
 import {
@@ -71,6 +72,8 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
     email: "user@example.com",
     tier: "free",
   } as const;
+  // Trial-aware credit balance for display (daily pool during a trial).
+  const creditsView = useCreditsView();
 
   const userSchoolShort = useMemo(() => getUniversityShortName((user as any)?.university), [user]);
   const FIRM_PLACEHOLDERS = useMemo(() => getFirmPlaceholders(userSchoolShort), [userSchoolShort]);
@@ -607,7 +610,7 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
         toast({ title: "Authentication Required", description: "Your session may have expired.", variant: "destructive" });
       } else if (err.status === 402 || err.error_code === 'INSUFFICIENT_CREDITS') {
         const creditsNeeded = err.creditsNeeded || err.required || (batchSize * creditsPerFirm);
-        const currentCreds = err.currentCredits || err.available || effectiveUser.credits || 0;
+        const currentCreds = err.currentCredits || err.available || creditsView.balance;
         setError(`Insufficient credits. You need ${creditsNeeded} but have ${currentCreds}.`);
         toast({ title: "Insufficient Credits", description: `Need ${creditsNeeded}, have ${currentCreds}.`, variant: "destructive" });
         if (checkCredits) await checkCredits();
@@ -946,7 +949,7 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
                       <SearchPromptBox
                         helper="Describe the type of companies you're looking for"
                         onSubmit={() => handleSearch()}
-                        submitDisabled={!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm) || (effectiveUser.credits ?? 0) === 0}
+                        submitDisabled={!isValidQuery || isSearching || !user || creditsView.balance < (batchSize * creditsPerFirm) || creditsView.balance === 0}
                         inputValue={query}
                         submitAriaLabel="Search companies"
                         submitIcon={isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUp className="w-4 h-4" />}
@@ -1203,13 +1206,15 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
                             }}>
                               {batchSize * creditsPerFirm} credits
                             </span>
-                            <span style={{ color: '#8A8F97' }}>of {effectiveUser.credits ?? 0}</span>
+                            <span style={{ color: '#8A8F97' }}>
+                              of {creditsView.balance.toLocaleString()}
+                            </span>
                           </div>
                         </div>
-                        {effectiveUser.credits !== undefined && effectiveUser.credits < (batchSize * creditsPerFirm) && (
+                        {creditsView.balance < (batchSize * creditsPerFirm) && (
                           <p style={{ fontSize: 11, color: '#D97706', marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
                             <AlertCircle style={{ width: 12, height: 12 }} />
-                            Insufficient credits. Need {batchSize * creditsPerFirm}, have {effectiveUser.credits}.
+                            Insufficient credits. Need {batchSize * creditsPerFirm}, have {creditsView.balance}.
                           </p>
                         )}
                       </div>
@@ -1841,7 +1846,7 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
           originalButtonRef={originalButtonRef}
           onClick={() => handleSearch()}
           isLoading={isSearching}
-          disabled={!isValidQuery || isSearching || !user || (effectiveUser.credits ?? 0) < (batchSize * creditsPerFirm)}
+          disabled={!isValidQuery || isSearching || !user || creditsView.balance < (batchSize * creditsPerFirm)}
           buttonClassName="rounded-[3px]"
         >
           <span>Find companies</span>
