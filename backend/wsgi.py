@@ -67,6 +67,34 @@ def create_app() -> Flask:
         static_url_path=""
     )
 
+    # --- 410 Gone for pruned dead SEO pages ---
+    # These pages (old firm-name-swapped templates with zero clicks) were
+    # permanently removed on 2026-06-15 and dropped from the sitemap. Serving
+    # 410 (not 404) tells Google to deindex them. Earners are NOT in this list.
+    # Registered before the prerender middleware so crawlers get the 410 itself.
+    PRUNED_PATHS = set()
+    try:
+        _pruned_file = os.path.join(os.path.dirname(__file__), "app", "seo_pruned_urls.txt")
+        with open(_pruned_file, "r", encoding="utf-8") as _pf:
+            PRUNED_PATHS = {ln.strip().rstrip("/") for ln in _pf if ln.strip() and not ln.startswith("#")}
+        app.logger.info(f"Loaded {len(PRUNED_PATHS)} pruned (410) SEO paths")
+    except FileNotFoundError:
+        app.logger.warning("seo_pruned_urls.txt not found; 410 pruning inactive")
+
+    @app.before_request
+    def gone_pruned_pages():
+        if request.method != "GET":
+            return None
+        if (request.path.rstrip("/") or "/") in PRUNED_PATHS:
+            resp = make_response(
+                "<!doctype html><title>410 Gone</title>"
+                "<h1>410 Gone</h1><p>This page has been permanently removed.</p>"
+            )
+            resp.status_code = 410
+            resp.mimetype = "text/html"
+            return resp
+        return None
+
     # --- Prerender.io middleware for bot crawlers (SEO/AEO) ---
     PRERENDER_TOKEN = os.environ.get("PRERENDER_TOKEN")
     if not PRERENDER_TOKEN:
