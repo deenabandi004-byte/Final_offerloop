@@ -45,6 +45,7 @@ const clusters = [
   { file: 'cover-letter.ts', prefix: '/seo-preview/cover-letter' },
   { file: 'interview-prep.ts', prefix: '/seo-preview/interview-prep' },
   { file: 'ats.ts', prefix: '/seo-preview/ats' },
+  { file: 'find-people.ts', prefix: '/seo-preview/find-people' },
 ];
 
 const allUrls = [];

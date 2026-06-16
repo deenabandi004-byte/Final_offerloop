@@ -119,6 +119,7 @@ const FindJobsPreview = React.lazy(() => import("./pages/seo-preview/FindJobsPre
 const FindPeopleFree = React.lazy(() => import("./pages/FindPeopleFree"));
 const FindPeopleWidgetSandbox = React.lazy(() => import("./pages/FindPeopleWidgetSandbox"));
 const FindPeopleUscGooglePreview = React.lazy(() => import("./pages/seo-preview/FindPeopleUscGooglePreview"));
+const FindPeopleTemplate = React.lazy(() => import("./pages/seo-preview/templates/FindPeopleTemplate"));
 const MeetingPrepFree = React.lazy(() => import("./pages/MeetingPrepFree"));
 const MeetingPrepWidgetSandbox = React.lazy(() => import("./pages/MeetingPrepWidgetSandbox"));
 const MeetingPrepFreePreview = React.lazy(() => import("./pages/seo-preview/MeetingPrepFreePreview"));
@@ -459,6 +460,7 @@ const AppRoutes: React.FC = () => {
       <Route path="/seo-preview/find-companies" element={<Suspense fallback={<PageLoader />}><FindCompaniesPreview /></Suspense>} />
       <Route path="/seo-preview/find-jobs" element={<Suspense fallback={<PageLoader />}><FindJobsPreview /></Suspense>} />
       <Route path="/seo-preview/find-people-usc-google" element={<Suspense fallback={<PageLoader />}><FindPeopleUscGooglePreview /></Suspense>} />
+      <Route path="/seo-preview/find-people/:slug" element={<Suspense fallback={<PageLoader />}><FindPeopleTemplate /></Suspense>} />
 
       <Route path="*" element={<Suspense fallback={<PageLoader />}><NotFound /></Suspense>} />
     </Routes>
