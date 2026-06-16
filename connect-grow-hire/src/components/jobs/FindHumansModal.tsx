@@ -45,6 +45,12 @@ interface FindHumansModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   job: FindHumansJob | null;
+  // Which search to run. "recruiter" is the original Find the Humans flow.
+  // "hiring-manager" hits /find-hiring-manager; "employee" hits /find-employee.
+  kind?: "recruiter" | "employee" | "hiring-manager";
+  // Number of people to find (employee + hiring-manager flows). Ignored by the
+  // recruiter flow, which is fixed at 3.
+  count?: number;
 }
 
 type ModalState = "idle" | "loading" | "success" | "error";
@@ -144,7 +150,21 @@ function CandidateReceiptCard({ recruiter }: { recruiter: Recruiter }) {
 // Main modal
 // ---------------------------------------------------------------------------
 
-export function FindHumansModal({ open, onOpenChange, job }: FindHumansModalProps) {
+export function FindHumansModal({ open, onOpenChange, job, kind = "recruiter", count }: FindHumansModalProps) {
+  const heading =
+    kind === "employee"
+      ? "Find People"
+      : kind === "hiring-manager"
+        ? "Find Hiring Managers"
+        : "Find the Humans";
+  const personNoun = (n: number) =>
+    n === 1
+      ? kind === "employee"
+        ? "person"
+        : "human"
+      : kind === "employee"
+        ? "people"
+        : "humans";
   const [state, setState] = useState<ModalState>("idle");
   const [response, setResponse] = useState<FindRecruiterResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -186,18 +206,47 @@ export function FindHumansModal({ open, onOpenChange, job }: FindHumansModalProp
     startStepAnimation();
 
     try {
-      const result = await apiService.findRecruiters({
-        company: job.company,
-        jobTitle: job.title || undefined,
-        jobDescription: job.description || undefined,
-        location: job.location || undefined,
-        jobUrl: job.url || undefined,
-        generateEmails: true,
-        createDrafts: true,
-        no_parse: true,
-        source: "find_humans",
-        maxResults: 3,
-      });
+      let result: FindRecruiterResponse;
+      if (kind === "employee") {
+        result = await apiService.findEmployees({
+          company: job.company,
+          jobTitle: job.title || undefined,
+          jobDescription: job.description || undefined,
+          location: job.location || undefined,
+          jobUrl: job.url || undefined,
+          jobId: job.id || undefined,
+          maxResults: count ?? 3,
+          generateEmails: true,
+          createDrafts: true,
+        });
+      } else if (kind === "hiring-manager") {
+        const hm = await apiService.findHiringManagers({
+          company: job.company,
+          jobTitle: job.title || undefined,
+          jobDescription: job.description || undefined,
+          location: job.location || undefined,
+          jobUrl: job.url || undefined,
+          maxResults: count ?? 3,
+          generateEmails: true,
+          createDrafts: true,
+        });
+        // Normalize the hiring-manager response (people in `hiringManagers`)
+        // into the shared shape the rest of this modal renders (`recruiters`).
+        result = { ...hm, recruiters: hm.hiringManagers } as unknown as FindRecruiterResponse;
+      } else {
+        result = await apiService.findRecruiters({
+          company: job.company,
+          jobTitle: job.title || undefined,
+          jobDescription: job.description || undefined,
+          location: job.location || undefined,
+          jobUrl: job.url || undefined,
+          generateEmails: true,
+          createDrafts: true,
+          no_parse: true,
+          source: "find_humans",
+          maxResults: 3,
+        });
+      }
 
       // Stale response — caller already moved on.
       if (token !== requestTokenRef.current) return;
@@ -212,7 +261,9 @@ export function FindHumansModal({ open, onOpenChange, job }: FindHumansModalProp
 
       if (!result.recruiters || result.recruiters.length === 0) {
         setError(
-          "We couldn't verify a hiring team for this specific role. The job posting may not expose enough data.",
+          kind === "employee"
+            ? "We couldn't find teammates to reach for this role yet. The posting may not expose enough data."
+            : "We couldn't verify a hiring team for this specific role. The job posting may not expose enough data.",
         );
         setState("error");
         return;
@@ -228,7 +279,7 @@ export function FindHumansModal({ open, onOpenChange, job }: FindHumansModalProp
       setError(message);
       setState("error");
     }
-  }, [clearStepTimer, job, startStepAnimation]);
+  }, [clearStepTimer, job, startStepAnimation, kind, count]);
 
   // Kick off the search the first time the modal opens for a given job.
   useEffect(() => {
@@ -269,7 +320,7 @@ export function FindHumansModal({ open, onOpenChange, job }: FindHumansModalProp
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <DialogTitle className="text-base font-semibold text-gray-900">
-                Find the Humans
+                {heading}
               </DialogTitle>
               {job?.title && job?.company && (
                 <p className="mt-0.5 text-xs text-gray-500 truncate">
@@ -279,7 +330,7 @@ export function FindHumansModal({ open, onOpenChange, job }: FindHumansModalProp
               {state === "success" && response && (
                 <p className="mt-1 text-xs text-gray-500">
                   Charged: {response.creditsCharged} credits for {recruiters.length}{" "}
-                  {recruiters.length === 1 ? "human" : "humans"}
+                  {personNoun(recruiters.length)}
                 </p>
               )}
             </div>

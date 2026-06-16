@@ -164,19 +164,24 @@ def test_prompt_both_mode_includes_find_and_find_jobs():
 
 
 def test_prompt_default_mode_is_people():
-    """Missing loopMode → people behavior. Critical for old Loop docs."""
+    """Missing loopMode → BOTH (loops-setup-v2 default). _build_prompt now
+    defaults to "both" to match create_loop's persisted loopMode:"both" and
+    loop_jobs' "both" fallback; assertion updated from PEOPLE. (Function name
+    kept for now — flagged for rename to ..._is_both upstream.)"""
     prompt = _build_prompt(
         _base_config(None), _base_user_data(), _base_pipeline_state(), {}
     )
-    assert "Loop Mode: PEOPLE" in prompt
+    assert "Loop Mode: BOTH" in prompt
 
 
 def test_prompt_invalid_mode_falls_back_to_people():
-    """Bogus loopMode in config falls back to people (defense in depth)."""
+    """Bogus loopMode in config falls back to BOTH (loops-setup-v2 default,
+    defense in depth); assertion updated from PEOPLE. (Function name kept for
+    now — flagged for rename to ..._falls_back_to_both upstream.)"""
     prompt = _build_prompt(
         _base_config("potato"), _base_user_data(), _base_pipeline_state(), {}
     )
-    assert "Loop Mode: PEOPLE" in prompt
+    assert "Loop Mode: BOTH" in prompt
 
 
 # ── _parse_plan: roles-mode guardrail ─────────────────────────────────────

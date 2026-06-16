@@ -32,7 +32,6 @@ import {
   ChevronRight,
   Plus,
   X,
-  Sparkles,
   Paperclip,
   Pencil,
   ArrowRight,
@@ -624,7 +623,6 @@ const Chip: React.FC<ChipProps> = ({ children, variant = 'user', removable, onCl
         ...styles[variant],
       }}
     >
-      {variant === 'suggested' && <Sparkles style={{ width: 9, height: 9 }} />}
       {children}
       {removable && <X style={{ width: 10, height: 10, opacity: 0.28 }} />}
     </button>

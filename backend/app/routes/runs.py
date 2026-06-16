@@ -24,6 +24,7 @@ from app.config import TIER_CONFIGS
 from app.utils.exceptions import OfferloopException, InsufficientCreditsError, ExternalAPIError
 from app.utils.warmth_scoring import score_contacts_for_email, score_and_sort_contacts, build_briefing_line
 from app.utils.email_quality import check_email_quality, has_specificity_signal
+from app.utils.users import get_outreach_email
 from email_templates import get_template_instructions
 
 # =============================================================================
@@ -270,10 +271,10 @@ def prompt_search():
                 return jsonify({"error": "Could not load user profile. Please try again."}), 500
 
         # Credit check outside try/except — always enforced
-        if credits_available < 15:
+        if credits_available < 5:
             return jsonify({
                 "error": "Insufficient credits",
-                "credits_needed": 15,
+                "credits_needed": 5,
                 "current_credits": credits_available,
             }), 400
 
@@ -283,6 +284,27 @@ def prompt_search():
         except (TypeError, ValueError):
             batch_size = None
         max_contacts = batch_size if batch_size and 1 <= batch_size <= tier_max else tier_max
+
+        # Outreach mode: "preview" (contacts only, no email, no draft),
+        # "draft" (generate email plus create Gmail draft, current behavior),
+        # or "send" (generate then send, Elite only, wired in a later chunk).
+        # Validated against tier here on the server. We never trust the client
+        # mode value: Free is clamped to preview, Pro to draft, Elite to send.
+        TIER_ALLOWED_MODES = {
+            "free": {"preview"},
+            "pro": {"preview", "draft"},
+            "elite": {"preview", "draft", "send"},
+        }
+        allowed_modes = TIER_ALLOWED_MODES.get(user_tier, {"preview"})
+        default_mode = "preview" if user_tier == "free" else "draft"
+        requested_mode = (data.get("mode") or "").strip().lower()
+        if requested_mode not in ("preview", "draft", "send"):
+            requested_mode = default_mode
+        if requested_mode not in allowed_modes:
+            # Requested a mode above this tier. Clamp down to their best allowed.
+            requested_mode = "draft" if "draft" in allowed_modes else "preview"
+        outreach_mode = requested_mode
+        print(f"[Runs] Outreach mode: requested={data.get('mode')!r}, tier={user_tier}, resolved={outreach_mode}")
 
         # Parse prompt
         parsed = parse_search_prompt_structured(prompt)
@@ -545,6 +567,12 @@ def prompt_search():
                         "dreamCompanies", "hometown", "location", "pastCompanies"):
                 if key in user_data and key not in user_profile:
                     user_profile[key] = user_data[key]
+        # Prefer the user's .edu as the outreach identity. Sets the email used in
+        # the LLM body signature (batch_generate_emails) and the draft/send MIME
+        # signature (user_info below). Falls back to the primary email.
+        _outreach_email = get_outreach_email(user_data)
+        if _outreach_email:
+            user_profile["email"] = _outreach_email
         career_interests = data.get("careerInterests") or (user_data or {}).get("careerInterests", [])
         template_instructions, email_template_purpose, template_subject_line, signoff_config = _resolve_email_template(data.get("emailTemplate"), user_id, db, user_data=user_data)
         # Get resume filename for email body reference
@@ -592,28 +620,34 @@ def prompt_search():
             if briefing:
                 contact["briefing"] = briefing
 
-        # Generate emails with resume text
-        try:
-            email_results = batch_generate_emails(
-                contacts=contacts,
-                resume_text=resume_text,
-                user_profile=user_profile,
-                career_interests=career_interests,
-                fit_context=None,
-                pre_parsed_user_info=(user_data or {}).get("resumeParsed"),
-                template_instructions=template_instructions,
-                email_template_purpose=email_template_purpose,
-                resume_filename=user_resume_filename,
-                subject_line=template_subject_line,
-                signoff_config=signoff_config,
-                auth_display_name=auth_display_name,
-                warmth_data=warmth_data,
-                uid=user_id,
-                enrichment_data=enrichment_data,
-            )
-        except Exception as e:
-            print(f"[Runs] Email generation failed (prompt-search): {e}")
+        # Generate emails with resume text. Skipped entirely in preview mode:
+        # preview returns contact info only, so no email is written and (because
+        # contacts_with_emails stays empty below) no Gmail draft is created.
+        if outreach_mode == "preview":
             email_results = {}
+            print(f"[Runs] Preview mode: skipping email generation and drafting for {len(contacts)} contacts")
+        else:
+            try:
+                email_results = batch_generate_emails(
+                    contacts=contacts,
+                    resume_text=resume_text,
+                    user_profile=user_profile,
+                    career_interests=career_interests,
+                    fit_context=None,
+                    pre_parsed_user_info=(user_data or {}).get("resumeParsed"),
+                    template_instructions=template_instructions,
+                    email_template_purpose=email_template_purpose,
+                    resume_filename=user_resume_filename,
+                    subject_line=template_subject_line,
+                    signoff_config=signoff_config,
+                    auth_display_name=auth_display_name,
+                    warmth_data=warmth_data,
+                    uid=user_id,
+                    enrichment_data=enrichment_data,
+                )
+            except Exception as e:
+                print(f"[Runs] Email generation failed (prompt-search): {e}")
+                email_results = {}
 
         contacts_with_emails = []
         for i, contact in enumerate(contacts):
@@ -699,11 +733,138 @@ def prompt_search():
         except Exception as qgate_err:
             print(f"[Runs] Quality gate error (non-blocking): {qgate_err}")
 
+        # Send-mode guardrails (Elite only)
+        # 1) Quality gate: any email that fails check_email_quality is routed to
+        #    the draft path instead of being sent. The user sees the questionable
+        #    ones in their Gmail drafts for manual review.
+        # 2) Daily send cap: ELITE_DAILY_SEND_CAP sends per UTC day. Overflow
+        #    falls back to drafts. Counter lives on the user doc and resets when
+        #    the calendar date changes.
+        ELITE_DAILY_SEND_CAP = 20
+        guardrail_blocked_count = 0
+        cap_blocked_count = 0
         successful_drafts = 0
+        successful_sends = 0
         user_info = {"name": user_profile.get("name", ""), "email": user_profile.get("email", ""), "phone": "", "linkedin": ""}
         try:
             creds = _load_user_gmail_creds(user_id) if user_id else None
-            if creds and contacts_with_emails:
+            if creds and contacts_with_emails and outreach_mode == "send":
+                # Split by quality first
+                send_queue: list = []
+                draft_fallback_queue: list = []
+                for item in contacts_with_emails:
+                    contact = item["contact"]
+                    try:
+                        qr = check_email_quality(
+                            item["email_subject"], item["email_body"], contact, _qg_user_university
+                        )
+                        if qr.get("passed", False):
+                            send_queue.append(item)
+                        else:
+                            contact["_sendBlockedByQuality"] = True
+                            contact["_qualityFailures"] = qr.get("failures", [])
+                            draft_fallback_queue.append(item)
+                            guardrail_blocked_count += 1
+                    except Exception as q_err:
+                        # If the quality check itself errors, fail-safe: route to draft.
+                        print(f"[Runs] Quality check error, routing to draft: {q_err}")
+                        contact["_sendBlockedByQuality"] = True
+                        draft_fallback_queue.append(item)
+                        guardrail_blocked_count += 1
+
+                # Daily send cap: read counter, clamp send_queue
+                today_str = datetime.utcnow().strftime("%Y-%m-%d")
+                sends_today = 0
+                user_doc_ref = None
+                if db and user_id:
+                    try:
+                        user_doc_ref = db.collection("users").document(user_id)
+                        user_snap = user_doc_ref.get()
+                        if user_snap.exists:
+                            user_dict = user_snap.to_dict() or {}
+                            if user_dict.get("dailySendDate") == today_str:
+                                sends_today = int(user_dict.get("dailySendCount", 0) or 0)
+                    except Exception as cap_read_err:
+                        print(f"[Runs] Daily send cap read failed: {cap_read_err}")
+
+                cap_remaining = max(0, ELITE_DAILY_SEND_CAP - sends_today)
+                if cap_remaining < len(send_queue):
+                    overflow = send_queue[cap_remaining:]
+                    for item in overflow:
+                        item["contact"]["_sendBlockedByDailyCap"] = True
+                        cap_blocked_count += 1
+                    draft_fallback_queue.extend(overflow)
+                    send_queue = send_queue[:cap_remaining]
+
+                print(
+                    f"[Runs] Send guardrails: {len(send_queue)} approved to send, "
+                    f"{guardrail_blocked_count} blocked by quality, "
+                    f"{cap_blocked_count} blocked by daily cap (sent_today={sends_today}, cap={ELITE_DAILY_SEND_CAP})"
+                )
+
+                # Send the approved batch
+                if send_queue:
+                    from app.services.gmail_client import send_emails_parallel
+                    send_results = send_emails_parallel(
+                        send_queue,
+                        resume_bytes=resume_content,
+                        resume_filename=resume_filename,
+                        user_info=user_info,
+                        user_id=user_id,
+                        tier=user_tier,
+                        user_email=user_email,
+                        resume_url=resume_url,
+                    )
+                    for item, send_result in zip(send_queue, send_results):
+                        contact = item["contact"]
+                        message_id = send_result.get("message_id", "") if isinstance(send_result, dict) else ""
+                        if message_id and not str(message_id).startswith("mock_"):
+                            successful_sends += 1
+                            contact["emailSent"] = True
+                            contact["gmailMessageId"] = message_id
+                            if send_result.get("thread_id"):
+                                contact["gmailThreadId"] = send_result["thread_id"]
+                            if send_result.get("recipient_email"):
+                                contact["_sentRecipientEmail"] = send_result["recipient_email"]
+
+                    # Bump daily counter for the actually-sent emails
+                    if user_doc_ref and successful_sends > 0:
+                        try:
+                            user_doc_ref.set(
+                                {
+                                    "dailySendCount": sends_today + successful_sends,
+                                    "dailySendDate": today_str,
+                                },
+                                merge=True,
+                            )
+                        except Exception as cap_write_err:
+                            print(f"[Runs] Daily send counter write failed: {cap_write_err}")
+
+                # Draft the fallback batch (quality-blocked + cap-overflow)
+                if draft_fallback_queue:
+                    from app.services.gmail_client import create_drafts_parallel
+                    fb_draft_results = create_drafts_parallel(
+                        draft_fallback_queue,
+                        resume_bytes=resume_content,
+                        resume_filename=resume_filename,
+                        user_info=user_info,
+                        user_id=user_id,
+                        tier=user_tier,
+                        user_email=user_email,
+                        resume_url=resume_url,
+                    )
+                    for item, draft_result in zip(draft_fallback_queue, fb_draft_results):
+                        contact = item["contact"]
+                        draft_id = draft_result.get("draft_id", "") if isinstance(draft_result, dict) else (draft_result or "")
+                        if draft_id and not str(draft_id).startswith("mock_"):
+                            successful_drafts += 1
+                            contact["gmailDraftId"] = draft_id
+                            if isinstance(draft_result, dict):
+                                if draft_result.get("draft_url"):
+                                    contact["gmailDraftUrl"] = draft_result["draft_url"]
+                                if draft_result.get("recipient_email"):
+                                    contact["_draftRecipientEmail"] = draft_result["recipient_email"]
+            elif creds and contacts_with_emails:
                 from app.services.gmail_client import create_drafts_parallel
                 draft_results = create_drafts_parallel(
                     contacts_with_emails,
@@ -732,7 +893,7 @@ def prompt_search():
                 # Still deduct credits and save contacts even though drafts failed
                 if db and user_id:
                     try:
-                        deduct_credits_atomic(user_id, 15 * len(contacts), "prompt_search")
+                        deduct_credits_atomic(user_id, 5 * len(contacts), "prompt_search")
                     except Exception:
                         pass
                 return jsonify({
@@ -749,7 +910,7 @@ def prompt_search():
         credits_remaining = None
         if db and user_id:
             try:
-                credits_amount = 15 * len(contacts)
+                credits_amount = 5 * len(contacts)
                 success, remaining = deduct_credits_atomic(user_id, credits_amount, "prompt_search")
                 if success:
                     credits_used = credits_amount
@@ -849,6 +1010,17 @@ def prompt_search():
                     contact_doc["lastActivityAt"] = now_iso
                     contact_doc["hasUnreadReply"] = False
                     contact_doc["gmailMessageId"] = contact.get("gmailMessageId") or None
+                    # Send mode: overlay the fields that mark this contact as
+                    # "sent" in the tracker. These mirror what the Gmail webhook
+                    # writes when it detects a SENT message, so a direct send and
+                    # a later webhook event converge instead of conflicting.
+                    if contact.get("emailSent"):
+                        contact_doc["pipelineStage"] = "waiting_on_reply"
+                        contact_doc["emailSentAt"] = now_iso
+                        contact_doc["draftStillExists"] = False
+                        contact_doc["draftToEmail"] = contact.get("_sentRecipientEmail") or contact_doc["draftToEmail"]
+                        if contact.get("gmailThreadId"):
+                            contact_doc["gmailThreadId"] = contact["gmailThreadId"]
                     contacts_ref.add(contact_doc)
                     saved_count += 1
                     # Avoid duplicates within same batch
@@ -887,6 +1059,11 @@ def prompt_search():
             "contacts": contacts,
             "already_saved_contacts": saved_contact_cards,
             "successful_drafts": successful_drafts,
+            "successful_sends": successful_sends,
+            "send_blocked_by_quality": guardrail_blocked_count,
+            "send_blocked_by_daily_cap": cap_blocked_count,
+            "daily_send_cap": ELITE_DAILY_SEND_CAP,
+            "mode": outreach_mode,
             "total_contacts": len(contacts),
             "tier": user_tier,
             "user_email": user_email,

@@ -29,7 +29,8 @@ import { trackNavClick, trackUpgradeClick } from "../lib/analytics";
 import { useAgentSidebarStatus } from "@/hooks/useAgent";
 import { useTour } from "@/contexts/TourContext";
 import { useNotifications } from "@/hooks/useNotifications";
-import { TIER_CONFIGS } from "@/lib/constants";
+import { CreditsPanel } from "./sidebar/CreditsPanel";
+import { useCreditsView } from "@/hooks/useCreditsView";
 
 import {
   Sidebar,
@@ -76,7 +77,7 @@ type NavItemDef = {
 
 const baseNavItems: NavItemDef[] = [
   { title: "Job Board",    url: "/job-board",        LucideIcon: Briefcase },
-  { title: "Outbox",       url: "/outbox",           LucideIcon: Inbox,  dataTour: "tour-track-email" },
+  { title: "Inbox",        url: "/outbox",           LucideIcon: Inbox,  dataTour: "tour-track-email" },
   { title: "Meeting Prep", url: "/coffee-chat-prep", LucideIcon: Coffee, dataTour: "tour-coffee-chat-prep" },
   { title: "My Network",   url: "/my-network",       LucideIcon: Users },
 ];
@@ -122,17 +123,11 @@ export function AppSidebar() {
     }
   };
 
-  // Derive credit cap from the user's actual subscription tier rather than
-  // trusting user.maxCredits in Firestore, which can drift stale (e.g. plan
-  // upgraded but maxCredits field wasn't updated). Single source of truth =
-  // TIER_CONFIGS in @/lib/constants. Falls back to free-tier cap.
-  const rawTier = ((user as { subscriptionTier?: string; tier?: string } | null)?.subscriptionTier
-    || (user as { tier?: string } | null)?.tier
-    || "free").toLowerCase();
-  const tierKey = (rawTier in TIER_CONFIGS ? rawTier : "free") as keyof typeof TIER_CONFIGS;
-  const credits = user?.credits ?? 0;
-  const maxCredits = TIER_CONFIGS[tierKey].credits;
-  const creditPercentage = Math.min((credits / maxCredits) * 100, 100);
+  // Trial-aware single source of truth for the credits widget. During a Pro
+  // trial this returns the daily budget (300/day) instead of the frozen monthly
+  // pool; for free/paid users it returns the normal balance + tier cap (derived
+  // from TIER_CONFIGS, so a stale Firestore maxCredits can't drift the display).
+  const creditsView = useCreditsView();
   const isCollapsed = state === "collapsed";
 
   const { startTour } = useTour();
@@ -604,93 +599,18 @@ export function AppSidebar() {
           }}
         >
           {!isCollapsed ? (
-            <>
-              {/* Credits */}
-              <div>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: 8,
-                  }}
-                >
-                  <span
-                    style={{
-                      fontFamily: T.fontBody,
-                      fontSize: 10.5,
-                      fontWeight: 600,
-                      letterSpacing: "0.06em",
-                      color: T.sectionText,
-                      textTransform: "uppercase",
-                    }}
-                  >
-                    Credits
-                  </span>
-                  <span style={{ fontFamily: T.fontBody, lineHeight: 1 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: T.activeText }}>
-                      {credits}
-                    </span>
-                    <span style={{ fontSize: 12, fontWeight: 500, color: T.sectionText }}>
-                      {" "}
-                      / {maxCredits.toLocaleString()}
-                    </span>
-                  </span>
-                </div>
-                <div
-                  style={{
-                    height: 5,
-                    borderRadius: 999,
-                    background: "rgba(255,255,255,0.08)",
-                    overflow: "hidden",
-                  }}
-                >
-                  <div
-                    style={{
-                      height: "100%",
-                      width: `${creditPercentage}%`,
-                      borderRadius: 999,
-                      background: T.accent,
-                      transition: "width .3s",
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Upgrade */}
-              <button
-                onClick={() => {
-                  trackUpgradeClick("sidebar", { from_location: "sidebar" });
-                  navigate("/pricing");
-                }}
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 8,
-                  padding: "11px 16px",
-                  borderRadius: 3,
-                  border: "none",
-                  cursor: "pointer",
-                  background: T.upgradeBg,
-                  color: "#fff",
-                  fontFamily: T.fontBody,
-                  fontSize: 14,
-                  fontWeight: 500,
-                  transition: "filter .15s",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.filter = "brightness(1.05)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.filter = "none";
-                }}
-              >
-                <Zap className="h-4 w-4" style={{ color: T.upgradeIcon, fill: T.upgradeIcon }} />
-                <span>Upgrade Plan</span>
-              </button>
-            </>
+            <CreditsPanel
+              remaining={creditsView.balance}
+              total={creditsView.total}
+              isTrialing={creditsView.isTrialing}
+              daysRemaining={creditsView.daysRemaining}
+              onUpgrade={() => {
+                trackUpgradeClick("sidebar", {
+                  from_location: creditsView.isTrialing ? "sidebar_trial" : "sidebar",
+                });
+                navigate("/pricing");
+              }}
+            />
           ) : (
             <>
               {/* Collapsed footer: upgrade + avatar */}
@@ -722,7 +642,9 @@ export function AppSidebar() {
                 <TooltipContent side="right">
                   <div className="text-xs">
                     <p className="font-medium">
-                      Credits: {credits}/{maxCredits}
+                      {creditsView.isTrialing
+                        ? `Trial: ${creditsView.balance}/${creditsView.total} today`
+                        : `Credits: ${creditsView.balance}/${creditsView.total}`}
                     </p>
                     <p className="text-gray-400 mt-0.5">Click to upgrade</p>
                   </div>

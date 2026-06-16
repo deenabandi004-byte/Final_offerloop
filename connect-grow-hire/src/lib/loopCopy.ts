@@ -61,7 +61,7 @@ export const LOOP_COPY = {
     wakeCta: "Wake it up",
     startCta: "Start it",
     foundLabel: (found: number, target: number) =>
-      `${found} of ${target} found this week`,
+      `${found} found · ${target}/wk target`,
     nextRunIn: (when: string) => `Looking again ${when}`,
     smsSentAt: (when: string) => `You got the text ${when}`,
     pausedHint: "Tap to wake it up",
@@ -112,7 +112,7 @@ export const LOOP_COPY = {
   budget: {
     label: (spent: number, cap: number) => `${spent} / ${cap} credits this week`,
     tooltip:
-      "9 credits per contact, 13 per hiring manager, 1 per job, 1 per company.",
+      "18 credits per contact draft, 26 per hiring manager draft, 2 per job, 2 per company.",
   },
 
   // ── Phase 8 — pause reasons (chip on the card, banner on detail) ────
@@ -371,11 +371,5 @@ export function loopCopy(
           : `${n} NEW SINCE YOU LAST CHECKED`,
     },
 
-    // ── H carve-out: StartLoopHero composer states ────────────────────
-    composer: {
-      // Shown next to the ModeIndicator while the parser is still
-      // working out the brief. Mono, lowercase per the wizard pattern.
-      modeThinking: "thinking…",
-    },
   };
 }

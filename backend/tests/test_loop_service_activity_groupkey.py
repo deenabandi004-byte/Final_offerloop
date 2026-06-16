@@ -193,7 +193,13 @@ def test_contact_to_draft_pairing_unchanged_for_people_mode():
     # Neither carries a groupKey — render path is identical to today.
     assert "groupKey" not in items[0]
     assert "groupKey" not in items[1]
-    # Both still link out as before.
+    # Titles unchanged.
     assert items[0]["title"] == "Alex Network"
     assert items[1]["title"] == "Coffee chat — Stripe engineering"
-    assert items[1]["external"] is True
+    # In-app-first deep links: a feed card never links straight to Gmail
+    # (Gmail is reached from the tracker row). The HM row points at the Find
+    # Hiring Managers tab; the draft row points at the tracker row keyed on the
+    # same contact id.
+    assert items[0]["linkTo"] == "/find?tab=hiring-managers&contact=contact-people-1"
+    assert items[1]["linkTo"] == "/outbox?contact=contact-people-1"
+    assert items[1]["external"] is False

@@ -505,6 +505,23 @@
   vertical-align: -3px;
 }
 .tracker-redesign .contact-time { font-size: 12px; color: var(--ink-tertiary); }
+/* "Loop" provenance chip — neutral, mono-ish, never a colored pill (matches
+   the AI-slop guardrails). Sits inline after the relative time. */
+.tracker-redesign .contact-source-badge {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 0 5px;
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 15px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-tertiary);
+  background: var(--paper-2, #fafbff);
+  border: 1px solid var(--line, #e2e8f0);
+  border-radius: 4px;
+  vertical-align: 1px;
+}
 
 /* Status pill (Action / Reply / Draft / Sent / View / Done) */
 .tracker-redesign .status-pill {

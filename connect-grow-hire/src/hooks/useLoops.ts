@@ -4,7 +4,12 @@
 // hammering the API. Mutations invalidate the list query so the grid updates
 // the moment a Loop is created/started/paused/deleted.
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   createLoop,
   deleteLoop,
@@ -37,12 +42,20 @@ import type { ParsedBrief } from "@/services/agent";
 const LIST_KEY = ["loops", "list"] as const;
 const detailKey = (id: string) => ["loops", "detail", id] as const;
 
-export function useLoopsList() {
+export function useLoopsList(options?: { enabled?: boolean }) {
   return useQuery<{ loops: Loop[]; limits: LoopLimits }>({
     queryKey: LIST_KEY,
     queryFn: listLoops,
     staleTime: 15_000,
     refetchInterval: 20_000, // grid stays live while a Loop is running
+    // Hold the last good payload through refetches and transient API blips
+    // (e.g. a backend hot-reload) so the grid never blinks back to the
+    // first-Loop empty state mid-refetch.
+    placeholderData: keepPreviousData,
+    // Caller can suppress the fetch (and the 20s refetch interval) while a
+    // tour demo seeds the cache via queryClient.setQueryData. Cached data is
+    // still returned when enabled=false, so the seed renders unimpeded.
+    enabled: options?.enabled ?? true,
   });
 }
 

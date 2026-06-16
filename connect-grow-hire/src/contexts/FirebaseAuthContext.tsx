@@ -3,7 +3,7 @@
 "use client";
 
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 import {
   User as FirebaseUser,
   signInWithPopup,
@@ -20,9 +20,10 @@ import posthog from "../lib/posthog";
 
 const getMonthKey = () => new Date().toISOString().slice(0, 7);
 const initialCreditsByTier = (tier: "free" | "pro" | "elite") => {
+  // Keep in sync with TIER_CONFIGS (@/lib/constants) and backend config.py.
   if (tier === "free") return 300;
-  if (tier === "pro") return 1500;
-  if (tier === "elite") return 3000;
+  if (tier === "pro") return 2000;
+  if (tier === "elite") return 5000;
   return 300; // default to free
 };
 
@@ -32,7 +33,8 @@ interface User {
   name: string;
   picture?: string;
   accessToken?: string;
-  tier: "free" | "pro";
+  tier: "free" | "pro" | "elite";
+  subscriptionTier?: "free" | "pro" | "elite";
   credits: number;
   maxCredits: number;
   subscriptionId?: string;
@@ -77,6 +79,9 @@ export const useFirebaseAuth = () => {
 export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  // Tracks the uid whose Firestore profile we've already loaded, so token
+  // refreshes (which also fire onIdTokenChanged) don't re-fetch the user doc.
+  const lastLoadedUidRef = useRef<string | null>(null);
 
   useEffect(() => {
     let unsub: undefined | (() => void);
@@ -93,11 +98,21 @@ export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ childr
             userId: firebaseUser?.uid || "none"
           });
           if (firebaseUser) {
-            console.log("[AUTH CONTEXT] Loading user data");
-            await loadUserData(firebaseUser);
-            console.log("🔐 [AUTH CONTEXT] User data loaded");
+            // onIdTokenChanged also fires on hourly token refreshes and on any
+            // getIdToken(true) call (e.g. completeOnboarding). Only (re)load the
+            // Firestore profile when the signed-in uid actually changes — a token
+            // refresh for the same user must not re-fetch the doc or churn state.
+            if (lastLoadedUidRef.current !== firebaseUser.uid) {
+              lastLoadedUidRef.current = firebaseUser.uid;
+              console.log("[AUTH CONTEXT] Loading user data");
+              await loadUserData(firebaseUser);
+              console.log("🔐 [AUTH CONTEXT] User data loaded");
+            } else {
+              console.log("🔐 [AUTH CONTEXT] Token refresh for same uid, skipping reload");
+            }
           } else {
             console.log("🔐 [AUTH CONTEXT] No Firebase user, setting user state to null");
+            lastLoadedUidRef.current = null;
             setUser(null);
           }
           setIsLoading(false);
@@ -138,14 +153,19 @@ export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ childr
       const snap = await getDoc(userDocRef);
       if (snap.exists()) {
         const d = snap.data() as Partial<User>;
+        // subscriptionTier is the source of truth; tier is a legacy fallback
+        // that can be stale (e.g. "free") on upgraded Pro/Elite accounts. Read
+        // both so tier-gated UI (e.g. ProGate) sees the real plan.
+        const resolvedTier = d.subscriptionTier || d.tier || "free";
         const userData = {
           uid: firebaseUser.uid,
           email: firebaseUser.email || "",
           name: firebaseUser.displayName || "",
           picture: firebaseUser.photoURL || undefined,
-          tier: d.tier || "free",
-          credits: d.credits ?? initialCreditsByTier(d.tier || "free"),
-          maxCredits: d.maxCredits ?? initialCreditsByTier(d.tier || "free"),
+          tier: resolvedTier,
+          subscriptionTier: resolvedTier,
+          credits: d.credits ?? initialCreditsByTier(resolvedTier),
+          maxCredits: d.maxCredits ?? initialCreditsByTier(resolvedTier),
           stripeCustomerId: d.stripeCustomerId,
           stripeSubscriptionId: d.stripeSubscriptionId,
           subscriptionStatus: d.subscriptionStatus,

@@ -82,6 +82,56 @@ def test_feature_triage_rubric_is_present():
         assert surface in prompt
 
 
+def test_loops_get_dedicated_explanation_with_branded_language():
+    """Loops is the flagship; the prompt must teach the model what a Loop IS
+    and force it to use the brand language in user-facing prose. Without this
+    block, the model uses /agent/setup as just "the agent page" and writes
+    prose that says "set up outreach" instead of "Start a Loop."
+    """
+    prompt = build_strategist_prompt(_full_user_context())
+    # Brand-mandate name rule: model MUST say "Loop" by name.
+    assert "NAME LOOPS BY NAME" in prompt
+    # Educational block so the model can teach the user about Loops.
+    assert "WHAT A LOOP IS" in prompt
+    # Three-mode taxonomy: people / roles / both - the model must know which
+    # to recommend for which goal shape.
+    assert "people: autonomous networking" in prompt
+    assert "roles:  autonomous job-search" in prompt
+    assert "both:" in prompt
+    # The default-to-Loops bias rule.
+    assert "WHEN TO RECOMMEND A LOOP (almost always)" in prompt
+    # House-rule banned words list (mirrors loopCopy.ts house style).
+    assert "Banned words" in prompt
+    for banned in ("agent", "configure", "campaign", "workflow"):
+        # The prompt names these so the model knows NOT to use them.
+        assert banned in prompt
+
+
+def test_prompt_asks_for_5_to_7_steps_with_3_to_5_bullets():
+    """Output-shape spec must match what the user message asks for, so a
+    refactor of one without the other doesn't silently shrink briefings."""
+    prompt = build_strategist_prompt(_full_user_context())
+    assert "5-7 steps" in prompt
+    assert "3-5 rationale bullets" in prompt
+
+
+def test_prompt_requires_markdown_links_not_raw_navigate_strings():
+    """The CTA per step must be a Markdown link, not 'navigate URL' text.
+    Without this rule the model writes raw URL-encoded blobs in prose."""
+    prompt = build_strategist_prompt(_full_user_context())
+    assert "Markdown link" in prompt
+    # The negative phrasing the prompt uses to ban the old format. The
+    # leading text and "navigate" can be separated by whitespace due to
+    # Python's line-continuation in the prompt definition; match loosely.
+    assert "DO NOT write the word" in prompt
+    assert '"navigate"' in prompt
+    # Also the URL-encoding ban so spaces don't get %20'd inside the link.
+    assert "DO NOT URL-encode" in prompt
+    # Example Markdown-link format must be in the prompt so the model has
+    # a concrete template to pattern-match against.
+    assert "[Start this Loop" in prompt
+
+
 def test_final_action_rail_at_end_of_prompt():
     """Final instruction MUST be the briefing-output directive — LLMs weight
     end-of-prompt heavily, and this is the load-bearing instruction."""

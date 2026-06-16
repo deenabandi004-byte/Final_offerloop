@@ -51,7 +51,7 @@ export const ProductTour: React.FC = () => {
             <div className="space-y-6">
               <h3 className="text-4xl font-bold text-section-heading mb-4">Dashboard</h3>
               <p className="text-xl text-section-body leading-relaxed">
-                Your recruiting command center. View all activity: firm searches, contact searches, prep history, and progress. Track outreach in the Outbox with follow-up suggestions and an integrated calendar.
+                Your recruiting command center. View all activity: firm searches, contact searches, prep history, and progress. Track outreach in the Inbox with follow-up suggestions and an integrated calendar.
               </p>
             </div>
             

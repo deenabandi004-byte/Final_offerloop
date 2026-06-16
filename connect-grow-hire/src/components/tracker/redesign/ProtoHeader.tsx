@@ -6,7 +6,7 @@ export function ProtoHeader() {
   return (
     <div className="header-row">
       <div className="page-header-block">
-        <h1 className="page-title">Your Outbox</h1>
+        <h1 className="page-title">Your Inbox</h1>
         <p className="page-subtitle">Stay on top of every conversation</p>
       </div>
     </div>

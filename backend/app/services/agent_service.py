@@ -28,8 +28,16 @@ def _generate_short_code() -> str:
 logger = logging.getLogger(__name__)
 
 # ── Hard caps (guardrails) ─────────────────────────────────────────────────
-MAX_CONTACTS_PER_WEEK = 15
-MAX_CREDITS_PER_WEEK = 150
+# Sized to match what the new cadence sliders can produce at their maximum
+# daily setting. Contacts slider max is 15, daily cadence multiplies by 7,
+# giving a 105 weekly ceiling. Credits ceiling is the same math against the
+# per-cycle max cost in `both` mode (15 contacts × 5 + 10 roles × 2 = 95
+# per cycle, × 7 = 665, rounded up to 700). These are hard upper bounds on
+# the LEGACY per-Loop config; per-tier budget caps in config.py
+# (max_credit_budget_per_week_per_loop: free 150, pro 600, elite None)
+# clamp BELOW these for non-elite users.
+MAX_CONTACTS_PER_WEEK = 105
+MAX_CREDITS_PER_WEEK = 700
 # Raised from 20 to 25 so a user can still do one coffee chat prep (15cr) or
 # half an interview prep after the auto-pause kicks in.
 MIN_CREDIT_BALANCE = 25
@@ -832,11 +840,21 @@ def _apply_plan_safety_net(
 
     People mode: must include find. Same target dependency as before.
 
-    No-op if `plan` is empty (the planner returned nothing — likely a
-    skip-emitting plan or a credit floor was hit upstream).
+    Empty `plan` is the most important case for the safety net to handle —
+    it means the planner either regressed (Claude returned `[]` or
+    `_parse_plan` failed to parse JSON) or wasn't called. Without
+    synthesizing default actions here, the cycle runs to completion with
+    zero work done and stamps the Loop with found=0/drafted=0. The old
+    `if not plan: return` guard at the top of this function silently
+    short-circuited exactly that recovery path.
     """
     if not plan:
-        return
+        logger.warning(
+            "Planner returned empty plan — safety net synthesizing default "
+            "actions for loop_mode=%s targets=%d roles=%d. Likely a planner "
+            "regression (Claude returned []) or a JSON parse failure.",
+            loop_mode, len(targets or []), len(roles_list or []),
+        )
     role = roles_list[0] if roles_list else ""
 
     has_find = any(a.get("action") == "find" for a in plan)
@@ -940,6 +958,12 @@ def _run_cycle(uid: str, config: dict, cycle_id: str | None = None) -> dict:
         pause_agent(uid)
         return {"cycleId": cycle_id, "status": "paused", "reason": "Insufficient credits"}
 
+    # Do NOT read `reviewBeforeSend` here. For Loops V2, that flag is a
+    # send-time signal (derived into autoSendMode in loop_service); it
+    # must not gate action execution. loop_jobs.py hardcodes
+    # approvalMode="autopilot" precisely so this stays False. Reading
+    # reviewBeforeSend re-arms the dormant `if is_review_first: continue`
+    # block below and silently no-ops every cycle (found=0/drafted=0).
     is_review_first = config.get("approvalMode") == "review_first"
 
     # Create cycle doc. shortCode is what users will text back to send drafts
@@ -1350,7 +1374,7 @@ def _get_week_start() -> str:
 
 def get_agent_pipeline(uid: str) -> dict:
     """Return per-company pipeline breakdown for the dashboard."""
-    from app.services.agent_actions import _company_to_domain
+    from app.services.agent_actions import _company_to_logo_url
 
     db = get_db()
     companies: dict[str, dict] = {}
@@ -1364,10 +1388,9 @@ def get_agent_pipeline(uid: str) -> dict:
             continue
         key = co.lower()
         if key not in companies:
-            domain = _company_to_domain(co)
             companies[key] = {
                 "name": co,
-                "logoUrl": f"https://logo.clearbit.com/{domain}" if domain else None,
+                "logoUrl": _company_to_logo_url(co),
                 "contacts": 0,
                 "hms": 0,
                 "jobs": 0,
@@ -1395,10 +1418,9 @@ def get_agent_pipeline(uid: str) -> dict:
             continue
         key = co.lower()
         if key not in companies:
-            domain = _company_to_domain(co)
             companies[key] = {
                 "name": co,
-                "logoUrl": f"https://logo.clearbit.com/{domain}" if domain else None,
+                "logoUrl": _company_to_logo_url(co),
                 "contacts": 0,
                 "hms": 0,
                 "jobs": 0,
