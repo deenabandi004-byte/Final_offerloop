@@ -1,27 +1,39 @@
 /*
- * First-batch live find-people pages. Flipped 2026-06-15 with explicit approval.
+ * Live find-people pages. First batch expanded to 25 on 2026-06-16 with approval.
  *
- * ONLY these slugs render index,follow and appear in the production sitemap.
- * Every other find-people page (the rest of the 100-cell pilot and the
- * hand-authored seeds) stays noindex. This is the single source of truth for
- * the flip: the template reads it for the robots meta, and the sitemap lists
- * exactly these URLs. Twelve cells, spread across banking, consulting, and tech
- * so the 2 to 3 week index watch reads cleanly across types.
+ * ONLY these slugs render index,follow (at the /people/ prefix) and appear in the
+ * production sitemap. Every other find-people page stays noindex. Single source of
+ * truth: the template reads it for robots + canonical, the sitemap lists exactly
+ * these. 25 strongest cells (full PDL sample, well above the floor, clean role
+ * data), spread across banking, consulting, and tech for a clean index watch.
  */
 export const LIVE_FIND_PEOPLE_SLUGS = new Set<string>([
   // banking
-  'columbia-alumni-at-goldman-sachs',
   'nyu-alumni-at-morgan-stanley',
+  'nyu-alumni-at-jpmorgan',
+  'upenn-alumni-at-morgan-stanley',
+  'columbia-alumni-at-morgan-stanley',
+  'harvard-alumni-at-goldman-sachs',
+  'berkeley-alumni-at-goldman-sachs',
+  'uchicago-alumni-at-goldman-sachs',
   'cornell-alumni-at-jpmorgan',
-  'michigan-alumni-at-goldman-sachs',
   // consulting
-  'harvard-alumni-at-mckinsey',
-  'berkeley-alumni-at-mckinsey',
-  'harvard-alumni-at-bcg',
+  'berkeley-alumni-at-bcg',
+  'northwestern-alumni-at-bcg',
+  'michigan-alumni-at-bcg',
+  'columbia-alumni-at-mckinsey',
   'upenn-alumni-at-mckinsey',
+  'cornell-alumni-at-mckinsey',
+  'michigan-alumni-at-mckinsey',
+  'harvard-alumni-at-bain',
   // tech
-  'berkeley-alumni-at-google',
-  'usc-alumni-at-amazon',
   'berkeley-alumni-at-meta',
-  'usc-alumni-at-apple',
+  'columbia-alumni-at-meta',
+  'berkeley-alumni-at-google',
+  'usc-alumni-at-google',
+  'columbia-alumni-at-amazon',
+  'michigan-alumni-at-microsoft',
+  'usc-alumni-at-amazon',
+  'harvard-alumni-at-microsoft',
+  'michigan-alumni-at-apple',
 ]);
