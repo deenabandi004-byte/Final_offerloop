@@ -147,7 +147,7 @@ const FindPeopleTemplate = () => {
         <section className="px-6 py-10" style={{ maxWidth: 820, margin: '0 auto' }}>
           <h2 style={h2Style}>What {school.name} alumni actually do at {firm.shortName}</h2>
           <p style={pStyle}>
-            The most common current roles among {school.name} alumni at {firm.name}, from a People Data Labs
+            The most common current roles among {school.name} alumni at {firm.name}, from a live
             sample of {row.sampleSize} profiles. This is the real distribution for this school and firm, not a generic list.
           </p>
           <div style={{ display: 'grid', gap: 8, marginTop: 14 }}>
@@ -196,7 +196,7 @@ const FindPeopleTemplate = () => {
         heading="How the finder works under the hood"
         steps={[
           { Icon: Search, t: 'You type two fields', d: `Company name (${firm.name}) and a role (${row.roleLabel || 'any title'}). That is the entire query.` },
-          { Icon: BadgeCheck, t: 'PDL /person/search', d: 'A 2.2B-profile index returns people currently at that company in that role, with verified LinkedIn presence.' },
+          { Icon: BadgeCheck, t: 'Live profile search', d: 'A 2.2 billion profile index returns people currently at that company in that role, with verified LinkedIn presence.' },
           { Icon: GraduationCap, t: 'School field surfaces alumni', d: `Add ${school.full_name} and the ${school.name} alumni come to the top, so you can lead with the warm connection.` },
           { Icon: Linkedin, t: 'You get a clean answer', d: '5 named profiles with LinkedIn URLs. Download as CSV or click through to start the outreach.' },
         ]}

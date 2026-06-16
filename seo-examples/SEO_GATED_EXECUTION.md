@@ -50,6 +50,16 @@ index for 2 to 3 weeks, build a quant/HF/PE/VC firm set for find-people, same
 gated, aggregate-only, data-dense method. If it does not hold, we are glad we
 did not build 200 more pages on an unproven method.
 
+## Data source
+
+The find-people pages no longer name any third-party data provider in their
+copy; counts and role breakdowns read as live professional-profile data.
+
+Going forward, new cells must NOT be created using People Data Labs tokens. The
+existing 100 cells used already-paid, cached data and regenerate for free. Any
+new vertical (the Wave 2 quant/HF/PE/VC set) needs an alternate data source
+chosen and approved before build.
+
 ## Holds
 
 - All rebuilds held. Do not rebuild the `/compare` earners. Do not build the
