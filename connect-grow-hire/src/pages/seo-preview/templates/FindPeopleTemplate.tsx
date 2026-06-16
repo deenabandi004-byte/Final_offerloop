@@ -16,6 +16,7 @@ import {
 } from '../_shared';
 import FindPeopleWidget from '../../../components/widgets/FindPeopleWidget';
 import { getFindPeopleRow, getSchool } from '../../../seo/data/find-people';
+import { LIVE_FIND_PEOPLE_SLUGS } from '../../../seo/data/find-people-live';
 import { getFirm } from '../../../seo/data/firms';
 import type { FindPeopleRow } from '../../../seo/data/types';
 
@@ -61,6 +62,8 @@ const FindPeopleTemplate = () => {
   const firm = getFirm(row.firmSlug);
   const school = getSchool(row.schoolSlug);
   if (!firm || !school) return <Misconfigured schoolSlug={row.schoolSlug} firmSlug={row.firmSlug} />;
+  // Only the approved first-batch cells are indexable. Everything else noindex.
+  const isLive = LIVE_FIND_PEOPLE_SLUGS.has(row.slug);
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -90,7 +93,7 @@ const FindPeopleTemplate = () => {
     <div className="min-h-screen w-full" style={{ fontFamily: "'DM Sans', system-ui, sans-serif", background: '#FFFFFF' }}>
       <Helmet>
         <title>Find 5 {school.name} Alumni at {firm.shortName} in Seconds (Free People Search) | Offerloop</title>
-        <meta name="robots" content="noindex" />
+        <meta name="robots" content={isLive ? 'index,follow' : 'noindex'} />
         <meta name="description" content={row.metaDescription} />
         <link rel="canonical" href={`https://offerloop.ai/seo-preview/find-people/${row.slug}`} />
         <script type="application/ld+json">{JSON.stringify(jsonLd)}</script>
