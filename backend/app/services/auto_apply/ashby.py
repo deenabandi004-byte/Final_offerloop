@@ -37,6 +37,7 @@ import os
 from typing import Any, Callable, Dict, List, Optional
 
 from app.services.auto_apply import _form_filler_common as common
+from app.services.auto_apply.browserless_client import build_residential_proxy_config
 
 
 logger = logging.getLogger(__name__)
@@ -88,7 +89,8 @@ def run_ashby_filler(
         with sync_playwright() as p:
             browser = p.chromium.connect(ws_url, timeout=60_000)
             try:
-                context = browser.new_context()
+                proxy = build_residential_proxy_config(session_id=job_id)
+                context = browser.new_context(proxy=proxy) if proxy else browser.new_context()
                 page = context.new_page()
 
                 landed_on: Optional[str] = None

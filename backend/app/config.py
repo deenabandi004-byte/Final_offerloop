@@ -27,6 +27,13 @@ GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")  # Path t
 GOOGLE_SERVICE_ACCOUNT_EMAIL = os.getenv("GOOGLE_SERVICE_ACCOUNT_EMAIL")  # Service account email for domain-wide delegation
 FLASK_SECRET = os.getenv("FLASK_SECRET", "dev")
 
+# Decodo residential proxy (auto-apply egress). Credential presence is the
+# gate: when either var is empty, build_residential_proxy_config returns
+# None and the form-fillers fall through to the unproxied Browserless path.
+# See docs/AUTO_APPLY_PLAN_A_RESIDENTIAL_PROXIES.md.
+DECODO_USERNAME = os.getenv("DECODO_USERNAME", "")
+DECODO_PASSWORD = os.getenv("DECODO_PASSWORD", "")
+
 # Gmail push notifications (Pub/Sub)
 GOOGLE_CLOUD_PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT_ID", "offerloop-native")
 GMAIL_PUBSUB_TOPIC = os.getenv("GMAIL_PUBSUB_TOPIC", "projects/offerloop-native/topics/gmail-notifications")
