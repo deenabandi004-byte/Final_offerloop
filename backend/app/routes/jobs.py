@@ -137,6 +137,7 @@ def _dedup_by_title_company(jobs: list[dict]) -> list[dict]:
 
 def _serialize_jobs(jobs: list[dict]) -> list[dict]:
     """Convert Firestore timestamps to ISO strings, strip large/internal fields."""
+    from app.services.auto_apply.ats_detector import detect_platform, is_eligible
     cleaned = []
     for job in jobs:
         doc = dict(job)
@@ -155,6 +156,10 @@ def _serialize_jobs(jobs: list[dict]) -> list[dict]:
         doc.pop("description_raw", None)
         # 12KB embedding vector — internal only, never send to the SPA
         doc.pop("titleEmbedding", None)
+        # Auto-apply eligibility — derived from FantasticJobs ats_* tagging.
+        # The SPA reads these to decide whether to render the "Auto-apply" button.
+        doc["ats_platform"] = detect_platform(job)
+        doc["auto_apply_eligible"] = is_eligible(job)
         cleaned.append(doc)
     return cleaned
 

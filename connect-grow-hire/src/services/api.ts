@@ -736,6 +736,10 @@ export interface FeedJob {
   match_signals?: string[];
   ranked: boolean;
   structured?: JobStructured;
+  // Auto-apply (derived backend-side from FantasticJobs ats_* metadata).
+  // ats_platform is null when the job's source ATS is unknown/unsupported.
+  ats_platform: "greenhouse" | "lever" | "ashby" | null;
+  auto_apply_eligible: boolean;
 }
 
 export interface SavedJob {
@@ -2454,3 +2458,351 @@ export const mergeLinkedInData = async () => {
   });
   return response.json();
 };
+
+// ============================================================================
+// Application Profile + Auto-Apply
+// ============================================================================
+// Application Profile holds answers to ATS screening questions that don't
+// change between applications (work auth, EEO demographics, veteran /
+// disability, scheduling). Demographics default to "decline" on the backend —
+// the UI should reflect that as "Decline to answer" when the user opens it.
+
+export type DemographicChoice = "decline" | string;
+
+export interface ApplicationProfile {
+  contactInfo: {
+    phone: string | null;
+    linkedinUrl: string | null;
+  };
+  workAuthorization: {
+    authorizedToWorkUS: boolean | null;
+    requiresSponsorship: boolean | null;
+    visaStatus: string | null;
+  };
+  demographics: {
+    gender: DemographicChoice | null;
+    race: DemographicChoice | null;
+    ethnicity: DemographicChoice | null;
+    lgbtq: DemographicChoice | null;
+  };
+  veteranStatus: DemographicChoice | null;
+  disabilityStatus: DemographicChoice | null;
+  preferences: {
+    earliestStartDate: string | null;
+    expectedSalaryUsd: number | null;
+    openToRelocation: boolean | null;
+    openToRemote: boolean | null;
+  };
+  acknowledgedAt: string | null;
+}
+
+export interface ApplicationProfileResponse {
+  profile: ApplicationProfile;
+  acknowledged: boolean;
+  work_auth_complete: boolean;
+}
+
+export interface AutoApplyPreviewFields {
+  first_name: string;
+  last_name: string;
+  full_name: string;
+  email: string;
+  phone: string;
+  location: string;
+  linkedin_url: string;
+  github_url: string;
+  portfolio_url: string;
+}
+
+export interface AutoApplyStructuredAnswers {
+  authorized_to_work_us: boolean | null;
+  requires_sponsorship: boolean | null;
+  visa_status: string | null;
+  gender: string;
+  race: string;
+  ethnicity: string;
+  lgbtq: string;
+  veteran_status: string;
+  disability_status: string;
+  earliest_start_date: string | null;
+  expected_salary_usd: number | null;
+  open_to_relocation: boolean | null;
+  open_to_remote: boolean | null;
+}
+
+export interface AutoApplyOpenEndedAnswer {
+  question: string;
+  answer: string;
+}
+
+export interface AutoApplyResumeDescriptor {
+  has_resume: boolean;
+  filename: string;
+}
+
+export interface AutoApplyPreview {
+  fields: AutoApplyPreviewFields;
+  structured_answers: AutoApplyStructuredAnswers;
+  open_ended_answers: Record<string, AutoApplyOpenEndedAnswer>;
+  resume: AutoApplyResumeDescriptor;
+  unmapped_fields: { label: string; required: boolean }[];
+}
+
+export interface AutoApplyPrepareResponse {
+  job_id: string;
+  ats_platform: "greenhouse" | "lever" | "ashby" | null;
+  preview: AutoApplyPreview;
+  preview_complete: boolean;
+  job: { title: string; company: string; apply_url: string };
+}
+
+export type AutoApplyPrepareError =
+  | { code: "PROFILE_REQUIRED"; error: string }
+  | { code: "WORK_AUTH_REQUIRED"; error: string }
+  | { code: "INELIGIBLE"; error: string };
+
+export type AutoApplyStatus =
+  | "queued"
+  | "running"
+  | "dry_run_complete"
+  | "submitted"
+  | "submit_failed"
+  | "failed"
+  | "needs_attention"
+  | "needs_verification";
+
+export interface AutoApplyUnmappedField {
+  field_id: string;
+  label: string;
+  reason?: string;
+  field_type?: AutoApplyFieldType;
+  options?: string[] | null;
+  required?: boolean;
+}
+
+export type AutoApplyFieldType =
+  | "text"
+  | "textarea"
+  | "select"
+  | "radio"
+  | "checkbox"
+  | "number"
+  | "date";
+
+export interface AutoApplyPendingQuestion {
+  field_id: string;
+  label: string;
+  field_type: AutoApplyFieldType;
+  options?: string[] | null;
+  required: boolean;
+}
+
+export interface AutoApplyAttempt {
+  url: string;
+  result: string;
+  final_url?: string;
+}
+
+// One record per field the filler resolved. The `Finish in browser` card
+// renders these as copy-friendly blocks so the user can paste them into
+// the real apply form when they finish the submit themselves.
+export interface AutoApplyPreparedAnswer {
+  field_id: string;
+  label: string;
+  answer: string;
+  field_type: AutoApplyFieldType | string;
+  source: "profile" | "library" | "llm" | "consent_fastpath" | string;
+}
+
+// Detected bot-defense widget on the apply form. The frontend doesn't act
+// on this directly but surfaces it in the "why this needs verification"
+// copy ("Greenhouse asked us to verify the application").
+export interface AutoApplyCaptcha {
+  vendor: "recaptcha" | "hcaptcha" | "turnstile" | string;
+  sitekey?: string | null;
+  marker?: string;
+}
+
+export interface AutoApplyStatusResponse {
+  auto_apply_id: string;
+  job_id: string;
+  ats_platform: "greenhouse" | "lever" | "ashby" | null;
+  // Denormalized at submit time for the Auto-Submission / Needs Attention
+  // tab cards. Empty string if the source job doc didn't carry the field.
+  job_title?: string;
+  company?: string;
+  apply_url?: string;
+  dry_run: boolean;
+  status: AutoApplyStatus;
+  stage?: string;
+  screenshot_b64?: string;
+  filled_summary?: Record<string, string>;
+  unmapped?: AutoApplyUnmappedField[];
+  pending_questions?: AutoApplyPendingQuestion[];
+  failure_reason?: string;
+  attempted_urls?: string[];
+  attempt_log?: AutoApplyAttempt[];
+  credits_charged?: number;
+  credits_refunded?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  completed_at?: string;
+  inspect_completed_at?: string;
+  pending_resolved_at?: string;
+  // Populated when `status === "needs_verification"`. `prepared_answers`
+  // lists every field the filler resolved; `captcha` describes which
+  // bot-defense widget the ATS shipped (Greenhouse: reCAPTCHA, Lever:
+  // hCaptcha, Ashby: reCAPTCHA v3). `user_marked_submitted_at` flips
+  // when the user clicks "I submitted it" from the verification card.
+  prepared_answers?: AutoApplyPreparedAnswer[];
+  captcha?: AutoApplyCaptcha;
+  user_marked_submitted_at?: string;
+}
+
+export interface AutoApplySubmitResponse {
+  auto_apply_id: string;
+  job_id: string;
+  dry_run: boolean;
+  status: AutoApplyStatus;
+}
+
+async function authedJson<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<{ ok: boolean; status: number; data: T }> {
+  const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (init.headers) {
+    Object.assign(headers, init.headers as Record<string, string>);
+  }
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const resp = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+  const data = (await resp.json().catch(() => ({}))) as T;
+  return { ok: resp.ok, status: resp.status, data };
+}
+
+export async function getApplicationProfile(): Promise<ApplicationProfileResponse> {
+  const { data } = await authedJson<ApplicationProfileResponse>(
+    '/users/application-profile',
+  );
+  return data;
+}
+
+export async function saveApplicationProfile(
+  profile: ApplicationProfile,
+): Promise<ApplicationProfileResponse> {
+  const { data } = await authedJson<ApplicationProfileResponse>(
+    '/users/application-profile',
+    { method: 'POST', body: JSON.stringify({ profile }) },
+  );
+  return data;
+}
+
+export async function prepareAutoApply(
+  jobId: string,
+): Promise<
+  | { ok: true; response: AutoApplyPrepareResponse }
+  | { ok: false; status: number; error: AutoApplyPrepareError }
+> {
+  const { ok, status, data } = await authedJson<
+    AutoApplyPrepareResponse & AutoApplyPrepareError
+  >('/job-board/auto-apply/prepare', {
+    method: 'POST',
+    body: JSON.stringify({ job_id: jobId }),
+  });
+  if (ok) return { ok: true, response: data as AutoApplyPrepareResponse };
+  return { ok: false, status, error: data as AutoApplyPrepareError };
+}
+
+export async function submitAutoApply(
+  jobId: string,
+  options: { dry_run: boolean; edited_answers: Record<string, string> },
+): Promise<{ ok: boolean; status: number; data: AutoApplySubmitResponse & { error?: string; code?: string } }> {
+  return authedJson<AutoApplySubmitResponse & { error?: string; code?: string }>(
+    `/job-board/auto-apply/${encodeURIComponent(jobId)}/submit`,
+    { method: 'POST', body: JSON.stringify(options) },
+  );
+}
+
+export async function pollAutoApplyStatus(
+  autoApplyId: string,
+): Promise<AutoApplyStatusResponse> {
+  const { data } = await authedJson<AutoApplyStatusResponse>(
+    `/job-board/auto-apply/${encodeURIComponent(autoApplyId)}/status`,
+  );
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Auto-apply v2: Needs Attention queue + answer library
+// ---------------------------------------------------------------------------
+
+export interface ResolveAutoApplyResponse {
+  auto_apply_id: string;
+  status: AutoApplyStatus;
+  pending_questions: AutoApplyPendingQuestion[];
+  saved_to_library: string[];
+}
+
+export async function resolveAutoApplyAnswers(
+  autoApplyId: string,
+  answers: Record<string, unknown>,
+): Promise<{ ok: boolean; status: number; data: ResolveAutoApplyResponse }> {
+  return authedJson<ResolveAutoApplyResponse>(
+    `/job-board/auto-apply/${encodeURIComponent(autoApplyId)}/resolve`,
+    { method: 'POST', body: JSON.stringify({ answers }) },
+  );
+}
+
+export interface AutoApplyListResponse {
+  items: AutoApplyStatusResponse[];
+  count: number;
+}
+
+export async function listNeedsAttention(): Promise<AutoApplyListResponse> {
+  const { data } = await authedJson<AutoApplyListResponse>(
+    '/job-board/auto-apply/needs-attention',
+  );
+  return data;
+}
+
+export async function listAutoApplyJobs(
+  statuses?: AutoApplyStatus[],
+  limit?: number,
+): Promise<AutoApplyListResponse> {
+  const params = new URLSearchParams();
+  if (statuses && statuses.length) params.set('status', statuses.join(','));
+  if (limit) params.set('limit', String(limit));
+  const qs = params.toString();
+  const { data } = await authedJson<AutoApplyListResponse>(
+    `/job-board/auto-apply/list${qs ? `?${qs}` : ''}`,
+  );
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Auto-apply v3: Needs Verification queue + "finish in browser" resolution
+// ---------------------------------------------------------------------------
+
+// Jobs where the filler completed the form fill but the ATS ships CAPTCHA
+// that would reject a headless-browser submission. The user submits from
+// their own browser; the apply URL + their prepared answers are surfaced
+// in the verification card so they can paste + solve the challenge + submit.
+export async function listNeedsVerification(): Promise<AutoApplyListResponse> {
+  const { data } = await authedJson<AutoApplyListResponse>(
+    '/job-board/auto-apply/needs-verification',
+  );
+  return data;
+}
+
+// User finished the submit in their own browser and is confirming. Server
+// transitions the job to `submitted` and stamps `user_marked_submitted_at`.
+// Credits stay deducted — the user got value from the pre-fill.
+export async function markAutoApplySubmitted(
+  autoApplyId: string,
+): Promise<{ ok: boolean; status: number; data: { auto_apply_id: string; status: AutoApplyStatus; error?: string; code?: string } }> {
+  return authedJson<{ auto_apply_id: string; status: AutoApplyStatus; error?: string; code?: string }>(
+    `/job-board/auto-apply/${encodeURIComponent(autoApplyId)}/mark-submitted`,
+    { method: 'POST' },
+  );
+}

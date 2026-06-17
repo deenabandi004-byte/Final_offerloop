@@ -46,6 +46,10 @@ export interface ProtoJob {
 
   // Actions
   applyUrl: string;
+  // Auto-apply (backend-tagged from FantasticJobs ats_* metadata).
+  // atsPlatform is null when the job's source ATS is unknown/unsupported.
+  atsPlatform: "greenhouse" | "lever" | "ashby" | null;
+  autoApplyEligible: boolean;
 
   // Badges
   isNew: boolean;
@@ -164,6 +168,8 @@ export function feedJobToProto(j: FeedJob, section: ProtoSection): ProtoJob {
     salaryAnnual: j.salary_normalized_annual ?? null,
     tags: signals.slice(0, 3),
     applyUrl: j.apply_url,
+    atsPlatform: j.ats_platform ?? null,
+    autoApplyEligible: j.auto_apply_eligible ?? false,
     isNew: section === "recent" || within24h,
     isStale: daysOld >= STALE_DAYS,
     detailPosted: postedShort(j.posted_at),
