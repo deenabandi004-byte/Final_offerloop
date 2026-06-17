@@ -140,3 +140,46 @@ class TestLinkedinHighlights:
     def test_empty_when_not_enriched(self):
         assert mobile._linkedin_highlights({}) == []
         assert mobile._linkedin_highlights({"linkedinResumeParsed": None}) == []
+
+
+class TestCompanyHelpers:
+    def test_slug(self):
+        assert mobile._company_slug("Goldman Sachs & Co.") == "goldman-sachs-co"
+        assert mobile._company_slug("  Roblox  ") == "roblox"
+
+    def test_employee_label(self):
+        assert mobile._employee_label(2300) == "2300 employees"
+        assert mobile._employee_label("1001-5000") == "1001-5000 employees"
+        assert mobile._employee_label("5,000 employees") == "5,000 employees"
+        assert mobile._employee_label(None) == ""
+        assert mobile._employee_label("") == ""
+
+    def test_first_industry(self):
+        assert mobile._first_industry(["Gaming", "Tech"]) == "Gaming"
+        assert mobile._first_industry([" ", "Finance"]) == "Finance"
+        assert mobile._first_industry([]) == ""
+        assert mobile._first_industry("Consulting") == "Consulting"
+
+    def test_map_company_profile_maps_firecrawl_fields(self):
+        out = mobile._map_company_profile(
+            "Roblox",
+            {
+                "description": "A gaming platform.",
+                "industries": ["Gaming"],
+                "employee_count": 2300,
+                "headquarters": "San Mateo, CA",
+                "recent_news": ["ignored in v1"],
+            },
+        )
+        assert out == {
+            "name": "Roblox",
+            "about": "A gaming platform.",
+            "industry": "Gaming",
+            "size": "2300 employees",
+            "hq": "San Mateo, CA",
+            "news": [],
+        }
+
+    def test_map_company_profile_empty_firecrawl(self):
+        out = mobile._map_company_profile("Nowhere Inc", {})
+        assert out["about"] == "" and out["industry"] == "" and out["news"] == []

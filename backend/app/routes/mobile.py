@@ -369,3 +369,103 @@ def send_outreach(contact_id):
         'gmailMessageId': result.get('id') or c.get('gmailMessageId'),
     })
     return jsonify({'sent': True, 'threadId': result.get('threadId', '')}), 200
+
+
+def _company_slug(name: str) -> str:
+    return re.sub(r'[^a-z0-9]+', '-', (name or '').strip().lower()).strip('-')
+
+
+def _employee_label(value) -> str:
+    """Normalize Firecrawl employee_count into a short size chip label."""
+    if value in (None, '', 0):
+        return ''
+    s = str(value).strip()
+    # Already a range or has 'employee'/'+' — use verbatim.
+    if any(t in s.lower() for t in ('employee', '-', '–', '+', 'k')):
+        return s if 'employee' in s.lower() else f'{s} employees'
+    if s.replace(',', '').isdigit():
+        return f'{s} employees'
+    return s
+
+
+def _first_industry(industries) -> str:
+    if isinstance(industries, list):
+        for i in industries:
+            if isinstance(i, str) and i.strip():
+                return i.strip()
+        return ''
+    return str(industries).strip() if industries else ''
+
+
+def _map_company_profile(name: str, firecrawl: dict) -> dict:
+    """Map a Firecrawl extract_company_profile dict onto the mobile CompanyInfo
+    shape ({about, industry, size, hq, news}). News is omitted for v1."""
+    fc = firecrawl or {}
+    return {
+        'name': name,
+        'about': (fc.get('description') or '').strip(),
+        'industry': _first_industry(fc.get('industries')),
+        'size': _employee_label(fc.get('employee_count')),
+        'hq': (fc.get('headquarters') or '').strip(),
+        'news': [],  # v1: skip the second live news call
+    }
+
+
+# Cached company profiles are global (not per-user) and refreshed every 30 days —
+# firm intel changes slowly and the live Perplexity+Firecrawl call is slow/costly.
+_COMPANY_CACHE_TTL_DAYS = 30
+
+
+@mobile_bp.get('/company/<path:name>')
+@require_firebase_auth
+def company(name: str):
+    """Lightweight single-company overview for the app's company page. Reuses the
+    firm-intel pipeline (Perplexity website discovery → Firecrawl profile), cached
+    in Firestore companyProfiles/{slug}. Returns honest-empty fields when nothing
+    is found rather than fabricating."""
+    name = (name or '').strip()
+    if not name:
+        return jsonify({'error': 'name is required'}), 400
+
+    db = get_db()
+    slug = _company_slug(name)
+    cache_ref = db.collection('companyProfiles').document(slug) if slug else None
+
+    if cache_ref is not None:
+        snap = cache_ref.get()
+        if snap.exists:
+            data = snap.to_dict() or {}
+            fetched = data.get('fetchedAt')
+            try:
+                fetched_dt = datetime.fromisoformat(fetched) if isinstance(fetched, str) else None
+            except ValueError:
+                fetched_dt = None
+            fresh = (
+                fetched_dt is not None
+                and (datetime.now(timezone.utc) - fetched_dt).days < _COMPANY_CACHE_TTL_DAYS
+            )
+            if fresh and data.get('profile'):
+                return jsonify(data['profile']), 200
+
+    try:
+        from app.services.firm_details_extraction import _fetch_serp_results_only
+        raw = _fetch_serp_results_only(name)
+    except Exception:
+        raw = None
+
+    firecrawl = (raw or {}).get('_firecrawl_data') or {}
+    profile = _map_company_profile(name, firecrawl)
+
+    # Only cache when we actually got something, so a transient miss doesn't pin
+    # an empty profile for 30 days.
+    if cache_ref is not None and (profile['about'] or profile['industry'] or profile['hq']):
+        try:
+            cache_ref.set({
+                'name': name,
+                'profile': profile,
+                'fetchedAt': datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception:
+            pass
+
+    return jsonify(profile), 200
