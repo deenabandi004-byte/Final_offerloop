@@ -7,6 +7,7 @@ single mobile-shaped call. Everything is behind @require_firebase_auth and
 reuses existing services, not new business logic.
 """
 import calendar
+import re
 from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, request
@@ -130,6 +131,52 @@ def _map_notification_item(item: dict) -> dict:
     }
 
 
+def _grad_year(u: dict, prof: dict, academics: dict) -> str:
+    """Grad year, preferring explicit profile fields, then auto-extracted from
+    the parsed resume's education.graduation (e.g. 'May 2024' -> '2024')."""
+    explicit = academics.get('gradYear') or prof.get('gradYear') or u.get('gradYear')
+    if explicit:
+        return str(explicit)
+    edu = (u.get('resumeParsed') or {}).get('education') or {}
+    grad = str(edu.get('graduation') or '')
+    m = re.search(r'(19|20)\d{2}', grad)
+    return m.group(0) if m else ''
+
+
+def _linkedin_highlights(u: dict) -> list:
+    """Compose the Profile 'what we gathered from your LinkedIn' bullets from the
+    structured linkedinResumeParsed (written by the LinkedIn enrichment flow,
+    routes/enrichment.py). Real data only — empty list when not enriched, so the
+    section hides rather than showing fabricated bullets."""
+    lp = u.get('linkedinResumeParsed') or {}
+    if not isinstance(lp, dict):
+        return []
+    out: list = []
+    objective = str(lp.get('objective') or '').strip()
+    if objective:
+        out.append(objective)
+    skills = lp.get('skills') or {}
+    flat: list = []
+    if isinstance(skills, dict):
+        for k in ('technical', 'tools', 'soft_skills', 'languages'):
+            flat.extend(s.strip() for s in (skills.get(k) or []) if isinstance(s, str) and s.strip())
+    elif isinstance(skills, list):
+        flat.extend(s.strip() for s in skills if isinstance(s, str) and s.strip())
+    if flat:
+        out.append('Skills: ' + ', '.join(flat[:8]))
+    for e in (lp.get('extracurriculars') or [])[:3]:
+        if isinstance(e, dict):
+            label = (e.get('organization') or e.get('activity') or '').strip()
+            role = (e.get('role') or '').strip()
+            if role and label:
+                out.append(f'{role} — {label}')
+            elif label:
+                out.append(label)
+        elif isinstance(e, str) and e.strip():
+            out.append(e.strip())
+    return out[:6]
+
+
 def _map_resume_experiences(parsed: dict) -> list:
     """Map resumeParsed.experience[] (written by the web resume parser, see
     routes/resume.py) onto the mobile ResumeExperience shape. Real data only —
@@ -182,13 +229,17 @@ def me():
         )
         target_roles = [ct] if ct else []
 
+    resume_parsed = u.get('resumeParsed') or {}
     resume_url = u.get('resumeUrl') or prof.get('resumeUrl')
     resume_name = (
         u.get('resumeFileName')
         or prof.get('resumeFileName')
         or ('Resume.pdf' if resume_url else None)
+        # A parsed resume counts as on-file even if the original file URL/name
+        # wasn't stored (older uploads), so the profile reflects what we have.
+        or ('Resume' if resume_parsed else None)
     )
-    resume_experiences = _map_resume_experiences(u.get('resumeParsed') or {})
+    resume_experiences = _map_resume_experiences(resume_parsed)
 
     return jsonify({
         'name': u.get('name') or name or (email.split('@')[0] if email else 'You'),
@@ -207,13 +258,10 @@ def me():
         'linkedinUrl': u.get('linkedinUrl') or prof.get('linkedinUrl') or '',
         'targetRoles': target_roles,
         'industries': get_structured_target_industries(u),
-        'gradYear': str(academics.get('gradYear') or prof.get('gradYear') or u.get('gradYear') or ''),
-        'about': u.get('personalNote') or u.get('about') or '',
+        'gradYear': _grad_year(u, prof, academics),
+        'about': u.get('personalNote') or u.get('about') or resume_parsed.get('objective') or '',
         'resumeExperiences': resume_experiences,
-        # No clean real source yet (linkedinEnrichmentData is raw Bright Data);
-        # return empty so the Profile LinkedIn section hides rather than show
-        # fabricated highlights. TODO: map from linkedinEnrichmentData.
-        'linkedinHighlights': [],
+        'linkedinHighlights': _linkedin_highlights(u),
     }), 200
 
 

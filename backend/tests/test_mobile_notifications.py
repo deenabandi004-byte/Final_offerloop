@@ -108,3 +108,35 @@ class TestMapResumeExperiences:
             {"experience": [{"company": "Acme", "title": "Intern", "bullets": []}]}
         )
         assert out[0]["location"] is None
+
+
+class TestGradYear:
+    def test_explicit_wins(self):
+        u = {"gradYear": "2026", "resumeParsed": {"education": {"graduation": "May 2024"}}}
+        assert mobile._grad_year(u, {}, {"gradYear": "2027"}) == "2027"
+
+    def test_extracts_from_resume_graduation(self):
+        u = {"resumeParsed": {"education": {"graduation": "May 2025"}}}
+        assert mobile._grad_year(u, {}, {}) == "2025"
+
+    def test_empty_when_nothing(self):
+        assert mobile._grad_year({}, {}, {}) == ""
+
+
+class TestLinkedinHighlights:
+    def test_composes_objective_skills_extracurriculars(self):
+        u = {
+            "linkedinResumeParsed": {
+                "objective": "Aspiring investment banker.",
+                "skills": {"technical": ["Excel", "Python"], "tools": ["Bloomberg"]},
+                "extracurriculars": [{"role": "Treasurer", "organization": "Investment Club"}],
+            }
+        }
+        out = mobile._linkedin_highlights(u)
+        assert out[0] == "Aspiring investment banker."
+        assert out[1] == "Skills: Excel, Python, Bloomberg"
+        assert out[2] == "Treasurer — Investment Club"
+
+    def test_empty_when_not_enriched(self):
+        assert mobile._linkedin_highlights({}) == []
+        assert mobile._linkedin_highlights({"linkedinResumeParsed": None}) == []
