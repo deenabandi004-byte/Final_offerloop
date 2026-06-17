@@ -222,11 +222,19 @@ def enrich_jobs(limit: int = 200, backfill: bool = False, since_days: int | None
         extracted = _extract_structured(url)
         if extracted:
             structured = _build_structured_field(extracted)
+            update = {
+                "structured": structured,
+                "enrichment_status": ENRICHMENT_COMPLETED,
+            }
+            # Recover the description prose for sources (e.g. Simplify) that
+            # ingest with an empty description_raw. Never clobber existing
+            # prose from Greenhouse/Lever/Ashby/FantasticJobs.
+            if not (data.get("description_raw") or "").strip():
+                desc = (extracted.get("description") or "").strip()
+                if desc:
+                    update["description_raw"] = desc
             try:
-                ref.update({
-                    "structured": structured,
-                    "enrichment_status": ENRICHMENT_COMPLETED,
-                })
+                ref.update(update)
                 return "enriched"
             except Exception as e:
                 logger.warning("Failed to write structured for %s: %s", url, e)

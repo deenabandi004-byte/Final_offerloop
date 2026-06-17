@@ -1085,6 +1085,28 @@ def get_job_detail(job_id: str):
 # GET /api/jobs/<job_id>/description
 # ---------------------------------------------------------------------------
 
+from backend.app.services.job_description import compose_from_structured as _compose_from_structured
+
+
+def _hydrate_description(doc_ref, data: dict) -> str:
+    """Recover a missing description from already-enriched `structured` data and
+    persist it so later views are instant.
+
+    Pure in-memory compose — NO network call in the request path, so this never
+    adds latency or ties up a worker. Live scraping of truly-bare jobs (those
+    without structured data yet) is handled OFFLINE by the pipeline enricher and
+    the backfill_job_descriptions script, never inside a user request. A job we
+    can't compose for falls through to the honest empty state, same as before.
+    """
+    desc = _compose_from_structured(data.get("structured") or {})
+    if desc:
+        try:
+            doc_ref.update({"description_raw": desc})
+        except Exception:
+            logger.warning("failed to persist hydrated description for job", exc_info=True)
+    return desc
+
+
 @jobs_bp.route("/api/jobs/<job_id>/description", methods=["GET"])
 @require_firebase_auth
 def get_job_description(job_id: str):
@@ -1092,15 +1114,19 @@ def get_job_description(job_id: str):
 
     The feed serializer strips description_raw to keep the list response lean,
     so the detail view fetches the prose on demand from the single job doc.
-    Returns description: null when the job exists but has no stored text, so the
-    frontend can show an honest empty state instead of placeholder filler.
+    When the stored description is empty (e.g. Simplify internships, which
+    ingest with no prose), recover it on demand from the live posting so the
+    pane always shows a real description instead of an empty state.
     """
     db = get_db()
-    doc = db.collection("jobs").document(job_id).get()
+    doc_ref = db.collection("jobs").document(job_id)
+    doc = doc_ref.get()
     if not doc.exists:
         return jsonify({"error": "Job not found"}), 404
     data = doc.to_dict() or {}
     raw = (data.get("description_raw") or "").strip()
+    if not raw:
+        raw = _hydrate_description(doc_ref, data)
     return jsonify({"description": raw or None})
 
 
