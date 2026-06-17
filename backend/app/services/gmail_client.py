@@ -223,6 +223,23 @@ def send_email_for_user(uid: str, to: str, subject: str, body_html: str) -> dict
     }
 
 
+def send_draft_for_user(uid: str, draft_id: str) -> dict:
+    """Send an existing Gmail draft (created by the swipe) by its id. Sending the
+    draft converts it to a sent message and removes it from Drafts, so there is
+    no duplicate. Used by the mobile in-app send so the user never leaves the app.
+
+    Raises ValueError when there are no usable Gmail credentials.
+    """
+    creds = _load_user_gmail_creds(uid)
+    if not creds:
+        raise ValueError(f"No Gmail credentials for uid={uid}")
+    service = _gmail_service(creds)
+    if not service:
+        raise ValueError(f"Failed to build Gmail service for uid={uid}")
+    resp = service.users().drafts().send(userId="me", body={"id": draft_id}).execute() or {}
+    return {"id": resp.get("id", ""), "threadId": resp.get("threadId", "")}
+
+
 def start_gmail_watch(uid):
     """
     Start Gmail push notifications watch for the user. Saves watchHistoryId, watchExpiration,

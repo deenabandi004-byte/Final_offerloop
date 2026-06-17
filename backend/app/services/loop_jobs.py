@@ -250,14 +250,31 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
             assess_cycle_results,
             write_loop_run_notification,
         )
+        loop_name = loop.get("name") or "Untitled Loop"
         items = assess_cycle_results(
             loop_id=loop_id,
-            loop_name=loop.get("name") or "Untitled Loop",
+            loop_name=loop_name,
             cycle_id=cycle_id,
             result=result,
         )
         if items:
             write_loop_run_notification(uid=uid, items=items, db=db)
+            # Push the cycle summary to the user's phone — the high-value
+            # "your Loop worked while you were away" moment. One summary item
+            # per cycle (assess_cycle_results caps it), so no double-push.
+            try:
+                from app.services.push_service import send_push
+                send_push(
+                    uid,
+                    title=f"{loop_name} ran",
+                    body=(items[0].get("snippet") or "Your Loop found new results.")[:140],
+                    data={"type": "loop_run", "loopId": loop_id, "url": "/loops"},
+                )
+            except Exception as push_err:  # noqa: BLE001
+                logger.warning(
+                    "Loop run push failed (non-fatal) uid=%s loop=%s: %s",
+                    uid, loop_id, push_err,
+                )
     except Exception:
         logger.exception(
             "Loop run notification failed (non-fatal) uid=%s loop=%s cycle=%s",

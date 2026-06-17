@@ -641,6 +641,20 @@ def _process_gmail_notification(email_address, history_id):
                 logger.info(f"[gmail_webhook] uid={uid} notification skipped (duplicate messageId={msg_id}) for contact={contact_id}")
             else:
                 logger.info(f"[gmail_webhook] uid={uid} notification updated: unreadReplyCount={unread_count} for contact={contact_id}")
+                # Push the reply to the user's phone. Gated on a non-duplicate
+                # append above, so an at-least-once Pub/Sub redelivery can't
+                # double-notify. Best-effort: never blocks reply processing.
+                try:
+                    from app.services.push_service import send_push
+                    who = contact_name or "Someone"
+                    send_push(
+                        uid,
+                        title=f"{who} replied",
+                        body=(message_snippet or "Tap to write back.")[:140],
+                        data={"type": "reply", "contactId": contact_id, "url": f"/outreach/{contact_id}"},
+                    )
+                except Exception as push_err:  # noqa: BLE001
+                    logger.warning(f"[gmail_webhook] push send failed for contact={contact_id}: {push_err}")
 
             # Reply Coach: auto-generate a draft reply in the background
             try:
