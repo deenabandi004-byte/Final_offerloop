@@ -1087,18 +1087,55 @@ def get_job_detail(job_id: str):
 
 from backend.app.services.job_description import compose_from_structured as _compose_from_structured
 
+# Bound how many description fetches can scrape a live posting at once. Most
+# views resolve instantly from stored data; only a job with an apply link and
+# no stored description hits the scrape path. Capping concurrency keeps a burst
+# of those from tying up every gunicorn worker — excess views skip the scrape
+# and fall back to the empty state (they fill on a later view or via the
+# backfill script). Tune via JOB_DESC_MAX_CONCURRENT_SCRAPES.
+import os as _os
+_MAX_CONCURRENT_HYDRATE_SCRAPES = int(_os.environ.get("JOB_DESC_MAX_CONCURRENT_SCRAPES", "3"))
+_HYDRATE_SCRAPE_SEM = threading.Semaphore(_MAX_CONCURRENT_HYDRATE_SCRAPES)
+
+
+def _scrape_description(url: str) -> str:
+    """Live Firecrawl scrape for a job's prose. Returns "" on any failure.
+
+    Uses the same structured extract the enricher runs (now carrying a
+    `description` field), falling back to composing from the structured fields
+    the scrape returns. Firecrawl responses are cached by URL, so repeat scrapes
+    of the same posting are cheap.
+    """
+    try:
+        from backend.app.services.firecrawl_client import extract_job_posting
+        extracted = extract_job_posting(url) or {}
+        return (extracted.get("description") or "").strip() or _compose_from_structured(extracted)
+    except Exception:
+        logger.warning("on-demand description scrape failed for %s", url, exc_info=True)
+        return ""
+
 
 def _hydrate_description(doc_ref, data: dict) -> str:
-    """Recover a missing description from already-enriched `structured` data and
-    persist it so later views are instant.
+    """Recover a missing description and persist it so later views are instant.
 
-    Pure in-memory compose — NO network call in the request path, so this never
-    adds latency or ties up a worker. Live scraping of truly-bare jobs (those
-    without structured data yet) is handled OFFLINE by the pipeline enricher and
-    the backfill_job_descriptions script, never inside a user request. A job we
-    can't compose for falls through to the honest empty state, same as before.
+    Order, cheapest first:
+      1. Compose from already-enriched `structured` data — instant, no network.
+      2. For a job with an apply link but no stored data, scrape the posting
+         live, bounded by a concurrency cap so it cannot saturate workers.
+
+    Best-effort: any failure (or a full scrape cap) returns "" and the caller
+    shows the honest empty state, which fills on a later view or via the backfill.
     """
     desc = _compose_from_structured(data.get("structured") or {})
+
+    if not desc:
+        url = (data.get("apply_url") or data.get("url") or "").strip()
+        if url and _HYDRATE_SCRAPE_SEM.acquire(blocking=False):
+            try:
+                desc = _scrape_description(url)
+            finally:
+                _HYDRATE_SCRAPE_SEM.release()
+
     if desc:
         try:
             doc_ref.update({"description_raw": desc})

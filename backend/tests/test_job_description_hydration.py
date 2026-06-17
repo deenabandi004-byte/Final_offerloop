@@ -5,6 +5,7 @@ description_raw and showed "No description provided" in the detail pane.
 """
 import pytest
 
+from backend.app.routes import jobs as jobs_module
 from backend.app.routes.jobs import _compose_from_structured, _hydrate_description
 from backend.app.services.extraction_schemas import JobPostingExtract
 
@@ -48,28 +49,51 @@ class _FakeRef:
         self.updated = payload
 
 
-def test_hydrate_composes_from_structured_and_persists():
-    """The request path composes from data we already have — no network call —
-    and caches the result so later views are instant."""
+def test_hydrate_prefers_structured_and_skips_scrape(monkeypatch):
+    """When structured data exists, compose from it instantly — no scrape."""
+    monkeypatch.setattr(
+        "backend.app.services.firecrawl_client.extract_job_posting",
+        lambda url: (_ for _ in ()).throw(AssertionError("should not scrape when structured exists")),
+    )
     ref = _FakeRef()
-    data = {"structured": {"responsibilities": ["Do the thing"]}}
+    data = {"structured": {"responsibilities": ["Do the thing"]}, "apply_url": "https://x.com/j"}
     out = _hydrate_description(ref, data)
     assert "• Do the thing" in out
     assert ref.updated == {"description_raw": out}
 
 
-def test_hydrate_never_scrapes_in_request_path(monkeypatch):
-    """Guard: a missing-description view must not trigger a live Firecrawl
-    scrape (that could hold a worker). Even with an apply_url present and no
-    structured data, hydrate stays empty and makes no external call."""
+def test_hydrate_scrapes_bare_job_with_apply_link_and_persists(monkeypatch):
+    """A job with an apply link but no stored data scrapes the posting on demand
+    and caches the prose so every later view is instant."""
     monkeypatch.setattr(
         "backend.app.services.firecrawl_client.extract_job_posting",
-        lambda url: (_ for _ in ()).throw(AssertionError("must not scrape in request path")),
+        lambda url: {"description": "Real posting prose."},
     )
     ref = _FakeRef()
     out = _hydrate_description(ref, {"apply_url": "https://example.com/job"})
-    assert out == ""
-    assert ref.updated is None  # nothing to persist, honest empty state preserved
+    assert out == "Real posting prose."
+    assert ref.updated == {"description_raw": "Real posting prose."}
+
+
+def test_hydrate_scrape_respects_concurrency_cap(monkeypatch):
+    """When the scrape concurrency cap is exhausted, skip the scrape and fall
+    back to the empty state rather than tying up another worker."""
+    monkeypatch.setattr(
+        "backend.app.services.firecrawl_client.extract_job_posting",
+        lambda url: (_ for _ in ()).throw(AssertionError("cap exhausted — must not scrape")),
+    )
+    # Drain the semaphore so no permits remain.
+    permits = []
+    while jobs_module._HYDRATE_SCRAPE_SEM.acquire(blocking=False):
+        permits.append(True)
+    try:
+        ref = _FakeRef()
+        out = _hydrate_description(ref, {"apply_url": "https://example.com/job"})
+        assert out == ""
+        assert ref.updated is None
+    finally:
+        for _ in permits:
+            jobs_module._HYDRATE_SCRAPE_SEM.release()
 
 
 def test_hydrate_returns_empty_without_data():
