@@ -42,6 +42,15 @@ import { toast } from "@/hooks/use-toast";
 import { JobCard } from "@/components/jobs/JobCard";
 import { JobDetail, type JobDescriptionState } from "@/components/jobs/JobDetail";
 import { SaveSearchModal } from "@/components/jobs/SaveSearchModal";
+import { ApplicationProfileModal } from "@/components/jobs/ApplicationProfileModal";
+import { AutoApplyReviewModal } from "@/components/jobs/AutoApplyReviewModal";
+import { AutoSubmissionTab } from "@/components/jobs/AutoSubmissionTab";
+import { NeedsAttentionTab } from "@/components/jobs/NeedsAttentionTab";
+import { NeedsVerificationTab } from "@/components/jobs/NeedsVerificationTab";
+import {
+  submitAutoApply,
+  type AutoApplyPrepareResponse,
+} from "@/services/api";
 import {
   MoreFiltersPanel,
   type MoreFiltersState,
@@ -182,7 +191,16 @@ export const JobBoardPage: React.FC = () => {
   // Top-level tab. "discover" = the existing Recent + Recommended view.
   // "saved" swaps the entire job list for the bookmarked bin, mirroring
   // the Outbox tab pattern (always-visible at the top of the page).
-  const [activeJobTab, setActiveJobTab] = useState<"discover" | "saved">("discover");
+  // "auto-submission" lists every auto-apply job (in-flight + done + failed).
+  // "needs-attention" lists jobs paused waiting on the user to answer a
+  // custom screening question we don't have an answer for.
+  const [activeJobTab, setActiveJobTab] = useState<
+    | "discover"
+    | "saved"
+    | "auto-submission"
+    | "needs-attention"
+    | "needs-verification"
+  >("discover");
 
   // Collapsible section state. Default: Recent collapsed, Recommended open
   // so the better-matching list is visible without scrolling. User's choice
@@ -495,6 +513,90 @@ export const JobBoardPage: React.FC = () => {
     if (j.applyUrl) window.open(j.applyUrl, "_blank", "noopener,noreferrer");
   };
 
+  // Auto-apply flow (v2 fire-and-forget):
+  //   1. Pro/Elite gate (frontend-side; backend rechecks).
+  //   2. POST /submit directly (no prepare/modal step). The job lands in
+  //      autoApplyJobs status="queued" and a background worker takes over.
+  //   3. Switch the active tab to "auto-submission" so the user sees the
+  //      in-flight card immediately. They can keep clicking Auto-apply on
+  //      other jobs while the background workers run.
+  //   4. If the worker hits a question with no saved answer, it bails with
+  //      status="needs_attention" and the card moves to the Needs Attention
+  //      tab. The user resolves via NeedsAttentionDrawer; the worker resumes.
+  //
+  // The legacy prepare/modal flow is still wired (showReviewModal +
+  // AutoApplyReviewModal) but no longer triggered by the default Auto-apply
+  // button — it remains as an advanced preview-only escape hatch.
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [pendingAutoApplyJob, setPendingAutoApplyJob] =
+    useState<ProtoJob | null>(null);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [reviewPrepared, setReviewPrepared] =
+    useState<AutoApplyPrepareResponse | null>(null);
+
+  const handleAutoApply = useCallback(async (j: ProtoJob) => {
+    if (!j.autoApplyEligible) return;
+    if (!user || user.tier === "free") {
+      toast({
+        title: "Auto-apply is a Pro feature",
+        description: "Upgrade to have Offerloop fill the application for you.",
+      });
+      return;
+    }
+
+    const res = await submitAutoApply(j.id, { dry_run: false, edited_answers: {} });
+
+    if (res.ok && res.data.auto_apply_id) {
+      toast({
+        title: "Applying in the background",
+        description: "We'll let you know if a question needs your input.",
+      });
+      setActiveJobTab("auto-submission");
+      return;
+    }
+
+    const code = (res.data as any)?.code;
+    if (code === "PROFILE_REQUIRED" || code === "WORK_AUTH_REQUIRED") {
+      setPendingAutoApplyJob(j);
+      setShowProfileModal(true);
+      if (code === "WORK_AUTH_REQUIRED") {
+        toast({
+          title: "Work authorization required",
+          description: "Set your work-authorization answer to continue.",
+        });
+      }
+      return;
+    }
+    if (code === "INELIGIBLE") {
+      toast({
+        title: "Auto-apply unavailable",
+        description: "This job's source ATS isn't supported yet.",
+      });
+      return;
+    }
+    if (code === "INSUFFICIENT_CREDITS") {
+      toast({
+        title: "Not enough credits",
+        description: "Top up to keep auto-applying.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (code === "BROWSERLESS_NOT_CONFIGURED") {
+      toast({
+        title: "Auto-apply isn't live yet",
+        description: "Browserless isn't configured in this environment.",
+        variant: "destructive",
+      });
+      return;
+    }
+    toast({
+      title: "Couldn't start auto-apply",
+      description: (res.data as any)?.error || "Try again in a moment.",
+      variant: "destructive",
+    });
+  }, [user]);
+
   const toFindHumansJob = (j: ProtoJob): FindHumansJob => {
     // Reuse the lazily fetched description when it is already loaded; never
     // refetch here and never fall back to filler.
@@ -542,6 +644,8 @@ export const JobBoardPage: React.FC = () => {
     salaryAnnual: null,
     tags: [],
     applyUrl: s.apply_url ?? "",
+    atsPlatform: null,
+    autoApplyEligible: false,
     isNew: false,
     isStale: false,
     detailPosted: "",
@@ -636,6 +740,9 @@ export const JobBoardPage: React.FC = () => {
                   {([
                     { id: "discover", label: "Discover", count: sections.recent.length + sections.recommended.length },
                     { id: "saved", label: "Saved", count: savedJobs.length },
+                    { id: "auto-submission", label: "Auto-submission", count: 0 },
+                    { id: "needs-attention", label: "Needs attention", count: 0 },
+                    { id: "needs-verification", label: "Finish in browser", count: 0 },
                   ] as const).map((t) => {
                     const isActive = activeJobTab === t.id;
                     return (
@@ -826,7 +933,22 @@ export const JobBoardPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* ---- Two-pane body (independent scroll) ---- */}
+              {/* ---- Body ---- */}
+              {/* discover / saved: two-pane editorial layout.
+                  auto-submission / needs-attention: full-width queue view. */}
+              {activeJobTab === "auto-submission" ? (
+                <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+                  <AutoSubmissionTab />
+                </div>
+              ) : activeJobTab === "needs-attention" ? (
+                <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+                  <NeedsAttentionTab />
+                </div>
+              ) : activeJobTab === "needs-verification" ? (
+                <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+                  <NeedsVerificationTab />
+                </div>
+              ) : (
               <div className="jb-twopane">
                 <div className="jb-list" data-tour="tour-job-board-list">
                   {!feedLoading &&
@@ -990,6 +1112,11 @@ export const JobBoardPage: React.FC = () => {
                       onRetryDescription={retryDescription}
                       isSaved={savedIds.has(selectedJob.id)}
                       onApply={() => handleApply(selectedJob)}
+                      onAutoApply={
+                        selectedJob.autoApplyEligible
+                          ? () => handleAutoApply(selectedJob)
+                          : undefined
+                      }
                       onSave={() => handleSave(selectedJob)}
                       onShare={() => {
                         if (selectedJob.applyUrl) {
@@ -1012,6 +1139,7 @@ export const JobBoardPage: React.FC = () => {
                   )}
                 </div>
               </div>
+              )}
             </div>
           </div>
         </div>
@@ -1021,6 +1149,35 @@ export const JobBoardPage: React.FC = () => {
         open={showSaveSearch}
         onClose={() => setShowSaveSearch(false)}
         currentFilters={activeFilters}
+      />
+
+      <ApplicationProfileModal
+        open={showProfileModal}
+        onOpenChange={(open) => {
+          setShowProfileModal(open);
+          if (!open) setPendingAutoApplyJob(null);
+        }}
+        onSaved={() => {
+          setShowProfileModal(false);
+          if (pendingAutoApplyJob) {
+            const j = pendingAutoApplyJob;
+            setPendingAutoApplyJob(null);
+            handleAutoApply(j);
+          }
+        }}
+      />
+
+      <AutoApplyReviewModal
+        open={showReviewModal}
+        onOpenChange={(open) => {
+          setShowReviewModal(open);
+          if (!open) setReviewPrepared(null);
+        }}
+        prepared={reviewPrepared}
+        onEditProfile={() => {
+          setShowReviewModal(false);
+          setShowProfileModal(true);
+        }}
       />
       <MoreFiltersPanel
         open={showMoreFilters}

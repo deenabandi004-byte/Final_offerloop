@@ -35,6 +35,7 @@ interface JobDetailProps {
   onRetryDescription?: () => void;
   isSaved: boolean;
   onApply: () => void;
+  onAutoApply?: () => void;
   onSave: () => void;
   onShare?: () => void;
   onFindPeople: () => void;
@@ -111,6 +112,7 @@ export function JobDetail({
   onRetryDescription,
   isSaved,
   onApply,
+  onAutoApply,
   onSave,
   onShare,
   onFindPeople,
@@ -172,7 +174,22 @@ export function JobDetail({
             <IconShare />
             Share
           </button>
-          <button className="jb-action primary" type="button" onClick={onApply}>
+          {job.autoApplyEligible && onAutoApply && (
+            <button
+              className="jb-action primary"
+              type="button"
+              onClick={onAutoApply}
+              title="We fill the application for you using your saved profile"
+            >
+              Auto-apply
+              <IconArrowRight />
+            </button>
+          )}
+          <button
+            className={`jb-action ${job.autoApplyEligible && onAutoApply ? "" : "primary"}`}
+            type="button"
+            onClick={onApply}
+          >
             Apply
             <IconArrowRight />
           </button>

@@ -89,6 +89,8 @@ RESUME_LINE = "For context, I've attached my resume below."
 # 10 cr = 1 email. Existing user balances are doubled via migrate_double_credits.py.
 COFFEE_CHAT_CREDITS = 30
 TIMELINE_CREDITS = 20
+AUTO_APPLY_CREDITS = 5
+SUPPORTED_AUTO_APPLY_ATS = {"greenhouse", "lever", "ashby"}
 CACHE_DURATION = timedelta(days=365)
 CREATE_GMAIL_DRAFTS = False  # Set True to create Gmail drafts; False to only return subject/body and compose links
 
