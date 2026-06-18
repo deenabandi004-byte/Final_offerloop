@@ -1087,84 +1087,38 @@ def get_job_detail(job_id: str):
 
 from backend.app.services.job_description import compose_from_structured as _compose_from_structured
 
-# Bound how many description fetches can scrape a live posting at once. Most
-# views resolve instantly from stored data; only a job with an apply link and
-# no stored description hits the scrape path. Capping concurrency keeps a burst
-# of those from tying up every gunicorn worker — excess views skip the scrape
-# and fall back to the empty state (they fill on a later view or via the
-# backfill script). Tune via JOB_DESC_MAX_CONCURRENT_SCRAPES.
-import os as _os
-_MAX_CONCURRENT_HYDRATE_SCRAPES = int(_os.environ.get("JOB_DESC_MAX_CONCURRENT_SCRAPES", "3"))
-_HYDRATE_SCRAPE_SEM = threading.Semaphore(_MAX_CONCURRENT_HYDRATE_SCRAPES)
 
+def _describe(data: dict) -> str:
+    """Best description text for the detail pane, from STORED data only — no
+    network, instant. Prefers real prose (ingested, or captured in the
+    background by the pipeline enricher), falling back to a bulleted summary
+    composed from the enriched `structured` fields, else empty.
 
-def _scrape_description(url: str) -> str:
-    """Live Firecrawl scrape for a job's prose. Returns "" on any failure.
-
-    Uses the same structured extract the enricher runs (now carrying a
-    `description` field), falling back to composing from the structured fields
-    the scrape returns. Firecrawl responses are cached by URL, so repeat scrapes
-    of the same posting are cheap.
+    Because the enricher fetches real prose ahead of time, most jobs return
+    prose here with zero request-time scraping — so this scales to any number of
+    concurrent users.
     """
-    try:
-        from backend.app.services.firecrawl_client import extract_job_posting
-        extracted = extract_job_posting(url) or {}
-        return (extracted.get("description") or "").strip() or _compose_from_structured(extracted)
-    except Exception:
-        logger.warning("on-demand description scrape failed for %s", url, exc_info=True)
-        return ""
-
-
-def _hydrate_description(doc_ref, data: dict) -> str:
-    """Recover a missing description and persist it so later views are instant.
-
-    Order, cheapest first:
-      1. Compose from already-enriched `structured` data — instant, no network.
-      2. For a job with an apply link but no stored data, scrape the posting
-         live, bounded by a concurrency cap so it cannot saturate workers.
-
-    Best-effort: any failure (or a full scrape cap) returns "" and the caller
-    shows the honest empty state, which fills on a later view or via the backfill.
-    """
-    desc = _compose_from_structured(data.get("structured") or {})
-
-    if not desc:
-        url = (data.get("apply_url") or data.get("url") or "").strip()
-        if url and _HYDRATE_SCRAPE_SEM.acquire(blocking=False):
-            try:
-                desc = _scrape_description(url)
-            finally:
-                _HYDRATE_SCRAPE_SEM.release()
-
-    if desc:
-        try:
-            doc_ref.update({"description_raw": desc})
-        except Exception:
-            logger.warning("failed to persist hydrated description for job", exc_info=True)
-    return desc
+    raw = (data.get("description_raw") or "").strip()
+    if raw:
+        return raw
+    return _compose_from_structured(data.get("structured") or {})
 
 
 @jobs_bp.route("/api/jobs/<job_id>/description", methods=["GET"])
 @require_firebase_auth
 def get_job_description(job_id: str):
-    """Lazy per-job description fetch for the detail pane.
+    """Detail-pane description — STORED data only, never scrapes in the request.
 
-    The feed serializer strips description_raw to keep the list response lean,
-    so the detail view fetches the prose on demand from the single job doc.
-    When the stored description is empty (e.g. Simplify internships, which
-    ingest with no prose), recover it on demand from the live posting so the
-    pane always shows a real description instead of an empty state.
+    Real prose where we have it (the enricher captures it in the background),
+    otherwise a bulleted summary from the structured fields, otherwise empty.
+    No network call here, so browsing job to job stays instant at any scale.
     """
     db = get_db()
-    doc_ref = db.collection("jobs").document(job_id)
-    doc = doc_ref.get()
+    doc = db.collection("jobs").document(job_id).get()
     if not doc.exists:
         return jsonify({"error": "Job not found"}), 404
     data = doc.to_dict() or {}
-    raw = (data.get("description_raw") or "").strip()
-    if not raw:
-        raw = _hydrate_description(doc_ref, data)
-    return jsonify({"description": raw or None})
+    return jsonify({"description": _describe(data) or None})
 
 
 # ---------------------------------------------------------------------------

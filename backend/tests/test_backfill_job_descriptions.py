@@ -118,7 +118,7 @@ def test_no_scrape_leaves_bare_jobs_untouched(monkeypatch):
 def test_scrape_budget_is_capped(monkeypatch):
     calls = {"n": 0}
 
-    def _fake_extract(url):
+    def _fake_extract(url, wait_for_ms=0):
         calls["n"] += 1
         return {"description": "Scraped prose"}
 

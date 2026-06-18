@@ -115,10 +115,16 @@ def _within_window(data: dict, cutoff: datetime | None) -> bool:
 
 
 def _scrape_description(url: str) -> str:
-    """Live Firecrawl scrape for real prose. Returns "" on any failure."""
+    """Live Firecrawl scrape for real prose. Returns "" on any failure.
+
+    Uses the render-wait so JS-rendered postings (e.g. Workday) yield their real
+    description text rather than an empty loading shell — same setting the
+    background enricher uses.
+    """
     try:
         from backend.app.services.firecrawl_client import extract_job_posting
-        extracted = extract_job_posting(url) or {}
+        wait_ms = int(os.environ.get("JOB_DESC_SCRAPE_WAIT_MS", "8000"))
+        extracted = extract_job_posting(url, wait_for_ms=wait_ms) or {}
         desc = (extracted.get("description") or "").strip()
         return desc or _compose_from_structured(extracted)
     except Exception:
