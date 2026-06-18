@@ -1088,12 +1088,11 @@ def get_job_detail(job_id: str):
 @jobs_bp.route("/api/jobs/<job_id>/description", methods=["GET"])
 @require_firebase_auth
 def get_job_description(job_id: str):
-    """Lazy per-job description fetch for the detail pane.
+    """Detail-pane description — STORED data only, never scrapes in the request.
 
-    The feed serializer strips description_raw to keep the list response lean,
-    so the detail view fetches the prose on demand from the single job doc.
-    Returns description: null when the job exists but has no stored text, so the
-    frontend can show an honest empty state instead of placeholder filler.
+    Real prose where we have it (the enricher captures it in the background),
+    otherwise a bulleted summary from the structured fields, otherwise empty.
+    No network call here, so browsing job to job stays instant at any scale.
     """
     db = get_db()
     doc = db.collection("jobs").document(job_id).get()
@@ -1101,6 +1100,9 @@ def get_job_description(job_id: str):
         return jsonify({"error": "Job not found"}), 404
     data = doc.to_dict() or {}
     raw = (data.get("description_raw") or "").strip()
+    if not raw:
+        from backend.app.services.job_description import compose_from_structured
+        raw = compose_from_structured(data.get("structured") or {})
     return jsonify({"description": raw or None})
 
 
