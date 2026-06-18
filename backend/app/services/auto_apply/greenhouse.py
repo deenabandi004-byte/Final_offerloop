@@ -79,32 +79,25 @@ def run_greenhouse_filler(
     if not candidate_urls:
         return _failure("no usable apply_url for greenhouse")
 
-    token = os.getenv("BROWSERLESS_API_KEY")
-    if not token:
-        return _failure("BROWSERLESS_API_KEY not set")
-
-    # &timeout=180000 = 3 minutes. Covers proxy page load (~10s) + classify
-    # pass (~30s) + LLM batch (~12s) + fill (~10s) + submit + idle (~30s)
-    # with healthy headroom. Requires Browserless Prototyping plan or
-    # higher (Free is capped at 60,000 ms = 1 min).
-    #
-    # &stealth=true activates Browserless's bundled playwright-stealth
-    # plugins — spoofs navigator.webdriver, fixes Chrome runtime detection
-    # gaps, masks plugins/permissions/codecs APIs. Necessary because
-    # residential IP alone wasn't lifting reCAPTCHA v3's score: two
-    # Temelio runs landed in needs_verification with clean Decodo IPs.
-    # Behavioral signals (no mouse, instant typing, default Browserless
-    # fingerprint) were the suspected wall.
-    ws_url = (
-        f"wss://production-sfo.browserless.io/playwright/chromium"
-        f"?token={token}&timeout=180000&stealth=true"
+    # Browserbase session: stealth defeats reCAPTCHA's behavioral signals,
+    # solveCaptchas auto-handles reCAPTCHA / hCaptcha if it does score us low.
+    # The leftover Greenhouse-tenant defense is the per-tenant email-code
+    # gate (Temelio etc.) — handled below after submit by reading the
+    # candidate's Gmail for the verification code.
+    from app.services.auto_apply.browserbase_client import (
+        BrowserbaseError, create_session, release_session,
     )
+    try:
+        session_id, ws_url = create_session(stealth=True, solve_captchas=True)
+    except BrowserbaseError as exc:
+        return _failure(str(exc))
 
     # Lazy import so the rest of the auto_apply package keeps loading even if
     # playwright isn't installed (e.g. during early dev / partial deploys).
     try:
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
     except ImportError:
+        release_session(session_id)
         return _failure("playwright not installed; pip install playwright")
 
     filled: Dict[str, str] = {}
@@ -114,14 +107,15 @@ def run_greenhouse_filler(
     # submit. Populated lazily by _fill_custom_questions and the standard
     # field passes; empty for early-failure paths (no apply URL, etc).
     prepared_answers: List[Dict[str, Any]] = []
-    from app.services.auto_apply import _form_filler_common as _common_for_captcha
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.connect(ws_url, timeout=60_000)
+            browser = p.chromium.connect_over_cdp(ws_url, timeout=60_000)
             try:
-                context = browser.new_context()
-                page = context.new_page()
+                # Browserbase pre-creates a context+page when the session
+                # starts; reuse them instead of opening a second tab.
+                context = browser.contexts[0] if browser.contexts else browser.new_context()
+                page = context.pages[0] if context.pages else context.new_page()
 
                 # Some apply_urls point at the company's own careers page
                 # (stripe.com/jobs/123, databricks.com/careers/...?gh_jid=X)
@@ -217,26 +211,15 @@ def run_greenhouse_filler(
                         "failure_reason": None,
                     }
 
-                # Needs-verification escalation: Greenhouse ships invisible
-                # reCAPTCHA + per-tenant email verification gate. After
-                # rapid resubmits from the same Browserless session, the
-                # email-verification path triggers (see dogfood logs from
-                # 2026-06-15). Route to the verification UX so the user
-                # finishes from their own browser/device — reCAPTCHA
-                # scores them as human, no email code dance.
-                captcha = _common_for_captcha.detect_captcha_challenge(page)
-                if captcha and not dry_run:
-                    return {
-                        "status": "needs_verification",
-                        "filled": filled,
-                        "unmapped": unmapped,
-                        "pending_questions": [],
-                        "prepared_answers": prepared_answers,
-                        "captcha": captcha,
-                        "apply_url": page.url or apply_url,
-                        "screenshot_b64": screenshot_b64,
-                        "failure_reason": None,
-                    }
+                # NOTE: The previous early-bail on detect_captcha_challenge was
+                # removed in the Browserbase migration. Greenhouse's reCAPTCHA
+                # widget is ALWAYS present in the DOM when the form renders,
+                # so that check effectively returned "needs_verification" for
+                # every submit attempt — bypassing the post-submit signals
+                # entirely. With Browserbase's stealth + solveCaptchas the
+                # widget can be present AND scored cleanly; the right verdict
+                # comes from clicking submit and checking what actually
+                # happened (success URL, email-code gate, aria-invalid).
 
                 status = "dry_run_complete"
                 failure_reason: Optional[str] = None
@@ -247,8 +230,39 @@ def run_greenhouse_filler(
                             status = "submit_failed"
                             failure_reason = "no submit button found"
                         else:
+                            # Stamp the submit click time so we can window the
+                            # Gmail search for the verification code email — old
+                            # codes shouldn't be picked up if Sid happens to
+                            # have prior Greenhouse emails in the inbox.
+                            import time as _time_now
+                            submit_ts = int(_time_now.time())
                             submit.click()
                             page.wait_for_load_state("networkidle", timeout=30_000)
+
+                            # Per-tenant email-verification gate (Temelio,
+                            # confirmed 2026-06-18): 8 new fields `#security-input-{0..7}`
+                            # appear and Greenhouse emails an 8-char alphanumeric
+                            # code to the candidate. The verification UI is
+                            # rendered client-side AFTER the submit POST + email
+                            # dispatch return. networkidle fires before that
+                            # render completes, and we measured at least one
+                            # case where the inputs took >5s to appear after
+                            # networkidle — so poll for 30s.
+                            verification_visible = False
+                            for _ in range(30):
+                                if page.query_selector("#security-input-0"):
+                                    verification_visible = True
+                                    break
+                                page.wait_for_timeout(1000)
+                            if verification_visible:
+                                candidate_email = (preview.get("fields") or {}).get("email") or ""
+                                _try_email_code_completion(
+                                    page=page, uid=uid,
+                                    candidate_email=candidate_email,
+                                    submit_ts=submit_ts,
+                                )
+                                page.wait_for_load_state("networkidle", timeout=30_000)
+
                             screenshot_bytes = page.screenshot(full_page=True)
                             screenshot_b64 = base64.b64encode(screenshot_bytes).decode("ascii")
 
@@ -373,9 +387,82 @@ def run_greenhouse_filler(
                     browser.close()
                 except Exception:
                     pass
+                # Stop the Browserbase per-second billing clock immediately;
+                # leaving the session open until plan-side timeout would
+                # waste unit budget on no real work.
+                release_session(session_id)
     except Exception as exc:
         logger.exception("greenhouse filler crashed")
+        release_session(session_id)
         return _failure(f"{type(exc).__name__}: {exc}", filled=filled, unmapped=unmapped)
+
+
+# ---------- email-code completion (Greenhouse per-tenant verification gate) ----------
+
+def _try_email_code_completion(
+    page, uid: str, candidate_email: str, submit_ts: int,
+) -> bool:
+    """If Greenhouse routed to the email-verification page (8x #security-input-*
+    boxes for an 8-char alphanumeric code), poll the candidate's Gmail for
+    the code, fill the boxes, and click submit again.
+
+    Returns True if we filled the code and resubmitted (caller re-runs the
+    success-signal check afterward); False if the user has no Gmail
+    connected or the code never arrived within the poll window. On False
+    the caller falls through to the existing needs_verification flow so
+    the user can complete the code entry in their own browser.
+    """
+    from app.services.gmail_client import search_for_verification_code
+
+    print(f"[auto_apply.emailcode] polling gmail for greenhouse verification code "
+          f"(uid={uid}, since={submit_ts - 10})", flush=True)
+    # Greenhouse actually sends verification emails from
+    # no-reply@us.greenhouse-mail.io (or .eu/.ap regional variants), NOT
+    # from greenhouse.io. Match on the -mail.io domain and also OR in the
+    # distinctive body phrase as a belt-and-suspenders fallback for any
+    # tenant deployment that uses a different sender domain.
+    code = search_for_verification_code(
+        uid,
+        sender_pattern='from:greenhouse-mail.io OR "security code field"',
+        # Anchor on the literal "application:" that immediately precedes
+        # the code in Greenhouse's email body. Newline-anchored regexes
+        # don't work because the HTML→text parser collapses \n into
+        # spaces, but the word "application:" is stable across tenants.
+        code_regex=r"application:\s+([A-Za-z0-9]{8})\b",
+        since_epoch_seconds=submit_ts - 10,  # 10s buffer for clock skew
+        max_wait_seconds=90,  # gmail search index can lag 30-60s
+        poll_interval_seconds=5,
+    )
+    if not code:
+        print(f"[auto_apply.emailcode] no code found in 60s — falling through to needs_verification",
+              flush=True)
+        return False
+
+    print(f"[auto_apply.emailcode] CODE CAPTURED: {code} — filling 8 boxes", flush=True)
+    try:
+        for i, char in enumerate(code[:8]):
+            sel = f"#security-input-{i}"
+            if page.query_selector(sel):
+                page.fill(sel, char)
+                print(f"[auto_apply.emailcode] filled {sel} = {char!r}", flush=True)
+            else:
+                print(f"[auto_apply.emailcode] WARN: {sel} not found", flush=True)
+        page.wait_for_timeout(500)
+        # Greenhouse's 2FA-style UI sometimes auto-submits on the last
+        # character; click Submit anyway in case it doesn't.
+        submit = page.query_selector('button[type="submit"]')
+        if submit:
+            print("[auto_apply.emailcode] clicking submit again after code fill", flush=True)
+            submit.click()
+        else:
+            print("[auto_apply.emailcode] no submit button found after code fill", flush=True)
+        # Greenhouse validates the code via AJAX after click — give the page
+        # time to update in-place (URL may not change on success).
+        page.wait_for_timeout(3000)
+        return True
+    except Exception as exc:
+        print(f"[auto_apply.emailcode] fill/submit failed: {exc}", flush=True)
+        return False
 
 
 # ---------- standard fields ----------

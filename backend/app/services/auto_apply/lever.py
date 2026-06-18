@@ -78,20 +78,18 @@ def run_lever_filler(
     if not candidate_urls:
         return common.failure("no usable apply_url for lever")
 
-    token = os.getenv("BROWSERLESS_API_KEY")
-    if not token:
-        return common.failure("BROWSERLESS_API_KEY not set")
-
-    # &timeout=180000 = 3 minutes, &stealth=true = playwright-stealth bundle.
-    # See greenhouse.py for context.
-    ws_url = (
-        f"wss://production-sfo.browserless.io/playwright/chromium"
-        f"?token={token}&timeout=180000&stealth=true"
+    from app.services.auto_apply.browserbase_client import (
+        BrowserbaseError, create_session, release_session,
     )
+    try:
+        session_id, ws_url = create_session(stealth=True, solve_captchas=True)
+    except BrowserbaseError as exc:
+        return common.failure(str(exc))
 
     try:
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
     except ImportError:
+        release_session(session_id)
         return common.failure("playwright not installed; pip install playwright")
 
     filled: Dict[str, str] = {}
@@ -100,10 +98,10 @@ def run_lever_filler(
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.connect(ws_url, timeout=60_000)
+            browser = p.chromium.connect_over_cdp(ws_url, timeout=60_000)
             try:
-                context = browser.new_context()
-                page = context.new_page()
+                context = browser.contexts[0] if browser.contexts else browser.new_context()
+                page = context.pages[0] if context.pages else context.new_page()
 
                 # Try each candidate URL until one renders the application
                 # form. `input[name="name"]` is Lever's universal first
@@ -328,8 +326,10 @@ def run_lever_filler(
                     browser.close()
                 except Exception:
                     pass
+                release_session(session_id)
     except Exception as exc:
         logger.exception("lever filler crashed")
+        release_session(session_id)
         return common.failure(f"{type(exc).__name__}: {exc}", filled=filled, unmapped=unmapped)
 
 

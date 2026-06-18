@@ -27,6 +27,12 @@ GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")  # Path t
 GOOGLE_SERVICE_ACCOUNT_EMAIL = os.getenv("GOOGLE_SERVICE_ACCOUNT_EMAIL")  # Service account email for domain-wide delegation
 FLASK_SECRET = os.getenv("FLASK_SECRET", "dev")
 
+# Browserbase — auto-apply browser runtime. Stealth + solveCaptchas defeat
+# reCAPTCHA on Greenhouse/Lever/Ashby; per-tenant email-code gates are
+# handled separately in the filler via Gmail API lookup.
+BROWSERBASE_API_KEY = os.getenv("BROWSERBASE_API_KEY", "")
+BROWSERBASE_PROJECT_ID = os.getenv("BROWSERBASE_PROJECT_ID", "")
+
 # Gmail push notifications (Pub/Sub)
 GOOGLE_CLOUD_PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT_ID", "offerloop-native")
 GMAIL_PUBSUB_TOPIC = os.getenv("GMAIL_PUBSUB_TOPIC", "projects/offerloop-native/topics/gmail-notifications")
