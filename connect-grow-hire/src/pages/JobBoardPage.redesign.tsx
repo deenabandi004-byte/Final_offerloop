@@ -312,6 +312,10 @@ export const JobBoardPage: React.FC = () => {
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [reviewPrepared, setReviewPrepared] =
     useState<AutoApplyPrepareResponse | null>(null);
+  // Job id currently in-flight for auto-apply. Drives the JobDetail button's
+  // disabled + spinner state so the user can't double-tap during the network
+  // round-trip and stares at a clear "Applying…" affordance.
+  const [autoApplyingId, setAutoApplyingId] = useState<string | null>(null);
 
   const handleAutoApply = useCallback(async (j: ProtoJob) => {
     if (!j.autoApplyEligible) return;
@@ -322,8 +326,15 @@ export const JobBoardPage: React.FC = () => {
       });
       return;
     }
+    if (autoApplyingId === j.id) return;
+    setAutoApplyingId(j.id);
 
-    const res = await submitAutoApply(j.id, { dry_run: false, edited_answers: {} });
+    let res;
+    try {
+      res = await submitAutoApply(j.id, { dry_run: false, edited_answers: {} });
+    } finally {
+      setAutoApplyingId(null);
+    }
 
     if (res.ok && res.data.auto_apply_id) {
       toast({
@@ -374,7 +385,7 @@ export const JobBoardPage: React.FC = () => {
       description: (res.data as any)?.error || "Try again in a moment.",
       variant: "destructive",
     });
-  }, [user]);
+  }, [user, autoApplyingId]);
 
   const toFindHumansJob = (j: ProtoJob): FindHumansJob => ({
     id: j.id,
@@ -838,6 +849,7 @@ export const JobBoardPage: React.FC = () => {
                           ? () => handleAutoApply(selectedJob)
                           : undefined
                       }
+                      autoApplyLoading={autoApplyingId === selectedJob.id}
                       onSave={() => handleSave(selectedJob)}
                       onShare={() => {
                         if (selectedJob.applyUrl) {

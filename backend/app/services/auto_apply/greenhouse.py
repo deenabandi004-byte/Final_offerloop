@@ -31,8 +31,6 @@ import os
 import re
 from typing import Any, Callable, Dict, List, Optional
 
-from app.services.auto_apply.browserless_client import build_residential_proxy_config
-
 # NOTE: this module currently keeps its own copies of helpers that also
 # live in `_form_filler_common.py` (id_selector, check_checkbox,
 # fill_combobox, react_force_text, resolve_label_text, etc.). They are
@@ -85,7 +83,22 @@ def run_greenhouse_filler(
     if not token:
         return _failure("BROWSERLESS_API_KEY not set")
 
-    ws_url = f"wss://production-sfo.browserless.io/playwright/chromium?token={token}"
+    # &timeout=180000 = 3 minutes. Covers proxy page load (~10s) + classify
+    # pass (~30s) + LLM batch (~12s) + fill (~10s) + submit + idle (~30s)
+    # with healthy headroom. Requires Browserless Prototyping plan or
+    # higher (Free is capped at 60,000 ms = 1 min).
+    #
+    # &stealth=true activates Browserless's bundled playwright-stealth
+    # plugins — spoofs navigator.webdriver, fixes Chrome runtime detection
+    # gaps, masks plugins/permissions/codecs APIs. Necessary because
+    # residential IP alone wasn't lifting reCAPTCHA v3's score: two
+    # Temelio runs landed in needs_verification with clean Decodo IPs.
+    # Behavioral signals (no mouse, instant typing, default Browserless
+    # fingerprint) were the suspected wall.
+    ws_url = (
+        f"wss://production-sfo.browserless.io/playwright/chromium"
+        f"?token={token}&timeout=180000&stealth=true"
+    )
 
     # Lazy import so the rest of the auto_apply package keeps loading even if
     # playwright isn't installed (e.g. during early dev / partial deploys).
@@ -107,8 +120,7 @@ def run_greenhouse_filler(
         with sync_playwright() as p:
             browser = p.chromium.connect(ws_url, timeout=60_000)
             try:
-                proxy = build_residential_proxy_config(session_id=job_id)
-                context = browser.new_context(proxy=proxy) if proxy else browser.new_context()
+                context = browser.new_context()
                 page = context.new_page()
 
                 # Some apply_urls point at the company's own careers page

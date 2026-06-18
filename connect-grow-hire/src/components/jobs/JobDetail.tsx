@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Loader2 } from "lucide-react";
 import type { ProtoJob } from "@/pages/jobBoardAdapter";
 import { apiService } from "@/services/api";
 import { CompanyLogo } from "./CompanyLogo";
@@ -26,6 +27,7 @@ interface JobDetailProps {
   isSaved: boolean;
   onApply: () => void;
   onAutoApply?: () => void;
+  autoApplyLoading?: boolean;
   onSave: () => void;
   onShare?: () => void;
   onFindPeople: () => void;
@@ -38,6 +40,7 @@ export function JobDetail({
   isSaved,
   onApply,
   onAutoApply,
+  autoApplyLoading = false,
   onSave,
   onShare,
   onFindPeople,
@@ -122,10 +125,22 @@ export function JobDetail({
               className="jb-action primary"
               type="button"
               onClick={onAutoApply}
+              disabled={autoApplyLoading}
+              aria-busy={autoApplyLoading}
+              style={autoApplyLoading ? { opacity: 0.7, cursor: "wait" } : undefined}
               title="We fill the application for you using your saved profile"
             >
-              Auto-apply
-              <IconArrowRight />
+              {autoApplyLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" style={{ marginRight: 6 }} />
+                  Applying…
+                </>
+              ) : (
+                <>
+                  Auto-apply
+                  <IconArrowRight />
+                </>
+              )}
             </button>
           )}
           <button
