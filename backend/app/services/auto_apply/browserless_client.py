@@ -16,7 +16,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import uuid
 from typing import Any, Dict, Optional
 
 import requests
@@ -81,35 +80,3 @@ def run_function(script: str, context: Dict[str, Any]) -> Dict[str, Any]:
         raise BrowserlessError(
             f"browserless returned non-JSON: {resp.text[:200]}"
         ) from exc
-
-
-def build_residential_proxy_config(
-    session_id: Optional[str] = None,
-) -> Optional[Dict[str, str]]:
-    """Playwright-compatible proxy config for Decodo's residential pool.
-
-    Returns None when DECODO_USERNAME or DECODO_PASSWORD is unset, so the
-    fillers can safely use:
-        proxy = build_residential_proxy_config(session_id=job_id)
-        context = browser.new_context(proxy=proxy) if proxy else browser.new_context()
-
-    session_id is Decodo's stickiness key. Same job retries (refill+resubmit)
-    reuse the same residential IP for `sessionduration` minutes. Different
-    jobs get different IPs naturally, which avoids cross-job correlation
-    that ATSes use to fingerprint.
-    """
-    from app.config import DECODO_USERNAME, DECODO_PASSWORD
-    if not DECODO_USERNAME or not DECODO_PASSWORD:
-        return None
-    sid = session_id or uuid.uuid4().hex[:16]
-    username = (
-        f"user-{DECODO_USERNAME}"
-        f"-country-us"
-        f"-session-{sid}"
-        f"-sessionduration-10"
-    )
-    return {
-        "server": "http://gate.decodo.com:7000",
-        "username": username,
-        "password": DECODO_PASSWORD,
-    }

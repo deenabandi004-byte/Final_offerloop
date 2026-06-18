@@ -37,7 +37,6 @@ import os
 from typing import Any, Callable, Dict, List, Optional
 
 from app.services.auto_apply import _form_filler_common as common
-from app.services.auto_apply.browserless_client import build_residential_proxy_config
 
 
 logger = logging.getLogger(__name__)
@@ -74,7 +73,12 @@ def run_ashby_filler(
     if not token:
         return common.failure("BROWSERLESS_API_KEY not set")
 
-    ws_url = f"wss://production-sfo.browserless.io/playwright/chromium?token={token}"
+    # &timeout=180000 = 3 minutes, &stealth=true = playwright-stealth bundle.
+    # See greenhouse.py for context.
+    ws_url = (
+        f"wss://production-sfo.browserless.io/playwright/chromium"
+        f"?token={token}&timeout=180000&stealth=true"
+    )
 
     try:
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
@@ -89,8 +93,7 @@ def run_ashby_filler(
         with sync_playwright() as p:
             browser = p.chromium.connect(ws_url, timeout=60_000)
             try:
-                proxy = build_residential_proxy_config(session_id=job_id)
-                context = browser.new_context(proxy=proxy) if proxy else browser.new_context()
+                context = browser.new_context()
                 page = context.new_page()
 
                 landed_on: Optional[str] = None
