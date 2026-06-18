@@ -97,6 +97,8 @@ export interface Loop {
   briefParsed: ParsedBrief | null;
   reviewBeforeSend: boolean;
   weeklyTarget: number;
+  hmPerCycle?: number;
+  employeesPerCycle?: number;
   smsEnabled: boolean;
   status: LoopStatus;
   shortCode: string;
@@ -284,6 +286,10 @@ export async function createLoop(input: {
   name?: string;
   reviewBeforeSend?: boolean;
   weeklyTarget?: number;
+  // Per-cycle people targets the loop aims for (caps): hiring managers (0-3,
+  // 10 cr each) + employees (0-5, 4 cr each) — same split as the Find People panel.
+  hmPerCycle?: number;
+  employeesPerCycle?: number;
   cadence?: LoopCadence;
   creditBudgetPerWeek?: number;
   automationEnabled?: boolean;

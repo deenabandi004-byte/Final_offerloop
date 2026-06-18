@@ -102,6 +102,77 @@ function PulseDot({ color = "#22c55e" }: { color?: string }) {
 
 // ── Approval-mode card ─────────────────────────────────────────────────
 
+function PeopleStepperRow({
+  title,
+  hint,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  title: string;
+  hint: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (n: number) => void;
+}) {
+  const stepBtn = (disabled: boolean): React.CSSProperties => ({
+    width: 28,
+    height: 28,
+    borderRadius: 3,
+    border: "1px solid var(--line)",
+    background: disabled ? "rgba(0,0,0,0.03)" : "#FFFFFF",
+    color: disabled ? "var(--ink-3)" : "var(--ink)",
+    cursor: disabled ? "default" : "pointer",
+    fontSize: 16,
+    lineHeight: 1,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  });
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: 12,
+        borderRadius: 3,
+        border: "1px solid var(--line)",
+        background: "#FFFFFF",
+        fontFamily: "'Inter', sans-serif",
+      }}
+    >
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>{title}</div>
+        <div style={{ fontSize: 11.5, color: "var(--ink-3)" }}>{hint}</div>
+      </div>
+      <button
+        type="button"
+        aria-label={`Fewer ${title}`}
+        disabled={value <= min}
+        onClick={() => onChange(Math.max(min, value - 1))}
+        style={stepBtn(value <= min)}
+      >
+        −
+      </button>
+      <div style={{ minWidth: 16, textAlign: "center", fontSize: 15, fontWeight: 700, color: "var(--ink)" }}>
+        {value}
+      </div>
+      <button
+        type="button"
+        aria-label={`More ${title}`}
+        disabled={value >= max}
+        onClick={() => onChange(Math.min(max, value + 1))}
+        style={stepBtn(value >= max)}
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
 function ModeCard({
   active,
   title,
@@ -255,6 +326,10 @@ interface FormState {
   constraints: string[];
   preferAlumni: boolean;
   approvalMode: "review_first" | "autopilot";
+  // Per-cycle people targets the loop aims for (caps): hiring managers (0-3,
+  // 10 cr each) + employees (0-5, 4 cr each) — same split as the Find People panel.
+  hmPerCycle: number;
+  employeesPerCycle: number;
   loopMode: LoopModeForCopy;
 }
 
@@ -1031,6 +1106,32 @@ function StepReview({
             onClick={() => set({ approvalMode: "autopilot" })}
           />
         </div>
+
+        {/* Per-cycle people mix — the loop aims for up to this many of each run
+            (caps, same split as the job board's Find People). */}
+        <div style={{ marginTop: 16 }}>
+          <div style={{ fontSize: 12.5, color: "var(--ink-3)", marginBottom: 8 }}>
+            People per cycle — we aim for up to this many of each
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+            <PeopleStepperRow
+              title="Hiring managers"
+              hint="10 credits each"
+              value={form.hmPerCycle}
+              min={0}
+              max={3}
+              onChange={(n) => set({ hmPerCycle: n })}
+            />
+            <PeopleStepperRow
+              title="Employees"
+              hint="4 credits each"
+              value={form.employeesPerCycle}
+              min={0}
+              max={5}
+              onChange={(n) => set({ employeesPerCycle: n })}
+            />
+          </div>
+        </div>
       </div>
 
       {/* Low-balance warning — only when the user actually is low */}
@@ -1165,6 +1266,8 @@ export function AgentSetupInline({
     constraints: [],
     preferAlumni: true,
     approvalMode: "review_first",
+    hmPerCycle: 1,
+    employeesPerCycle: 3,
     // Every Loop pursues both networking + job-search against one budget.
     // The picker is gone from the wizard; loopMode stays on the doc for
     // AgentSettingsModal's Advanced escape valve.
@@ -1362,6 +1465,8 @@ export function AgentSetupInline({
         name: deriveLoopName(form),
         reviewBeforeSend: form.approvalMode === "review_first",
         weeklyTarget,
+        hmPerCycle: form.hmPerCycle,
+        employeesPerCycle: form.employeesPerCycle,
         cadence,
         automationEnabled: form.approvalMode === "autopilot",
         loopMode: "both",
