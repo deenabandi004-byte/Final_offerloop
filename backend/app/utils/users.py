@@ -750,10 +750,19 @@ def extract_user_info_from_resume_priority(resume_text, profile):
               f"graduationYear={profile.get('graduationYear')!r}")
     user_info = {}
 
-    # Priority 1: Try to extract comprehensive info from resume if available
-    if resume_text and len(resume_text.strip()) > 50:
+    # Priority 1: comprehensive info from the resume. Prefer the stored
+    # resumeParsed (parsed once at upload) over re-parsing the text on every
+    # email — saves a redundant LLM call and keeps personalization consistent
+    # with the rest of the app.
+    _stored_parsed = (profile or {}).get('resumeParsed')
+    _has_stored = isinstance(_stored_parsed, dict) and bool(_stored_parsed.get('name'))
+    if _has_stored or (resume_text and len(resume_text.strip()) > 50):
         try:
-            parsed = parse_resume_info(resume_text)
+            if _has_stored:
+                parsed = _stored_parsed
+                print("[UserInfo] Using stored profile['resumeParsed'] (no re-parse)")
+            else:
+                parsed = parse_resume_info(resume_text)
             if parsed:
                 edu = parsed.get('education', {})
                 print(f"[UserInfo] Raw parsed keys: {list(parsed.keys())}")
@@ -796,9 +805,9 @@ def extract_user_info_from_resume_priority(resume_text, profile):
         if not user_info.get('year'):
             user_info['year'] = profile.get('year') or profile.get('graduationYear') or ""
         if not user_info.get('major'):
-            user_info['major'] = profile.get('major') or profile.get('fieldOfStudy') or ""
+            user_info['major'] = get_user_major(profile) or profile.get('major') or profile.get('fieldOfStudy') or ""
         if not user_info.get('university'):
-            user_info['university'] = profile.get('university') or ""
+            user_info['university'] = get_user_school(profile) or profile.get('university') or ""
 
     print(f"[UserInfo] Final user info: name={'set' if user_info.get('name') else 'empty'}, "
           f"major={user_info.get('major')!r}, university={user_info.get('university')!r}, "
