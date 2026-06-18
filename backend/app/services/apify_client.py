@@ -34,15 +34,16 @@ APIFY_MAX_POSTS_PER_PROFILE = 5
 # actor naming shifts. Default stays in the same Apify org as the posts actor
 # we already use, which makes auth / quotas / billing one surface.
 APIFY_USER_PROFILE_ACTOR_ID = os.getenv(
-    "APIFY_USER_PROFILE_ACTOR_ID", "harvestapi~linkedin-profile"
+    "APIFY_USER_PROFILE_ACTOR_ID", "harvestapi~linkedin-profile-scraper"
 )
 APIFY_USER_PROFILE_URL = (
     f"https://api.apify.com/v2/acts/{APIFY_USER_PROFILE_ACTOR_ID}"
     "/run-sync-get-dataset-items"
 )
-# Onboarding gates on this call — long timeouts hurt the funnel, so cap below
-# the contact-posts timeout. Onboarding still falls back to PDL on timeout.
-APIFY_USER_PROFILE_TIMEOUT_S = 60
+# Full mode on harvestapi/linkedin-profile-scraper runs 10-30s typical, up to
+# 60s under load (per Apify docs). 90s gives headroom without parking the
+# coffee-chat thread forever on a single bad profile.
+APIFY_USER_PROFILE_TIMEOUT_S = 90
 
 
 def _canonicalize_linkedin_url(url: str) -> str:

@@ -214,8 +214,12 @@ def pro_search(query: str, recency: str | None = None, timeout: float = 45.0) ->
 
 
 def deep_research(query: str) -> dict:
-    """Sonar Deep Research — comprehensive multi-source report.
-    Replaces 4x SerpAPI calls in coffee_chat.py.
+    """Sonar-pro comprehensive research. Replaces 4x SerpAPI calls in coffee_chat.py.
+
+    Originally used `sonar-deep-research`, but that model is a multi-step
+    research agent that routinely runs 2-5+ minutes per call and hung the
+    coffee-chat-prep flow at Step 2. `sonar-pro` returns the same shape in
+    ~5-15s with citations and is sufficient for the 4 short prep sections.
 
     Returns:
         {"content": str, "citations": list[str]}
@@ -231,8 +235,11 @@ def deep_research(query: str) -> dict:
         return cached
 
     try:
-        response = client.chat.completions.create(
-            model="sonar-deep-research",
+        # Hard 30s cap, zero SDK retries: this runs in the user-facing
+        # coffee-chat-prep flow, so a slow Perplexity response should fall
+        # through to empty results rather than block the UI for minutes.
+        response = client.with_options(timeout=30.0, max_retries=0).chat.completions.create(
+            model="sonar-pro",
             messages=[{"role": "user", "content": query}],
         )
         result = {
