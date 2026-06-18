@@ -15,7 +15,7 @@ from app.config import CLAUDE_API_KEY
 
 logger = logging.getLogger(__name__)
 
-PLANNER_MODEL = "claude-sonnet-4-20250514"
+PLANNER_MODEL = "claude-sonnet-4-6"
 MAX_ACTIONS_PER_CYCLE = 10
 
 VALID_ACTIONS = frozenset({

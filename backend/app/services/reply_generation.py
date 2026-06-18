@@ -1175,9 +1175,9 @@ Return ONLY valid JSON:
         anthropic_client = get_anthropic_client()
         if anthropic_client:
             try:
-                logger.info("[EMAIL-GEN] Attempting Claude (claude-sonnet-4-20250514) for %d contacts", len(contacts))
+                logger.info("[EMAIL-GEN] Attempting Claude (claude-sonnet-4-6) for %d contacts", len(contacts))
                 claude_response = anthropic_client.messages.create(
-                    model="claude-sonnet-4-20250514",
+                    model="claude-sonnet-4-6",
                     max_tokens=4000,
                     system=system_content,
                     messages=[{"role": "user", "content": prompt}],
