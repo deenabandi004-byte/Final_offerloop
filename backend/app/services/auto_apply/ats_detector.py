@@ -10,6 +10,7 @@ custom career pages are explicitly out of scope.
 from __future__ import annotations
 
 from typing import Optional
+from urllib.parse import urlparse
 
 from app.config import SUPPORTED_AUTO_APPLY_ATS
 
@@ -21,33 +22,63 @@ _DOMAIN_TO_PLATFORM = {
     "jobs.ashbyhq.com": "ashby",
 }
 
+# Suffix-match against the apply_url hostname. Used as a last-resort fallback
+# when FJ's `source` tags the job as "indeed" / "linkedin" / "company-website"
+# even though the actual apply_url goes to a supported guest-application ATS.
+# Most listings on the board fall into this bucket — FJ scrapes from job
+# aggregators but the underlying form is hosted on Greenhouse/Lever/Ashby.
+_URL_SUFFIX_TO_PLATFORM = (
+    (".greenhouse.io", "greenhouse"),
+    (".lever.co", "lever"),
+    (".ashbyhq.com", "ashby"),
+)
+
 
 def detect_platform(job: dict) -> Optional[str]:
     """Return the normalized ats_platform if the job is eligible, else None.
 
-    Three signals, in priority order:
-      1. `ats_platform` — explicit FJ tag. If set to anything, it's authoritative.
-      2. `ats_source_domain` — also FJ. Same authority rule.
+    Four signals, in priority order:
+      1. `ats_platform` — explicit FJ tag. Authoritative when it names a
+         supported ATS; falls through (NOT None) when it names an
+         unsupported source like "indeed" so the apply_url fallback can
+         still recover.
+      2. `ats_source_domain` — also FJ. Same fall-through behavior.
       3. `job_id` prefix — pipeline naming convention `{source}_{slug}_{ext_id}`.
-         Only consulted when FJ tagging is absent (legacy / pre-tagging docs).
+      4. `apply_url` hostname — parses the URL itself. Catches the common
+         FJ case where source="indeed" but apply_url is boards.greenhouse.io.
 
-    The priority rule matters: an FJ-tagged `ats_platform="workday"` must NOT
-    be overridden by a `greenhouse_*` job_id prefix, even though the prefix
-    happens to match a supported ATS. FJ is the source of truth when it spoke."""
+    The priority order matters: FJ-tagged `ats_platform="workday"` correctly
+    returns None even if apply_url happens to contain a supported domain,
+    because by the time we reach the URL fallback, the workday tag has
+    been seen and rejected at the top — we only fall through to URL when
+    FJ either tagged an unsupported value (e.g. "indeed") or said nothing."""
     raw_platform = (job.get("ats_platform") or "").lower().strip()
-    if raw_platform:
-        return raw_platform if raw_platform in SUPPORTED_AUTO_APPLY_ATS else None
+    if raw_platform in SUPPORTED_AUTO_APPLY_ATS:
+        return raw_platform
 
     raw_domain = (job.get("ats_source_domain") or "").lower().strip()
-    if raw_domain:
-        mapped = _DOMAIN_TO_PLATFORM.get(raw_domain)
-        return mapped if mapped in SUPPORTED_AUTO_APPLY_ATS else None
+    if raw_domain in _DOMAIN_TO_PLATFORM:
+        mapped = _DOMAIN_TO_PLATFORM[raw_domain]
+        if mapped in SUPPORTED_AUTO_APPLY_ATS:
+            return mapped
 
     job_id = str(job.get("job_id") or job.get("id") or "").lower().strip()
     if "_" in job_id:
         prefix = job_id.split("_", 1)[0]
         if prefix in SUPPORTED_AUTO_APPLY_ATS:
             return prefix
+
+    apply_url = (job.get("apply_url") or "").lower().strip()
+    if apply_url:
+        try:
+            host = (urlparse(apply_url).hostname or "").lower()
+        except Exception:
+            host = ""
+        if host:
+            for suffix, platform in _URL_SUFFIX_TO_PLATFORM:
+                if host == suffix.lstrip(".") or host.endswith(suffix):
+                    if platform in SUPPORTED_AUTO_APPLY_ATS:
+                        return platform
 
     return None
 
