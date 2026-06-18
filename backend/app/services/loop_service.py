@@ -51,6 +51,8 @@ MUTABLE_LOOP_FIELDS = {
     "briefParsed",
     "reviewBeforeSend",
     "weeklyTarget",
+    "hmPerCycle",
+    "employeesPerCycle",
     "smsEnabled",
     # Phase 8 — automation + budget
     "cadence",
@@ -119,6 +121,12 @@ def _loop_defaults() -> dict:
         "briefVersionHistory": [],
         "reviewBeforeSend": True,
         "weeklyTarget": 5,
+        # Per-cycle targets the planner AIMS FOR (caps, not hard targets — it
+        # under-fills when good contacts aren't found). Mirror the job board's
+        # Find People model: hiring managers (10 cr each) + employees (4 cr
+        # each). hmPerCycle 0-3, employeesPerCycle 0-5.
+        "hmPerCycle": 1,
+        "employeesPerCycle": 3,
         "smsEnabled": False,
         "status": "idle",
         "shortCode": _generate_short_code(),
@@ -349,6 +357,24 @@ def get_loop(uid: str, loop_id: str) -> dict | None:
     return {"id": doc.id, **doc.to_dict()}
 
 
+# Per-cycle people targets the planner aims for. HM mirrors the planner's
+# find_hiring_managers count range (0-3); employees mirror the job board's
+# Find People slider (0-5).
+HM_PER_CYCLE_MAX = 3
+EMPLOYEES_PER_CYCLE_MAX = 5
+
+
+def _clamp_per_cycle_targets(payload_clean: dict) -> None:
+    """Clamp hmPerCycle / employeesPerCycle into range, in place. Tolerates
+    bad input (non-int → ignored, leaving the default)."""
+    for key, hi in (("hmPerCycle", HM_PER_CYCLE_MAX), ("employeesPerCycle", EMPLOYEES_PER_CYCLE_MAX)):
+        if key in payload_clean:
+            try:
+                payload_clean[key] = max(0, min(hi, int(payload_clean[key])))
+            except (TypeError, ValueError):
+                del payload_clean[key]
+
+
 def create_loop(uid: str, tier: str, payload: dict) -> dict:
     """Create a new Loop after checking the tier cap.
 
@@ -422,6 +448,9 @@ def create_loop(uid: str, tier: str, payload: dict) -> dict:
     if payload_clean.get("cadence") and payload_clean["cadence"] not in LOOP_CADENCE:
         payload_clean["cadence"] = "every_other_day"
 
+    # Clamp the per-cycle people targets to their valid ranges.
+    _clamp_per_cycle_targets(payload_clean)
+
     # loopMode is create-only — handled outside MUTABLE_LOOP_FIELDS so it can
     # never be changed by a PATCH. Validate enum; fall through to default on
     # missing or invalid (preserves today's networking behavior).
@@ -494,6 +523,7 @@ def update_loop(
         return None
 
     filtered = {k: v for k, v in (patch or {}).items() if k in MUTABLE_LOOP_FIELDS}
+    _clamp_per_cycle_targets(filtered)
     # If the brief changed and the name was auto-generated, refresh the name.
     # Also snapshot the previous brief into briefVersionHistory so the user
     # can see how their goal has evolved (and we can tune the parser).
