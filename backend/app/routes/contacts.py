@@ -197,9 +197,9 @@ def delete_contact(contact_id):
         
         if not ref.get().exists:
             raise NotFoundError("Contact")
-        
+
         ref.delete()
-        
+
         return jsonify({'message': 'Contact deleted successfully'})
         
     except (OfferloopException, NotFoundError):
@@ -717,7 +717,7 @@ def bulk_delete_contacts():
                 deleted_count += 1
             else:
                 not_found.append(contact_id)
-        
+
         return jsonify({
             'deleted': deleted_count,
             'not_found': not_found,

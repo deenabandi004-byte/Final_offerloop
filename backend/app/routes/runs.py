@@ -105,49 +105,21 @@ def _contact_already_exists(contact, existing_emails_set, existing_name_company_
 
 
 # =============================================================================
-# EXCLUSION LIST CACHING (1-hour TTL for faster contact searches)
+# EXCLUSION LIST (built fresh from Firestore on every search)
 # =============================================================================
 #
-# Cached value is a dict of lookup sets used for dedup:
+# Returns a dict of lookup sets used for dedup:
 #   {
 #     "identity_set": set[str],       # get_contact_identity() keys for PDL-side dedup
 #     "email_set": set[str],          # lowercased email addresses
 #     "linkedin_set": set[str],       # linkedin URLs (raw)
 #     "name_company_set": set[str],   # "first_last_company" lowercased
 #   }
-# Populated once per request from a single Firestore stream and reused for
-# both pre-generation dedup and the save loop.
-
-_exclusion_list_cache: Dict[str, Tuple[dict, float]] = {}
-_exclusion_cache_lock = threading.Lock()
-EXCLUSION_CACHE_TTL = 3600  # 1 hour in seconds
-
-def _get_cached_exclusion_list(user_id: str) -> Optional[dict]:
-    """Get cached exclusion lookup dict if not expired."""
-    with _exclusion_cache_lock:
-        if user_id in _exclusion_list_cache:
-            exclusion_data, timestamp = _exclusion_list_cache[user_id]
-            if time.time() - timestamp < EXCLUSION_CACHE_TTL:
-                print(f"[ContactSearch] Using cached exclusion list ({len(exclusion_data.get('identity_set', set()))} contacts, age: {time.time() - timestamp:.1f}s)")
-                return exclusion_data
-            else:
-                # Cache expired, remove it
-                del _exclusion_list_cache[user_id]
-                print(f"[ContactSearch] Exclusion list cache expired")
-    return None
-
-def _set_cached_exclusion_list(user_id: str, exclusion_data: dict):
-    """Cache exclusion lookup dict with current timestamp."""
-    with _exclusion_cache_lock:
-        _exclusion_list_cache[user_id] = (exclusion_data, time.time())
-        print(f"[ContactSearch] Cached exclusion list ({len(exclusion_data.get('identity_set', set()))} contacts)")
-
-def _invalidate_exclusion_cache(user_id: str):
-    """Invalidate exclusion list cache (call when contacts are added/removed)."""
-    with _exclusion_cache_lock:
-        if user_id in _exclusion_list_cache:
-            del _exclusion_list_cache[user_id]
-            print(f"[ContactSearch] Invalidated exclusion list cache")
+#
+# This used to be cached in-memory with a 1-hour TTL. That cache went stale on
+# delete (deleted contacts stayed filtered out of search for up to an hour), so
+# it was removed. We now re-stream the user's contacts on each search — one
+# projected Firestore read, cheap at search frequency, and always current.
 
 
 def _build_exclusion_data_from_firestore(db, user_id: str) -> dict:
@@ -196,15 +168,12 @@ runs_bp = Blueprint('runs', __name__, url_prefix='/api')
 @runs_bp.route("/contacts/invalidate-cache", methods=["POST"])
 @require_firebase_auth
 def invalidate_contact_dedup_cache():
-    """Drop the in-memory contact-dedup cache for the authenticated user.
+    """No-op kept for backward compatibility.
 
-    The Find feature uses an in-process cache (TTL 1h) of the user's saved
-    contacts to skip people they've already found. Frontend deletes go
-    direct-to-Firestore, so this endpoint must be called after deletes to
-    let the deleted person reappear in Find results immediately.
+    The Find exclusion list is no longer cached — it's rebuilt from Firestore
+    on every search — so there is nothing to invalidate. Retained so any
+    existing caller (frontend, extension) doesn't 404.
     """
-    user_id = request.firebase_user["uid"]
-    _invalidate_exclusion_cache(user_id)
     return jsonify({"ok": True}), 200
 
 
@@ -260,10 +229,7 @@ def prompt_search():
                     user_tier = user_data.get("subscriptionTier", user_data.get("tier", "free"))
                     if user_tier not in TIER_CONFIGS:
                         user_tier = "free"
-                    exclusion_data = _get_cached_exclusion_list(user_id)
-                    if exclusion_data is None:
-                        exclusion_data = _build_exclusion_data_from_firestore(db, user_id)
-                        _set_cached_exclusion_list(user_id, exclusion_data)
+                    exclusion_data = _build_exclusion_data_from_firestore(db, user_id)
                     seen_contact_set = exclusion_data["identity_set"]
             except Exception as e:
                 # Fail closed: if we can't load user data, don't allow search
@@ -1031,7 +997,6 @@ def prompt_search():
                     if first_name and last_name and company:
                         existing_name_company_set.add(f"{first_name}_{last_name}_{company}".lower().strip())
                 print(f"✅ Prompt-search: saved {saved_count} new contacts to Firestore, skipped {skipped_count} duplicates")
-                _invalidate_exclusion_cache(user_id)
             except Exception as save_error:
                 print(f"⚠️ Error saving contacts (prompt-search): {save_error}")
                 traceback.print_exc()
