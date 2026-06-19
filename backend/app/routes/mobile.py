@@ -265,6 +265,16 @@ def me():
             or ''
         ),
         'targetRoles': target_roles,
+        # Job location preferences — the feed already reads this as a soft geo
+        # ranking signal (jobs.py _signals / job_board ranking). Surfaced so the
+        # app's Location preferences editor can show + update it.
+        'preferredLocations': (
+            u.get('preferredLocations')
+            or u.get('targetLocations')
+            or ((u.get('location') or {}).get('preferredLocation')
+                if isinstance(u.get('location'), dict) else None)
+            or []
+        ),
         'industries': get_structured_target_industries(u),
         'gradYear': _grad_year(u, prof, academics),
         'about': u.get('personalNote') or u.get('about') or resume_parsed.get('objective') or '',
@@ -310,6 +320,30 @@ def notifications():
     items = [_map_notification_item(it) for it in raw_items]
     unread = sum(1 for it in items if not it['read'])
     return jsonify({'items': items, 'unreadCount': unread}), 200
+
+
+@mobile_bp.post('/preferences')
+@require_firebase_auth
+def save_preferences():
+    """Save the user's job location preferences. The feed already reads
+    preferredLocations as a soft geo ranking signal (jobs.py _signals +
+    job_board ranking), so setting it here improves feed relevance without
+    touching the ranking engine. Soft, not a hard filter — off-location jobs
+    still surface for swipe volume."""
+    db = get_db()
+    uid = request.firebase_user['uid']
+    data = request.get_json(silent=True) or {}
+    locs = data.get('preferredLocations')
+    if not isinstance(locs, list):
+        return jsonify({'error': 'preferredLocations must be a list'}), 400
+    clean = []
+    for x in locs:
+        s = str(x).strip()
+        if s and s not in clean:
+            clean.append(s)
+    clean = clean[:20]
+    db.collection('users').document(uid).set({'preferredLocations': clean}, merge=True)
+    return jsonify({'ok': True, 'preferredLocations': clean}), 200
 
 
 @mobile_bp.post('/notifications/read')
