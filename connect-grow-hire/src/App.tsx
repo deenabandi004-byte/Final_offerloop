@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import posthog from "./lib/posthog";
 import { FirebaseAuthProvider, useFirebaseAuth } from "./contexts/FirebaseAuthContext";
+import PendingShareModal from "@/components/shares/PendingShareModal";
 import { ScoutProvider, useScout } from "./contexts/ScoutContext";
 import { TourProvider } from "./contexts/TourContext";
 import { HelmetProvider } from "react-helmet-async";
@@ -614,6 +615,7 @@ const App: React.FC = () => {
                     <PageviewTracker />
                     <AgentNotifierMount />
                     <ReplyNotifier />
+                    <PendingShareModal />
                     <AppRoutes />
                     <NotOnPromo>
                       <ScoutSidePanel />
