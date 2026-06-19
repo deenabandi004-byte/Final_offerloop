@@ -256,6 +256,14 @@ def me():
         'gmailAddress': gmail_address,
         'resume': ({'name': resume_name, 'url': resume_url} if resume_name else None),
         'linkedinUrl': u.get('linkedinUrl') or prof.get('linkedinUrl') or '',
+        # Phone for pre-filling the auto-apply Application Profile. Same source
+        # order job_board.py uses: resume-parsed contact, then the user doc.
+        'phone': (
+            (resume_parsed.get('contact') or {}).get('phone')
+            or u.get('phone')
+            or prof.get('phone')
+            or ''
+        ),
         'targetRoles': target_roles,
         'industries': get_structured_target_industries(u),
         'gradYear': _grad_year(u, prof, academics),
