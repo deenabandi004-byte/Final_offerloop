@@ -24,6 +24,7 @@ import {
   Share2,
   Forward,
 } from "lucide-react";
+import ShareScout from "@/assets/share-scout.jpeg";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useTour } from "@/contexts/TourContext";
@@ -3364,31 +3365,53 @@ const MyNetworkPage: React.FC = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={shareOpen} onOpenChange={(o) => !sharing && setShareOpen(o)}>
+      <AlertDialog
+        open={shareOpen}
+        onOpenChange={(o) => {
+          if (sharing) return;
+          setShareOpen(o);
+          if (!o) { setShareEmail(""); setShareError(null); }
+        }}
+      >
         <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Share {activeSelection.size} {bulkSubject}</AlertDialogTitle>
-            <AlertDialogDescription>
-              Enter the Offerloop account email to share with. They'll get a popup to accept.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="py-2">
+          <div className="flex flex-col items-center text-center">
+            <img
+              src={ShareScout}
+              alt=""
+              className="h-20 w-20 rounded-2xl object-contain"
+              style={{ background: "#F7F5EC" }}
+            />
+            <AlertDialogHeader className="mt-3 space-y-1">
+              <AlertDialogTitle className="text-center text-xl">
+                Share {activeSelection.size} {bulkSubject}
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-center">
+                Enter the Offerloop account email to share with. They'll get a popup to accept.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+          </div>
+          <div className="mt-4">
             <input
               type="email"
               autoFocus
               value={shareEmail}
               onChange={(e) => { setShareEmail(e.target.value); setShareError(null); }}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleShareSubmit(); } }}
               placeholder="name@example.com"
-              className="w-full rounded-md border px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-[#3B82F6] focus:ring-2 focus:ring-[#3B82F6]/20"
             />
             {shareError && <p className="mt-2 text-sm text-red-600">{shareError}</p>}
           </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={sharing}>Cancel</AlertDialogCancel>
+          <AlertDialogFooter className="mt-5 gap-2 sm:justify-center">
+            <AlertDialogCancel disabled={sharing} className="mt-0 rounded-lg border-slate-200 text-ink-2 hover:bg-slate-50">
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={(e) => { e.preventDefault(); handleShareSubmit(); }}
               disabled={sharing}
+              className="rounded-lg bg-[#3B82F6] text-white shadow-sm hover:bg-[#2563EB] gap-1.5"
             >
+              <Forward className="h-4 w-4" />
               {sharing ? "Sharing…" : "Share"}
             </AlertDialogAction>
           </AlertDialogFooter>

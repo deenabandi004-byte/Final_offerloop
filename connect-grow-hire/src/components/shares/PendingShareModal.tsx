@@ -11,10 +11,18 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Check, Inbox, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { UpgradeModal } from "@/components/gates/UpgradeModal";
 import { apiService, type PendingShare } from "@/services/api";
+import ShareScout from "@/assets/share-scout.jpeg";
+
+// Friendly primary action — brand blue, used across the share cards.
+const PRIMARY_BTN =
+  "rounded-lg bg-[#3B82F6] hover:bg-[#2563EB] text-white shadow-sm gap-1.5";
+const GHOST_BTN =
+  "mt-0 rounded-lg border-slate-200 text-ink-2 hover:bg-slate-50";
 
 const kindNoun = (k: PendingShare["kind"], n: number) => {
   const nouns: Record<PendingShare["kind"], [string, string]> = {
@@ -112,18 +120,26 @@ export default function PendingShareModal() {
     <>
       <AlertDialog open={!!current && !showUpgrade}>
         <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {current?.fromName} shared {current?.count}{" "}
-              {current && kindNoun(current.kind, current.count)} with you
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              Accept to add them to your network.{" "}
-              {isPro ? "" : "Receiving shared contacts is a Pro feature."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy} onClick={onDecline}>
+          <div className="flex flex-col items-center text-center">
+            <img
+              src={ShareScout}
+              alt=""
+              className="h-20 w-20 rounded-2xl object-contain"
+              style={{ background: "#F7F5EC" }}
+            />
+            <AlertDialogHeader className="mt-3 space-y-1">
+              <AlertDialogTitle className="text-center text-xl">
+                {current?.fromName} shared {current?.count}{" "}
+                {current && kindNoun(current.kind, current.count)} with you
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-center">
+                Accept to add them to your network.{" "}
+                {isPro ? "" : "Receiving shared contacts is a Pro feature."}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+          </div>
+          <AlertDialogFooter className="mt-5 gap-2 sm:justify-center">
+            <AlertDialogCancel disabled={busy} onClick={onDecline} className={GHOST_BTN}>
               Decline
             </AlertDialogCancel>
             <AlertDialogAction
@@ -132,8 +148,10 @@ export default function PendingShareModal() {
                 e.preventDefault();
                 onAccept();
               }}
+              className={PRIMARY_BTN}
             >
-              {busy ? "…" : "Accept"}
+              <Check className="h-4 w-4" />
+              {busy ? "Accepting…" : "Accept"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -149,28 +167,42 @@ export default function PendingShareModal() {
 
       <AlertDialog open={!!imported} onOpenChange={() => setImported(null)}>
         <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{imported?.count} added to your network</AlertDialogTitle>
-            <AlertDialogDescription>
-              Draft emails to them, or open them in your inbox.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
+          <div className="flex flex-col items-center text-center">
+            <img
+              src={ShareScout}
+              alt=""
+              className="h-20 w-20 rounded-2xl object-contain"
+              style={{ background: "#F7F5EC" }}
+            />
+            <AlertDialogHeader className="mt-3 space-y-1">
+              <AlertDialogTitle className="text-center text-xl">
+                {imported?.count} added to your network
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-center">
+                They're highlighted in green. Draft emails to them, or open them in your inbox.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+          </div>
+          <AlertDialogFooter className="mt-5 gap-2 sm:justify-center">
             <Button
               variant="outline"
+              className={GHOST_BTN}
               onClick={() => {
                 setImported(null);
                 navigate("/my-network/people");
               }}
             >
+              <Users className="h-4 w-4" />
               View in network
             </Button>
             <Button
+              className={PRIMARY_BTN}
               onClick={() => {
                 setImported(null);
                 navigate("/outbox");
               }}
             >
+              <Inbox className="h-4 w-4" />
               View in inbox
             </Button>
           </AlertDialogFooter>
