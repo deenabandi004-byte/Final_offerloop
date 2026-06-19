@@ -30,9 +30,26 @@ from app.utils.validation import FirmSearchRequest, validate_request
 from firebase_admin import firestore
 
 # Credit constants
-CREDITS_PER_FIRM = 5
+CREDITS_PER_FIRM = 2
 FREE_FIRM_BATCH_DEFAULT = 10
 PRO_FIRM_BATCH_DEFAULT = 10
+
+# Find Companies batch-size caps per tier (slider max).
+COMPANY_BATCH_CAPS = {'free': 10, 'pro': 25, 'elite': 50}
+# Fail-safe: if the tier lookup is missing, unknown, or fails, fall back to the
+# FREE cap so a bad/empty tier can never bypass the cap or grant unlimited.
+COMPANY_BATCH_CAP_FALLBACK = COMPANY_BATCH_CAPS['free']
+
+
+def company_batch_cap_for_tier(tier):
+    """Return the max companies-per-search for a tier.
+
+    Falls back to the FREE cap for a missing or unrecognized tier so a failed
+    or empty tier lookup can never bypass the cap.
+    """
+    if not tier:
+        return COMPANY_BATCH_CAP_FALLBACK
+    return COMPANY_BATCH_CAPS.get(tier, COMPANY_BATCH_CAP_FALLBACK)
 
 firm_search_bp = Blueprint('firm_search', __name__, url_prefix='/api/firm-search')
 
@@ -46,7 +63,11 @@ def get_user_credits_and_tier(db, uid):
         if user_doc.exists:
             user_data = user_doc.to_dict()
             credits = check_and_reset_credits(user_ref, user_data)
-            tier = user_data.get('tier', 'free')
+            # subscriptionTier is the source-of-truth field; `tier` is a legacy
+            # fallback that can be stale for upgraded accounts. Reading `tier`
+            # alone caps paid users (Pro/Elite) at the FREE company-batch limit,
+            # so prefer subscriptionTier first.
+            tier = user_data.get('subscriptionTier') or user_data.get('tier', 'free')
             max_credits = user_data.get('maxCredits', TIER_CONFIGS[tier]['credits'])
             return credits, tier, max_credits
         
@@ -132,15 +153,17 @@ def search_firms_route():
         query = validated_data['query']
         batch_size = validated_data.get('batchSize', 10)
 
-        # Cap batch size server-side (max 15 firms regardless of tier)
-        batch_size = max(1, min(batch_size, 15))
-
-        # Get user's tier and credits
+        # Fetch tier FIRST so the batch-size cap can be tier-aware.
+        # get_user_credits_and_tier already defaults tier to 'free' on any
+        # error or missing user doc, and company_batch_cap_for_tier falls back
+        # to the FREE cap for a missing/unknown tier, so a failed lookup can
+        # never bypass the cap.
         current_credits, tier, max_credits = get_user_credits_and_tier(db, uid)
-        
-        # All users can search for as many firms as they want, as long as they have the credits
-        # No tier-based batch size restrictions
-        
+
+        # Cap batch size to this tier's max (free 10, pro 25, elite 50).
+        tier_cap = company_batch_cap_for_tier(tier)
+        batch_size = max(1, min(batch_size, tier_cap))
+
         # Calculate MAX credit cost
         max_credits_needed = calculate_firm_search_cost(batch_size)
         
@@ -423,11 +446,17 @@ def search_firms_async():
         query = validated_data['query']
         batch_size = validated_data.get('batchSize', 10)
 
-        # Cap batch size server-side (max 15 firms regardless of tier)
-        batch_size = max(1, min(batch_size, 15))
+        # Fetch tier FIRST so the batch-size cap can be tier-aware.
+        # get_user_credits_and_tier defaults tier to 'free' on any error, and
+        # company_batch_cap_for_tier falls back to the FREE cap for a
+        # missing/unknown tier, so a failed lookup can never bypass the cap.
+        current_credits, tier, max_credits_val = get_user_credits_and_tier(db, uid)
+
+        # Cap batch size to this tier's max (free 10, pro 25, elite 50).
+        tier_cap = company_batch_cap_for_tier(tier)
+        batch_size = max(1, min(batch_size, tier_cap))
 
         # Pre-flight credit check
-        current_credits, tier, max_credits_val = get_user_credits_and_tier(db, uid)
         max_credits_needed = calculate_firm_search_cost(batch_size)
         if current_credits < max_credits_needed:
             raise InsufficientCreditsError(max_credits_needed, current_credits)

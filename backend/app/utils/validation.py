@@ -45,7 +45,10 @@ class ContactSearchRequest(BaseModel):
 class FirmSearchRequest(BaseModel):
     """Validation schema for firm search requests"""
     query: str = Field(..., min_length=1, max_length=500, description="Search query")
-    batchSize: Optional[int] = Field(None, ge=1, le=15, description="Number of firms to return")
+    # Upper bound matches the highest Find Companies slider cap (Elite = 50).
+    # Per-tier caps (free 10 / pro 25 / elite 50) are enforced in the route after
+    # the tier is resolved, so this only needs to allow the largest valid request.
+    batchSize: Optional[int] = Field(None, ge=1, le=50, description="Number of firms to return")
     
     @field_validator('query')
     @classmethod
