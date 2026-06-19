@@ -1316,11 +1316,42 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
       }
 
       if (data.status === 'ok') {
-        // Use the message from backend, or construct one based on the response
-        const successMessage = data.message || `Successfully imported ${data.contact.full_name}!`;
-        setLinkedInSuccess(successMessage);
-        setLinkedInUrl(''); // Clear the input field
-        setLinkedInLastDraftUrl(data.gmail_draft_url || null);
+        const c = data.contact || {};
+        // Build a card in the same shape the Find People results render, then
+        // route it through the unified results display (lastResults) so the
+        // imported person gets the same card + action buttons (Open Gmail
+        // drafts / Tracker / View in Spreadsheet) as a normal search.
+        const cardContact = {
+          firstName: c.firstName || '',
+          lastName: c.lastName || '',
+          FirstName: c.firstName || '',
+          LastName: c.lastName || '',
+          Title: c.jobTitle || '',
+          jobTitle: c.jobTitle || '',
+          Company: c.company || '',
+          company: c.company || '',
+          Email: c.email || '',
+          email: c.email || '',
+          LinkedIn: c.linkedinUrl || c.linkedin_url || normalizedUrl,
+          linkedinUrl: c.linkedinUrl || c.linkedin_url || normalizedUrl,
+          emailSubject: c.emailSubject || '',
+          emailBody: c.emailBody || '',
+          gmailDraftUrl: c.gmailDraftUrl || data.gmail_draft_url || '',
+          warmth_label: c.warmth_label || '',
+          warmth_tier: c.warmth_tier || '',
+          warmth_signals: c.warmth_signals || [],
+        };
+
+        setLinkedInSuccess(null);        // don't show the old success banner
+        setLinkedInLastDraftUrl(null);
+        setLastResults([cardContact]);
+        setAlreadySavedResults([]);
+        setResultMessage('');
+        setSearchSuggestions([]);
+        setSearchBroadened(false);
+        setSearchComplete(true);
+        setLinkedInUrl('');               // clear the input field
+        setSearchPrompt('');
 
         // Update credits if provided
         if (data.credits_remaining !== undefined && updateCredits) {
@@ -1331,7 +1362,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
         const emailFound = data.email_found !== false; // Default to true if not specified
         const draftCreated = data.draft_created === true;
 
-        let toastDescription = `${data.contact.full_name} added to your contacts`;
+        let toastDescription = `${c.full_name || 'Contact'} added to your contacts`;
         if (draftCreated) {
           toastDescription += ' with a draft email.';
         } else if (!emailFound) {
@@ -1343,7 +1374,6 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
         toast({
           title: "Contact Imported!",
           description: toastDescription,
-          variant: emailFound && draftCreated ? "default" : "default",
         });
       } else {
         setLinkedInError(data.message || 'Failed to import contact');
