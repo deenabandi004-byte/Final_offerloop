@@ -1233,9 +1233,20 @@ class ApiService {
     eligible: boolean;
     rewardClaimed: boolean;
     rewardClaimedAt: string | null;
+    bannerDismissed: boolean;
+    launchModalSeen: boolean;
   }> {
     const headers = await this.getAuthHeaders();
     return this.makeRequest('/referrals/me', { method: 'GET', headers });
+  }
+
+  async ackReferral(surface: 'banner' | 'launch_modal'): Promise<{ ok: boolean; reason?: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest('/referrals/ack', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ surface }),
+    });
   }
 
   async attributeReferral(code: string): Promise<{ recorded: boolean; reason: string | null }> {

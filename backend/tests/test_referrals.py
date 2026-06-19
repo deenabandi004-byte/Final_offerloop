@@ -268,6 +268,47 @@ def test_blueprint_registered(app):
     assert '/api/referrals/claim' in rules
 
 
+def test_ack_valid_surface_updates_field():
+    # banner surface maps to referralBannerDismissedAt
+    db = MagicMock()
+    result = rs.ack_referral_surface(db, 'u1', 'banner')
+    assert result == {'ok': True}
+    db.collection('users').document('u1').update.assert_called_once()
+    call_kwargs = db.collection('users').document('u1').update.call_args[0][0]
+    assert list(call_kwargs.keys()) == ['referralBannerDismissedAt']
+
+    # launch_modal surface maps to referralLaunchModalSeenAt
+    db2 = MagicMock()
+    result2 = rs.ack_referral_surface(db2, 'u1', 'launch_modal')
+    assert result2 == {'ok': True}
+    db2.collection('users').document('u1').update.assert_called_once()
+    call_kwargs2 = db2.collection('users').document('u1').update.call_args[0][0]
+    assert list(call_kwargs2.keys()) == ['referralLaunchModalSeenAt']
+
+
+def test_ack_invalid_surface():
+    db = MagicMock()
+    result = rs.ack_referral_surface(db, 'u1', 'nope')
+    assert result == {'ok': False, 'reason': 'invalid_surface'}
+    db.collection('users').document('u1').update.assert_not_called()
+
+
+def test_get_referral_status_includes_ack_flags():
+    from datetime import datetime, timezone
+    db = MagicMock()
+    user_ref = db.collection.return_value.document.return_value
+    user_ref.get.return_value = _user_snapshot({
+        'referralCode': 'CODE1234',
+        'referralBannerDismissedAt': datetime.now(timezone.utc),
+        # referralLaunchModalSeenAt is absent
+    })
+
+    status = rs.get_referral_status(db, 'u1')
+
+    assert status['bannerDismissed'] is True
+    assert status['launchModalSeen'] is False
+
+
 def test_webhook_marks_referral_reward_claimed(monkeypatch):
     db = MagicMock()
     user_ref = db.collection.return_value.document.return_value

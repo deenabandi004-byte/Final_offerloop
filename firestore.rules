@@ -55,12 +55,14 @@ service cloud.firestore {
         && !('referralQualifiedCount' in request.resource.data.diff(resource.data).affectedKeys())
         && !('referralRewardClaimed' in request.resource.data.diff(resource.data).affectedKeys())
         && !('referralRewardClaimedAt' in request.resource.data.diff(resource.data).affectedKeys())
-        && !('referralRewardPendingAt' in request.resource.data.diff(resource.data).affectedKeys());
+        && !('referralRewardPendingAt' in request.resource.data.diff(resource.data).affectedKeys())
+        && !('referralBannerDismissedAt' in request.resource.data.diff(resource.data).affectedKeys())
+        && !('referralLaunchModalSeenAt' in request.resource.data.diff(resource.data).affectedKeys());
       
       // Users can create their own document on signup, but cannot preload referral
       // bookkeeping fields (admin SDK bypasses rules, so attribution still works).
       allow create: if request.auth != null && request.auth.uid == userId
-        && !request.resource.data.keys().hasAny(['referralCode', 'referredBy', 'referralQualifiedCount', 'referralRewardClaimed', 'referralRewardClaimedAt', 'referralRewardPendingAt']);
+        && !request.resource.data.keys().hasAny(['referralCode', 'referredBy', 'referralQualifiedCount', 'referralRewardClaimed', 'referralRewardClaimedAt', 'referralRewardPendingAt', 'referralBannerDismissedAt', 'referralLaunchModalSeenAt']);
       
       // Subcollections under users
       match /contacts/{contactId} {

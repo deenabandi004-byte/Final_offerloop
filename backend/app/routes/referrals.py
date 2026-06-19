@@ -40,3 +40,14 @@ def referral_claim():
     result = referral_service.claim_reward(get_db(), uid)
     status = 200 if result.get('ok') else 400
     return jsonify(result), status
+
+
+@referrals_bp.route('/ack', methods=['POST'])
+@require_firebase_auth
+def referral_ack():
+    uid = request.firebase_user.get('uid')
+    if not uid:
+        return jsonify({'error': 'unauthorized'}), 401
+    surface = (request.get_json() or {}).get('surface', '')
+    result = referral_service.ack_referral_surface(get_db(), uid, surface)
+    return jsonify(result), (200 if result.get('ok') else 400)

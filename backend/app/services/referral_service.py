@@ -16,6 +16,11 @@ from app.config import REFERRAL_TARGET_COUNT, REFERRAL_REWARD_TIER
 _CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _CODE_LENGTH = 8
 
+_VALID_ACK_SURFACES = {
+    'banner': 'referralBannerDismissedAt',
+    'launch_modal': 'referralLaunchModalSeenAt',
+}
+
 
 def generate_code() -> str:
     """Return a random 8-char referral code from an unambiguous alphabet."""
@@ -40,6 +45,15 @@ def is_eligible(qualified_count: int, reward_claimed: bool) -> bool:
 def _referral_link(code: str) -> str:
     base = os.getenv('FRONTEND_BASE_URL', 'https://offerloop.ai').rstrip('/')
     return f"{base}/signin?ref={code}"
+
+
+def ack_referral_surface(db, uid: str, surface: str) -> dict:
+    """Record that the user dismissed the banner / saw the launch modal."""
+    field = _VALID_ACK_SURFACES.get(surface)
+    if not field:
+        return {'ok': False, 'reason': 'invalid_surface'}
+    db.collection('users').document(uid).update({field: datetime.now(timezone.utc)})
+    return {'ok': True}
 
 
 def get_or_create_referral_code(db, uid: str) -> str:
@@ -78,6 +92,8 @@ def get_referral_status(db, uid: str) -> dict:
         'eligible': is_eligible(count, claimed),
         'rewardClaimed': claimed,
         'rewardClaimedAt': claimed_at.isoformat() if hasattr(claimed_at, 'isoformat') else claimed_at,
+        'bannerDismissed': bool((data or {}).get('referralBannerDismissedAt')),
+        'launchModalSeen': bool((data or {}).get('referralLaunchModalSeenAt')),
     }
 
 
