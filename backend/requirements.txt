@@ -46,9 +46,10 @@ aiohttp==3.12.15
 beautifulsoup4==4.12.3
 # Auto-apply form-fillers connect to Browserbase via Playwright CDP.
 # No local Chromium needed — Browserbase hosts the browser remotely.
-# greenlet 3.1.1+ has Python 3.13 wheels; Render's default Python is 3.13.
-playwright==1.47.0
-greenlet>=3.1.1
+# playwright >=1.49 pins greenlet>=3.1.1 (the first greenlet with Python 3.13
+# wheels). Render runs Python 3.13.x. Bumping from 1.47.0 was necessary
+# because 1.47.0 hard-pinned greenlet==3.0.3 which has no py3.13 wheel.
+playwright>=1.49.0
 weasyprint==67.0
 jinja2==3.1.4
 markdown==3.10.2
