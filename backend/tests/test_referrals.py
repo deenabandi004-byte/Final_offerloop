@@ -190,3 +190,51 @@ def test_apply_referral_reward_coupon(monkeypatch):
         out = stripe_client.apply_referral_reward_coupon('sub_123')
     assert out['ok'] is True
     modify.assert_called_once_with('sub_123', coupon='coupon_ref')
+
+
+def _claim_db(tier='free', count=5, claimed=False, sub_id=None):
+    db = MagicMock()
+    user_ref = db.collection.return_value.document.return_value
+    user_ref.get.return_value = _user_snapshot({
+        'subscriptionTier': tier,
+        'email': 'a@x.com',
+        'referralQualifiedCount': count,
+        'referralRewardClaimed': claimed,
+        'stripeSubscriptionId': sub_id,
+    })
+    return db, user_ref
+
+
+def test_claim_not_eligible():
+    db, _ = _claim_db(count=4)
+    out = rs.claim_reward(db, 'u1')
+    assert out == {'ok': False, 'reason': 'not_eligible'}
+
+
+def test_claim_free_user_returns_checkout(monkeypatch):
+    db, _ = _claim_db(tier='free')
+    monkeypatch.setattr(
+        'app.services.stripe_client.create_referral_trial_checkout',
+        lambda uid, email: {'url': 'https://checkout/x'},
+    )
+    out = rs.claim_reward(db, 'u1')
+    assert out['ok'] is True
+    assert out['mode'] == 'checkout'
+    assert out['url'] == 'https://checkout/x'
+
+
+def test_claim_paid_user_applies_coupon(monkeypatch):
+    db, user_ref = _claim_db(tier='pro', sub_id='sub_9')
+    monkeypatch.setattr(
+        'app.services.stripe_client.apply_referral_reward_coupon',
+        lambda sid: {'ok': True},
+    )
+    out = rs.claim_reward(db, 'u1')
+    assert out == {'ok': True, 'mode': 'coupon'}
+    assert user_ref.update.call_args[0][0]['referralRewardClaimed'] is True
+
+
+def test_claim_paid_user_without_subscription():
+    db, _ = _claim_db(tier='elite', sub_id=None)
+    out = rs.claim_reward(db, 'u1')
+    assert out == {'ok': False, 'reason': 'no_subscription'}

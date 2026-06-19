@@ -118,3 +118,40 @@ def record_referral_signup(db, code: str, new_uid: str, new_email: str) -> dict:
     dedupe_ref.set({'signedUpAt': now, 'newUserEmail': new_email})
     owner_ref.update({'referralQualifiedCount': _firestore.Increment(1)})
     return {'recorded': True, 'reason': None}
+
+
+def claim_reward(db, uid: str) -> dict:
+    """Deliver the referral reward based on the user's current tier."""
+    from app.services import stripe_client  # local import avoids circular import
+
+    user_ref = db.collection('users').document(uid)
+    snap = user_ref.get()
+    data = snap.to_dict() if snap and snap.exists else {}
+    count = int((data or {}).get('referralQualifiedCount', 0) or 0)
+    claimed = bool((data or {}).get('referralRewardClaimed', False))
+
+    if not is_eligible(count, claimed):
+        return {'ok': False, 'reason': 'not_eligible'}
+
+    tier = (data or {}).get('subscriptionTier') or (data or {}).get('tier') or 'free'
+    email = (data or {}).get('email', '')
+
+    if tier == 'free':
+        # Reward is finalized by the Stripe webhook on checkout completion.
+        out = stripe_client.create_referral_trial_checkout(uid, email)
+        if out.get('url'):
+            return {'ok': True, 'mode': 'checkout', 'url': out['url']}
+        return {'ok': False, 'reason': out.get('error', 'checkout_failed')}
+
+    # Already paying: apply the one-month coupon to the live subscription.
+    sub_id = (data or {}).get('stripeSubscriptionId')
+    if not sub_id:
+        return {'ok': False, 'reason': 'no_subscription'}
+    out = stripe_client.apply_referral_reward_coupon(sub_id)
+    if not out.get('ok'):
+        return {'ok': False, 'reason': out.get('error', 'coupon_failed')}
+    user_ref.update({
+        'referralRewardClaimed': True,
+        'referralRewardClaimedAt': datetime.now(timezone.utc),
+    })
+    return {'ok': True, 'mode': 'coupon'}
