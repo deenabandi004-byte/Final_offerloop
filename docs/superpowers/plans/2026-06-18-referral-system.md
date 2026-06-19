@@ -319,16 +319,15 @@ def get_or_create_referral_code(db, uid: str) -> str:
     if existing:
         return existing
 
-    # Generate a code and reserve it in the lookup collection.
-    for _ in range(5):  # retry on the astronomically rare collision
-        code = generate_code()
-        code_ref = db.collection('referralCodes').document(code)
-        if code_ref.get().exists:
-            continue
-        code_ref.set({'uid': uid, 'createdAt': datetime.now(timezone.utc)})
-        user_ref.update({'referralCode': code})
-        return code
-    raise RuntimeError('Could not allocate a unique referral code')
+    # Generate a code and reserve it in the lookup collection. An 8-char code
+    # from a 32-symbol alphabet makes collisions astronomically unlikely, so we
+    # generate-and-write directly (no pre-read collision loop — YAGNI).
+    code = generate_code()
+    db.collection('referralCodes').document(code).set(
+        {'uid': uid, 'createdAt': datetime.now(timezone.utc)}
+    )
+    user_ref.update({'referralCode': code})
+    return code
 
 
 def get_referral_status(db, uid: str) -> dict:
