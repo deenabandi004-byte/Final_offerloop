@@ -2,7 +2,7 @@
 from datetime import datetime
 from flask import Blueprint, request, jsonify
 
-from ..extensions import require_firebase_auth, get_db
+from ..extensions import require_firebase_auth, require_tier, get_db
 
 shares_bp = Blueprint("shares", __name__, url_prefix="/api/shares")
 
@@ -75,6 +75,60 @@ def create_share():
     ref = db.collection("pendingShares").add(share)
     share_id = ref[1].id
     return jsonify({"shareId": share_id, "toName": to_name}), 201
+
+
+def _load_owned_pending(db, uid, share_id):
+    """Return (ref, data) for a pending share owned by uid, else (None, None)."""
+    ref = db.collection("pendingShares").document(share_id)
+    snap = ref.get()
+    if not snap or not snap.exists:
+        return None, None
+    data = snap.to_dict() or {}
+    if data.get("toUid") != uid or data.get("status") != "pending":
+        return None, None
+    return ref, data
+
+
+@shares_bp.route("/<share_id>/accept", methods=["POST"])
+@require_tier(["pro", "elite"])
+@require_firebase_auth
+def accept_share(share_id):
+    db = get_db()
+    uid = request.firebase_user["uid"]
+    ref, data = _load_owned_pending(db, uid, share_id)
+    if not ref:
+        return jsonify({"error": "Share not found."}), 404
+
+    kind = data.get("kind")
+    items = data.get("items") or []
+    sub = _SUBCOLLECTION.get(kind)
+    if not sub:
+        return jsonify({"error": "Invalid share."}), 400
+
+    dest = db.collection("users").document(uid).collection(sub)
+    batch = db.batch()
+    for item in items:
+        doc = dict(item)
+        doc["sharedImport"] = True
+        doc["createdAt"] = _now_z()
+        doc.setdefault("status", "Not Contacted")
+        batch.set(dest.document(), doc)
+    batch.set(ref, {"status": "accepted"}, merge=True)
+    batch.commit()
+
+    return jsonify({"imported": len(items), "kind": kind}), 200
+
+
+@shares_bp.route("/<share_id>/decline", methods=["POST"])
+@require_firebase_auth
+def decline_share(share_id):
+    db = get_db()
+    uid = request.firebase_user["uid"]
+    ref, data = _load_owned_pending(db, uid, share_id)
+    if not ref:
+        return jsonify({"error": "Share not found."}), 404
+    ref.set({"status": "declined"}, merge=True)
+    return jsonify({"ok": True}), 200
 
 
 @shares_bp.route("/pending", methods=["GET"])

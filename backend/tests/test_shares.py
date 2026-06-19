@@ -135,3 +135,17 @@ def test_list_pending_returns_only_my_pending(client, db):
     assert any("toUid" in str(c) for c in first_where_calls), "Route must filter by toUid"
     second_where_calls = db.collection.return_value.where.return_value.where.call_args_list
     assert any("pending" in str(c) for c in second_where_calls), "Route must filter by status=pending"
+
+
+def test_decline_marks_status(client, db):
+    share = type("Doc", (), {
+        "exists": True,
+        "id": "s1",
+        "to_dict": lambda self: {"toUid": "test-user-id", "status": "pending",
+                                  "kind": "contacts", "items": []},
+    })()
+    db.collection.return_value.document.return_value.get.return_value = share
+
+    resp = client.post("/api/shares/s1/decline", headers=_auth_headers())
+    assert resp.status_code == 200
+    assert resp.get_json()["ok"] is True
