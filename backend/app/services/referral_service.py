@@ -32,3 +32,50 @@ def is_self_referral(owner_uid: str, owner_email: str,
 def is_eligible(qualified_count: int, reward_claimed: bool) -> bool:
     """True when the referrer can claim their (one-time) reward."""
     return qualified_count >= REFERRAL_TARGET_COUNT and not reward_claimed
+
+
+import os
+
+
+def _referral_link(code: str) -> str:
+    base = os.getenv('FRONTEND_BASE_URL', 'https://offerloop.ai').rstrip('/')
+    return f"{base}/signin?ref={code}"
+
+
+def get_or_create_referral_code(db, uid: str) -> str:
+    """Return the user's referral code, generating + persisting one if needed."""
+    user_ref = db.collection('users').document(uid)
+    snap = user_ref.get()
+    data = snap.to_dict() if snap and snap.exists else {}
+    existing = (data or {}).get('referralCode')
+    if existing:
+        return existing
+
+    # Generate a code and reserve it in the lookup collection. An 8-char code
+    # from a 32-symbol alphabet makes collisions astronomically unlikely, so we
+    # generate-and-write directly (no pre-read collision loop — YAGNI).
+    code = generate_code()
+    db.collection('referralCodes').document(code).set(
+        {'uid': uid, 'createdAt': datetime.now(timezone.utc)}
+    )
+    user_ref.update({'referralCode': code})
+    return code
+
+
+def get_referral_status(db, uid: str) -> dict:
+    """Return the referral dashboard payload for the current user."""
+    code = get_or_create_referral_code(db, uid)
+    snap = db.collection('users').document(uid).get()
+    data = snap.to_dict() if snap and snap.exists else {}
+    count = int((data or {}).get('referralQualifiedCount', 0) or 0)
+    claimed = bool((data or {}).get('referralRewardClaimed', False))
+    claimed_at = (data or {}).get('referralRewardClaimedAt')
+    return {
+        'referralCode': code,
+        'referralLink': _referral_link(code),
+        'signupCount': count,
+        'signupTarget': REFERRAL_TARGET_COUNT,
+        'eligible': is_eligible(count, claimed),
+        'rewardClaimed': claimed,
+        'rewardClaimedAt': claimed_at.isoformat() if hasattr(claimed_at, 'isoformat') else claimed_at,
+    }
