@@ -720,10 +720,10 @@ export const JobBoardPage: React.FC = () => {
       });
       return;
     }
-    if (code === "BROWSERLESS_NOT_CONFIGURED") {
+    if (code === "BROWSERBASE_NOT_CONFIGURED") {
       toast({
         title: "Auto-apply isn't live yet",
-        description: "Browserless isn't configured in this environment.",
+        description: "Browserbase isn't configured in this environment.",
         variant: "destructive",
       });
       return;

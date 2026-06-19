@@ -177,10 +177,10 @@ def submit_auto_apply(job_id: str):
       { dry_run: bool, edited_answers: { why_role: str, why_company: str } }
     Dry-run runs the filler but does NOT click Submit — useful for verifying
     selectors and previewing the filled state with a screenshot."""
-    if not os.getenv("BROWSERLESS_API_KEY"):
+    if not os.getenv("BROWSERBASE_API_KEY") or not os.getenv("BROWSERBASE_PROJECT_ID"):
         return jsonify({
-            "error": "Browserless is not configured yet. Sign up at browserless.io and add BROWSERLESS_API_KEY to .env to enable submissions.",
-            "code": "BROWSERLESS_NOT_CONFIGURED",
+            "error": "Browserbase is not configured. Set BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID in the environment to enable submissions.",
+            "code": "BROWSERBASE_NOT_CONFIGURED",
         }), 501
 
     uid = request.firebase_user["uid"]
