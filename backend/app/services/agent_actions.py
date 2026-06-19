@@ -19,6 +19,7 @@ from app.services.pdl_client import search_contacts_from_prompt, get_contact_ide
 from app.services.reply_generation import batch_generate_emails
 from app.services.auth import deduct_credits_atomic
 from app.services.loop_budget import CREDIT_COSTS
+from app.services.outbox_service import build_hm_outbox_contact_doc
 from app.utils.exceptions import RateLimitError
 from app.utils.warmth_scoring import score_contacts_for_email
 from email_templates import get_template_instructions, roles_mode_template_instructions
@@ -35,6 +36,70 @@ def _perplexity_only(uid: str) -> bool:
         return is_enabled("AGENT_MODE_PERPLEXITY_ONLY", uid=uid, default=False)
     except Exception:
         return False
+
+
+# Identity + enrichment fields a Loop may FILL on an adopted contact, but
+# never overwrite. Deliberately excludes pipelineStage, emailSubject/Body,
+# gmailDraftId/Url/ThreadId, inOutbox, and source — a "pure adopt" enriches
+# and attributes an existing contact, it never stomps their outreach state or
+# relabels a manually-added contact as agent-sourced.
+_ADOPT_FILL_KEYS = (
+    "firstName", "lastName", "linkedinUrl", "company", "jobTitle",
+    "college", "location", "city", "state", "pdlId",
+    "warmthScore", "warmthTier", "warmthLabel",
+    "enrichmentTalkingPoints", "enrichmentRecentActivity",
+    "enrichmentCitations", "enrichedAt",
+    "perplexityMediaAppearances", "perplexityPublishedWriting",
+    "perplexityNewsMentions", "linkedinRecentPosts",
+    "companyRecentNews", "companyDescription",
+)
+
+
+def _find_existing_contact(contacts_ref, email: str):
+    """Re-query by lowercased email AT WRITE TIME so a contact a Loop just
+    re-discovered is adopted instead of duplicated. This is the race mitigation
+    for the discover->write window: the upstream exclusion sets are built once
+    at the top of the cycle, so a contact added (manually or by a sibling Loop)
+    mid-cycle would otherwise slip through and create a duplicate.
+
+    Returns (doc_id, data) for the first match, or (None, None)."""
+    key = (email or "").strip().lower()
+    if not key:
+        return None, None
+    snap = list(contacts_ref.where("email", "==", key).limit(1).stream())
+    if snap:
+        return snap[0].id, (snap[0].to_dict() or {})
+    return None, None
+
+
+def _build_adopt_update(existing: dict, incoming: dict, loop_id: str,
+                        now_iso: str) -> dict:
+    """Build a NON-DESTRUCTIVE update for a contact a Loop re-discovered.
+
+    Rules (locked with the unification decision):
+      - fill empty fields only; never overwrite manually-entered data
+      - stamp loopId only if absent (don't steal a contact from another Loop)
+      - backfill draftToEmail for Gmail reply-match parity
+      - never regress pipelineStage; never touch the draft / thread / email body
+      - leave `source` untouched (a manual contact stays manual)
+
+    Returns {} when there is nothing to fill, so the caller can skip the write.
+    """
+    update: dict = {}
+    for k in _ADOPT_FILL_KEYS:
+        v = incoming.get(k)
+        if v not in (None, "", [], {}) and not existing.get(k):
+            update[k] = v
+    if loop_id and not existing.get("loopId"):
+        update["loopId"] = loop_id
+    key_email = (incoming.get("email") or "").strip().lower()
+    if key_email and not existing.get("draftToEmail"):
+        update["draftToEmail"] = key_email
+    if update:
+        # Only surface the adopt on the tracker timeline if we actually
+        # changed something.
+        update["lastActivityAt"] = now_iso
+    return update
 
 
 def _try_auto_send(
@@ -359,7 +424,11 @@ def purge_brief_dependent_caches(db, uid: str, loop_id: str) -> int:
 
 
 def _company_to_domain(company_name: str) -> str | None:
-    """Map company name to domain for Clearbit logo."""
+    """Map a company name to a best-guess domain string.
+
+    Used as input to the logo URL builder below and any other callers that
+    need a `foo.com` style identifier. Not a verified domain, just a guess.
+    """
     if not company_name:
         return None
     key = company_name.strip().lower()
@@ -368,6 +437,22 @@ def _company_to_domain(company_name: str) -> str | None:
     # Fallback: lowercase, remove spaces/special chars, add .com
     cleaned = "".join(c for c in key if c.isalnum())
     return f"{cleaned}.com" if cleaned else None
+
+
+def _company_to_logo_url(company_name: str, size: int = 128) -> str | None:
+    """Build the public logo URL we ship to the frontend for a company.
+
+    Single point of indirection so swapping providers (logo.dev, Brandfetch,
+    etc.) is one line. Currently Google s2/favicons, which returns a tiny
+    image even for unknown domains so the frontend never sees a 404.
+
+    The previous provider, logo.clearbit.com, was retired on 2025-12-08 and
+    every request now fails with ERR_NAME_NOT_RESOLVED. Do not re-introduce.
+    """
+    domain = _company_to_domain(company_name)
+    if not domain:
+        return None
+    return f"https://www.google.com/s2/favicons?domain={domain}&sz={size}"
 
 
 # ── HM provenance (mode-aware template selection) ──────────────────────────
@@ -704,6 +789,10 @@ def execute_find_and_draft(
     # Phase 9 — accumulates AUTO_SEND_CREDIT_COST per contact whose send
     # actually fired. Added to credits_spent at the bottom.
     auto_send_credits = 0
+    # Contacts the Loop re-discovered that already existed. Adopted contacts are
+    # enriched in place and NOT appended to saved_contacts, so they cost no
+    # discovery credits and don't inflate contactsFound / the activity feed.
+    adopted_count = 0
 
     for idx, contact in enumerate(filtered):
         email = (contact.get("Email") or contact.get("WorkEmail") or contact.get("email") or "").strip()
@@ -715,6 +804,7 @@ def execute_find_and_draft(
             "firstName": first_name,
             "lastName": last_name,
             "email": email,
+            "draftToEmail": email.strip().lower(),
             "linkedinUrl": (contact.get("LinkedIn") or contact.get("linkedinUrl") or "").strip(),
             "company": (contact.get("Company") or contact.get("company") or "").strip(),
             "jobTitle": (contact.get("Title") or contact.get("jobTitle") or "").strip(),
@@ -780,6 +870,24 @@ def execute_find_and_draft(
         if contact.get("company_description"):
             contact_doc["companyDescription"] = contact["company_description"][:1000]
 
+        # Non-destructive adopt: re-query by email at write time. If this
+        # person already exists (manual add or a sibling Loop mid-cycle),
+        # enrich them in place and move on — never draft, send, duplicate,
+        # or charge for a contact that was already theirs.
+        existing_id, existing_data = _find_existing_contact(contacts_ref, email)
+        if existing_id:
+            update = _build_adopt_update(
+                existing_data, contact_doc, config.get("loopId", ""), now_iso
+            )
+            if update:
+                contacts_ref.document(existing_id).update(update)
+            adopted_count += 1
+            logger.info(
+                "agent_adopt uid=%s contact_id=%s loop=%s filled=%s",
+                uid, existing_id, config.get("loopId", ""), sorted(update.keys()),
+            )
+            continue
+
         # Phase 2.2: when pdl_client flags the batch as low email quality
         # (no verified addresses, all best-guesses), skip Gmail draft creation
         # so we don't ship pattern-synthesized addresses straight to the
@@ -841,9 +949,24 @@ def execute_find_and_draft(
         })
 
     # Per-contact credit cost — see CREDIT_COSTS in loop_budget.py.
-    # auto_send_credits is the Phase 9 per-send overhead (+1 per actually
-    # sent email; 0 for draft-only and for denied/failed sends).
-    credits_spent = len(saved_contacts) * CREDIT_COSTS["contact"] + auto_send_credits
+    # Charge ONLY for contacts we actually drafted an email to. A found contact
+    # with no usable/verified address (hasEmail False) got the "find" but never
+    # the "draft" half of the bundled cost, so billing it would charge for
+    # output we never delivered — it's free. auto_send_credits is the Phase 9
+    # per-send overhead (+1 per actually sent email; 0 for draft-only/denied).
+    drafted_count = sum(1 for sc in saved_contacts if sc.get("hasEmail"))
+    credits_spent = drafted_count * CREDIT_COSTS["contact"] + auto_send_credits
+    # Learn the real find→email conversion so we can tune the wizard's pace
+    # caps to what we actually deliver (vs. what budget allows). Grep:
+    # "find→email" across logs to see the rate per Loop over time.
+    if saved_contacts:
+        logger.info(
+            "find→email: loop=%s found=%d drafted=%d rate=%d%%",
+            config.get("loopId", ""),
+            len(saved_contacts),
+            drafted_count,
+            round(drafted_count / len(saved_contacts) * 100),
+        )
     try:
         deduct_credits_atomic(uid, credits_spent, "agent_find")
     except Exception:
@@ -851,6 +974,7 @@ def execute_find_and_draft(
 
     return {
         "contactsFound": len(saved_contacts),
+        "contactsAdopted": adopted_count,
         "emailsDrafted": sum(1 for c in saved_contacts if c["hasEmail"]),
         "contacts": saved_contacts,
         "creditsSpent": credits_spent,
@@ -1285,8 +1409,7 @@ def execute_discover_companies(
     saved = []
 
     for co in new_companies[:5]:
-        domain = _company_to_domain(co.get("name", ""))
-        logo_url = f"https://logo.clearbit.com/{domain}" if domain else None
+        logo_url = _company_to_logo_url(co.get("name", ""))
 
         # Extract industry — field is "sector" in recommendation engine
         industry = co.get("industry") or co.get("sector", "")
@@ -1435,55 +1558,74 @@ def execute_find_hiring_managers(
     saved = []
     # Phase 9 — see execute_find_and_draft for rationale.
     auto_send_credits = 0
+    # See execute_find_and_draft — adopted HMs are enriched in place and not
+    # appended to `saved`, so they cost nothing and don't inflate hmsFound.
+    hm_adopted = 0
 
     for idx, hm in enumerate(hms):
         # Get email data from the emails list if available
         email_data = emails_list[idx] if idx < len(emails_list) else {}
         email_body = email_data.get("body", hm.get("email_body", ""))
+        # Plain-text variant for Firestore storage and previews. The recruiter
+        # email generator returns body (HTML) plus plain_body (clean text); the
+        # tracker renders emailBody as text, so persist the plain version. The
+        # HTML email_body is still used below for the Gmail draft and auto-send.
+        email_body_plain = email_data.get("plain_body") or email_body
         email_subject = email_data.get("subject", hm.get("email_subject", ""))
         hm_email = (hm.get("Email") or hm.get("email") or hm.get("WorkEmail") or "").strip()
         first_name = (hm.get("FirstName") or hm.get("firstName") or hm.get("first_name") or "").strip()
         last_name = (hm.get("LastName") or hm.get("lastName") or hm.get("last_name") or "").strip()
 
-        contact_doc = {
-            "firstName": first_name,
-            "lastName": last_name,
-            "email": hm_email,
-            "company": company,
-            "jobTitle": (hm.get("Title") or hm.get("title") or hm.get("jobTitle") or "").strip(),
-            "source": "agent",
-            "agentCycleId": action.get("cycleId"),
-            # Why this HM surfaced. "role_search" = pulled in by find_jobs at
-            # a small/founder-led company (founder-voice draft). "networking"
-            # = pulled in to support the networking goal (people-voice
-            # draft). Foundation: people-mode HMs default to "networking",
-            # roles-mode HMs default to "role_search", both-mode HMs read
-            # the planner-supplied tag with "networking" fallback.
-            "discoveredVia": discovered_via,
-            # Foreign key into the find_jobs activity item this HM was paired
-            # with — only set for role_search HMs. The activity feed groups
-            # by this key so the founder-draft sub-card renders inline below
-            # its source posting. Networking-mode HMs leave it empty so they
-            # render as standalone rows (today's people-mode behavior).
-            "sourceJobId": action.get("sourceJobId", "") if discovered_via == "role_search" else "",
-            "loopId": loop_id,
-            "pipelineStage": "draft_created" if email_body else "not_contacted",
-            "emailSubject": email_subject,
-            "emailBody": email_body,
-            "inOutbox": True,
-            "createdAt": now_iso,
-            "firstContactDate": today,
-            "lastContactDate": today,
-            "status": "Not Contacted",
-            "isHiringManager": True,
-            "userId": uid,
-            "emailGeneratedAt": now_iso,
-            "draftCreatedAt": now_iso,
-            "draftStillExists": True,
-            "lastActivityAt": now_iso,
-            "hasUnreadReply": False,
-            "linkedinUrl": (hm.get("LinkedIn") or hm.get("linkedinUrl") or "").strip(),
-        }
+        # Why this HM surfaced. "role_search" = pulled in by find_jobs at a
+        # small/founder-led company (founder-voice draft). "networking" =
+        # pulled in to support the networking goal (people-voice draft).
+        # Foundation: people-mode HMs default to "networking", roles-mode HMs
+        # default to "role_search", both-mode HMs read the planner-supplied tag
+        # with "networking" fallback.
+        #
+        # sourceJobId is a foreign key into the find_jobs activity item this HM
+        # was paired with, only set for role_search HMs. The activity feed
+        # groups by this key so the founder-draft sub-card renders inline below
+        # its source posting. Networking-mode HMs leave it empty so they render
+        # as standalone rows (today's people-mode behavior).
+        source_job_id = action.get("sourceJobId", "") if discovered_via == "role_search" else ""
+        # Shared builder so this path and the manual Find -> Hiring Managers
+        # path write the identical outbox shape (see outbox_service).
+        contact_doc = build_hm_outbox_contact_doc(
+            uid=uid,
+            first_name=first_name,
+            last_name=last_name,
+            email=hm_email,
+            company=company,
+            job_title=(hm.get("Title") or hm.get("title") or hm.get("jobTitle") or "").strip(),
+            linkedin_url=(hm.get("LinkedIn") or hm.get("linkedinUrl") or "").strip(),
+            email_subject=email_subject,
+            email_body=email_body_plain,
+            now_iso=now_iso,
+            today=today,
+            source="agent",
+            agent_cycle_id=action.get("cycleId"),
+            discovered_via=discovered_via,
+            source_job_id=source_job_id,
+            loop_id=loop_id,
+        )
+
+        # Non-destructive adopt (same contract as execute_find_and_draft).
+        # Also closes a latent dup bug: this path previously .add()ed HM
+        # contacts with no dedup at all.
+        existing_id, existing_data = _find_existing_contact(contacts_ref, hm_email)
+        if existing_id:
+            update = _build_adopt_update(
+                existing_data, contact_doc, loop_id, now_iso
+            )
+            if update:
+                contacts_ref.document(existing_id).update(update)
+            hm_adopted += 1
+            logger.info(
+                "agent_adopt_hm uid=%s contact_id=%s loop=%s filled=%s",
+                uid, existing_id, loop_id, sorted(update.keys()),
+            )
+            continue
 
         # Create Gmail draft
         if email_body and hm_email:
@@ -1526,7 +1668,7 @@ def execute_find_hiring_managers(
             "email": hm_email,
             "hasEmail": bool(email_body),
             "emailSubject": email_subject,
-            "emailBodyPreview": email_body[:200] if email_body else "",
+            "emailBodyPreview": email_body_plain[:200] if email_body_plain else "",
             "isHiringManager": True,
             "gmailDraftId": contact_doc.get("gmailDraftId", ""),
             "gmailDraftUrl": contact_doc.get("gmailDraftUrl", ""),
@@ -1544,7 +1686,7 @@ def execute_find_hiring_managers(
             logger.warning("HM credit deduction failed for agent uid=%s", uid)
 
     logger.info("Agent find_hiring_managers: uid=%s found %d HMs at %s", uid, len(saved), company)
-    return {"hmsFound": len(saved), "contacts": saved, "creditsSpent": credits}
+    return {"hmsFound": len(saved), "hmsAdopted": hm_adopted, "contacts": saved, "creditsSpent": credits}
 
 
 # ── FOLLOW_UP executor ────────────────────────────────────────────────────

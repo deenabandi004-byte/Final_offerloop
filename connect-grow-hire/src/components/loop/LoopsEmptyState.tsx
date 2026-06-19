@@ -10,6 +10,9 @@ import { ArrowRight } from "lucide-react";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useProposedBrief } from "@/hooks/useProposedBrief";
 import { firebaseApi } from "@/services/firebaseApi";
+import ScoutYetiFull from "@/assets/scouts/scout-yeti-full.png";
+import MountainsLake from "@/assets/for-students/mountains-lake.png";
+import { getCompanyLogo } from "@/lib/companyLogos";
 
 const MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
 
@@ -53,6 +56,33 @@ const COMPANY_TINTS: Record<string, string> = {
 };
 
 function CoBadge({ name, size = 28 }: { name: string; size?: number }) {
+  const logo = getCompanyLogo(name);
+  if (logo) {
+    return (
+      <span
+        style={{
+          width: size,
+          height: size,
+          borderRadius: 8,
+          flexShrink: 0,
+          background: "#ffffff",
+          border: "1px solid rgba(15, 37, 69, 0.08)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+          padding: 3,
+        }}
+        title={name}
+      >
+        <img
+          src={logo}
+          alt={name}
+          style={{ width: "100%", height: "100%", objectFit: "contain" }}
+        />
+      </span>
+    );
+  }
   const tint = COMPANY_TINTS[name] || C.primary;
   return (
     <span
@@ -70,6 +100,7 @@ function CoBadge({ name, size = 28 }: { name: string; size?: number }) {
         fontSize: size * 0.42,
         fontFamily: "'Inter', sans-serif",
       }}
+      title={name}
     >
       {name[0]?.toUpperCase()}
     </span>
@@ -183,7 +214,7 @@ interface LoopsEmptyStateProps {
 
 // Fold the user's dream companies (profile `targetFirms`) into the
 // AI-drafted sentence. If a target firm is already mentioned in the draft
-// we don't double-up; otherwise we tack on "— focused on Stripe, Ramp,
+// we don't double-up; otherwise we tack on ", focused on Stripe, Ramp,
 // Notion." so the brief reflects the student's own stated preferences,
 // not just what Scout inferred from the resume.
 function composeBriefWithDreamCos(sentence: string, dreamCos: string[]): string {
@@ -193,7 +224,7 @@ function composeBriefWithDreamCos(sentence: string, dreamCos: string[]): string 
   if (!missing.length) return sentence;
   const trimmed = sentence.trim().replace(/\.\s*$/, "");
   const list = missing.slice(0, 5).join(", ");
-  return `${trimmed} — focused on ${list}.`;
+  return `${trimmed}, focused on ${list}.`;
 }
 
 export function LoopsEmptyState({ onStart }: LoopsEmptyStateProps) {
@@ -297,7 +328,29 @@ export function LoopsEmptyState({ onStart }: LoopsEmptyStateProps) {
         color: C.ink,
       }}
     >
-      {/* Soft warm wash behind the greeter */}
+      {/* Same mountains as the Home/Loops backdrop, dialed down so it reads as
+          a faint atmosphere rather than a full scene. Anchored bottom-center,
+          soft top fade. Aria-hidden + no pointer events. */}
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          inset: 0,
+          pointerEvents: "none",
+          zIndex: 0,
+          backgroundImage: `url(${MountainsLake})`,
+          backgroundSize: "120% auto",
+          backgroundPosition: "center bottom",
+          backgroundRepeat: "no-repeat",
+          opacity: 0.28,
+          maskImage:
+            "linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 20%, #000 60%, #000 100%)",
+          WebkitMaskImage:
+            "linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 20%, #000 60%, #000 100%)",
+        }}
+      />
+
+      {/* Soft warm wash behind the headline */}
       <div
         aria-hidden
         style={{
@@ -310,12 +363,14 @@ export function LoopsEmptyState({ onStart }: LoopsEmptyStateProps) {
           background:
             "radial-gradient(60% 60% at 50% 40%, rgba(74,96,168,.10), rgba(74,96,168,0) 70%)",
           pointerEvents: "none",
+          zIndex: 0,
         }}
       />
 
       <div
         style={{
           position: "relative",
+          zIndex: 1,
           maxWidth: 680,
           margin: "0 auto",
           padding: "64px 40px 72px",
@@ -401,11 +456,37 @@ export function LoopsEmptyState({ onStart }: LoopsEmptyStateProps) {
           reach while you get on with your day. Set one up in about a minute.
         </p>
 
-        {/* Resume-derived suggestion */}
-        <div
+        {/* Resume-derived suggestion — Scout perched on the card's left side,
+            vertically centered. Wrapper handles the centering so the bob
+            animation (which animates transform) doesn't fight translateY. */}
+        <div style={{ position: "relative", width: "100%", marginTop: 36 }}>
+          <div
+            aria-hidden
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: -52,
+              transform: "translateY(-50%)",
+              zIndex: 2,
+              pointerEvents: "none",
+            }}
+          >
+            <img
+              src={ScoutYetiFull}
+              alt="Scout"
+              style={{
+                display: "block",
+                width: 96,
+                filter: "drop-shadow(0 12px 18px rgba(30,45,77,.18))",
+                animation: "loops-empty-bob 3.4s ease-in-out infinite",
+              }}
+            />
+          </div>
+          <div
           style={{
+            position: "relative",
+            zIndex: 1,
             width: "100%",
-            marginTop: 36,
             background: "#fff",
             border: `1px solid ${C.border}`,
             borderRadius: 20,
@@ -542,6 +623,7 @@ export function LoopsEmptyState({ onStart }: LoopsEmptyStateProps) {
                 <ArrowRight className="h-4 w-4" />
               </span>
             </button>
+          </div>
           </div>
         </div>
 

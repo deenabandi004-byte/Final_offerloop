@@ -808,7 +808,8 @@ def find_recruiters(
     user_contact: Dict = None,
     resume_text: str = "",
     template_instructions: str = "",
-    role_type: str = "recruiter"
+    role_type: str = "recruiter",
+    titles_override: Optional[List[str]] = None
 ) -> Dict:
     """
     Main function to find recruiters at a company.
@@ -852,8 +853,15 @@ def find_recruiters(
     if not job_type:
         job_type = determine_job_type(job_title, job_description)
 
-    # Get recruiter titles to search for
-    recruiter_titles = get_recruiter_titles_for_job_type(job_type)
+    # Get titles to search for. An explicit titles_override (e.g. employee peer
+    # titles derived by the LLM for the Find People flow) bypasses the recruiter
+    # title mapping so the rest of this pipeline (current-employee filter,
+    # ranking, Hunter verification, email generation, receipts) is reused for a
+    # non-recruiter search.
+    if titles_override:
+        recruiter_titles = titles_override
+    else:
+        recruiter_titles = get_recruiter_titles_for_job_type(job_type)
 
     # Build query with alias expansion for better matching
     query_obj = build_recruiter_search_query(

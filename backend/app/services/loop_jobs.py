@@ -306,6 +306,29 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
             uid, loop_id, cycle_id,
         )
 
+    # Surface a single "Loop ran" notification per cycle into the user's
+    # in-app bell. Independent of LOOPS_ALERT_EMAILS_ENABLED — this is the
+    # in-product surface, not outbound email. Failures here never
+    # propagate; the cycle's real work is already saved.
+    try:
+        from app.services.loop_notifications import (
+            assess_cycle_results,
+            write_loop_run_notification,
+        )
+        items = assess_cycle_results(
+            loop_id=loop_id,
+            loop_name=loop.get("name") or "Untitled Loop",
+            cycle_id=cycle_id,
+            result=result,
+        )
+        if items:
+            write_loop_run_notification(uid=uid, items=items, db=db)
+    except Exception:
+        logger.exception(
+            "Loop run notification failed (non-fatal) uid=%s loop=%s cycle=%s",
+            uid, loop_id, cycle_id,
+        )
+
     return {
         "status": "completed",
         "cycleId": cycle_id,

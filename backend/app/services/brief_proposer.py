@@ -28,6 +28,7 @@ import logging
 from typing import TypedDict
 
 from app.services.openai_client import get_anthropic_client
+from app.utils.contact import strip_dashes
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,7 @@ Rules:
   - If the profile names a careerTrack (e.g. "Investment Banking", "Consulting", "Tech"), translate it into the appropriate industries + canonical companies for that track — but only when `direction` is silent on that field.
   - If `direction`, profile, AND resume are all empty, return empty arrays + an empty sentence.
   - Locations come from `direction`, resume, or profile — never invented. "Remote" only if mentioned.
+  - Never use em dashes or en dashes; use a comma or a period instead.
   - Return STRICT JSON matching:
       {"sentence": "...", "companies": [...], "roles": [...], "industries": [...], "locations": [...]}
     No prose, no markdown, no leading explanation."""
@@ -256,7 +258,7 @@ def _normalize(raw: dict) -> ProposedBrief:
         for item in v:
             if not isinstance(item, str):
                 continue
-            s = item.strip()
+            s = strip_dashes(item.strip())
             if s and s.lower() not in seen:
                 seen.add(s.lower())
                 out.append(s)
@@ -265,7 +267,7 @@ def _normalize(raw: dict) -> ProposedBrief:
     sentence = raw.get("sentence")
     if not isinstance(sentence, str):
         sentence = ""
-    sentence = sentence.strip()[:400]
+    sentence = strip_dashes(sentence).strip()[:400]
 
     companies = as_str_list(raw.get("companies"))[:10]
     roles = as_str_list(raw.get("roles"))[:10]

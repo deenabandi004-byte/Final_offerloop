@@ -245,6 +245,10 @@ export interface UseScoutChatReturn {
     content: string,
     extras?: { mode?: ScoutMode; cta?: ScoutCta | null },
   ) => void;
+  /** Tour demo orchestration — local addition, not in loops-setup-v2.
+   *  Mirror of appendSyntheticAssistant for the user side. Used only by the
+   *  onboarding tour's seeded Scout demo to push a synthetic user turn. */
+  appendSyntheticUser: (content: string) => void;
 }
 
 /**
@@ -715,6 +719,23 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
     ]);
   }, []);
 
+  // Tour demo orchestration — local addition, not in loops-setup-v2.
+  // Mirror of appendSyntheticAssistant for the user side. Used by the
+  // onboarding tour to seed a synthetic user turn in the Scout demo.
+  const appendSyntheticUser = useCallback((content: string) => {
+    const trimmed = (content || '').trim();
+    if (!trimmed) return;
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `synthetic-user-${Date.now()}`,
+        role: 'user',
+        content: trimmed,
+        timestamp: new Date(),
+      },
+    ]);
+  }, []);
+
   // Strategist briefing (Phase 3B endpoint). Posts to /briefing/stream and
   // streams the prose back as it generates. Bypasses Haiku and the chat
   // history entirely - this is a fresh, profile-grounded plan, not a turn
@@ -873,6 +894,7 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
     loadChat,
     isLoadingChat,
     appendSyntheticAssistant,
+    appendSyntheticUser,
     requestBriefing,
   };
 }

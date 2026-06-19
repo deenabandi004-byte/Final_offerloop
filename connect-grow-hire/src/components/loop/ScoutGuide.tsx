@@ -6,6 +6,7 @@
 // plain line what the page is doing.
 
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import ScoutYetiFull from "@/assets/scouts/scout-yeti-full.png";
 
 const EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
 
@@ -72,11 +73,11 @@ export function ScoutGuide() {
           />
         </div>
         <img
-          src="/scout-loops.png"
+          src={ScoutYetiFull}
           alt=""
           className="scout-guide-anim"
           style={{
-            width: 78,
+            width: 88,
             objectFit: "contain",
             flexShrink: 0,
             filter: "drop-shadow(0 12px 18px rgba(30,45,77,.18))",

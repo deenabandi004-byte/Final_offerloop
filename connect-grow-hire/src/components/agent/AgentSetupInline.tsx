@@ -13,14 +13,19 @@ import { parseBrief, type ParsedBrief } from "@/services/agent";
 import { firebaseApi } from "@/services/firebaseApi";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useCreateLoop } from "@/hooks/useLoops";
+import type { LoopCadence } from "@/services/loops";
 import useDebounce from "@/hooks/use-debounce";
 import { useProposedBrief, type UseProposedBriefState } from "@/hooks/useProposedBrief";
 import { useSubscription } from "@/hooks/useSubscription";
 import {
   estimatedWeeklyCreditsPeople,
+  maxPaceForTier,
+  MIN_PACE,
   weeklyTargetForTier,
 } from "@/lib/tierDefaults";
 import { loopCopy, type LoopModeForCopy } from "@/lib/loopCopy";
+import ScoutYetiFull from "@/assets/scouts/scout-yeti-full.png";
+import { analyzeQuery, findCompletion, harmonizedSuggestions } from "@/lib/specificity";
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -325,6 +330,166 @@ function ParseStatusLine({
 }
 
 
+
+const AXIS_CHIP_STYLE: React.CSSProperties = {
+  fontFamily: "'Inter', sans-serif",
+  fontSize: 11.5,
+  fontWeight: 500,
+  color: "#4A60A8",
+  background: "rgba(74, 96, 168, 0.08)",
+  border: "1px solid rgba(74, 96, 168, 0.20)",
+  borderRadius: 999,
+  padding: "3px 9px",
+  cursor: "pointer",
+};
+
+// Compact single-axis rail — flanks the brief box (Role left, Industry right).
+// Covered (per analyzeQuery) → check + value; otherwise profile-seeded chips
+// that append with the right preposition. Narrow so the two rails sit beside
+// the box instead of one tall stack pushing the page down.
+function AxisRail({
+  label,
+  align,
+  covered,
+  coveredValue,
+  chips,
+}: {
+  label: string;
+  align: "left" | "right";
+  covered: boolean;
+  coveredValue?: string;
+  chips: { text: string; onClick: () => void }[];
+}) {
+  const justify = align === "right" ? "flex-end" : "flex-start";
+  return (
+    <div style={{ width: 118, flexShrink: 0, paddingTop: 8 }}>
+      <div
+        style={{
+          fontFamily: "'Inter', sans-serif",
+          fontSize: 10,
+          fontWeight: 600,
+          letterSpacing: "0.07em",
+          textTransform: "uppercase",
+          color: "var(--ink-3)",
+          marginBottom: 7,
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          justifyContent: justify,
+        }}
+      >
+        {label}
+        {covered && <span style={{ color: "#2E7D32", fontSize: 10 }}>✓</span>}
+      </div>
+      {covered ? (
+        <div
+          style={{
+            fontSize: 12.5,
+            color: "var(--ink-2)",
+            fontWeight: 500,
+            textAlign: align,
+          }}
+        >
+          {coveredValue}
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, justifyContent: justify }}>
+          {chips.length > 0 ? (
+            chips.map((c) => (
+              <button key={c.text} type="button" onClick={c.onClick} style={AXIS_CHIP_STYLE}>
+                + {c.text}
+              </button>
+            ))
+          ) : (
+            <span style={{ fontSize: 11.5, color: "var(--ink-3)", fontStyle: "italic" }}>
+              type one in
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// In-box bottom suggestions — companies (the most concrete axis) plus an
+// alumni chip, below the textarea inside the brief box. Empty-brief clicks
+// start a natural "I want …" sentence; otherwise they append cleanly.
+function InBoxBottomSuggestions({
+  briefText,
+  companies,
+  companyCovered,
+  university,
+  onSet,
+}: {
+  briefText: string;
+  companies: string[];
+  companyCovered: boolean;
+  university: string;
+  onSet: (next: string) => void;
+}) {
+  const lower = briefText.toLowerCase();
+  const companyPicks = companyCovered
+    ? []
+    : companies.filter((c) => c && !lower.includes(c.toLowerCase())).slice(0, 4);
+  const shortUni = university
+    ? university.replace(/^(University of |The )/i, "").split(" - ")[0].split(",")[0].trim()
+    : "";
+  const showAlumni = !!shortUni && !/\balumni\b/i.test(briefText);
+  if (companyPicks.length === 0 && !showAlumni) return null;
+
+  const addCompany = (co: string) => {
+    const base = briefText.replace(/\s+$/, "");
+    if (base.length === 0) return onSet(`I want people at ${co}`);
+    if (/\bat$/i.test(base)) return onSet(`${base} ${co}`);
+    onSet(`${base} at ${co}`);
+  };
+  const addAlumni = () => {
+    const base = briefText.replace(/\s+$/, "");
+    const phrase = `${shortUni} alumni`;
+    onSet(base.length === 0 ? `I want ${phrase}` : `${base} ${phrase}`);
+  };
+
+  const labelStyle: React.CSSProperties = {
+    fontFamily: "'Inter', sans-serif",
+    fontSize: 10.5,
+    fontWeight: 600,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    color: "var(--ink-3)",
+    marginRight: 2,
+  };
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: 6,
+        marginTop: 12,
+        paddingTop: 12,
+        borderTop: "1px dashed rgba(15, 37, 69, 0.08)",
+      }}
+    >
+      {companyPicks.length > 0 && <span style={labelStyle}>Companies</span>}
+      {companyPicks.map((co) => (
+        <button key={co} type="button" onClick={() => addCompany(co)} style={AXIS_CHIP_STYLE}>
+          + {co}
+        </button>
+      ))}
+      {showAlumni && (
+        <button
+          type="button"
+          onClick={addAlumni}
+          style={{ ...AXIS_CHIP_STYLE, marginLeft: companyPicks.length > 0 ? 6 : 0 }}
+        >
+          + {shortUni} alumni
+        </button>
+      )}
+    </div>
+  );
+}
+
 function StepGoals({
   form,
   briefText,
@@ -335,6 +500,7 @@ function StepGoals({
   profileFacts,
   proposedBrief,
   showAiDraftLabel,
+  ghostCompletion,
 }: {
   form: FormState;
   briefText: string;
@@ -350,11 +516,75 @@ function StepGoals({
   };
   proposedBrief: UseProposedBriefState;
   showAiDraftLabel: boolean;
+  ghostCompletion: string | null;
 }) {
   const copy = loopCopy(form.loopMode, { school: university });
   const overLimit = briefText.length > MAX_BRIEF_CHARS;
   const [focused, setFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Axis guidance, derived from the live brief via analyzeQuery (synchronous).
+  // Role + Industry flank the box (left/right rails); Company lives in the box.
+  // Covered axes show a check; uncovered ones offer profile-seeded chips that
+  // append with the right preposition — one per axis, so no run-on.
+  const analysis = useMemo(() => analyzeQuery(briefText), [briefText]);
+  // Cross-axis "harmony" — each axis's suggestions are biased by what the other
+  // axes already say. Pick Goldman → Role steers to IB Analyst and Industry to
+  // Investment Banking; pick an industry → roles + peer companies follow. Keeps
+  // the brief internally consistent so the Loop searches a coherent target.
+  const harmony = useMemo(
+    () =>
+      harmonizedSuggestions(analysis, {
+        roles: profileFacts.extractedRoles,
+        industries: profileFacts.targetIndustries,
+        firms: profileFacts.targetFirms,
+      }),
+    [analysis, profileFacts],
+  );
+  const notMentioned = (s: string) =>
+    !!s && !briefText.toLowerCase().includes(s.toLowerCase());
+  // Append an entity. On an EMPTY brief, start with a natural "I want …" stem
+  // per axis so the sentence reads cleanly from the first click; otherwise
+  // append with the right preposition (not doubling one already typed).
+  const addEntity = (value: string, prep: string, emptyStart: string) => {
+    const base = briefText.replace(/\s+$/, "");
+    if (base.length === 0) return setBriefText(emptyStart);
+    if (prep && new RegExp(`\\b${prep}$`, "i").test(base)) {
+      return setBriefText(`${base} ${value}`);
+    }
+    setBriefText(`${base} ${prep ? prep + " " : ""}${value}`);
+  };
+  const roleChips = analysis.role
+    ? []
+    : harmony.roles
+        .filter(notMentioned)
+        .slice(0, 3)
+        .map((r) => ({ text: r, onClick: () => addEntity(r, "", `I want ${r}`) }));
+  // No adjacency expansion — adjacent industries (Private Equity next to
+  // Investment Banking) only let the user stack contradicting ones. Offer just
+  // the coherent industry from harmony, and ONLY while none is set yet, so it
+  // can never pile up multiple "in X" industries.
+  const industryChips = analysis.industry
+    ? []
+    : harmony.industries
+        .filter(notMentioned)
+        .slice(0, 2)
+        .map((i) => ({ text: i, onClick: () => addEntity(i, "in", `I want to break into ${i}`) }));
+  // Companies for the in-box chips — harmony list (context firms + peers of a
+  // picked company + profile) then a sensible fallback so something always
+  // shows at a company slot, even with an empty profile.
+  const companySuggestions = Array.from(
+    new Set(
+      [
+        ...harmony.companies,
+        "Goldman Sachs",
+        "JPMorgan",
+        "Morgan Stanley",
+        "McKinsey",
+        "Google",
+      ].filter(Boolean),
+    ),
+  );
 
   // Goal-oriented prompts — Loops are persistent, so the textarea reads more
   // like "what am I trying to accomplish?" than a single-shot search query.
@@ -449,12 +679,12 @@ function StepGoals({
         style={{ fontFamily: "'Inter', sans-serif" }}
       >
         <img
-          src="/scout-find.png"
+          src={ScoutYetiFull}
           alt=""
           aria-hidden
           style={{
-            width: 52,
-            height: 52,
+            width: 56,
+            height: 56,
             objectFit: "contain",
             flexShrink: 0,
             filter: "drop-shadow(0 6px 10px rgba(30,45,77,.16))",
@@ -540,9 +770,24 @@ function StepGoals({
         </div>
       )}
 
-      {/* Brief textarea — Find-page-style hero prompt with typewriter
-          placeholder and profile-aware QuickStarters underneath. */}
-      <div className="mb-5">
+      {/* Full-width brief box; Role/Industry guidance sit in the page margins
+          to either side (absolute, shown only when there's room — ≥ lg width,
+          so they never overlap the box on smaller screens). Companies live in
+          the box. */}
+      <div className="mb-5" style={{ position: "relative" }}>
+        <div
+          className="hidden lg:block"
+          style={{ position: "absolute", right: "100%", marginRight: 18, top: 6 }}
+        >
+          <AxisRail
+            label="Role"
+            align="right"
+            covered={!!analysis.role}
+            coveredValue={analysis.role?.value}
+            chips={roleChips}
+          />
+        </div>
+        <div>
         <div
           style={{
             position: "relative",
@@ -556,27 +801,66 @@ function StepGoals({
             padding: "18px 18px 14px 18px",
           }}
         >
-          <Textarea
-            ref={textareaRef}
-            value={briefText}
-            onChange={(e) => setBriefText(e.target.value)}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            placeholder={typedPlaceholder || (focused ? "Describe the Loop you want to deploy…" : "")}
-            rows={4}
-            aria-label="Your goal in your own words"
-            className="resize-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
-            style={{
-              color: "var(--ink)",
-              background: "transparent",
-              padding: 0,
-              fontFamily: "'Inter', sans-serif",
-              fontSize: 16,
-              lineHeight: 1.5,
-              minHeight: 96,
-              outline: "none",
-            }}
-          />
+          {/* Wrapper so the ghost-text mirror overlay aligns 1:1 with the
+              transparent textarea below it. The mirror renders briefText in
+              normal ink plus a faint span for the ghost completion. The
+              textarea text is transparent (caret stays visible). Tab accepts
+              the suggestion. */}
+          <div style={{ position: "relative" }}>
+            <div
+              aria-hidden
+              style={{
+                position: "absolute",
+                inset: 0,
+                pointerEvents: "none",
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 16,
+                lineHeight: 1.5,
+                color: "var(--ink)",
+                whiteSpace: "pre-wrap",
+                wordWrap: "break-word",
+                overflow: "hidden",
+                minHeight: 96,
+              }}
+            >
+              {briefText}
+              {ghostCompletion && (
+                <span style={{ color: "rgba(15, 37, 69, 0.32)" }}>
+                  {ghostCompletion}
+                </span>
+              )}
+            </div>
+            <Textarea
+              ref={textareaRef}
+              value={briefText}
+              onChange={(e) => setBriefText(e.target.value)}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              onKeyDown={(e) => {
+                if (e.key === "Tab" && ghostCompletion && !e.shiftKey) {
+                  e.preventDefault();
+                  setBriefText(briefText + ghostCompletion);
+                }
+              }}
+              placeholder={typedPlaceholder || (focused ? "Describe the Loop you want to deploy…" : "")}
+              rows={4}
+              aria-label="Your goal in your own words"
+              className="resize-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
+              style={{
+                color: "transparent",
+                caretColor: "var(--ink)",
+                background: "transparent",
+                padding: 0,
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 16,
+                lineHeight: 1.5,
+                minHeight: 96,
+                outline: "none",
+                position: "relative",
+                zIndex: 1,
+              }}
+            />
+          </div>
           <div className="flex items-center justify-between" style={{ marginTop: 12 }}>
             <ParseStatusLine
               phase={parsePhase}
@@ -600,8 +884,29 @@ function StepGoals({
               {briefText.length} / {MAX_BRIEF_CHARS}
             </span>
           </div>
-        </div>
 
+          {/* Companies + alumni live in the box (bottom). */}
+          <InBoxBottomSuggestions
+            briefText={briefText}
+            companies={companySuggestions}
+            companyCovered={!!analysis.company}
+            university={university}
+            onSet={setBriefText}
+          />
+        </div>
+        </div>
+        <div
+          className="hidden lg:block"
+          style={{ position: "absolute", left: "100%", marginLeft: 18, top: 6 }}
+        >
+          <AxisRail
+            label="Industry"
+            align="left"
+            covered={!!analysis.industry}
+            coveredValue={analysis.industry?.value}
+            chips={industryChips}
+          />
+        </div>
       </div>
 
       {/* Prefer-alumni is now always on — the toggle was removed because
@@ -636,12 +941,18 @@ function StepReview({
   set,
   university,
   weeklyTarget,
+  setWeeklyTarget,
+  minPace,
+  maxPace,
   lowBalance,
 }: {
   form: FormState;
   set: (patch: Partial<FormState>) => void;
   university: string;
   weeklyTarget: number;
+  setWeeklyTarget: (n: number) => void;
+  minPace: number;
+  maxPace: number;
   lowBalance: boolean;
 }) {
   const summary: Array<{ k: string; v: string }> = [
@@ -660,10 +971,13 @@ function StepReview({
     },
   ];
 
+  // Honest framing: pace is a TARGET, not a promise. We reach out to everyone
+  // we can verify an email for, so the actual sent count trends a bit under the
+  // target (no usable address → no email). Never say "we WILL find N".
   const cadenceSentence =
     form.approvalMode === "autopilot"
-      ? "We'll send your approved templates automatically — manage them in Settings."
-      : `We'll find ~${weeklyTarget} ${weeklyTarget === 1 ? "person" : "people"} per week. You can pause anytime in the fleet view.`;
+      ? "We'll aim for the people you set below and send your approved templates automatically — change anytime in Settings."
+      : `We'll aim for up to ~${weeklyTarget} new ${weeklyTarget === 1 ? "person" : "people"} a week and reach out to everyone we can verify. Pause anytime.`;
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif" }}>
@@ -690,6 +1004,38 @@ function StepReview({
             <span style={{ color: "var(--ink)", fontWeight: 500 }}>{r.v}</span>
           </div>
         ))}
+      </div>
+
+      {/* Pace — a slider bounded to what the tier can comfortably deliver, so
+          the wizard never lets a user pick a pace we can't hit. */}
+      <div className="mb-5">
+        <div
+          className="flex items-baseline justify-between"
+          style={{ marginBottom: 8 }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>Pace</span>
+          <span style={{ fontSize: 13, color: "var(--ink-2)", fontWeight: 500 }}>
+            <strong style={{ fontWeight: 700, color: "var(--ink)" }}>{weeklyTarget}</strong> new
+            people / week
+          </span>
+        </div>
+        <input
+          type="range"
+          min={minPace}
+          max={maxPace}
+          step={1}
+          value={weeklyTarget}
+          onChange={(e) => setWeeklyTarget(Number(e.target.value))}
+          aria-label="People per week"
+          style={{ width: "100%", accentColor: "var(--accent)", cursor: "pointer" }}
+        />
+        <div
+          className="flex justify-between"
+          style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 4 }}
+        >
+          <span>Steady · {minPace}</span>
+          <span>Aggressive · {maxPace}</span>
+        </div>
       </div>
 
       {/* Approval mode picker — the focus of V2 step 2 */}
@@ -837,6 +1183,21 @@ export function AgentSetupInline({
       .catch(() => setUniversity(""));
   }, [user?.uid]);
 
+  // Grammarly-style ghost-text autocomplete on the brief textarea. Mirrors
+  // the implementation on ContactSearchPage so the two surfaces behave
+  // identically. Suggestions are biased toward the user's stated targets
+  // (firms, industries, locations, roles, university) so "I'd love to meet
+  // someone at gold..." resolves to the student's actual target Goldman Sachs.
+  const profileCompletionTokens = useMemo(() => {
+    const tokens: string[] = [];
+    for (const f of profileFacts.targetFirms) if (typeof f === "string") tokens.push(f);
+    for (const l of profileFacts.preferredLocations) if (typeof l === "string") tokens.push(l);
+    for (const i of profileFacts.targetIndustries) if (typeof i === "string") tokens.push(i);
+    for (const r of profileFacts.extractedRoles) if (typeof r === "string") tokens.push(r);
+    if (university) tokens.push(university);
+    return tokens;
+  }, [profileFacts, university]);
+
   // Seed the form chips from the empty-state's parsed proposal when
   // provided. Without this, a brief like "opportunities at Apple, IBM,
   // Google in Tech" lands on Step 02 with Roles=— because the parser
@@ -873,7 +1234,21 @@ export function AgentSetupInline({
   // briefly-shown lower cadence number that updates on hydrate.
   const { subscription } = useSubscription();
   const tier: string = subscription?.tier ?? "free";
-  const weeklyTarget = weeklyTargetForTier(tier);
+  // Pace is an editable slider on the Review step. Default = the number the
+  // user wrote in their brief (parser's targetCount) if present, else the tier
+  // default; a manual drag overrides both. Everything is clamped to
+  // [MIN_PACE, maxPaceForTier] so the wizard can never promise a pace the tier
+  // can't comfortably deliver. Cadence is fixed to a sensible default and no
+  // longer shown — it only controls rhythm (how finds spread across the week),
+  // not volume, so exposing it was noise.
+  const maxPace = maxPaceForTier(tier);
+  const [parsedTargetCount, setParsedTargetCount] = useState<number | null>(null);
+  const [weeklyTargetOverride, setWeeklyTargetOverride] = useState<number | null>(null);
+  const cadence: LoopCadence = "every_other_day";
+  const rawWeekly = weeklyTargetOverride ?? parsedTargetCount ?? weeklyTargetForTier(tier);
+  const weeklyTarget = Math.max(MIN_PACE, Math.min(maxPace, Math.round(rawWeekly)));
+  const setWeeklyTarget = (n: number) =>
+    setWeeklyTargetOverride(Math.max(MIN_PACE, Math.min(maxPace, Math.round(n))));
   const lowBalance = (() => {
     const credits = subscription?.credits ?? 0;
     return credits > 0 && credits < estimatedWeeklyCreditsPeople(weeklyTarget);
@@ -890,6 +1265,15 @@ export function AgentSetupInline({
   // Guard against stale parses overwriting fresh results (user types fast).
   const lastParseTokenRef = useRef(0);
   const debouncedBriefText = useDebounce(briefText.trim(), BRIEF_PARSE_DEBOUNCE_MS);
+
+  // Grammarly-style ghost-text completion. Resolves whatever word the user
+  // is mid-typing against (a) their profile tokens and (b) the global role/
+  // location/company/school lexicons. Tab accepts the suggestion. Passed
+  // down to StepGoals for the actual textarea overlay rendering.
+  const ghostCompletion = useMemo(
+    () => findCompletion(briefText, profileCompletionTokens),
+    [briefText, profileCompletionTokens],
+  );
 
   useEffect(() => {
     const text = debouncedBriefText;
@@ -915,6 +1299,11 @@ export function AgentSetupInline({
           setParsePhase("empty");
           return;
         }
+        // Seed the editable pace from an explicit number in the brief
+        // ("10 analysts" → 10/wk). A manual stepper edit still wins.
+        setParsedTargetCount(
+          typeof parsed?.targetCount === "number" ? parsed.targetCount : null,
+        );
         // ok — populate the extracted-entity lists from parser output.
         // Mode is locked to "both"; the parser's mode classification is
         // ignored. These six fields are never user-visible chips — they
@@ -1053,7 +1442,7 @@ export function AgentSetupInline({
         name: deriveLoopName(form),
         reviewBeforeSend: form.approvalMode === "review_first",
         weeklyTarget,
-        cadence: "daily",
+        cadence,
         automationEnabled: form.approvalMode === "autopilot",
         loopMode: "both",
       });
@@ -1112,9 +1501,12 @@ export function AgentSetupInline({
             </div>
             <h1
               style={{
-                fontFamily: "'Instrument Serif', Georgia, serif",
+                // Match the Loops redesign display font (Lora) — the same stack
+                // the empty-state / detail headings use — so the italic "what"
+                // accent reads in Lora italic, not Instrument Serif's.
+                fontFamily: "'Lora', 'Instrument Serif', Georgia, serif",
                 fontSize: 48,
-                fontWeight: 400,
+                fontWeight: 500,
                 lineHeight: 1.05,
                 letterSpacing: "-0.02em",
                 color: "#0f2545",
@@ -1171,6 +1563,7 @@ export function AgentSetupInline({
                 profileFacts={profileFacts}
                 proposedBrief={proposedBrief}
                 showAiDraftLabel={aiDraftActive}
+                ghostCompletion={ghostCompletion}
               />
             )}
             {stepIdx === 1 && (
@@ -1179,6 +1572,9 @@ export function AgentSetupInline({
                 set={set}
                 university={university || ""}
                 weeklyTarget={weeklyTarget}
+                setWeeklyTarget={setWeeklyTarget}
+                minPace={MIN_PACE}
+                maxPace={maxPace}
                 lowBalance={lowBalance}
               />
             )}

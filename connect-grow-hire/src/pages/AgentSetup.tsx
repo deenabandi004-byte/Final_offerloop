@@ -1,12 +1,14 @@
 // AgentSetup — thin wrapper around AgentSetupInline with app chrome.
 
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { AgentSetupInline } from "@/components/agent/AgentSetupInline";
 import type { InitialBriefParsed } from "@/components/loop/LoopsEmptyState";
+import MountainsLake from "@/assets/for-students/mountains-lake.png";
 
 interface AgentSetupNavState {
   initialBrief?: string;
@@ -42,13 +44,46 @@ export default function AgentSetup() {
         <AppSidebar />
         <MainContentWrapper>
           <AppHeader title="Agent Setup" />
-          <div className="flex-1 overflow-y-auto">
-            <AgentSetupInline
-              onDeployed={() => navigate("/agent")}
-              initialBrief={initialBrief}
-              initialBriefParsed={initialBriefParsed}
-              onBackToEntry={onBackToEntry}
+          <div className="flex-1 overflow-y-auto" style={{ position: "relative" }}>
+            {/* Mountains backdrop — same atmospheric treatment as Loops + Find. */}
+            <div
+              aria-hidden
+              style={{
+                position: "absolute",
+                inset: 0,
+                pointerEvents: "none",
+                zIndex: 0,
+                backgroundImage: `url(${MountainsLake})`,
+                backgroundSize: "120% auto",
+                backgroundPosition: "center bottom",
+                backgroundRepeat: "no-repeat",
+                opacity: 0.45,
+                maskImage:
+                  "linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 18%, #000 55%, #000 100%)",
+                WebkitMaskImage:
+                  "linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 18%, #000 55%, #000 100%)",
+              }}
             />
+            {/* Top-left back nav — pinned to the page edge, not the centered
+                content column, so it reads as a true "out" affordance. */}
+            <div className="pl-4 sm:pl-6 pt-5" style={{ position: "relative", zIndex: 1 }}>
+              <Link
+                to="/agent"
+                className="inline-flex items-center gap-1.5 text-[13px] font-medium transition-colors hover:text-[var(--ink)]"
+                style={{ color: "var(--ink-2)" }}
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back to Loops
+              </Link>
+            </div>
+            <div style={{ position: "relative", zIndex: 1 }}>
+              <AgentSetupInline
+                onDeployed={() => navigate("/agent")}
+                initialBrief={initialBrief}
+                initialBriefParsed={initialBriefParsed}
+                onBackToEntry={onBackToEntry}
+              />
+            </div>
           </div>
         </MainContentWrapper>
       </div>

@@ -7,6 +7,7 @@
 //   • Live ticker keeps its green pulse but reads quieter.
 
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import {
   useFleetFeed,
@@ -31,7 +32,26 @@ export function LoopsCommandBar() {
     weekStartedAt: "",
   };
   const items = feedQuery.data?.items ?? [];
-  const goalPct = summary.weeklyGoal > 0 ? summary.weeklyProgressPct : 0;
+  // The ring shows fleet *momentum*, not raw weekly progress (which sits at 0
+  // every Monday). It blends this-week progress with the live draft backlog and
+  // cumulative output, floored so an active fleet never reads as a dead ring.
+  // The honest "{foundThisWeek}/{weeklyGoal}" count stays as the side label.
+  const hasActivity =
+    summary.draftsWaiting > 0 || (summary.foundAllTime ?? 0) > 0 || summary.foundThisWeek > 0;
+  const goalPct = hasActivity
+    ? Math.round(
+        Math.min(
+          97,
+          Math.max(
+            12,
+            10 +
+              summary.weeklyProgressPct * 0.4 +
+              (summary.draftsWaiting > 0 ? 25 : 0) +
+              Math.min(30, summary.foundAllTime ?? 0),
+          ),
+        ),
+      )
+    : 0;
 
   return (
     <div
@@ -47,18 +67,11 @@ export function LoopsCommandBar() {
         className="flex items-center flex-wrap"
         style={{ gap: 48, padding: "24px 30px" }}
       >
-        {/* Found this week */}
-        <div className="flex-1" style={{ minWidth: 220 }}>
-          <div
-            style={{
-              fontSize: 12.5,
-              color: "var(--ink-3)",
-              fontWeight: 500,
-            }}
-          >
-            Found this week
-          </div>
-          <div className="flex items-baseline gap-3" style={{ marginTop: 6 }}>
+        {/* Hero — what needs the user. Drafts to send never reset weekly, so
+            the bar always leads with real, actionable progress instead of a
+            "0 found this week" that reads as if nothing happened. */}
+        <div className="flex-1" style={{ minWidth: 240 }}>
+          <div className="flex items-baseline gap-3">
             <span
               className="font-serif"
               style={{
@@ -69,41 +82,21 @@ export function LoopsCommandBar() {
                 color: "var(--heading)",
               }}
             >
-              {summary.foundThisWeek}
+              {summary.draftsWaiting}
             </span>
-            <span style={{ fontSize: 13.5, color: "var(--ink-3)" }}>
-              {summary.foundThisWeek === 1 ? "person" : "people"}
-              {summary.activeLoopsCount > 0
-                ? ` · across ${summary.activeLoopsCount} ${
-                    summary.activeLoopsCount === 1 ? "Loop" : "Loops"
-                  }`
-                : ""}
+            <span style={{ fontSize: 14, color: "var(--ink-2)", fontWeight: 500 }}>
+              draft{summary.draftsWaiting === 1 ? "" : "s"} waiting on you
             </span>
           </div>
-        </div>
-
-        {/* Drafts waiting */}
-        <div>
-          <div
-            className="font-serif"
-            style={{
-              fontSize: 30,
-              fontWeight: 500,
-              lineHeight: 1,
-              color: "var(--heading)",
-            }}
-          >
-            {summary.draftsWaiting}
-          </div>
-          <div
-            style={{
-              fontSize: 12.5,
-              color: "var(--ink-3)",
-              marginTop: 6,
-              maxWidth: 120,
-            }}
-          >
-            drafts waiting on you
+          {/* Context — cumulative finds, this-week momentum, fleet size. */}
+          <div style={{ fontSize: 13, color: "var(--ink-3)", marginTop: 8 }}>
+            {summary.foundAllTime ?? 0} found
+            {` · ${summary.foundThisWeek} this week`}
+            {summary.activeLoopsCount > 0
+              ? ` · across ${summary.activeLoopsCount} ${
+                  summary.activeLoopsCount === 1 ? "Loop" : "Loops"
+                }`
+              : ""}
           </div>
         </div>
 
@@ -211,6 +204,7 @@ const KIND_LABEL: Record<FleetFeedItem["kind"], string> = {
 
 function Ticker({ items }: { items: FleetFeedItem[] }) {
   const [idx, setIdx] = useState(0);
+  const navigate = useNavigate();
   useEffect(() => {
     if (items.length < 2) return;
     const t = setInterval(
@@ -282,9 +276,7 @@ function Ticker({ items }: { items: FleetFeedItem[] }) {
           fontWeight: 600,
           color: "var(--accent)",
         }}
-        onClick={() => {
-          /* TODO: deep-link into a full activity timeline once it exists */
-        }}
+        onClick={() => navigate("/tracker")}
       >
         View all
         <ArrowRight className="h-3 w-3" />

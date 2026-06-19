@@ -15,6 +15,12 @@ import { LOOP_COPY, cadenceLabel, loopCopy, pauseReasonLabel } from "@/lib/loopC
 import { relativeTime } from "@/lib/relativeTime";
 import type { Loop, LoopStatus } from "@/services/loops";
 import { useDeleteLoop, usePauseLoop, useResumeLoop, useStartLoop } from "@/hooks/useLoops";
+import { getCompanyLogo } from "@/lib/companyLogos";
+
+const MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
+const EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
+
+// ── Status chip (dot + mono small-caps) ─────────────────────────────────────
 
 const MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
 const EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
@@ -125,6 +131,33 @@ const COMPANY_TINTS: Record<string, string> = {
 };
 
 function CoBadge({ name, size = 28 }: { name: string; size?: number }) {
+  const logo = getCompanyLogo(name);
+  if (logo) {
+    return (
+      <span
+        style={{
+          width: size,
+          height: size,
+          borderRadius: 8,
+          flexShrink: 0,
+          background: "#ffffff",
+          border: "1px solid rgba(15, 37, 69, 0.08)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+          padding: 3,
+        }}
+        title={name}
+      >
+        <img
+          src={logo}
+          alt={name}
+          style={{ width: "100%", height: "100%", objectFit: "contain" }}
+        />
+      </span>
+    );
+  }
   const c = COMPANY_TINTS[name] || "#4A60A8";
   return (
     <span
@@ -141,6 +174,7 @@ function CoBadge({ name, size = 28 }: { name: string; size?: number }) {
         fontWeight: 700,
         fontSize: size * 0.42,
       }}
+      title={name}
     >
       {(name || "?").charAt(0).toUpperCase()}
     </span>
@@ -243,14 +277,33 @@ export function LoopCard({ loop }: { loop: Loop }) {
   const resumeMut = useResumeLoop();
   const deleteMut = useDeleteLoop();
 
-  const found = loop.totalContactsFound;
-  const target = Math.max(1, loop.weeklyTarget);
-  const overGoal = found > target;
-  const empty = found === 0;
-  const pct = target > 0 ? Math.min(100, Math.round((found / target) * 100)) : 0;
+  // Weekly found (this ISO week) vs the weekly target — so the progress line
+  // and bar speak the same cadence as the "/wk target" label and the fleet
+  // command bar. Falls back to 0 if the server hasn't supplied the weekly
+  // count (older payloads). Previously this used totalContactsFound (lifetime),
+  // which pinned the bar at 100% on any established Loop.
+  const found = loop.weekContactsFound ?? 0;
+  // Cumulative all-time finds — context line, so a fresh week (weekly resets
+  // every Monday) never looks like progress vanished.
+  const allTime = loop.liveContactsFound ?? 0;
+  // Drafts the Loop has written and is holding for the user to send — the
+  // action-first hero. Live from contacts, never resets weekly.
+  const drafts = loop.liveDraftsWaiting ?? 0;
 
   const credits = loop.weekCreditsSpent || 0;
   const creditCap = loop.creditBudgetPerWeek || 0;
+
+  // "Momentum" fill — a feel of progress, not a strict metric. Blends this
+  // week's spend (the Loop actively working) with cumulative output, floored
+  // so an active Loop never reads as a dead empty bar and a busier Loop reads
+  // fuller. Zero only for a Loop that's done literally nothing.
+  const spendRatio = creditCap > 0 ? Math.min(1, credits / creditCap) : 0;
+  const momentum =
+    drafts > 0 || allTime > 0 || found > 0
+      ? Math.round(
+          Math.min(96, Math.max(12, 12 + spendRatio * 52 + Math.min(1, allTime / 10) * 34)),
+        )
+      : 0;
 
   const copy = loopCopy(loop.loopMode ?? "people", { autoSendMode: loop.autoSendMode });
   const cta = ctaFor(loop, copy);
@@ -371,29 +424,43 @@ export function LoopCard({ loop }: { loop: Loop }) {
         </div>
       )}
 
-      {/* One calm progress line. */}
+      {/* Action-first progress. Lead with the backlog that needs the user
+          (drafts to send — never resets weekly), then found context, then
+          spend. No empty weekly bar to read as "no progress" on a fresh week. */}
       <div style={{ marginTop: 24 }}>
-        <div
-          className="flex items-baseline justify-between"
-          style={{ marginBottom: 9 }}
-        >
-          <span
-            style={{
-              fontSize: 13,
-              fontWeight: 500,
-              color: overGoal ? "#C9652C" : "var(--ink-2)",
-            }}
-          >
-            {found} of {target} found this week
-          </span>
+        <div className="flex items-baseline justify-between" style={{ marginBottom: 5 }}>
+          {drafts > 0 ? (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                fontSize: 14.5,
+                fontWeight: 600,
+                color: "var(--accent)",
+              }}
+            >
+              {drafts} draft{drafts === 1 ? "" : "s"} ready to send
+              <ArrowRight size={14} />
+            </span>
+          ) : (
+            <span style={{ fontSize: 14, fontWeight: 600, color: "var(--ink-2)" }}>
+              {allTime > 0 ? "All caught up" : "Warming up…"}
+            </span>
+          )}
           {creditCap > 0 && (
             <span style={{ fontSize: 11.5, color: "var(--ink-3)" }}>
               {credits} / {creditCap} credits
             </span>
           )}
         </div>
+        <div style={{ fontSize: 12.5, color: "var(--ink-3)" }}>
+          {allTime} found all-time · {found} new this week
+        </div>
+        {/* Momentum bar — visual progress, blended from real spend + output. */}
         <div
           style={{
+            marginTop: 11,
             height: 5,
             borderRadius: 999,
             background: "var(--line-2)",
@@ -403,10 +470,10 @@ export function LoopCard({ loop }: { loop: Loop }) {
           <div
             style={{
               height: "100%",
-              width: empty ? 0 : pct + "%",
+              width: momentum + "%",
               borderRadius: 999,
-              background: overGoal ? "var(--action-fg)" : "var(--accent)",
-              transition: `width .6s ${EASE}`,
+              background: "var(--accent)",
+              transition: "width .6s cubic-bezier(0.16,1,0.3,1)",
             }}
           />
         </div>

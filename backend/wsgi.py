@@ -46,6 +46,14 @@ from .app.routes.agent import agent_bp
 from .app.routes.loop_notifications import loop_notifications_bp
 from .app.routes.loops import loops_bp
 from .app.routes.metrics import metrics_bp
+from .app.routes.interview_prep_public import interview_prep_public_bp
+from .app.routes.cover_letter_public import cover_letter_public_bp
+from .app.routes.resume_workshop_public import resume_workshop_public_bp
+from .app.routes.meeting_prep_public import meeting_prep_public_bp
+from .app.routes.find_hiring_manager_public import find_hiring_manager_public_bp
+from .app.routes.find_companies_public import find_companies_public_bp
+from .app.routes.find_jobs_public import find_jobs_public_bp
+from .app.routes.find_people_public import find_people_public_bp
 from .app.extensions import init_app_extensions
 
 def create_app() -> Flask:
@@ -59,6 +67,34 @@ def create_app() -> Flask:
         static_folder=STATIC_DIR,
         static_url_path=""
     )
+
+    # --- 410 Gone for pruned dead SEO pages ---
+    # These pages (old firm-name-swapped templates with zero clicks) were
+    # permanently removed on 2026-06-15 and dropped from the sitemap. Serving
+    # 410 (not 404) tells Google to deindex them. Earners are NOT in this list.
+    # Registered before the prerender middleware so crawlers get the 410 itself.
+    PRUNED_PATHS = set()
+    try:
+        _pruned_file = os.path.join(os.path.dirname(__file__), "app", "seo_pruned_urls.txt")
+        with open(_pruned_file, "r", encoding="utf-8") as _pf:
+            PRUNED_PATHS = {ln.strip().rstrip("/") for ln in _pf if ln.strip() and not ln.startswith("#")}
+        app.logger.info(f"Loaded {len(PRUNED_PATHS)} pruned (410) SEO paths")
+    except FileNotFoundError:
+        app.logger.warning("seo_pruned_urls.txt not found; 410 pruning inactive")
+
+    @app.before_request
+    def gone_pruned_pages():
+        if request.method != "GET":
+            return None
+        if (request.path.rstrip("/") or "/") in PRUNED_PATHS:
+            resp = make_response(
+                "<!doctype html><title>410 Gone</title>"
+                "<h1>410 Gone</h1><p>This page has been permanently removed.</p>"
+            )
+            resp.status_code = 410
+            resp.mimetype = "text/html"
+            return resp
+        return None
 
     # --- Prerender.io middleware for bot crawlers (SEO/AEO) ---
     PRERENDER_TOKEN = os.environ.get("PRERENDER_TOKEN")
@@ -209,6 +245,26 @@ def create_app() -> Flask:
     app.register_blueprint(loops_bp)
     app.register_blueprint(loop_notifications_bp)
     app.register_blueprint(metrics_bp)
+    app.register_blueprint(interview_prep_public_bp)
+    app.register_blueprint(cover_letter_public_bp)
+    app.register_blueprint(resume_workshop_public_bp)
+    app.register_blueprint(meeting_prep_public_bp)
+    app.register_blueprint(find_hiring_manager_public_bp)
+    app.register_blueprint(find_companies_public_bp)
+    app.register_blueprint(find_jobs_public_bp)
+    app.register_blueprint(find_people_public_bp)
+
+    # --- MCP server (anonymous IP-based, mounts /mcp + /api/mcp/health) ---
+    # Skippable for local dev: the MCP mount refuses to boot against the prod
+    # Firestore project from a non-prod env, so DISABLE_MCP=1 lets a developer
+    # run the rest of the app locally without it.
+    if os.getenv("DISABLE_MCP") != "1":
+        from .app.mcp_server.flask_mount import register_mcp_blueprint
+        register_mcp_blueprint(app)
+
+    # --- /claim?token=xyz attribution landing for MCP paywall ---
+    from .app.routes.claim import claim_bp
+    app.register_blueprint(claim_bp)
 
     # --- Debug route to check frontend build (dev only) ---
     @app.route('/api/debug/frontend')

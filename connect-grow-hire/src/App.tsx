@@ -5,27 +5,41 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import posthog from "./lib/posthog";
 import { FirebaseAuthProvider, useFirebaseAuth } from "./contexts/FirebaseAuthContext";
 import { ScoutProvider, useScout } from "./contexts/ScoutContext";
 import { TourProvider } from "./contexts/TourContext";
 import { HelmetProvider } from "react-helmet-async";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { DynamicGradientBackground } from "./components/background/DynamicGradientBackground";
-import { LoadingSkeleton } from "./components/LoadingSkeleton";
 import { ScoutSidePanel } from "./components/ScoutSidePanel";
 import FloatingAskScoutButton from "./components/AskScoutButton";
+import { ReplyNotifier } from "./components/ReplyNotifier";
 import { LoadingContainer } from "./components/ui/LoadingBar";
 import { IS_DEV_PREVIEW } from "./lib/devPreview";
 import { useAgentGlobalNotifier } from "./hooks/useAgent";
 
-// Keep critical pages non-lazy for faster initial load
-import Index from "./pages/Index";
+// Keep critical auth pages non-lazy for faster initial load
 import SignIn from "./pages/SignIn";
 import AuthCallback from "./pages/AuthCallback";
 import UscBeta from "@/pages/UscBeta";
 
+// Landing page is lazy: authed users get redirected to /dashboard and never
+// render it, so its heavy image/component tree must stay out of the critical
+// entry chunk.
+const Index = React.lazy(() => import("./pages/Index"));
+// The gradient background is landing-only and decorative (pure CSS/React, no
+// WebGL). Lazy so it never ships on the critical path. Mounts with a null
+// fallback only when an unauthenticated visitor actually sees the landing page.
+const DynamicGradientBackground = React.lazy(() =>
+  import("./components/background/DynamicGradientBackground").then((m) => ({
+    default: m.DynamicGradientBackground,
+  })),
+);
+
 // Lazy load heavy pages for code splitting
 const AboutUs = React.lazy(() => import("./pages/AboutUs"));
+const ForStudentsPage = React.lazy(() => import("./pages/ForStudentsPage"));
+const PromoPage = React.lazy(() => import("./pages/PromoPage"));
 const CoffeeChatLibrary = React.lazy(() => import("./pages/CoffeeChatLibrary"));
 const ContactUs = React.lazy(() => import("./pages/ContactUs"));
 const PrivacyPolicy = React.lazy(() => import("./pages/PrivacyPolicy"));
@@ -52,7 +66,10 @@ const CoffeeChatPrepPage = React.lazy(() => import("./pages/CoffeeChatPrepPage")
 const FindPage = React.lazy(() => import("./pages/FindPage"));
 const EmailTemplatesPage = React.lazy(() => import("./pages/EmailTemplatesPage"));
 const RecruitingTimelinePage = React.lazy(() => import("./pages/RecruitingTimelinePage"));
-const DashboardPage = React.lazy(() => import("./pages/DashboardPage"));
+// Factory extracted so we can prefetch the chunk the moment auth resolves
+// (see DashboardPrefetch), making the post-redirect Suspense fallback instant.
+const importDashboardPage = () => import("./pages/DashboardPage");
+const DashboardPage = React.lazy(importDashboardPage);
 const AgentPage = React.lazy(() => import("./pages/AgentPage"));
 const AgentSetup = React.lazy(() => import("./pages/AgentSetup"));
 const LoopsPage = React.lazy(() => import("./pages/LoopsPage"));
@@ -83,6 +100,46 @@ const CoffeeChatGuidePage = React.lazy(() => import("./pages/CoffeeChatGuidePage
 const RoleNetworkingGuidePage = React.lazy(() => import("./pages/RoleNetworkingGuidePage"));
 const CompanyComparisonPage = React.lazy(() => import("./pages/CompanyComparisonPage"));
 
+// Public free tools + widget sandboxes
+const InterviewPrepFree = React.lazy(() => import("./pages/InterviewPrepFree"));
+const CoverLetterFree = React.lazy(() => import("./pages/CoverLetterFree"));
+const ResumeReviewFree = React.lazy(() => import("./pages/ResumeReviewFree"));
+const WidgetSandbox = React.lazy(() => import("./pages/WidgetSandbox"));
+const CoverLetterWidgetSandbox = React.lazy(() => import("./pages/CoverLetterWidgetSandbox"));
+const InterviewPrepSandbox = React.lazy(() => import("./pages/InterviewPrepSandbox"));
+const FindHiringManagerFree = React.lazy(() => import("./pages/FindHiringManagerFree"));
+const FindHiringManagerWidgetSandbox = React.lazy(() => import("./pages/FindHiringManagerWidgetSandbox"));
+const FindHiringManagerPreview = React.lazy(() => import("./pages/seo-preview/FindHiringManagerPreview"));
+const FindCompaniesFree = React.lazy(() => import("./pages/FindCompaniesFree"));
+const FindCompaniesWidgetSandbox = React.lazy(() => import("./pages/FindCompaniesWidgetSandbox"));
+const FindCompaniesPreview = React.lazy(() => import("./pages/seo-preview/FindCompaniesPreview"));
+const FindJobsFree = React.lazy(() => import("./pages/FindJobsFree"));
+const FindJobsWidgetSandbox = React.lazy(() => import("./pages/FindJobsWidgetSandbox"));
+const FindJobsPreview = React.lazy(() => import("./pages/seo-preview/FindJobsPreview"));
+const FindPeopleFree = React.lazy(() => import("./pages/FindPeopleFree"));
+const FindPeopleWidgetSandbox = React.lazy(() => import("./pages/FindPeopleWidgetSandbox"));
+const FindPeopleUscGooglePreview = React.lazy(() => import("./pages/seo-preview/FindPeopleUscGooglePreview"));
+const FindPeopleTemplate = React.lazy(() => import("./pages/seo-preview/templates/FindPeopleTemplate"));
+const MeetingPrepFree = React.lazy(() => import("./pages/MeetingPrepFree"));
+const MeetingPrepWidgetSandbox = React.lazy(() => import("./pages/MeetingPrepWidgetSandbox"));
+const MeetingPrepFreePreview = React.lazy(() => import("./pages/seo-preview/MeetingPrepFreePreview"));
+
+// SEO preview pages (marketing landing variants embedding the widgets)
+const MeetingPrepPreview = React.lazy(() => import("./pages/seo-preview/MeetingPrepPreview"));
+const ColdEmailPreview = React.lazy(() => import("./pages/seo-preview/ColdEmailPreview"));
+const FindAlumniPreview = React.lazy(() => import("./pages/seo-preview/FindAlumniPreview"));
+const ResumeCheckerPreview = React.lazy(() => import("./pages/seo-preview/ResumeCheckerPreview"));
+const RecruitingTimelinePreview = React.lazy(() => import("./pages/seo-preview/RecruitingTimelinePreview"));
+const NetworkingEmailGeneratorPreview = React.lazy(() => import("./pages/seo-preview/NetworkingEmailGeneratorPreview"));
+const ResumeReviewGoldmanIBPreview = React.lazy(() => import("./pages/seo-preview/ResumeReviewGoldmanIBPreview"));
+const WhatIsAnATSPreview = React.lazy(() => import("./pages/seo-preview/WhatIsAnATSPreview"));
+const CoverLetterMckinseyBAPreview = React.lazy(() => import("./pages/seo-preview/CoverLetterMckinseyBAPreview"));
+const InterviewPrepMckinseyCasePreview = React.lazy(() => import("./pages/seo-preview/InterviewPrepMckinseyCasePreview"));
+const ResumeReviewTemplate = React.lazy(() => import("./pages/seo-preview/templates/ResumeReviewTemplate"));
+const CoverLetterTemplate = React.lazy(() => import("./pages/seo-preview/templates/CoverLetterTemplate"));
+const InterviewPrepTemplate = React.lazy(() => import("./pages/seo-preview/templates/InterviewPrepTemplate"));
+const ATSGuideTemplate = React.lazy(() => import("./pages/seo-preview/templates/ATSGuideTemplate"));
+
 // Optimized QueryClient with caching
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -95,12 +152,18 @@ const queryClient = new QueryClient({
   },
 });
 
-// Loading fallback component
-const PageLoader = () => (
-  <div className="min-h-screen flex items-center justify-center">
-    <LoadingSkeleton />
+// Unified full-screen loader — used for BOTH auth resolution (route guards)
+// and lazy-route Suspense fallbacks. Sharing one component keeps the two
+// phases visually continuous instead of swapping between a spinner and a
+// skeleton, which read as a "double load".
+const FullScreenLoader = () => (
+  <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+    <LoadingContainer label="Loading Offerloop..." sublabel="Please wait" />
   </div>
 );
+
+// Suspense fallback (name kept for existing call sites).
+const PageLoader = FullScreenLoader;
 
 // Phase 3 stationery aesthetic — always-on (shipped).
 // Formerly gated by VITE_FLAG_NEW_AESTHETIC env var during dev preview.
@@ -139,14 +202,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
   if (isLoading) {
     devLog("🔒 [PROTECTED ROUTE] Still loading auth state, showing loading bar");
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-        <LoadingContainer
-          label="Loading Offerloop..."
-          sublabel="Please wait"
-        />
-      </div>
-    );
+    return <FullScreenLoader />;
   }
 
   // If signed out flag is present, redirect to landing page instead of signin
@@ -193,14 +249,11 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     needsOnboarding: user?.needsOnboarding || false
   });
   
-  // Show loading spinner instead of null to avoid blank page
+  // Use the same full-screen loader as the protected routes and Suspense
+  // fallbacks so auth resolution never visually swaps loaders.
   if (isLoading) {
-    devLog("🛣️ [PUBLIC ROUTE] Still loading auth state, showing spinner");
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-      </div>
-    );
+    devLog("🛣️ [PUBLIC ROUTE] Still loading auth state, showing loader");
+    return <FullScreenLoader />;
   }
 
   // If explicitly signed out, always show the landing page regardless of user state
@@ -230,7 +283,7 @@ const AppRoutes: React.FC = () => {
   return (
     <Routes>
       {/* Public Landing */}
-      <Route path="/" element={<PublicRoute><Index /></PublicRoute>} />
+      <Route path="/" element={<PublicRoute><Suspense fallback={<PageLoader />}><Index /></Suspense></PublicRoute>} />
       <Route path="/usc-beta" element={<UscBeta />} />
 
       {/* Auth */}
@@ -307,7 +360,7 @@ const AppRoutes: React.FC = () => {
       <Route path="/contact-directory" element={<Navigate to="/my-network/people" replace />} />
       <Route path="/coffee-chat-library" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoffeeChatLibrary /></Suspense></ProtectedRoute>} />
       <Route path="/account-settings" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AccountSettings /></Suspense></ProtectedRoute>} />
-      <Route path="/pricing" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><Pricing /></Suspense></ProtectedRoute>} />
+      <Route path="/pricing" element={<Suspense fallback={<PageLoader />}><Pricing /></Suspense>} />
       <Route path="/documentation" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><DocumentationPage /></Suspense></ProtectedRoute>} />
       <Route path="/payment-success" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><PaymentSuccess /></Suspense></ProtectedRoute>} />
       
@@ -354,6 +407,8 @@ const AppRoutes: React.FC = () => {
 
       {/* Public informational pages */}
       <Route path="/about" element={<Suspense fallback={<PageLoader />}><AboutUs /></Suspense>} />
+      <Route path="/for-students" element={<Suspense fallback={<PageLoader />}><ForStudentsPage /></Suspense>} />
+      <Route path="/promo" element={<Suspense fallback={<PageLoader />}><PromoPage /></Suspense>} />
       <Route path="/contact" element={<Navigate to="/contact-us" replace />} />
       <Route path="/contact-us" element={<Suspense fallback={<PageLoader />}><ContactUs /></Suspense>} />
 
@@ -365,6 +420,49 @@ const AppRoutes: React.FC = () => {
       <Route path="/terms" element={<Navigate to="/terms-of-service" replace />} />
 
       {/* 404 */}
+      {/* Public free tools */}
+      <Route path="/tools/interview-prep" element={<Suspense fallback={<PageLoader />}><InterviewPrepFree /></Suspense>} />
+      <Route path="/tools/cover-letter" element={<Suspense fallback={<PageLoader />}><CoverLetterFree /></Suspense>} />
+      <Route path="/tools/resume-review" element={<Suspense fallback={<PageLoader />}><ResumeReviewFree /></Suspense>} />
+      <Route path="/tools/find-hiring-manager" element={<Suspense fallback={<PageLoader />}><FindHiringManagerFree /></Suspense>} />
+      <Route path="/tools/find-companies" element={<Suspense fallback={<PageLoader />}><FindCompaniesFree /></Suspense>} />
+      <Route path="/tools/find-jobs" element={<Suspense fallback={<PageLoader />}><FindJobsFree /></Suspense>} />
+      <Route path="/tools/find-people" element={<Suspense fallback={<PageLoader />}><FindPeopleFree /></Suspense>} />
+      <Route path="/tools/meeting-prep-free" element={<Suspense fallback={<PageLoader />}><MeetingPrepFree /></Suspense>} />
+
+      {/* Widget sandboxes (internal preview, not linked from nav) */}
+      <Route path="/sandbox/resume-widget" element={<Suspense fallback={<PageLoader />}><WidgetSandbox /></Suspense>} />
+      <Route path="/sandbox/cover-letter-widget" element={<Suspense fallback={<PageLoader />}><CoverLetterWidgetSandbox /></Suspense>} />
+      <Route path="/sandbox/interview-prep-widget" element={<Suspense fallback={<PageLoader />}><InterviewPrepSandbox /></Suspense>} />
+      <Route path="/sandbox/find-hiring-manager-widget" element={<Suspense fallback={<PageLoader />}><FindHiringManagerWidgetSandbox /></Suspense>} />
+      <Route path="/sandbox/find-companies-widget" element={<Suspense fallback={<PageLoader />}><FindCompaniesWidgetSandbox /></Suspense>} />
+      <Route path="/sandbox/find-jobs-widget" element={<Suspense fallback={<PageLoader />}><FindJobsWidgetSandbox /></Suspense>} />
+      <Route path="/sandbox/find-people-widget" element={<Suspense fallback={<PageLoader />}><FindPeopleWidgetSandbox /></Suspense>} />
+      <Route path="/sandbox/meeting-prep-widget" element={<Suspense fallback={<PageLoader />}><MeetingPrepWidgetSandbox /></Suspense>} />
+
+      {/* SEO preview pages */}
+      <Route path="/seo-preview/meeting-mckinsey" element={<Suspense fallback={<PageLoader />}><MeetingPrepPreview /></Suspense>} />
+      <Route path="/seo-preview/meeting-prep-free" element={<Suspense fallback={<PageLoader />}><MeetingPrepFreePreview /></Suspense>} />
+      <Route path="/seo-preview/cold-email-goldman" element={<Suspense fallback={<PageLoader />}><ColdEmailPreview /></Suspense>} />
+      <Route path="/seo-preview/find-usc-goldman" element={<Suspense fallback={<PageLoader />}><FindAlumniPreview /></Suspense>} />
+      <Route path="/seo-preview/resume-checker" element={<Suspense fallback={<PageLoader />}><ResumeCheckerPreview /></Suspense>} />
+      <Route path="/seo-preview/ib-recruiting-timeline" element={<Suspense fallback={<PageLoader />}><RecruitingTimelinePreview /></Suspense>} />
+      <Route path="/seo-preview/networking-email-generator" element={<Suspense fallback={<PageLoader />}><NetworkingEmailGeneratorPreview /></Suspense>} />
+      <Route path="/seo-preview/resume-review-goldman-ib" element={<Suspense fallback={<PageLoader />}><ResumeReviewGoldmanIBPreview /></Suspense>} />
+      <Route path="/seo-preview/what-is-an-ats" element={<Suspense fallback={<PageLoader />}><WhatIsAnATSPreview /></Suspense>} />
+      <Route path="/seo-preview/cover-letter-mckinsey-ba" element={<Suspense fallback={<PageLoader />}><CoverLetterMckinseyBAPreview /></Suspense>} />
+      <Route path="/seo-preview/interview-prep-mckinsey-case" element={<Suspense fallback={<PageLoader />}><InterviewPrepMckinseyCasePreview /></Suspense>} />
+      <Route path="/seo-preview/resume-review/:slug" element={<Suspense fallback={<PageLoader />}><ResumeReviewTemplate /></Suspense>} />
+      <Route path="/seo-preview/cover-letter/:slug" element={<Suspense fallback={<PageLoader />}><CoverLetterTemplate /></Suspense>} />
+      <Route path="/seo-preview/interview-prep/:slug" element={<Suspense fallback={<PageLoader />}><InterviewPrepTemplate /></Suspense>} />
+      <Route path="/seo-preview/ats/:slug" element={<Suspense fallback={<PageLoader />}><ATSGuideTemplate /></Suspense>} />
+      <Route path="/seo-preview/find-hiring-manager" element={<Suspense fallback={<PageLoader />}><FindHiringManagerPreview /></Suspense>} />
+      <Route path="/seo-preview/find-companies" element={<Suspense fallback={<PageLoader />}><FindCompaniesPreview /></Suspense>} />
+      <Route path="/seo-preview/find-jobs" element={<Suspense fallback={<PageLoader />}><FindJobsPreview /></Suspense>} />
+      <Route path="/seo-preview/find-people-usc-google" element={<Suspense fallback={<PageLoader />}><FindPeopleUscGooglePreview /></Suspense>} />
+      <Route path="/seo-preview/find-people/:slug" element={<Suspense fallback={<PageLoader />}><FindPeopleTemplate /></Suspense>} />
+      <Route path="/people/:slug" element={<Suspense fallback={<PageLoader />}><FindPeopleTemplate /></Suspense>} />
+
       <Route path="*" element={<Suspense fallback={<PageLoader />}><NotFound /></Suspense>} />
     </Routes>
   );
@@ -383,19 +481,55 @@ const ScoutRedirect: React.FC = () => {
   return <Navigate to="/dashboard" replace />;
 };
 
-/* ---------------- Conditional Background Wrapper ---------------- */
+/* ---------------- Conditional Background Wrapper ----------------
+   Decides whether to mount the landing background tree BEFORE rendering it.
+   Authed users are redirected off "/" by PublicRoute, and during auth
+   resolution we show a full-screen loader, so in neither case should the
+   decorative background mount. Gate it on a visitor who will actually
+   see the landing: on "/", not loading, and either signed out or no user. */
 const ConditionalBackground: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
+  const { user, isLoading } = useFirebaseAuth();
+
+  const params = new URLSearchParams(location.search);
+  const isSignedOut = params.get('signedOut') === 'true';
   const isLandingPage = location.pathname === '/';
-  
+  const showLandingBackground =
+    isLandingPage && !isLoading && (!user || isSignedOut);
+
   return (
     <div className="relative min-h-screen">
-      {isLandingPage && <DynamicGradientBackground />}
+      {showLandingBackground && (
+        <Suspense fallback={null}>
+          <DynamicGradientBackground />
+        </Suspense>
+      )}
       <div className="relative z-10">
         {children}
       </div>
     </div>
   );
+};
+
+/* ---------------- Promo overlay gate ----------------
+   The /promo route is a scripted screen-capture surface. Suppress floating
+   Scout UI on that path so it doesn't bleed into recordings. */
+const NotOnPromo: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { pathname } = useLocation();
+  if (pathname === '/promo') return null;
+  return <>{children}</>;
+};
+
+/* ---------------- Pageview Tracker ----------------
+   capture_pageview is false in posthog.ts, so PostHog does not auto-fire.
+   This fires exactly one $pageview per location: once on initial mount and
+   once per route change. No double-fire. */
+const PageviewTracker: React.FC = () => {
+  const location = useLocation();
+  useEffect(() => {
+    posthog.capture('$pageview');
+  }, [location.pathname, location.search]);
+  return null;
 };
 
 /* ---------------- Keyboard Shortcut Handler ---------------- */
@@ -437,6 +571,21 @@ function AgentNotifierActive() {
   return null;
 }
 
+/* ---------------- Dashboard Prefetch ----------------
+   The moment auth resolves to an onboarded user, start downloading the
+   dashboard chunk. By the time PublicRoute redirects "/" → "/dashboard",
+   the lazy chunk is already in flight (or cached), so the post-redirect
+   Suspense fallback is near-instant instead of a second visible load. */
+const DashboardPrefetch: React.FC = () => {
+  const { user, isLoading } = useFirebaseAuth();
+  useEffect(() => {
+    if (!isLoading && user && !user.needsOnboarding) {
+      importDashboardPage();
+    }
+  }, [isLoading, user]);
+  return null;
+};
+
 /* ---------------- App Root ---------------- */
 const App: React.FC = () => {
   useEffect(() => {
@@ -449,6 +598,7 @@ const App: React.FC = () => {
       <TooltipProvider>
         <FirebaseAuthProvider>
           <ErrorBoundary>
+            <DashboardPrefetch />
             <BrowserRouter
               future={{
                 v7_startTransition: true,
@@ -461,10 +611,14 @@ const App: React.FC = () => {
                 <ScoutProvider>
                   <TourProvider>
                     <KeyboardShortcutHandler />
+                    <PageviewTracker />
                     <AgentNotifierMount />
+                    <ReplyNotifier />
                     <AppRoutes />
-                    <ScoutSidePanel />
-                    <FloatingAskScoutButton />
+                    <NotOnPromo>
+                      <ScoutSidePanel />
+                      <FloatingAskScoutButton />
+                    </NotOnPromo>
                   </TourProvider>
                 </ScoutProvider>
               </ConditionalBackground>

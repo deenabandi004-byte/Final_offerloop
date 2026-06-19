@@ -359,6 +359,16 @@ def get_rate_limit_key():
     if (request.method == 'GET' and
         _re.match(r'^/api/coffee-chat-prep/[^/]+$', request.path)):
         return None
+
+    # Exempt MCP server routes: they enforce their own per-IP limits
+    # via app.mcp_server.rate_limit.MCPRateLimit, and double-throttling
+    # via Flask-Limiter would silently block legitimate MCP traffic.
+    # /claim is the post-paywall signup landing; we never want to
+    # rate-limit a conversion event.
+    if (request.path == '/mcp'
+            or request.path == '/api/mcp/health'
+            or request.path == '/claim'):
+        return None
     
     # For authenticated requests, use user ID instead of IP address
     if hasattr(request, 'firebase_user') and request.firebase_user:
@@ -424,11 +434,18 @@ def init_app_extensions(app: Flask):
             "expose_headers": ["Content-Type", "Authorization"]
         }
     else:
-        # Production: only production domains (set CORS_ORIGINS env var to
-        # "https://offerloop.ai" on Render)
+        # Production: production domains + localhost (localhost is harmless in
+        # prod since it can't be reached from real users, and including it
+        # means `python3 wsgi.py` works without needing FLASK_ENV=development).
         prod_origins = [
             "https://offerloop.ai",
             "https://www.offerloop.ai",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
+            "http://localhost:8081",
+            "http://127.0.0.1:8081",
         ]
         all_origins = list(set(prod_origins + allowed_origins))
         cors_config = {

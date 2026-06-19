@@ -384,11 +384,28 @@ def create_loop(uid: str, tier: str, payload: dict) -> dict:
         budget = int(payload_clean["creditBudgetPerWeek"])
     else:
         # Wizard V2 hides cadence from the user — when weeklyTarget is missing
-        # we substitute the tier default so both fields land on the Loop doc
-        # consistently and downstream readers (agent_planner, gating) see a
-        # tier-appropriate cadence instead of the _loop_defaults() constant.
+        # we derive it, in priority order:
+        #   1. An explicit count in the brief ("10 analysts at jpmorgan" → 10).
+        #      The brief parser already extracts this as targetCount; without
+        #      this branch it was parsed then ignored, so every Loop silently
+        #      paced at the tier default no matter what number the user wrote.
+        #   2. The tier default (free 2 / pro 5 / elite 10).
+        # A brief-supplied count is capped to what the tier's weekly budget can
+        # actually fund, so the displayed pace never promises more than the
+        # Loop can pay for — and free/paid tiering still holds via that cap.
         if not payload_clean.get("weeklyTarget"):
-            payload_clean["weeklyTarget"] = weekly_target_for_tier(tier)
+            bundled_cost = BUNDLED_COST_PER_PERSON[loop_mode_for_budget]
+            brief_count = ((payload or {}).get("briefParsed") or {}).get("targetCount")
+            if isinstance(brief_count, int) and brief_count > 0:
+                target = brief_count
+                if max_budget is not None:
+                    affordable = max(
+                        1, int(max_budget // (bundled_cost * BUNDLED_BUDGET_BUFFER))
+                    )
+                    target = min(target, affordable)
+                payload_clean["weeklyTarget"] = target
+            else:
+                payload_clean["weeklyTarget"] = weekly_target_for_tier(tier)
         weekly = int(payload_clean["weeklyTarget"])
         bundled = BUNDLED_COST_PER_PERSON[loop_mode_for_budget]
         budget = int(weekly * bundled * BUNDLED_BUDGET_BUFFER)
@@ -437,7 +454,37 @@ def create_loop(uid: str, tier: str, payload: dict) -> dict:
     return {"id": loop_id, **doc}
 
 
-def update_loop(uid: str, loop_id: str, patch: dict) -> dict | None:
+def _weekly_target_and_budget(
+    tier: str | None, desired_count: int, loop_mode: str | None, auto_send_mode: str | None
+) -> tuple[int, int]:
+    """Derive (weeklyTarget, creditBudgetPerWeek) for a brief-supplied count.
+
+    Mirrors the budget math in create_loop: budget = count × per-person ×
+    buffer (+ auto-send overhead), capped by the tier's weekly max and floored
+    at 25. The count itself is first capped to what that max can fund, so the
+    displayed pace never outruns the budget.
+    """
+    tier_cfg = TIER_CONFIGS.get(tier or "free") or TIER_CONFIGS["free"]
+    max_budget = tier_cfg.get("max_credit_budget_per_week_per_loop")  # None = unbounded
+    mode = loop_mode if loop_mode in BUNDLED_COST_PER_PERSON else "people"
+    bundled = BUNDLED_COST_PER_PERSON[mode]
+
+    count = max(1, int(desired_count))
+    if max_budget is not None:
+        affordable = max(1, int(max_budget // (bundled * BUNDLED_BUDGET_BUFFER)))
+        count = min(count, affordable)
+
+    budget = int(count * bundled * BUNDLED_BUDGET_BUFFER)
+    if auto_send_mode == "send_for_me":
+        budget += int(count * AUTO_SEND_CREDIT_COST * BUNDLED_BUDGET_BUFFER)
+    if max_budget is not None:
+        budget = min(budget, max_budget)
+    return count, max(budget, 25)
+
+
+def update_loop(
+    uid: str, loop_id: str, patch: dict, tier: str | None = None
+) -> dict | None:
     db = get_db()
     ref = (
         db.collection("users").document(uid)
@@ -459,6 +506,24 @@ def update_loop(uid: str, loop_id: str, patch: dict) -> dict | None:
                 filtered.get("briefText", current.get("briefText", "")),
             )
             filtered["name"] = new_name
+
+        # Re-pace from the brief when it carries an explicit count ("10 analysts
+        # at jpmorgan" → 10/week) and the caller didn't set weeklyTarget by hand.
+        # Only fires on an explicit number, so a target someone tuned manually is
+        # never clobbered. Budget is recomputed to match the new pace so the two
+        # never drift. Mirrors the create_loop derivation.
+        if "weeklyTarget" not in filtered:
+            new_parsed = filtered.get("briefParsed") or current.get("briefParsed") or {}
+            brief_count = new_parsed.get("targetCount")
+            if isinstance(brief_count, int) and brief_count > 0:
+                wt, budget = _weekly_target_and_budget(
+                    tier,
+                    brief_count,
+                    current.get("loopMode"),
+                    current.get("autoSendMode"),
+                )
+                filtered["weeklyTarget"] = wt
+                filtered["creditBudgetPerWeek"] = budget
 
         # Append a version-history entry only when briefText actually changed.
         # A PATCH that touches briefParsed alone (without changing briefText)
@@ -580,6 +645,68 @@ def trigger_loop_cycle(uid: str, loop_id: str, app=None) -> str | None:
     return enqueue("run_loop_cycle", uid=uid, loop_id=loop_id)
 
 
+def _contact_to_draft_item(contact_id: str, c: dict) -> dict:
+    """Build a 'draft' activity row directly from a contact doc.
+
+    Used when the agent_actions feed has no result row for a draft the Loop
+    actually created (the contacts collection is the source of truth). Mirrors
+    the draft shape _action_to_items emits so the frontend renders it the same.
+    """
+    name = (f"{c.get('firstName', '')} {c.get('lastName', '')}").strip() or (
+        c.get("name") or "Contact"
+    )
+    email = (c.get("email") or c.get("draftToEmail") or "").strip()
+    draft_url = (c.get("gmailDraftUrl") or "").strip()
+    if contact_id:
+        link, external = f"/outbox?contact={contact_id}", False
+    elif draft_url:
+        link, external = draft_url, True
+    else:
+        link, external = "/outbox", False
+    return {
+        "id": f"contact-{contact_id}",
+        "type": "draft",
+        "title": c.get("emailSubject") or f"Draft to {name}",
+        "subtitle": email or (c.get("emailBody") or "")[:120] or "—",
+        "email": email,
+        "linkTo": link,
+        "external": external,
+        "createdAt": c.get("createdAt") or c.get("draftCreatedAt") or "",
+        "contactId": contact_id,
+        "hasOutreach": True,
+        "isHm": bool(c.get("isHiringManager")),
+    }
+
+
+def _contact_to_found_item(contact_id: str, c: dict) -> dict:
+    """Build a 'contact' (found, not yet emailed) row from a contact doc.
+
+    For a person the Loop surfaced but couldn't draft to — usually no usable /
+    verified email. Without this they'd be counted in the funnel's "Found" but
+    never appear in "Found, not yet emailed", so the user can't see or act on
+    them (e.g. open their LinkedIn). hasOutreach=False routes it to that
+    section instead of the drafts list.
+    """
+    name = (f"{c.get('firstName', '')} {c.get('lastName', '')}").strip() or (
+        c.get("name") or "Someone"
+    )
+    role = c.get("jobTitle") or c.get("title") or ""
+    company = c.get("company") or ""
+    subtitle = ", ".join([s for s in [role, company] if s]) or "—"
+    return {
+        "id": f"found-{contact_id}",
+        "type": "contact",
+        "title": name,
+        "subtitle": subtitle,
+        "linkTo": _feed_contact_link(contact_id, False, False),
+        "createdAt": c.get("createdAt") or "",
+        "contactId": contact_id,
+        "hasOutreach": False,
+        "isHm": bool(c.get("isHiringManager")),
+        "linkedinUrl": (c.get("linkedinUrl") or "").strip(),
+    }
+
+
 def get_loop_activity(uid: str, loop_id: str, limit: int = 50) -> list[dict]:
     """Build a chronological activity feed for one Loop.
 
@@ -607,8 +734,6 @@ def get_loop_activity(uid: str, loop_id: str, limit: int = 50) -> list[dict]:
           .where("loopId", "==", loop_id)
     )
     cycle_ids = [doc.id for doc in cycles_q.stream()]
-    if not cycle_ids:
-        return []
 
     items: list[dict] = []
 
@@ -640,6 +765,33 @@ def get_loop_activity(uid: str, loop_id: str, limit: int = 50) -> list[dict]:
 
     for action_id, data in raw_actions:
         items.extend(_action_to_items(action_id, data, referenced_group_keys))
+
+    # Source-of-truth pass: surface this Loop's contacts straight from the
+    # contacts collection for any the agent_actions feed missed (cycles that
+    # saved a contact but wrote no result row — e.g. Startups). Drafted ones
+    # become draft rows; found-but-undrafted ones (no usable email) become
+    # "found, not yet emailed" rows so they're visible/actionable instead of a
+    # phantom in the "Found" count. Deduped by contactId against the feed.
+    already = {it.get("contactId") for it in items if it.get("contactId")}
+    try:
+        contacts_ref = db.collection("users").document(uid).collection("contacts")
+        for snap in contacts_ref.where("loopId", "==", loop_id).stream():
+            c = snap.to_dict() or {}
+            if c.get("source") != "agent" or snap.id in already:
+                continue
+            has_draft = bool(
+                c.get("emailSubject")
+                or c.get("emailBody")
+                or c.get("pipelineStage") == "draft_created"
+            )
+            if has_draft:
+                items.append(_contact_to_draft_item(snap.id, c))
+            else:
+                items.append(_contact_to_found_item(snap.id, c))
+    except Exception:
+        logger.exception(
+            "get_loop_activity: contact merge failed for loop=%s", loop_id
+        )
 
     # Sort newest first, cap.
     items.sort(key=lambda x: x.get("createdAt") or "", reverse=True)
@@ -909,7 +1061,7 @@ def _gmail_link_for_contact(
     fallback: str,
     fallback_external: bool = False,
 ) -> tuple[str, bool]:
-    """Best Gmail destination for a Loop-found contact.
+    """Best Gmail destination for a Loop draft row.
 
     Priority: live thread → captured draft URL (the exact compose URL we
     stamped on the contact at draft-creation time, same one the Find People
@@ -917,6 +1069,10 @@ def _gmail_link_for_contact(
     neither — its `fallback_external` flag is preserved so callers can pass
     a Gmail compose link (external=True) without `get_loop_activity`'s
     re-resolve flipping it back to an internal route.
+
+    Used for draft rows only; non-draft contact rows stay in-app via
+    `_feed_contact_link` so the user can see network context before
+    jumping to Gmail.
     """
     if thread_id:
         return f"https://mail.google.com/mail/u/0/#inbox/{thread_id}", True
@@ -942,6 +1098,24 @@ def _gmail_compose_url(*, to: str, subject: str, body: str = "") -> str:
     if body:
         parts.append(f"&body={quote_plus(body)}")
     return "".join(parts)
+
+
+def _feed_contact_link(contact_id: str, is_hm: bool, has_outreach: bool) -> str:
+    """In-app deep link for a Loop activity card (non-draft rows).
+
+    Draft rows route to Gmail via _gmail_link_for_contact above. Other
+    contact-shaped rows stay in-app so the user can see network context:
+      HM            -> Find > Hiring Managers tab
+      has outreach  -> tracker row (/outbox)
+      bare person   -> My Network people row
+    """
+    if not contact_id:
+        return "/outbox"
+    if is_hm:
+        return f"/find?tab=hiring-managers&contact={contact_id}"
+    if has_outreach:
+        return f"/outbox?contact={contact_id}"
+    return f"/my-network/people?contact={contact_id}"
 
 
 def _action_to_items(
@@ -978,22 +1152,21 @@ def _action_to_items(
             subtitle = ", ".join([s for s in [role, company] if s])
             contact_id = c.get("contactId") or c.get("id") or ""
 
-            # Click target priority for ANY Loop-found contact row:
-            # Gmail thread (if sent) > Gmail draft (if drafted) > Gmail
-            # search for the recipient's email > tracker fallback. The
-            # whole point of the activity feed is to drop the student
-            # straight onto the conversation; the tracker is only a
-            # last resort when we have no email at all.
+            # Variables also consumed by the draft row below (which routes
+            # to Gmail directly via _gmail_link_for_contact).
             contact_email = (c.get("email") or "").strip()
             thread_id = (c.get("gmailThreadId") or "").strip()
             draft_url = (c.get("gmailDraftUrl") or "").strip()
-            base = "/hiring-manager-tracker" if is_hm else "/tracker"
-            tracker_fallback = f"{base}?contact={contact_id}" if contact_id else base
-            link, external = _gmail_link_for_contact(
-                thread_id=thread_id,
-                draft_url=draft_url,
-                fallback=tracker_fallback,
+            # In-app deep link to the exact record (see _feed_contact_link):
+            # a drafted/sent person points at their tracker row, a bare person
+            # at their My Network row, an HM at the Find > Hiring Managers tab.
+            # The draft row below uses _gmail_link_for_contact instead so its
+            # Draft button lands in Gmail.
+            person_has_outreach = bool(
+                c.get("emailSubject") or c.get("emailBodyPreview") or thread_id
             )
+            link = _feed_contact_link(contact_id, is_hm, person_has_outreach)
+            external = False
             # role_search HMs carry a foreign key into the find_jobs item
             # they were paired with. Surface it on the activity items so the
             # feed can render the founder draft inline below its source
@@ -1013,18 +1186,22 @@ def _action_to_items(
                 # that was stamped after the action ran. Stripped before
                 # the item leaves the backend.
                 "_contactId": contact_id,
+                # Explicit fields for the per-card action buttons (My Network /
+                # Inbox / Find), so the frontend doesn't parse them out of linkTo.
+                "contactId": contact_id,
+                "hasOutreach": person_has_outreach,
+                "isHm": is_hm,
             }
             if source_job_id:
                 contact_item["groupKey"] = source_job_id
             out.append(contact_item)
             # If a draft was generated alongside, surface it as its own row.
+            # Draft rows route to Gmail (not the tracker) — that's the whole
+            # point of the Draft button on the frontend's EmailRow. Reuse the
+            # contact's thread/draft URL when we have one, otherwise fall back
+            # to a Gmail compose URL with to+subject prefilled so the student
+            # can finish the message manually.
             if c.get("emailSubject") or c.get("emailBodyPreview"):
-                # Draft rows need to land in Gmail, not the tracker. Reuse
-                # the contact's thread/draft URL when we have one, otherwise
-                # fall back to a Gmail compose URL with to+subject prefilled
-                # so the student can finish the message manually. The contact
-                # row above keeps its tracker fallback (different intent —
-                # "see this person in my network").
                 if contact_email:
                     draft_compose_fallback = _gmail_compose_url(
                         to=contact_email,
@@ -1044,13 +1221,18 @@ def _action_to_items(
                     "title": name,
                     "subtitle": contact_email or (c.get("emailBodyPreview") or "")[:120],
                     "contactName": name,
-                    "contactId": contact_id,
                     "emailSubject": c.get("emailSubject") or "",
                     "email": contact_email,
                     "linkTo": draft_link,
                     "external": draft_external,
                     "createdAt": created_at,
-                    # Same re-resolution hook as the contact row above.
+                    # Explicit fields for the per-card action buttons.
+                    "contactId": contact_id,
+                    "hasOutreach": True,
+                    "isHm": is_hm,
+                    # Internal: re-resolution hook (stripped before the item
+                    # leaves the backend; lets get_loop_activity overwrite
+                    # the click target from the live contact doc).
                     "_contactId": contact_id,
                 }
                 if source_job_id:

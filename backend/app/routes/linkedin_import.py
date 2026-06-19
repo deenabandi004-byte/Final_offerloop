@@ -10,12 +10,16 @@ from ..extensions import require_firebase_auth, get_db
 from ..config import PDL_BASE_URL, PEOPLE_DATA_LABS_API_KEY
 from ..services.reply_generation import batch_generate_emails, PURPOSES_INCLUDE_RESUME, email_body_mentions_resume, regenerate_with_feedback
 from ..utils.warmth_scoring import score_contacts_for_email
+from ..utils.users import get_outreach_email
 from ..services.gmail_client import create_gmail_draft_for_user, download_resume_from_url
 from ..services.hunter import get_verified_email, get_smart_company_domain
-from ..services.pdl_client import _choose_best_email, _pdl_email_is_fresh
+from ..services.pdl_client import _choose_best_email
 from ..services.resume_parser import extract_text_from_pdf_bytes
 from ..utils.email_quality import check_email_quality
-from ..services.email_request_builder import build_email_gen_request
+from ..services.email_request_builder import (
+    resolve_email_template as _resolve_email_template,
+    build_email_gen_request,
+)
 
 linkedin_import_bp = Blueprint('linkedin_import', __name__, url_prefix='/api/contacts')
 
@@ -471,7 +475,8 @@ def import_from_linkedin():
             'university': user_data.get('university', ''),
             'major': user_data.get('major', ''),
             'year': user_data.get('year', ''),
-            'email': request.firebase_user.get('email', ''),
+            # Prefer the user's .edu as the outreach identity (body signature).
+            'email': get_outreach_email(user_data) or request.firebase_user.get('email', ''),
         }
         for key in ("resumeParsed", "academics", "goals", "careerTrack",
                     "dreamCompanies", "hometown", "location", "pastCompanies"):
@@ -639,7 +644,8 @@ def import_from_linkedin():
                     user_email = request.firebase_user.get('email')
                     user_info = {
                         'name': user_profile.get('name', '') or user_data.get('name', ''),
-                        'email': user_email or '',
+                        # Prefer .edu for the draft signature identity.
+                        'email': get_outreach_email(user_data) or user_email or '',
                         'phone': user_data.get('phone', '') if user_data else '',
                         'linkedin': user_data.get('linkedin', '') if user_data else '',
                     }
@@ -669,8 +675,8 @@ def import_from_linkedin():
             else:
                 print(f"[LinkedInImport]   - ⚠️ No email generated")
         else:
-            print(f"[LinkedInImport] Step 6: Skipping email generation (no email found)")
-        
+            print(f"[LinkedInImport]   - ⚠️ Email generation returned no results")
+
         # Step 6: Save to Firestore
         print(f"[LinkedInImport] Step 8: Saving contact to Firestore...")
         now_iso = datetime.utcnow().isoformat() + "Z"
@@ -819,13 +825,28 @@ def import_from_linkedin():
         print(f"[LinkedInImport] ========== IMPORT COMPLETE ==========")
         print(f"{'='*80}\n")
         
+        warmth_entry = warmth_data.get(0) if isinstance(warmth_data, dict) else None
         response_payload = {
             'status': 'ok',
+            # Card-ready shape so the frontend can render this through the same
+            # result-card + action-button path as the Find People search.
             'contact': {
                 'full_name': full_name,
+                'firstName': pdl_contact.get('FirstName', ''),
+                'lastName': pdl_contact.get('LastName', ''),
                 'email': contact_email,  # None if not found
                 'email_source': email_source,  # "pdl" or "hunter.io" or None
                 'linkedin_url': linkedin_url,
+                'linkedinUrl': linkedin_url,
+                'jobTitle': pdl_contact.get('Title', ''),
+                'company': pdl_contact.get('Company', ''),
+                'location': f"{pdl_contact.get('City', '')}, {pdl_contact.get('State', '')}".strip(', '),
+                'emailSubject': email_subject,
+                'emailBody': email_body,
+                'gmailDraftUrl': draft_result.get('draft_url') if isinstance(draft_result, dict) else None,
+                'warmth_label': (warmth_entry or {}).get('label'),
+                'warmth_tier': (warmth_entry or {}).get('tier'),
+                'warmth_signals': (warmth_entry or {}).get('signals'),
             },
             'contact_id': contact_id,
             'draft_created': draft_result is not None,

@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
+import { useTour } from "@/contexts/TourContext";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
@@ -43,6 +44,7 @@ import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { CompanyLogo } from "@/components/CompanyLogo";
 import { IS_DEV_PREVIEW } from "@/lib/devPreview";
 import { useSubscription } from "@/hooks/useSubscription";
+import { useCreditsView } from "@/hooks/useCreditsView";
 import { canUseFeature, getFeatureLimit } from "@/utils/featureAccess";
 import { trackFeatureActionCompleted, trackContentViewed, trackError } from "../lib/analytics";
 import meetingPrepBg from "@/assets/meeting-prep-watercolor.png";
@@ -58,6 +60,8 @@ const CoffeeChatPrepPage: React.FC = () => {
     email: "user@example.com",
     tier: "free",
   } as const;
+  // Trial-aware credit balance (daily pool during a trial).
+  const creditsView = useCreditsView();
   
   // Check if user has access to coffee chat prep based on remaining uses
   const currentUsage = subscription?.coffeeChatPrepsUsed || 0;
@@ -71,7 +75,7 @@ const CoffeeChatPrepPage: React.FC = () => {
       )
     : effectiveUser.tier === 'elite';
   
-  const hasEnoughCredits = (effectiveUser.credits ?? 0) >= COFFEE_CHAT_CREDITS;
+  const hasEnoughCredits = creditsView.balance >= COFFEE_CHAT_CREDITS;
   const hasAccess = hasMonthlyAccess && hasEnoughCredits;
 
   // Animated placeholder
@@ -148,6 +152,54 @@ const CoffeeChatPrepPage: React.FC = () => {
       }
     }
   }, [libraryLoading, preps.length]);
+
+  // ── Tour Meeting Prep demo orchestration ───────────────────────────────
+  // When the tour reaches step 9, seed a completed prep for Nick Wittig
+  // into the local `preps` state, switch to the Library tab, and scroll the
+  // user down so they see the seeded card rather than the top of the form.
+  // The cancellable-effect wrapper on loadPreps below makes sure an
+  // in-flight real fetch can't clobber the seed.
+  const { demoSurface } = useTour();
+  const meetingPrepDemoActive = demoSurface === 'meeting-prep';
+  const libraryAnchorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!meetingPrepDemoActive) return;
+    const now = new Date();
+    const recentIso = new Date(now.getTime() - 1000 * 60 * 60 * 4).toISOString();
+    const demoPrep: CoffeeChatPrep = {
+      id: 'demo-nick-prep',
+      contactName: 'Nick Wittig',
+      company: 'Offerloop',
+      jobTitle: 'Cofounder',
+      linkedinUrl: undefined,
+      status: 'completed',
+      createdAt: recentIso,
+      pdfUrl: undefined,
+    };
+    setPreps([demoPrep]);
+    setLibraryLoading(false);
+    // Reset the smart-default guard so the auto-switch fires for the seed.
+    hasDefaultedTabRef.current = false;
+    setActiveTab('coffee-library');
+
+    // Scroll the seeded card into view shortly after the tab content paints.
+    const scrollTimer = setTimeout(() => {
+      libraryAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 200);
+
+    return () => {
+      clearTimeout(scrollTimer);
+      // Drop the seeded prep so the next real session starts clean. The
+      // mount-time real-load effect below will re-fire (its cancellable
+      // wrapper checks meetingPrepDemoActive at entry), repopulating with
+      // the user's actual library.
+      setPreps([]);
+      setActiveTab('coffee-chat-prep');
+      hasDefaultedTabRef.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meetingPrepDemoActive]);
 
   // Safety: if the Prepare tab gets removed (e.g. a new returning user just
   // generated their first prep), don't leave activeTab pointing at a tab that
@@ -231,16 +283,21 @@ const CoffeeChatPrepPage: React.FC = () => {
     </div>
   );
 
-  // Load library preps
+  // Load library preps. Gated and cancellable so the tour's Meeting Prep
+  // demo seed (set above) isn't clobbered by an in-flight real fetch.
   useEffect(() => {
+    if (meetingPrepDemoActive) return;
+    let cancelled = false;
     const loadPreps = async () => {
       try {
         const result = await apiService.getAllCoffeeChatPreps();
+        if (cancelled) return;
         if ("error" in result) {
           throw new Error(result.error);
         }
         setPreps(result.preps || []);
       } catch (error) {
+        if (cancelled) return;
         console.error("Failed to load coffee chat preps:", error);
         toast({
           title: "Unable to load library",
@@ -248,18 +305,23 @@ const CoffeeChatPrepPage: React.FC = () => {
           variant: "destructive",
         });
       } finally {
-        setLibraryLoading(false);
+        if (!cancelled) setLibraryLoading(false);
       }
     };
     loadPreps();
-  }, []);
+    return () => { cancelled = true; };
+  }, [meetingPrepDemoActive]);
 
-  // Refresh library after successful generation
+  // Refresh library after successful generation. Same cancellable shape;
+  // also gated so a demo-active state can't accidentally trigger a fetch.
   useEffect(() => {
+    if (meetingPrepDemoActive) return;
     if (coffeeChatStatus === 'completed' && coffeeChatPrepId) {
+      let cancelled = false;
       const loadPreps = async () => {
         try {
           const result = await apiService.getAllCoffeeChatPreps();
+          if (cancelled) return;
           if ("error" in result) {
             return;
           }
@@ -269,10 +331,12 @@ const CoffeeChatPrepPage: React.FC = () => {
         }
       };
       loadPreps();
+      return () => { cancelled = true; };
     }
-  }, [coffeeChatStatus, coffeeChatPrepId]);
+  }, [coffeeChatStatus, coffeeChatPrepId, meetingPrepDemoActive]);
 
   const handleCoffeeChatSubmit = async () => {
+    if (meetingPrepDemoActive) return;
     if (!linkedinUrl.trim()) {
       toast({
         title: "Missing LinkedIn URL",
@@ -291,7 +355,7 @@ const CoffeeChatPrepPage: React.FC = () => {
       return;
     }
 
-    if ((effectiveUser.credits ?? 0) < COFFEE_CHAT_CREDITS) {
+    if (creditsView.balance < COFFEE_CHAT_CREDITS) {
       toast({
         title: "Insufficient Credits",
         description: `You need ${COFFEE_CHAT_CREDITS} credits to generate a coffee chat prep.`,
@@ -343,7 +407,6 @@ const CoffeeChatPrepPage: React.FC = () => {
       };
       
       const handleCompletion = (statusResult: any) => {
-        const contactData = statusResult.contactData || {};
         if (firebaseUser?.uid && statusResult.contactData) {
           try {
             const contactName = statusResult.contactData.name ||
@@ -373,14 +436,7 @@ const CoffeeChatPrepPage: React.FC = () => {
           setCoffeeChatPrepId((statusResult as any).id || prepId);
         });
         
-        // TODO(#13): PostHog was reset and never re-configured. This event fired
-        // into a void. Rewire through /api/metrics/events or replacement analytics
-        // system per https://github.com/deenabandi004-byte/Final_offerloop/issues/13
-        // <ORIGINAL CALL COMMENTED BELOW>
-        // trackFeatureActionCompleted('coffee_chat_prep', 'generate', true, {
-        //   company: contactData.company || contactData.companyName || '',
-        //   role: contactData.jobTitle || contactData.title || undefined,
-        // });
+        trackFeatureActionCompleted('coffee_chat_prep', 'generate', true);
         
         toast({
           title: "Coffee Chat Prep Ready!",
@@ -478,6 +534,7 @@ const CoffeeChatPrepPage: React.FC = () => {
   };
 
   const downloadCoffeeChatPDF = async (prepId?: string) => {
+    if (meetingPrepDemoActive) return;
     const id = prepId || coffeeChatPrepId;
     if (!id || !firebaseUser) return;
 
@@ -593,6 +650,7 @@ const CoffeeChatPrepPage: React.FC = () => {
   };
 
   const handleLibraryDownload = async (prep: CoffeeChatPrep) => {
+    if (meetingPrepDemoActive) return;
     try {
       const pdfUrl = prep.pdfUrl || (await apiService.downloadCoffeeChatPDF(prep.id)).pdfUrl;
       
@@ -674,6 +732,7 @@ const CoffeeChatPrepPage: React.FC = () => {
   };
 
   const handleLibraryDelete = async (prepId: string) => {
+    if (meetingPrepDemoActive) return;
     setDeletingId(prepId);
     try {
       const result = await apiService.deleteCoffeeChatPrep(prepId);
@@ -822,7 +881,7 @@ const CoffeeChatPrepPage: React.FC = () => {
             <div style={{ maxWidth: 800, margin: '0 auto', padding: '0 40px' }}>
 
               {/* ── Page header ── always visible. Sized to match
-                  ProtoHeader's "Your Outbox" treatment (28px serif 700,
+                  ProtoHeader's "Your Inbox" treatment (28px serif 700,
                   16px subtitle) for visual consistency across pages. Pushed
                   down ~140px so the prepare flow sits centered. */}
               <div style={{ marginBottom: 36, paddingTop: 140 }}>
@@ -859,7 +918,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                       limit={limit}
                       tier={tier}
                       requiredCredits={COFFEE_CHAT_CREDITS}
-                      currentCredits={effectiveUser.credits ?? 0}
+                      currentCredits={creditsView.balance}
                       featureName="Coffee Chat Preps"
                       nextTier={subscription?.tier === 'free' ? 'Pro' : 'Elite'}
                       showUpgradeButton={!hasMonthlyAccess || !hasEnoughCredits}
@@ -1009,7 +1068,7 @@ const CoffeeChatPrepPage: React.FC = () => {
                     signal "ready to go". */}
                 <button
                   onClick={handleCoffeeChatSubmit}
-                  disabled={!linkedinUrl.trim() || coffeeChatLoading || !hasAccess || (effectiveUser.credits ?? 0) < COFFEE_CHAT_CREDITS}
+                  disabled={!linkedinUrl.trim() || coffeeChatLoading || !hasAccess || creditsView.balance < COFFEE_CHAT_CREDITS}
                   style={{
                     width: '100%',
                     height: 52,
@@ -1242,7 +1301,7 @@ const CoffeeChatPrepPage: React.FC = () => {
 
                 {/* COFFEE LIBRARY TAB */}
                 <TabsContent value="coffee-library" className="mt-0">
-                  <div>
+                  <div ref={libraryAnchorRef}>
                     <div className="p-0">
                       {libraryLoading ? (
                         <LoadingSkeleton variant="card" count={3} />

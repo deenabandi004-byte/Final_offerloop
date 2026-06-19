@@ -19,6 +19,25 @@ export function weeklyTargetForTier(tier: string | null | undefined): number {
   return WEEKLY_TARGET_BY_TIER[tier.toLowerCase()] ?? FALLBACK_WEEKLY_TARGET;
 }
 
+// Upper bound for the pace slider, per tier. Set conservatively for what we can
+// ACTUALLY deliver, not what the budget allows — a `find` action returns ≤5
+// contacts (agent_actions.py) and a Loop runs ~3-4 cycles/week, so sustained
+// high pace also needs a brief broad enough for PDL to keep yielding fresh,
+// verifiable people. These caps under-promise on purpose; raise them once the
+// `find→email` logs show real per-Loop yield. Backend budget-caps on top.
+export const MIN_PACE = 3;
+
+const MAX_PACE_BY_TIER: Record<string, number> = {
+  free: 8,
+  pro: 15,
+  elite: 25,
+};
+
+export function maxPaceForTier(tier: string | null | undefined): number {
+  if (!tier) return MAX_PACE_BY_TIER.free;
+  return MAX_PACE_BY_TIER[tier.toLowerCase()] ?? MAX_PACE_BY_TIER.free;
+}
+
 // Mirror of backend BUNDLED_COST_PER_PERSON["people"] (loop_budget.py) —
 // the typical per-person credit cost for a networking Loop. Multiplied by
 // weeklyTarget × 1.15 buffer to estimate weekly spend in the low-balance

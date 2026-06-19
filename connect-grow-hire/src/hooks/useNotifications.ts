@@ -43,9 +43,15 @@ export function useNotifications() {
     unreadLoopRunCount: 0,
     items: [],
   });
+  // True once the first Firestore snapshot has resolved. Lets consumers tell
+  // "loaded, zero notifications" apart from "not loaded yet", which the toast
+  // trigger needs so it can seed silently instead of treating the initial
+  // 0 -> N load as a brand-new reply.
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     if (!user?.uid) return;
+    setLoaded(false);
 
     const unsub = onSnapshot(
       doc(db, 'users', user.uid, 'notifications', 'outbox'),
@@ -58,6 +64,7 @@ export function useNotifications() {
             items: Array.isArray(data?.items) ? data.items : [],
           });
         }
+        setLoaded(true);
       },
       (err) => console.warn('Notification listener error:', err)
     );
@@ -104,5 +111,5 @@ export function useNotifications() {
     );
   };
 
-  return { notifications, markAllRead, markOneRead };
+  return { notifications, loaded, markAllRead, markOneRead };
 }

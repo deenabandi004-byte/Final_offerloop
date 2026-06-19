@@ -59,7 +59,6 @@ export interface ProtoJob {
   detailPosted: string;
   detailMatch: number | null;
   detailLocation: string;
-  description: string | null;
   structured: JobStructured | undefined;
 }
 
@@ -175,7 +174,6 @@ export function feedJobToProto(j: FeedJob, section: ProtoSection): ProtoJob {
     detailPosted: postedShort(j.posted_at),
     detailMatch: j.match_score ?? null,
     detailLocation: normalizeLocation(j.location),
-    description: (j as { description?: string }).description ?? null,
     structured: j.structured,
   };
 }

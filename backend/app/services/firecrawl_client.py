@@ -60,7 +60,9 @@ def _extract_markdown_and_meta(result) -> dict:
     return {"markdown": md or "", "metadata": meta or {}}
 
 
-def _scrape_with_retry(fc, url: str, *, formats: list, timeout: int = 30000):
+def _scrape_with_retry(
+    fc, url: str, *, formats: list, timeout: int = 30000, wait_for_ms: int = 0,
+):
     """Wrap Firecrawl `scrape` with a small backoff for transient 429s.
 
     Firecrawl SDK currently raises on rate-limit; without this, a single
@@ -69,13 +71,22 @@ def _scrape_with_retry(fc, url: str, *, formats: list, timeout: int = 30000):
     Three quick attempts is enough for transient bursts; sustained rate
     limiting should pause the Loop via the rate-limit strike counter
     (caller maps to RateLimitError on final failure).
+
+    wait_for_ms: pass-through to Firecrawl's `wait_for` parameter for pages
+    that hydrate client-side (Workday, etc.). When non-zero, extends the
+    base timeout so the SDK doesn't time out before the page finishes.
     """
     import time
+
+    scrape_kwargs = {"formats": formats, "timeout": timeout}
+    if wait_for_ms:
+        scrape_kwargs["wait_for"] = wait_for_ms
+        scrape_kwargs["timeout"] = wait_for_ms + 45000
 
     last_err: Exception | None = None
     for attempt in range(3):
         try:
-            return fc.scrape(url, formats=formats, timeout=timeout)
+            return fc.scrape(url, **scrape_kwargs)
         except Exception as e:
             last_err = e
             msg = str(e).lower()
@@ -114,18 +125,25 @@ def _is_linkedin_url(url: str) -> bool:
     return "linkedin.com" in (url or "").lower()
 
 
-def extract_job_posting(url: str) -> dict:
+def extract_job_posting(url: str, wait_for_ms: int = 0) -> dict:
     """Extract structured job data from a posting URL.
 
     Works with Greenhouse, Lever, Workday, Indeed via Firecrawl, and
     LinkedIn via Apify (curious_coder~linkedin-jobs-scraper).
 
-    Returns dict with: title, company, location, salary_range, requirements,
-    nice_to_have, responsibilities, team_or_department, hiring_manager,
-    application_deadline, experience_level, employment_type.
+    Returns dict with: title, company, description, location, salary_range,
+    requirements, nice_to_have, responsibilities, team_or_department,
+    hiring_manager, application_deadline, experience_level, employment_type.
+
+    wait_for_ms: how long to let the page's JavaScript render before reading it.
+    Modern ATS pages (e.g. Workday) load the description client-side, so a 0ms
+    scrape returns an empty shell. Pass a few seconds (e.g. 8000) on the
+    full-description path to recover the real prose. Left at 0 by default so the
+    fast/background callers are unchanged. Results for the two modes are cached
+    under separate keys so an empty no-wait scrape never masks a good wait scrape.
     """
     from app.services.enrichment_cache import get_cached, set_cached
-    cache_key = ["job_posting", url]
+    cache_key = ["job_posting_wait" if wait_for_ms else "job_posting", url]
     cached = get_cached("job_posting", cache_key)
     if cached:
         return cached
@@ -154,6 +172,7 @@ def extract_job_posting(url: str) -> dict:
                 "schema": JobPostingExtract.model_json_schema(),
             }],
             timeout=30000,
+            wait_for_ms=wait_for_ms,
         )
         extracted = _extract_json(result)
         if extracted:

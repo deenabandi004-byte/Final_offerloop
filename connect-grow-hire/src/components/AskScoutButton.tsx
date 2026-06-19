@@ -9,6 +9,8 @@
 import React from "react";
 import { useLocation } from "react-router-dom";
 import { useScout } from "@/contexts/ScoutContext";
+import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import { useTour } from "@/contexts/TourContext";
 
 import scoutYetiHead from "@/assets/scouts/scout-yeti-head.png";
 import pinThumbtack from "@/assets/scouts/pin-thumbtack.png";
@@ -119,18 +121,37 @@ export const AskScoutButton: React.FC<AskScoutButtonProps> = ({
 
 /**
  * Floating wrapper for App.tsx. Pins to the top-right corner and skips
- * /dashboard (the Scout prompt is already inline in the hero there). Reads
- * tab from the current location automatically.
+ * routes where Scout is already rendered inline (the page-owned Scout
+ * companion would otherwise overlap with this floating pin). Hidden on:
+ *   • /dashboard — Scout prompt inline in the hero
+ *   • / and /for-students — public landing pages, no pill
+ *   • /agent and /agent/** — Loops surfaces have ScoutGuide / inline Scouts
  */
+const HIDE_PILL_ON = new Set(["/dashboard", "/", "/for-students"]);
+const HIDE_PILL_PREFIXES = ["/agent"];
+
 const FloatingAskScoutButton: React.FC = () => {
   const { openPanel, isPanelOpen } = useScout();
+  const { demoSurface } = useTour();
+  const scoutDemoActive = demoSurface === 'scout';
   const location = useLocation();
+  const { user } = useFirebaseAuth();
 
-  if (isPanelOpen) return null;
-  if (location.pathname === "/dashboard") return null;
+  // Logged-out visitors (public landing / marketing pages) never see the
+  // floating Scout pill.
+  if (!user) return null;
+
+  // Stay visible during the Scout tour demo even when the panel is open, so
+  // the tour's spotlight (anchored on the floating wrapper below) has an
+  // element to land on. Outside the demo the original "hide while panel is
+  // open" behavior is preserved.
+  if (isPanelOpen && !scoutDemoActive) return null;
+  if (HIDE_PILL_ON.has(location.pathname)) return null;
+  if (HIDE_PILL_PREFIXES.some((p) => location.pathname === p || location.pathname.startsWith(p + "/"))) return null;
 
   return (
     <div
+      data-tour="tour-scout-button"
       style={{
         position: "fixed",
         top: 24,

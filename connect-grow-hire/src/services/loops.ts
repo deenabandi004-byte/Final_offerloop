@@ -118,6 +118,26 @@ export interface Loop {
   automationEnabled: boolean;
   lastReviewedAt: string | null;
   weekCreditsSpent: number;
+  // Contacts this Loop found during the current ISO week (server-computed,
+  // source=agent + createdAt this week). Drives the LoopCard progress line
+  // against weeklyTarget; older clients without it fall back to 0.
+  weekContactsFound?: number;
+  // Cumulative agent finds for this Loop (all-time, live from contacts). Shown
+  // alongside the weekly number so the Monday weekly-reset doesn't read like
+  // every find vanished.
+  liveContactsFound?: number;
+  // Drafts still sitting in draft_created for this Loop (live from contacts).
+  // The action-first LoopCard leads with this — it never resets weekly.
+  liveDraftsWaiting?: number;
+  // Live Found/Emailed/Replied computed from actual contact records, attached
+  // by GET /loops/:id. The detail funnel reads this instead of the drift-prone
+  // totalContactsFound / totalEmailsDrafted counters. Absent on list payloads.
+  liveStats?: {
+    found: number;
+    emailed: number;
+    replied: number;
+    foundThisWeek: number;
+  };
   weekStartedAt: string | null;
   pauseReason: LoopPauseReason;
   loopMode?: LoopMode;
@@ -183,6 +203,7 @@ export type LoopActivityType = "contact" | "draft" | "hm" | "job" | "company";
 // LOOPS_FLEET_REDESIGN_PLAN doc for the rationale).
 export interface FleetWeeklySummary {
   foundThisWeek: number;
+  foundAllTime?: number; // cumulative across live Loops — keeps the Monday reset honest
   weeklySparkline: number[]; // 7 entries, oldest first
   draftsWaiting: number;
   weeklyGoal: number;
@@ -233,10 +254,6 @@ export interface LoopActivityItem {
    *  list can lead with the person, not the email subject. Absent on
    *  legacy drafts written before this field was added. */
   contactName?: string;
-  /** Firestore contact doc id. Used to deep-link a draft row into
-   *  /my-network/people?contact=<id>. Absent when the action ran
-   *  before agent_actions started persisting it. */
-  contactId?: string;
   /** Original email subject for draft rows. Preserved separately now
    *  that `title` carries the contact's name. */
   emailSubject?: string;
@@ -246,6 +263,17 @@ export interface LoopActivityItem {
    *  drafts list — replaces the hardcoded "SENT" stamp. */
   state?: "drafted" | "sent" | "replied";
   createdAt: string;
+  /** Firestore contact id, for the per-card action buttons (My Network /
+   *  Inbox / Find) and to deep-link draft rows into
+   *  /my-network/people?contact=<id>. Absent on job/company items and
+   *  legacy rows. */
+  contactId?: string;
+  /** True when the contact has outreach (a draft, thread, or stage past new).
+   *  Gates the "View in Inbox" button — bare contacts show only My Network. */
+  hasOutreach?: boolean;
+  /** True for hiring-manager rows — routes the card button to the Find >
+   *  Hiring Managers tab instead of the My Network / Inbox pair. */
+  isHm?: boolean;
   /** Pairs a job posting with its founder-draft sub-card in the activity
    *  feed. Items that share a groupKey render as a hierarchy (job primary,
    *  draft secondary) in roles mode. Absent on:

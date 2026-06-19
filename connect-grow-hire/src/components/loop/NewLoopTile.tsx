@@ -108,11 +108,16 @@ export function NewLoopTile({
       style={{
         borderRadius: 20,
         border: "1.5px dashed " + (hov ? "var(--primary-200)" : "var(--line)"),
-        background: hov ? "var(--primary-50)" : "transparent",
+        // Solid white so the card stays legible over the mountain backdrop.
+        // Hover lifts to the soft primary tint.
+        background: hov ? "var(--primary-50)" : "#ffffff",
+        boxShadow: hov
+          ? "0 6px 24px rgba(74,96,168,0.16)"
+          : "0 1px 2px rgba(15,37,69,0.05), 0 6px 16px rgba(15,37,69,0.06)",
         padding: 26,
         minHeight: 200,
         cursor: "pointer",
-        transition: `background .25s ${EASE}, border-color .25s`,
+        transition: `background .25s ${EASE}, border-color .25s, box-shadow .25s`,
       }}
     >
       <span
