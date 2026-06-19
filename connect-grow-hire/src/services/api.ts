@@ -2549,9 +2549,9 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
   // Contact Sharing Endpoints
   // ================================
 
-  async shareRecords(payload: { toEmail: string; kind: ShareKind; items: any[] }) {
+  async shareRecords(payload: { toEmail: string; kind: ShareKind; items: any[] }): Promise<{ shareId: string; toName: string } | { error: string }> {
     const headers = await this.getAuthHeaders();
-    return this.makeRequest('/shares', {
+    return this.makeRequest<{ shareId: string; toName: string } | { error: string }>('/shares', {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
@@ -2563,14 +2563,14 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
     return this.makeRequest('/shares/pending', { method: 'GET', headers });
   }
 
-  async acceptShare(id: string) {
+  async acceptShare(id: string): Promise<{ imported: number; kind: ShareKind } | { error: string; current_tier?: string }> {
     const headers = await this.getAuthHeaders();
-    return this.makeRequest(`/shares/${id}/accept`, { method: 'POST', headers });
+    return this.makeRequest<{ imported: number; kind: ShareKind } | { error: string; current_tier?: string }>(`/shares/${id}/accept`, { method: 'POST', headers });
   }
 
-  async declineShare(id: string) {
+  async declineShare(id: string): Promise<{ ok: true } | { error: string }> {
     const headers = await this.getAuthHeaders();
-    return this.makeRequest(`/shares/${id}/decline`, { method: 'POST', headers });
+    return this.makeRequest<{ ok: true } | { error: string }>(`/shares/${id}/decline`, { method: 'POST', headers });
   }
 }
 
