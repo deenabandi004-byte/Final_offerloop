@@ -22,11 +22,6 @@ const EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
 
 // ── Status chip (dot + mono small-caps) ─────────────────────────────────────
 
-const MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
-const EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
-
-// ── Status chip (dot + mono small-caps) ─────────────────────────────────────
-
 const STATUS_META: Record<
   LoopStatus,
   { label: string; color: string; ring: string }
