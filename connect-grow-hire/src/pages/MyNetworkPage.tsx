@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { useParams, useNavigate, Navigate, useSearchParams } from "react-router-dom";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useParams, useNavigate, useSearchParams, Navigate } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
@@ -405,9 +405,11 @@ interface PeopleTableProps {
   groupedView: "list" | "grid";
   recencyDir: "newest" | "oldest";
   highlightSince: number;
-  // Contact id deep-linked via ?contact=<id> (from a Loop activity card).
-  // The matching row gets scrolled into view and briefly ring-highlighted.
-  focusId?: string;
+  // Set when arriving via /my-network/people?contact=<id> from a Loop
+  // draft row (or any other deep-link source). The matching row scrolls
+  // into view and gets a one-time tint so the jump destination is
+  // unambiguous.
+  focusContactId?: string | null;
   onDelete?: (id: string) => void;
   onSaveNote?: (id: string, note: string) => void;
   // Share a single row: selects just that contact and opens the share dialog.
@@ -435,7 +437,7 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
   groupedView,
   recencyDir,
   highlightSince,
-  focusId,
+  focusContactId,
   onDelete,
   onSaveNote,
   onShare,
@@ -445,6 +447,13 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
   onCancelAdd,
   onSaveNew,
 }) => {
+  const focusRowRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!focusContactId) return;
+    const el = focusRowRef.current;
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focusContactId, rows]);
   const [sortCol, setSortCol] = useState<SortCol>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   // Track which row's note panel is open + the in-flight draft text. Drafts
@@ -469,10 +478,10 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
   // The row's ring-highlight comes from rowBaseBg; this just brings it on
   // screen. Re-runs when rows arrive so a freshly-fetched target still lands.
   useEffect(() => {
-    if (!focusId) return;
-    const el = document.querySelector(`[data-contact-id="${focusId}"]`);
+    if (!focusContactId) return;
+    const el = document.querySelector(`[data-contact-id="${focusContactId}"]`);
     if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [focusId, rows]);
+  }, [focusContactId, rows]);
 
   const handleMailClick = useCallback(async (row: PersonRow) => {
     // Inert during the tour's My Network demo. The mail icon is the hero of
@@ -698,8 +707,8 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
   // spot what's new at a glance. The tint replaces the normal alternating
   // background for that row.
   const rowBaseBg = (row: PersonRow, idx: number): string => {
+    if (focusContactId && row.id === focusContactId) return "rgba(224,122,62,0.12)";
     if (row.sharedImport) return "rgba(34,197,94,0.10)";
-    if (focusId && row.id === focusId) return "rgba(59,130,246,0.14)";
     const ts = row.createdAt ? Date.parse(row.createdAt) : 0;
     if (highlightSince && ts > highlightSince) return "rgba(59,130,246,0.08)";
     return idx % 2 === 1 ? "var(--paper-2, #FAFBFF)" : "white";
@@ -709,9 +718,11 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
     const noteOpen = openNoteId === row.id;
     const draftValue = noteDrafts[row.id] ?? row.notes ?? "";
     const hasNote = !!(row.notes && row.notes.trim());
+    const isFocused = !!(focusContactId && row.id === focusContactId);
     return (
       <React.Fragment key={row.id}>
         <div
+      ref={isFocused ? focusRowRef : undefined}
       data-contact-id={row.id}
       className={`grid items-center transition-colors ${
         isLast && !noteOpen ? "" : "border-b border-line-2"
@@ -2104,13 +2115,15 @@ const FB_GROUP = "flex items-center gap-1.5";                    // a cluster of
 const MyNetworkPage: React.FC = () => {
   const { tab } = useParams<{ tab: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useFirebaseAuth();
 
   const activeTab: TabId = tab === "companies" ? "companies" : tab === "managers" ? "managers" : "people";
 
-  // ?contact=<id> deep-link from a Loop activity card. Only honored on the
-  // People tab — companies/managers have their own surfaces.
-  const [searchParams] = useSearchParams();
+  // Deep-link from the Loops activity feed: /my-network/people?contact=<id>
+  // opens this contact row in the People tab — PeopleTable scrolls it into
+  // view and tints it on mount so the user sees what they jumped to. Only
+  // honored on the People tab — companies/managers have their own surfaces.
   const focusContactId = activeTab === "people"
     ? (searchParams.get("contact") || undefined)
     : undefined;
@@ -3243,7 +3256,7 @@ const MyNetworkPage: React.FC = () => {
                   groupedView={peopleGroupedView}
                   recencyDir={peopleSortDir}
                   highlightSince={peopleHighlightSince}
-                  focusId={focusContactId}
+                  focusContactId={focusContactId}
                   selected={peopleSelected}
                   onSelectionChange={setPeopleSelected}
                   onShare={(row) => {

@@ -576,7 +576,65 @@ def _process_gmail_notification(email_address, history_id):
             contact_name += (contact_data.get("lastName") or "").strip()
             contact_name = contact_name.strip() or contact_data.get("email", "")
             company = (contact_data.get("company") or "").strip()
-            message_snippet = (msg_resp.get("snippet") or "")[:100]
+            full_snippet = msg_resp.get("snippet") or ""
+            message_snippet = full_snippet[:100]
+
+            # Bounce / DSN gate: if this message looks like a Mailer-Daemon
+            # delivery failure, stamp the contact as bounced + suppress the
+            # address instead of treating it as a reply.
+            subject_header = next(
+                (h.get("value", "") for h in headers if h.get("name", "").lower() == "subject"),
+                "",
+            )
+            from app.utils.bounce_detection import is_bounce_message
+            if is_bounce_message(from_email, subject_header, full_snippet):
+                bounced_email = (
+                    contact_data.get("email")
+                    or contact_data.get("draftToEmail")
+                    or ""
+                ).strip().lower()
+                contact_ref = contacts_ref.document(contact_id)
+                bounce_updates = {
+                    "pipelineStage": "bounced",
+                    "inOutbox": False,
+                    "hasUnreadReply": False,
+                    "threadStatus": "bounced",
+                    "emailVerificationStatus": "bounced",
+                    "bouncedAt": now_iso,
+                    "lastActivityAt": now_iso,
+                    "lastMessageSnippet": full_snippet[:200],
+                    "updatedAt": now_iso,
+                }
+                logger.info(
+                    f"[gmail_webhook] uid={uid} BOUNCE for contact_id={contact_id} "
+                    f"email={bounced_email} from={from_email} subject={subject_header!r}"
+                )
+                contact_ref.update(bounce_updates)
+
+                try:
+                    from app.services.suppression import record_bounce
+                    record_bounce(uid, bounced_email, contact_id=contact_id, reason="dsn")
+                except Exception as supp_err:
+                    logger.warning(f"[gmail_webhook] suppression record failed: {supp_err}")
+
+                try:
+                    from app.utils.metrics_events import log_event
+                    log_event(uid, "email_bounced", {
+                        "contact_id": contact_id,
+                        "email": bounced_email,
+                        "from": from_email,
+                    })
+                except Exception:
+                    pass
+
+                # Dismiss any pending nudges so we don't follow up on a dead address.
+                try:
+                    from app.services.nudge_service import dismiss_pending_nudges_for_contact
+                    dismiss_pending_nudges_for_contact(db, uid, contact_id)
+                except Exception:
+                    pass
+
+                continue
 
             contact_ref = contacts_ref.document(contact_id)
             updates = _build_reply_updates(contact_data, message_snippet, now_iso)

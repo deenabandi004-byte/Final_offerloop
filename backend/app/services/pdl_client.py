@@ -20,6 +20,12 @@ from app.config import (
 from app.services.openai_client import get_openai_client
 from app.services.metering import meter_call
 from app.utils.retry import retry_with_backoff
+from app.utils.role_taxonomy import (
+    _TITLE_FAMILY_EXPANSIONS,
+    _SENIORITY_ADJACENT_TITLES,
+    _expand_titles_for_broadening,
+    _expand_titles_seniority_adjacent,
+)
 
 # Create a session with connection pooling for better performance.
 # Accept-Encoding: gzip is a free ~5× response-size reduction per PDL docs.
@@ -1215,6 +1221,78 @@ def determine_job_level(job_title):
         return 'mid'  # Default to mid-level
 
 
+def _parse_pdl_date(s):
+    """Parse a PDL date string. Returns timezone-aware UTC datetime or None.
+
+    Per docs.peopledatalabs.com, PDL uses ISO-8601 UTC for top-level
+    timestamps (`job_last_updated`, `job_last_changed`,
+    `experience[].last_updated`), e.g. ``2024-03-15T21:32:10Z``. Experience
+    start/end dates can be partial (``YYYY-MM`` or ``YYYY-MM-DD``).
+    """
+    if not s or not isinstance(s, str):
+        return None
+    from datetime import datetime, timezone
+    s = s.strip()
+    # ISO-8601 with optional Z. Python 3.11+ parses 'Z' natively; older
+    # versions need it swapped for '+00:00'.
+    try:
+        normalized = s[:-1] + "+00:00" if s.endswith("Z") else s
+        dt = datetime.fromisoformat(normalized)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except (ValueError, TypeError):
+        pass
+    # Partial-date fallback for experience start_date / end_date.
+    for fmt in ("%Y-%m-%d", "%Y-%m"):
+        try:
+            return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+# Phase 2.1: PDL emails older than this fall back to Hunter/NeverBounce instead
+# of being trusted blindly. People change jobs without PDL noticing; stale
+# `emails[]` entries are the #1 source of Loop bounces.
+_PDL_EMAIL_MAX_AGE_DAYS = 180
+
+
+def _pdl_email_is_fresh(person: dict, chosen_email: str = None, max_age_days: int = _PDL_EMAIL_MAX_AGE_DAYS) -> bool:
+    """Return True only when PDL has recent evidence the person is still at the
+    job the email belongs to.
+
+    Uses only documented PDL fields (per peopledatalabs.com schema):
+      - `person.job_last_updated` — primary signal, ISO-8601 UTC.
+      - `experience[].last_updated` on a current job (`is_current=True`) — fallback.
+
+    Per-email `first_seen` / `last_seen` are NOT in the public schema, so we
+    don't depend on them even when the response happens to include them.
+
+    Defaults to False on missing/unparseable dates — re-verifying via Hunter
+    is cheaper than sending to a dead address and burning a contact slot.
+    """
+    from datetime import datetime, timezone, timedelta
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+
+    when = _parse_pdl_date(person.get("job_last_updated"))
+    if when and when >= cutoff:
+        return True
+
+    for job in person.get("experience") or []:
+        if not isinstance(job, dict):
+            continue
+        if not job.get("is_current"):
+            continue
+        when = _parse_pdl_date(job.get("last_updated"))
+        if when and when >= cutoff:
+            return True
+        # Only the first current-job entry matters; PDL puts it at experience[0].
+        break
+
+    return False
+
+
 def _choose_best_email(emails: list[dict], recommended: str | None = None) -> str | None:
     """Choose the best email from a list of emails"""
     def is_valid(addr: str) -> bool:
@@ -1804,9 +1882,11 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
 
         # ⚡ Short-circuit: skip batch verification if all contacts already have valid PDL work emails
         # BUT: never short-circuit when there's a target company — PDL emails may be from old jobs
+        # AND: require recent PDL evidence (Phase 2.1) — stale work emails point at the previous job.
         _PERSONAL_DOMAINS = {'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com', 'protonmail.com', 'me.com', 'live.com', 'msn.com', 'aol.com'}
         _all_have_pdl_email = True
         _pdl_emails_by_idx = {}
+        _stale_count = 0
         if not target_company:
             for _sc_idx, _sc_person in enumerate(unique_persons):
                 _sc_emails = _sc_person.get('emails') or []
@@ -1816,7 +1896,13 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
                         or _sc_email.split('@')[1].lower().strip() in _PERSONAL_DOMAINS):
                     _all_have_pdl_email = False
                     break
+                if not _pdl_email_is_fresh(_sc_person, _sc_email):
+                    _stale_count += 1
+                    _all_have_pdl_email = False
+                    break
                 _pdl_emails_by_idx[_sc_idx] = _sc_email
+            if _stale_count:
+                print(f"[BatchEmailVerification] PDL email staleness detected — falling back to Hunter verification (max_age={_PDL_EMAIL_MAX_AGE_DAYS}d)")
         else:
             _all_have_pdl_email = False  # Force batch verification for target company searches
 
@@ -2736,125 +2822,14 @@ def search_contacts_with_pdl(job_title, company, location, max_contacts=8):
     return search_contacts_with_pdl_optimized(job_title, company, location, max_contacts)
 
 
-# Role-family expansion for the title-broadening retry rung (retry_level=1).
-# Each key is a canonical role; the value is a list of adjacent titles that often
-# overlap with the user's intent when the strict match_phrase query returns too few
-# results. Used by `_expand_titles_for_broadening`.
-#
-# WHY: PDL's strict match_phrase on "data scientist" at Google+USC returns 6 hits.
-# Expanding to {data scientist, data analyst, data engineer, data science manager}
-# lifts that to 8 — a meaningful gain when the initial query has 0 new contacts
-# after dedup. See /tmp/pdl_diagnostic.py for the raw counts.
-_TITLE_FAMILY_EXPANSIONS = {
-    # Data family
-    "data scientist":   ["data scientist", "data analyst", "data engineer", "data science manager", "machine learning engineer"],
-    "data analyst":     ["data analyst", "data scientist", "business analyst", "analytics manager"],
-    "data engineer":    ["data engineer", "data scientist", "software engineer", "machine learning engineer"],
-    # Software family
-    "software engineer":        ["software engineer", "software developer", "backend engineer", "frontend engineer", "full stack engineer"],
-    "software developer":       ["software developer", "software engineer", "backend developer", "frontend developer"],
-    "machine learning engineer":["machine learning engineer", "ml engineer", "data scientist", "ai engineer"],
-    # Product family
-    "product manager":  ["product manager", "product owner", "technical program manager", "program manager", "associate product manager"],
-    # Finance family
-    "investment banking analyst":   ["investment banking analyst", "analyst", "financial analyst", "banking analyst"],
-    "investment banking associate": ["investment banking associate", "associate", "banking associate"],
-    "financial analyst":            ["financial analyst", "investment analyst", "analyst"],
-    # Consulting family
-    "consultant":           ["consultant", "management consultant", "associate consultant", "business analyst"],
-    "management consultant":["management consultant", "consultant", "associate consultant", "strategy consultant"],
-    # Recruiting family
-    "recruiter":    ["recruiter", "technical recruiter", "talent acquisition specialist", "sourcer"],
-}
+# Role-family + seniority-adjacent title expansions used by retry_level=1
+# and retry_level=2 live in `app.utils.role_taxonomy` so the Perplexity
+# job-search broadening flow can reuse the same dicts. Imported at the top
+# of this module; behavior is byte-identical to the prior inline copy.
 
 
-def _expand_titles_for_broadening(title_variations):
-    """
-    Given the prompt parser's `title_variations` list, return a broadened list that
-    adds role-family cousins from _TITLE_FAMILY_EXPANSIONS. Used by retry_level=1.
-
-    - Preserves the original titles as the first entries (priority for scoring).
-    - Adds family cousins only for titles that have a family entry; others pass
-      through unchanged.
-    - Deduplicates case-insensitively while preserving first-seen order.
-    """
-    if not title_variations:
-        return []
-    seen = set()
-    expanded = []
-    for t in title_variations:
-        tl = (t or "").strip().lower()
-        if not tl or tl in seen:
-            continue
-        expanded.append(tl)
-        seen.add(tl)
-    # Second pass: for each original title, pull in matching family variants
-    for tl in list(expanded):
-        for family_key, family_variants in _TITLE_FAMILY_EXPANSIONS.items():
-            if tl == family_key or (family_key in tl) or (tl in family_key and len(tl) >= 5):
-                for v in family_variants:
-                    vl = v.strip().lower()
-                    if vl and vl not in seen:
-                        expanded.append(vl)
-                        seen.add(vl)
-    return expanded
-
-
-_SENIORITY_ADJACENT_TITLES = {
-    "analyst": ["analyst", "associate", "research associate", "junior associate", "senior analyst"],
-    "associate": ["associate", "analyst", "senior analyst", "consultant", "senior associate"],
-    "manager": ["manager", "director", "senior manager", "team lead", "associate director"],
-    "engineer": ["engineer", "developer", "software engineer", "senior engineer", "staff engineer"],
-    "consultant": ["consultant", "associate", "analyst", "advisor", "senior consultant"],
-    "intern": ["intern", "co-op", "fellow", "trainee", "analyst"],
-    "director": ["director", "senior director", "vice president", "manager", "head"],
-    "vice president": ["vice president", "director", "senior vice president", "managing director"],
-}
-
-
-def _expand_titles_seniority_adjacent(title_variations):
-    """
-    Given title variations, expand to adjacent seniority levels.
-    E.g. "analyst" → ["analyst", "associate", "research associate", "junior associate", "senior analyst"]
-    Used by retry_level=2 to maintain role intent while broadening seniority.
-    """
-    if not title_variations:
-        return []
-    seen = set()
-    expanded = []
-
-    # First pass: include originals
-    for t in title_variations:
-        tl = (t or "").strip().lower()
-        if not tl or tl in seen:
-            continue
-        expanded.append(tl)
-        seen.add(tl)
-
-    # Second pass: for each original, find matching seniority family
-    for tl in list(expanded):
-        for seniority_key, adjacent in _SENIORITY_ADJACENT_TITLES.items():
-            # Match if the seniority key appears in the title or vice versa
-            if seniority_key in tl or tl in seniority_key:
-                for adj in adjacent:
-                    adj_lower = adj.strip().lower()
-                    if adj_lower and adj_lower not in seen:
-                        expanded.append(adj_lower)
-                        seen.add(adj_lower)
-                break  # Only match one seniority family per title
-
-    # Also include the role-family expansions from level 1
-    family_expanded = _expand_titles_for_broadening(title_variations)
-    for t in family_expanded:
-        tl = t.strip().lower()
-        if tl and tl not in seen:
-            expanded.append(tl)
-            seen.add(tl)
-
-    return expanded
-
-
-def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:
+def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0,
+                             exclude_pdl_ids: list | None = None) -> dict:
     """
     Build PDL Elasticsearch bool query from structured prompt parser output.
     Uses same patterns as es_title_block, try_metro_search_optimized (location, company, schools).
@@ -2873,6 +2848,11 @@ def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:
     Company is dropped at level 4+; school filter is the only thing that survives
     to level 5. The user's intent is "find someone from my network" — at the floor
     we ensure they at least see SOMEONE from the school they care about.
+
+    exclude_pdl_ids: optional list of PDL person ids to filter OUT via a must_not
+    clause. Used by lazy-topup in search_contacts_from_prompt so broader retry
+    attempts return NEW people instead of re-fetching the same names a stricter
+    rung already returned.
     """
     must = []
 
@@ -3053,7 +3033,28 @@ def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:
     # P0 FIX: Only return contacts that have email addresses
     must.append({"exists": {"field": "emails"}})
 
-    query_obj = {"bool": {"must": must}}
+    # Phase 3b: bias level 0 toward records PDL has identified a top-level
+    # work_email for. Those records are more likely to T1-hit the email
+    # waterfall (PDL email at target domain → verified) than records that
+    # only have an emails[] array. We only apply this at the tightest rung —
+    # broader retry levels need to surface ANY reachable candidate, and the
+    # lazy-topup loop will broaden automatically if the work_email filter
+    # returns too few hits at level 0.
+    if retry_level == 0:
+        must.append({"exists": {"field": "work_email"}})
+
+    bool_clause = {"must": must}
+
+    # Lazy-topup support: exclude PDL ids already returned by an earlier (stricter)
+    # retry rung so this rung surfaces NEW people instead of paging through the
+    # same set. PDL caps `terms` clauses at ~1024 values — well above our use case
+    # of <= PDL_BUDGET_CAP per search.
+    if exclude_pdl_ids:
+        clean_ids = [i for i in exclude_pdl_ids if i]
+        if clean_ids:
+            bool_clause["must_not"] = [{"terms": {"id": clean_ids}}]
+
+    query_obj = {"bool": bool_clause}
     if retry_level > 0:
         print(f"[build_query_from_prompt] Retry level {retry_level} query:\n{json.dumps(query_obj, indent=2)}")
     else:
@@ -3329,6 +3330,21 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
     post_filter_dropped = 0
     drop_reason_counts = {}  # Track why contacts were dropped across all attempts
 
+    # Lazy-topup state (Phase 3 of email deliverability plan). Accumulate
+    # filtered contacts ACROSS retry attempts instead of replacing the set
+    # each rung. Break only when verified count meets the requested max OR
+    # the PDL budget cap is reached, whichever comes first. Pre-topup
+    # behavior was: any new contacts at a rung → stop. That silently dropped
+    # 3 of 5 PDL records on hard searches (paid for, filtered out, not
+    # returned). See docs/EMAIL_DELIVERABILITY_PLAN.md.
+    cumulative_filtered: list = []
+    cumulative_seen_keys: set = set()
+    cumulative_seen_pdl_ids: list = []  # ordered for stable must_not clauses
+    records_fetched_total = 0
+    PDL_BUDGET_CAP_MULTIPLIER = 2.0
+    pdl_budget_cap = int(max_contacts * PDL_BUDGET_CAP_MULTIPLIER) + buffer
+    topup_triggered = False
+
     companies_from_prompt = parsed_prompt.get("companies") or []
     schools_from_prompt = parsed_prompt.get("schools") or []
 
@@ -3359,7 +3375,29 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
                 print(f"[PDL Retry] Attempt 2: drop title + industry filters (keep company + school + location)")
             elif attempt == 3:
                 print(f"[PDL Retry] Attempt 3: drop title + industry + location (keep company + school only)")
-        query_obj = build_query_from_prompt(parsed_prompt, retry_level=attempt)
+
+            # Lazy-topup telemetry: mark only ONCE, on the first re-entry past
+            # level 0. Tracks "did we have to broaden to top up verified count?"
+            if not topup_triggered:
+                topup_triggered = True
+                try:
+                    from app.utils.metrics_events import log_event
+                    log_event(None, "pdl_topup_triggered", {
+                        "max_contacts": max_contacts,
+                        "verified_at_level_0": sum(
+                            1 for c in cumulative_filtered
+                            if c.get("EmailSource") in HIGH_CONFIDENCE_EMAIL_SOURCES
+                        ),
+                        "cumulative_at_level_0": len(cumulative_filtered),
+                    })
+                except Exception:
+                    pass
+
+        query_obj = build_query_from_prompt(
+            parsed_prompt,
+            retry_level=attempt,
+            exclude_pdl_ids=cumulative_seen_pdl_ids,
+        )
         raw_contacts, status_code = execute_pdl_search(
             headers=headers,
             url=PDL_URL,
@@ -3370,6 +3408,8 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
             verbose=False,
             target_company=target_company,
         )
+        records_fetched_total += len(raw_contacts or [])
+
         if not raw_contacts:
             continue
 
@@ -3401,18 +3441,69 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
                 continue
             attempt_filtered.append(contact)
 
+        # Merge into cumulative (dedup by identity key), update pdlId exclusion list.
+        for c in attempt_filtered:
+            key = get_contact_identity(c)
+            if key in cumulative_seen_keys:
+                continue
+            cumulative_seen_keys.add(key)
+            cumulative_filtered.append(c)
+            pid = c.get("pdlId")
+            if pid:
+                cumulative_seen_pdl_ids.append(pid)
+
         if attempt_filtered:
-            filtered = attempt_filtered
             retry_level_used = attempt
-            post_filter_dropped = attempt_dropped
+            post_filter_dropped += attempt_dropped
             if already_saved:
-                print(f"🔍 Prompt search filtering: raw={len(raw_contacts)}, already_saved={len(already_saved)}, new={len(filtered)} (attempt {attempt})")
-            if post_filter_dropped > 0:
-                print(f"[PostFilter] Kept {len(filtered)} contacts after post-validation (dropped {post_filter_dropped} non-matching)")
+                print(f"🔍 Prompt search filtering: raw={len(raw_contacts)}, already_saved={len(already_saved)}, new_this_rung={len(attempt_filtered)}, cumulative={len(cumulative_filtered)} (attempt {attempt})")
+            if attempt_dropped > 0:
+                print(f"[PostFilter] Kept {len(attempt_filtered)} contacts at attempt {attempt} (dropped {attempt_dropped} non-matching)")
+
+        # Break condition: enough verified contacts cumulated.
+        verified_count = sum(
+            1 for c in cumulative_filtered
+            if c.get("EmailSource") in HIGH_CONFIDENCE_EMAIL_SOURCES
+        )
+        if verified_count >= max_contacts:
+            print(f"[PDL Retry] Verified target met at attempt {attempt}: verified={verified_count} >= max_contacts={max_contacts} (records_fetched={records_fetched_total})")
             break
-        # No NEW contacts on this rung (all hits were already saved or post-filter dropped).
-        # Try the next broader rung. Aggregated `already_saved` carries across attempts.
-        print(f"[PDL Retry] Attempt {attempt}: raw={len(raw_contacts)}, already_saved_cumulative={len(already_saved)}, new=0 — trying next rung")
+
+        # Budget cap: stop spending PDL credits past the configured ceiling.
+        if records_fetched_total >= pdl_budget_cap:
+            print(f"[PDL Retry] Budget cap hit at attempt {attempt}: records_fetched={records_fetched_total} >= cap={pdl_budget_cap}")
+            try:
+                from app.utils.metrics_events import log_event
+                log_event(None, "pdl_budget_cap_hit", {
+                    "records_fetched": records_fetched_total,
+                    "budget_cap": pdl_budget_cap,
+                    "verified_count": verified_count,
+                    "max_contacts": max_contacts,
+                })
+            except Exception:
+                pass
+            break
+
+        if not attempt_filtered:
+            # No NEW contacts on this rung — broaden further.
+            print(f"[PDL Retry] Attempt {attempt}: raw={len(raw_contacts)}, already_saved_cumulative={len(already_saved)}, new=0 — trying next rung")
+
+    filtered = cumulative_filtered
+
+    if topup_triggered:
+        try:
+            from app.utils.metrics_events import log_event
+            log_event(None, "pdl_topup_records_fetched", {
+                "records_fetched_total": records_fetched_total,
+                "retry_level_reached": retry_level_used,
+                "verified_count_final": sum(
+                    1 for c in cumulative_filtered
+                    if c.get("EmailSource") in HIGH_CONFIDENCE_EMAIL_SOURCES
+                ),
+                "cumulative_count_final": len(cumulative_filtered),
+            })
+        except Exception:
+            pass
 
     # Build adjacency metadata to explain what happened
     adjacency_metadata = None

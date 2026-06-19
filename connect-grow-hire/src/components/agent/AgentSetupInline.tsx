@@ -15,6 +15,7 @@ import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useCreateLoop } from "@/hooks/useLoops";
 import type { LoopCadence } from "@/services/loops";
 import useDebounce from "@/hooks/use-debounce";
+import { useProposedBrief, type UseProposedBriefState } from "@/hooks/useProposedBrief";
 import { useSubscription } from "@/hooks/useSubscription";
 import {
   estimatedWeeklyCreditsPeople,
@@ -497,6 +498,7 @@ function StepGoals({
   hasUniversity,
   university,
   profileFacts,
+  proposedBrief,
   showAiDraftLabel,
   ghostCompletion,
 }: {
@@ -512,6 +514,7 @@ function StepGoals({
     preferredLocations: string[];
     extractedRoles: string[];
   };
+  proposedBrief: UseProposedBriefState;
   showAiDraftLabel: boolean;
   ghostCompletion: string | null;
 }) {
@@ -651,6 +654,20 @@ function StepGoals({
     };
   }, [briefText, focused, typewriterExamples]);
 
+  // "Suggest from my profile" button label varies with the proposal's
+  // current state — loading, failed, fresh-data, or never-fetched.
+  const proposalHasData =
+    !!proposedBrief.data && proposedBrief.data.status === "ok";
+  const proposalLoading = proposedBrief.loading;
+  const proposalFailed =
+    !!proposedBrief.error || proposedBrief.data?.status === "failed";
+  const suggestLabel = proposalLoading
+    ? "Suggesting…"
+    : proposalFailed
+      ? "Try again"
+      : proposalHasData
+        ? "✨ Re-suggest"
+        : "✨ Suggest from my profile";
 
   return (
     <div>
@@ -704,6 +721,36 @@ function StepGoals({
             }}
           />
         </div>
+      </div>
+
+      {/* Suggest-from-profile button — sits above the textarea per the
+          design spec so the AI assist is always visible without taking
+          the textarea's prominence. */}
+      <div
+        className="mb-2 flex items-center justify-end"
+        style={{ fontFamily: "'Inter', sans-serif" }}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            void proposedBrief.refetch();
+          }}
+          disabled={proposalLoading}
+          aria-label="Suggest a brief from my profile"
+          style={{
+            fontSize: 12,
+            fontWeight: 500,
+            color: proposalLoading ? "var(--ink-3)" : "var(--ink-2)",
+            background: "transparent",
+            border: "1px solid var(--line)",
+            borderRadius: 999,
+            padding: "5px 12px",
+            cursor: proposalLoading ? "default" : "pointer",
+            transition: "color 0.15s ease, border-color 0.15s ease",
+          }}
+        >
+          {suggestLabel}
+        </button>
       </div>
 
       {/* Small "AI draft" label, visible only while the textarea still
@@ -1172,8 +1219,14 @@ export function AgentSetupInline({
   });
   const set = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }));
 
-  // AI-proposed starting brief removed — the box starts empty and the user is
-  // guided by ghost text + suggestion chips instead of a pre-written sentence.
+  // AI-proposed starting brief — Claude drafts a sentence from the user's
+  // resume + profile on mount so students never face a blank page. User
+  // edits beat AI; we never overwrite anything the user typed.
+  // When the caller passed an initialBrief (e.g. from the empty-state
+  // editable card), treat the auto-apply as already done so Claude's
+  // response can never overwrite the user's words.
+  const proposedBrief = useProposedBrief({ enabled: true });
+  const aiDraftAppliedRef = useRef(!!initialBrief);
 
   // Read the user's tier so the wizard can derive cadence + low-balance
   // hint without exposing credit math in the UI. Subscription is fetched
@@ -1286,13 +1339,40 @@ export function AgentSetupInline({
       });
   }, [debouncedBriefText]);
 
-  // Brief auto-fill intentionally removed: the box now starts EMPTY and the
-  // user is guided by ghost-text autocomplete + the suggestion chips instead
-  // of having a pre-written sentence dropped in (which fought the very
-  // suggestions meant to influence their typing). `aiDraftActive` stays false
-  // so no "AI draft" affordance renders. The proposedBrief hook is left in
-  // place (harmless) in case we ever want an opt-in "suggest a starter" button.
-  const [aiDraftActive] = useState(false);
+  // Apply the AI-proposed brief once, only if the user hasn't already
+  // started typing or picking chips. Prevents the proposal from clobbering
+  // an in-progress edit if Claude lands a slow response.
+  const [aiDraftActive, setAiDraftActive] = useState(false);
+  useEffect(() => {
+    if (aiDraftAppliedRef.current) return;
+    const data = proposedBrief.data;
+    if (!data || data.status !== "ok") return;
+    if (briefText.trim().length > 0) return;
+    const formClean =
+      form.companies.length === 0 &&
+      form.roles.length === 0 &&
+      form.industries.length === 0 &&
+      form.locations.length === 0;
+    if (!formClean) return;
+
+    aiDraftAppliedRef.current = true;
+    setBriefText(data.sentence);
+    setForm((f) => ({
+      ...f,
+      companies: data.companies,
+      roles: data.roles,
+      industries: data.industries,
+      locations: data.locations,
+    }));
+    setAiDraftActive(data.sentence.length > 0);
+  }, [
+    proposedBrief.data,
+    briefText,
+    form.companies.length,
+    form.roles.length,
+    form.industries.length,
+    form.locations.length,
+  ]);
 
   const step = steps[stepIdx];
   const isLast = stepIdx === steps.length - 1;
@@ -1473,11 +1553,15 @@ export function AgentSetupInline({
               <StepGoals
                 form={form}
                 briefText={briefText}
-                setBriefText={setBriefText}
+                setBriefText={(v) => {
+                  if (aiDraftActive && v !== briefText) setAiDraftActive(false);
+                  setBriefText(v);
+                }}
                 parsePhase={parsePhase}
                 hasUniversity={hasUniversity}
                 university={university || ""}
                 profileFacts={profileFacts}
+                proposedBrief={proposedBrief}
                 showAiDraftLabel={aiDraftActive}
                 ghostCompletion={ghostCompletion}
               />

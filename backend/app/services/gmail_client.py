@@ -1214,6 +1214,40 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
             print(f"[GmailClient] No valid email found for contact - creating mock draft")
             return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}_no_email"
 
+        # Phase 2.4: suppression gate. If this address has bounced before
+        # (per-user OR globally), skip the draft. Returns a sentinel matching
+        # the existing "no_email" shape so downstream callers treat it as
+        # "no real draft" without crashing.
+        try:
+            from app.services.suppression import is_suppressed
+            if is_suppressed(user_id, recipient_email):
+                print(f"[GmailClient] SUPPRESSED — skipping draft for {recipient_email} (previous bounce)")
+                return f"suppressed_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}"
+        except Exception as supp_err:
+            # Suppression lookup must never block sending a draft.
+            print(f"[GmailClient] Suppression check failed (proceeding with draft): {supp_err}")
+
+        # Phase 3c: per-contact low-confidence gate. Same intent as Phase 2.2's
+        # batch-level email_quality gate in agent_actions.execute_find_and_draft,
+        # but here at the chokepoint so it catches Find People + contact_import
+        # + linkedin_import + referral paths too. Only fires when EmailSource is
+        # explicitly low-confidence — manual contacts (no EmailSource) are
+        # unaffected.
+        LOW_CONFIDENCE_SOURCES = {
+            "pattern",
+            "domain_generated",
+            "pdl_fallback",
+            "hunter_finder_risky",
+            "neverbounce_acceptall",
+        }
+        email_source = (contact.get("EmailSource") or "").strip()
+        if email_source and email_source in LOW_CONFIDENCE_SOURCES:
+            print(
+                f"[GmailClient] LOW-CONFIDENCE source={email_source} — skipping draft "
+                f"for {recipient_email} (contact surfaces, no Gmail draft)"
+            )
+            return f"low_confidence_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}"
+
         # Build the multipart message (HTML body, signature, resume attachment),
         # shared with the send path so drafts and sends are identical.
         message = _build_outreach_mime(
@@ -1289,6 +1323,105 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         import traceback
         traceback.print_exc()
         return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}"
+
+
+def find_sent_thread_for_recipient(user_email, user_id, recipient_email, subject=None):
+    """Look up the most recent sent Gmail thread addressed to a recipient.
+
+    Used to backfill gmailThreadId on Loop-found contacts whose email was
+    sent (manually from the tracker, or via an older code path that didn't
+    stamp the thread id). Once stamped, the activity feed's Draft button
+    deep-links to the exact thread instead of falling back to a compose URL
+    or the tracker.
+
+    Returns {thread_id, message_id} on a match, else None.
+    """
+    if not recipient_email:
+        return None
+    try:
+        service = get_gmail_service_for_user(user_email, user_id=user_id)
+        if not service:
+            return None
+        q = f'in:sent to:{recipient_email}'
+        if subject:
+            clean = subject.replace('"', '').strip()
+            if clean:
+                q += f' subject:"{clean}"'
+        resp = service.users().messages().list(userId='me', q=q, maxResults=1).execute()
+        messages = resp.get('messages') or []
+        if not messages:
+            return None
+        return {
+            'thread_id': messages[0].get('threadId') or '',
+            'message_id': messages[0].get('id') or '',
+        }
+    except Exception as e:
+        print(f"[GmailClient] find_sent_thread_for_recipient failed for {recipient_email}: {e}")
+        return None
+
+
+def find_draft_for_recipient(user_email, user_id, recipient_email, subject=None):
+    """Look up an existing Gmail draft addressed to a specific recipient.
+
+    Used to backfill gmailDraftUrl on Loop-found contacts whose draft was
+    created before the (id/url → draft_id/draft_url) field-name bug was
+    fixed in agent_actions.py. Same compose URL shape that
+    create_gmail_draft_for_user returns, so the activity feed can deep-link
+    to the exact draft (matching Find People spreadsheet behavior).
+
+    Returns {draft_id, message_id, draft_url, thread_id} on a match, else None.
+    """
+    if not recipient_email:
+        return None
+    try:
+        service = get_gmail_service_for_user(user_email, user_id=user_id)
+        if not service:
+            return None
+        # Gmail search query — narrow to drafts addressed to this recipient.
+        # Subject is included when available to disambiguate multiple drafts
+        # to the same person (e.g. an initial outreach + a follow-up).
+        q = f'in:drafts to:{recipient_email}'
+        if subject:
+            # Strip quotes from the subject so the Gmail query parser doesn't
+            # see unbalanced ones. Surround the whole thing in quotes for an
+            # exact phrase match.
+            clean = subject.replace('"', '').strip()
+            if clean:
+                q += f' subject:"{clean}"'
+        resp = service.users().messages().list(userId='me', q=q, maxResults=5).execute()
+        messages = resp.get('messages') or []
+        if not messages:
+            return None
+        # Take the first match. message.id is the underlying message; threadId
+        # is the conversation. We need draft_id too — fetch the message to
+        # confirm it's actually a draft and to get the draft envelope.
+        message_id = messages[0].get('id')
+        thread_id = messages[0].get('threadId')
+        if not message_id:
+            return None
+        # Locate the draft envelope by listing drafts and matching message id.
+        # drafts.list returns up to 500 at a time; for users with thousands of
+        # drafts this would need pagination, but the common case fits in one
+        # page.
+        draft_id = ''
+        try:
+            drafts_resp = service.users().drafts().list(userId='me', maxResults=500).execute()
+            for d in drafts_resp.get('drafts') or []:
+                if (d.get('message') or {}).get('id') == message_id:
+                    draft_id = d.get('id') or ''
+                    break
+        except Exception:
+            pass
+        draft_url = f"https://mail.google.com/mail/u/0/#drafts?compose={message_id}"
+        return {
+            'draft_id': draft_id,
+            'message_id': message_id,
+            'draft_url': draft_url,
+            'thread_id': thread_id or '',
+        }
+    except Exception as e:
+        print(f"[GmailClient] find_draft_for_recipient failed for {recipient_email}: {e}")
+        return None
 
 
 # ISSUE 3 FIX: Parallel Gmail draft creation with rate limiting

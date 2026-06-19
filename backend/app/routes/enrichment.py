@@ -192,18 +192,11 @@ def enrich_linkedin_for_onboarding():
 
         # Loop through scrape-first tiers, running LLM structuring on each
         # tier's output and falling through if the structured result lacks a
-        # usable name. With ENABLE_APIFY_USER_LINKEDIN on, the chain is
-        # [Apify -> PDL]; off, it stays [Firecrawl -> Bright Data -> PDL].
+        # usable name. Chain is [Apify -> PDL] for user-LinkedIn onboarding.
         raw_data = None
         source = ""
         linkedin_parsed = None
         attempted_sources = []
-        # D9: when Apify is in the chain AND was attempted but did not yield a
-        # usable structured profile, a later tier succeeding is a "fallback"
-        # event. We tag the stored source so observability can count fallbacks
-        # and the frontend can show a quiet toast.
-        apify_in_chain = bool(os.getenv("ENABLE_APIFY_USER_LINKEDIN"))
-        apify_attempted = False
 
         for tier in get_enrichment_tiers(prefer_scrape=True):
             try:
@@ -215,8 +208,6 @@ def enrich_linkedin_for_onboarding():
                 continue
 
             attempted_sources.append(tier_source)
-            if tier_source == "apify":
-                apify_attempted = True
             structured = llm_enrich_profile(tier_data, tier_source)
             if structured and structured.get('name'):
                 raw_data = tier_data
@@ -229,17 +220,10 @@ def enrich_linkedin_for_onboarding():
                 f"(likely login wall / blocked); trying next tier"
             )
 
-        # Treat the "Apify silently returned nothing usable" path the same as
-        # "Apify HTTP-failed": both count as the fallback path having to run.
-        if apify_in_chain and "apify" not in attempted_sources:
-            apify_attempted = True
-
-        # If Apify was the intended first tier and a non-Apify tier won,
-        # promote the stored source to a fallback marker so it can be queried
-        # and migrated later.
-        fallback_used = bool(
-            apify_in_chain and apify_attempted and source and source != "apify"
-        )
+        # D9: Apify is always the intended first tier. If a later tier won,
+        # tag the stored source so the frontend can show the fallback toast
+        # and observability can count fallbacks.
+        fallback_used = bool(source and source != "apify")
         if fallback_used:
             source = f"{source}-fallback"
 
@@ -333,14 +317,10 @@ def _user_needs_apify_backfill(user_data: dict, now_ts: float) -> tuple[bool, st
     decision logic is testable without Firestore.
 
     Skip reasons:
-      "no_flag"          - ENABLE_APIFY_USER_LINKEDIN is off; backfill disabled
       "already_apify"    - source is already 'apify' or backfill flag is set
       "no_url"           - user has no LinkedIn URL on file to scrape
       "recent_attempt"   - last backfill attempt within cooldown window
     """
-    if not os.getenv("ENABLE_APIFY_USER_LINKEDIN"):
-        return False, "no_flag"
-
     # Source-of-truth: explicit flag wins.
     if user_data.get("apifyBackfilled") is True:
         return False, "already_apify"

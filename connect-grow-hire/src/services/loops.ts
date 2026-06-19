@@ -156,6 +156,10 @@ export interface Loop {
   // but with no visual cue).
   cycleRunning?: boolean;
   cycleStartedAt?: string | null;
+  // Persisted by loop_jobs when a cycle crashes outside the planner path.
+  // Surfaced as a red "Last cycle failed" banner on LoopDetailPage; cleared
+  // by the next successful cycle.
+  lastCycleError?: string | null;
 }
 
 export interface CycleCostEstimate {
@@ -246,9 +250,23 @@ export interface LoopActivityItem {
    *  Absent on non-draft items and on legacy drafts written before
    *  agent_actions started persisting it. */
   email?: string;
+  /** Contact's display name. Present on draft rows so the editorial
+   *  list can lead with the person, not the email subject. Absent on
+   *  legacy drafts written before this field was added. */
+  contactName?: string;
+  /** Original email subject for draft rows. Preserved separately now
+   *  that `title` carries the contact's name. */
+  emailSubject?: string;
+  /** Per-row phase for draft items, computed by the backend from the
+   *  live contact doc: "replied" once a reply lands, "sent" after the
+   *  email went out, "drafted" otherwise. Drives the colored dot in the
+   *  drafts list — replaces the hardcoded "SENT" stamp. */
+  state?: "drafted" | "sent" | "replied";
   createdAt: string;
   /** Firestore contact id, for the per-card action buttons (My Network /
-   *  Inbox / Find). Absent on job/company items and legacy rows. */
+   *  Inbox / Find) and to deep-link draft rows into
+   *  /my-network/people?contact=<id>. Absent on job/company items and
+   *  legacy rows. */
   contactId?: string;
   /** True when the contact has outreach (a draft, thread, or stage past new).
    *  Gates the "View in Inbox" button — bare contacts show only My Network. */
@@ -263,6 +281,22 @@ export interface LoopActivityItem {
    *   - people-mode networking contacts (today's flat row layout)
    *   - legacy items written before H shipped. */
   groupKey?: string;
+  /** Broadening level reached by the find_jobs retry loop. Only present on
+   *  type='job' items where the level was > 0 (a relaxed query produced the
+   *  result). Used by the dashboard to render a "we widened your search"
+   *  badge. Absent on level-0 items and on pre-PR data. */
+  broadenLevel?: number;
+  /** Original role string from the brief — surfaced in the L1/L2 badge copy
+   *  ("closely related to {originalRole}"). Absent when broadenLevel is 0 or
+   *  on pre-PR data. */
+  originalRole?: string;
+  /** Target company from the action — surfaced in the L2 badge copy
+   *  ("adjacent to your brief — {originalRole} at {targetCompany}"). Absent
+   *  when broadenLevel is 0 or on pre-PR data. */
+  targetCompany?: string;
+  /** The widened location used for L3 ("widened to {widerLocation}"). Only
+   *  present when broadenLevel === 3. */
+  widerLocation?: string;
 }
 
 // ── CRUD ────────────────────────────────────────────────────────────────

@@ -12,9 +12,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Briefcase,
-  Building2,
   ChevronDown,
-  Inbox,
   Loader2,
   Mail,
   Pause,
@@ -22,6 +20,7 @@ import {
   Reply,
   RotateCw,
   Trash2,
+  UserRound,
   Users,
 } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
@@ -44,7 +43,9 @@ import { Textarea } from "@/components/ui/textarea";
 import ScoutYetiFull from "@/assets/scouts/scout-yeti-full.png";
 import { getCompanyLogo } from "@/lib/companyLogos";
 import { Button } from "@/components/ui/button";
-import { LOOP_COPY, loopCopy } from "@/lib/loopCopy";
+import { Badge } from "@/components/ui/badge";
+import { LOOP_COPY, cadenceLabel, loopCopy, pauseReasonLabel } from "@/lib/loopCopy";
+import { relativeTime as relativeTimeBidi } from "@/lib/relativeTime";
 import type { Loop, LoopActivityItem, LoopActivityType } from "@/services/loops";
 
 // Editorial monospace — small caps, kickers, addresses.
@@ -96,6 +97,15 @@ function daysRunning(iso: string | null): number {
   if (!iso) return 1;
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
   return Math.max(1, days + 1);
+}
+
+// Loop-found contact names land lowercase from the upstream feed
+// ("prashant tatineni"). Title-case at display time — the contact doc
+// itself stays untouched. Word boundary catches spaces, hyphens, and
+// apostrophes so "o'brien" → "O'Brien" and "mary-jane" → "Mary-Jane".
+function titleCaseName(s: string): string {
+  if (!s) return s;
+  return s.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
 }
 
 const TYPE_LABEL: Record<LoopActivityType, string> = {
@@ -187,52 +197,6 @@ function CoBadge({ name, size = 30 }: { name: string; size?: number }) {
   );
 }
 
-// ── Quiet editorial status tag — dot + mono small-caps ──────────────────────
-
-type StatusKind = "sent" | "replied" | "meeting";
-const STATUS_META: Record<StatusKind, { label: string; color: string; win: boolean }> = {
-  sent: { label: "Sent", color: "var(--ink-3)", win: false },
-  replied: { label: "Replied", color: "var(--action-fg)", win: true },
-  meeting: { label: "Call booked", color: "var(--action-fg)", win: true },
-};
-
-function StatusTag({ status, align = "left" }: { status: StatusKind; align?: "left" | "right" }) {
-  const s = STATUS_META[status] || STATUS_META.sent;
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 7,
-        flexDirection: align === "right" ? "row-reverse" : "row",
-      }}
-    >
-      <span
-        style={{
-          width: 6,
-          height: 6,
-          borderRadius: 999,
-          background: s.color,
-          flexShrink: 0,
-          boxShadow: s.win ? "0 0 0 3px rgba(224,122,62,0.16)" : "none",
-        }}
-      />
-      <span
-        style={{
-          fontFamily: MONO,
-          fontSize: 10.5,
-          letterSpacing: "0.11em",
-          textTransform: "uppercase",
-          fontWeight: 600,
-          color: s.win ? "var(--ink-2)" : "var(--ink-3)",
-        }}
-      >
-        {s.label}
-      </span>
-    </span>
-  );
-}
-
 // ── Spinner — for the running narration row ─────────────────────────────────
 
 function Spinner({ size = 15 }: { size?: number }) {
@@ -264,6 +228,7 @@ export default function LoopDetailPage() {
   const runNowMut = useRunLoopNow();
   const deleteMut = useDeleteLoop();
   const markReviewedMut = useMarkLoopReviewed();
+  const updateMut = useUpdateLoop();
 
   const loop = query.data;
 
@@ -378,10 +343,82 @@ export default function LoopDetailPage() {
                         border: "1px solid #fde68a",
                       }}
                     >
-                      {loopCopy(loop.loopMode ?? "people", { autoSendMode: loop.autoSendMode })
-                        .pauseReason[loop.pauseReason] ||
-                        loopCopy(loop.loopMode ?? "people", { autoSendMode: loop.autoSendMode })
-                          .pauseReason.paused}
+                      {(loopCopy(loop.loopMode ?? "people", { autoSendMode: loop.autoSendMode })
+                        .pauseReason as Record<string, string>)[loop.pauseReason] ||
+                        `Paused — ${String(loop.pauseReason).replace(/_/g, " ")}.`}
+                    </div>
+                  )}
+
+                  {/* Last-cycle error banner. The cycle crashes in a worker
+                      thread/process after the API has already returned 200,
+                      so the runNow toast never fires for the real failure.
+                      Persistent banner makes the silent state visible and
+                      gives a one-click retry. Cleared automatically on the
+                      next clean cycle (loop_jobs writes DELETE_FIELD), or
+                      manually via Dismiss. */}
+                  {loop.lastCycleError && (
+                    <div
+                      className="mt-5 rounded-lg p-3.5 text-[13px] leading-snug flex items-start gap-3"
+                      style={{
+                        background: "#fef2f2",
+                        color: "#991b1b",
+                        border: "1px solid #fecaca",
+                      }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, marginBottom: 3 }}>
+                          Last cycle failed.
+                        </div>
+                        <div
+                          style={{
+                            fontFamily: MONO,
+                            fontSize: 11.5,
+                            color: "#7f1d1d",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {loop.lastCycleError}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() =>
+                          runNowMut
+                            .mutateAsync(loop.id)
+                            .then(() => toast({ title: "Running it again now." }))
+                            .catch((e) =>
+                              toast({
+                                title: LOOP_COPY.toasts.somethingBroke,
+                                description: (e as Error).message,
+                                variant: "destructive",
+                              })
+                            )
+                        }
+                        disabled={runNowMut.isPending}
+                        className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+                        style={{ background: "#991b1b", color: "white" }}
+                      >
+                        {runNowMut.isPending ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <RotateCw className="h-3 w-3" />
+                        )}
+                        Try again
+                      </button>
+                      <button
+                        onClick={() =>
+                          updateMut.mutateAsync({
+                            loopId: loop.id,
+                            patch: { lastCycleError: null },
+                          })
+                        }
+                        disabled={updateMut.isPending}
+                        className="text-[12px] underline underline-offset-2 transition-opacity hover:opacity-80 disabled:opacity-50"
+                        style={{ color: "#7f1d1d" }}
+                      >
+                        Dismiss
+                      </button>
                     </div>
                   )}
 
@@ -475,7 +512,6 @@ export default function LoopDetailPage() {
                   </div>
 
                   <EmailsSection items={partitioned.drafts} loop={loop} />
-                  <FoundContactsSection items={partitioned.contacts} />
                   <RepliesSection loop={loop} />
                   <DiscoveredRow
                     companies={partitioned.companies}
@@ -508,9 +544,17 @@ function LoopHero({
   onStart: () => void;
   busy: { start: boolean; pause: boolean; resume: boolean };
 }) {
-  const isRunning = loop.status === "running";
-  const isPaused = loop.status === "paused";
-  const isIdle = loop.status === "idle";
+  const isErrored = !!loop.lastCycleError;
+  // status drives the underlying state machine, but the user-facing phase
+  // also pulls in lastCycleError so a crashed Loop reads as "Errored"
+  // instead of the ambiguous "idle" it ends up in after a generic crash.
+  const isRunning = loop.status === "running" && !isErrored;
+  const isPaused = loop.status === "paused" && !isErrored;
+  // Autopilot loops finish a cycle in "done" — treat them the same as
+  // "idle" for hero-button purposes so the user can re-run from here.
+  // Without this, a completed autopilot Loop shows no Start button at all.
+  const isIdle =
+    !isErrored && (loop.status === "idle" || loop.status === "done");
 
   // Narration cycles through the last few activity items, formatted as
   // short past-tense lines. Falls back to a steady message when nothing
@@ -526,13 +570,36 @@ function LoopHero({
 
   const [line, lineIndex] = useCycle(narrationLines, 2600);
 
-  const statusKicker = isRunning
-    ? `Loop ${loop.shortCode} · live now`
-    : isPaused
-      ? `Loop ${loop.shortCode} · paused`
-      : isIdle
-        ? `Loop ${loop.shortCode} · idle`
-        : `Loop ${loop.shortCode}`;
+  const statusKicker = isErrored
+    ? `Loop ${loop.shortCode} · cycle failed`
+    : isRunning
+      ? `Loop ${loop.shortCode} · live now`
+      : isPaused
+        ? `Loop ${loop.shortCode} · paused`
+        : isIdle
+          ? `Loop ${loop.shortCode} · ready`
+          : `Loop ${loop.shortCode}`;
+
+  // Cadence / last-fired / next-fire line. Surfaces data the user previously
+  // had no way to see (nextRunAt, lastRunAt, cadence all live in Firestore
+  // but were never rendered). Shape changes per status:
+  //   running, manual cadence → "Cadence: manual · Last fired Xh ago"
+  //   running                 → "Cadence: every other day · Last fired Xh ago · Next in Yh"
+  //   paused                  → "Paused · {reason short label} · Last fired Xh ago"
+  //   idle                    → null (no useful timestamps yet)
+  let rhythmLine: string | null = null;
+  if (isRunning) {
+    const parts = [`Cadence: ${cadenceLabel(loop.cadence)}`];
+    if (loop.lastRunAt) parts.push(`Last fired ${relativeTimeBidi(loop.lastRunAt)}`);
+    if (loop.cadence !== "manual" && loop.nextRunAt) {
+      parts.push(`Next ${relativeTimeBidi(loop.nextRunAt)}`);
+    }
+    rhythmLine = parts.join(" · ");
+  } else if (isPaused) {
+    const parts = [`Paused · ${pauseReasonLabel(loop.pauseReason)}`];
+    if (loop.lastRunAt) parts.push(`Last fired ${relativeTimeBidi(loop.lastRunAt)}`);
+    rhythmLine = parts.join(" · ");
+  }
 
   const dayCount = daysRunning(loop.createdAt);
   const startLabel = startedLabel(loop.createdAt);
@@ -652,16 +719,31 @@ function LoopHero({
               width: 8,
               height: 8,
               borderRadius: 999,
-              background: isRunning
-                ? "var(--action-fg)"
-                : isPaused
-                  ? "var(--signal-wait)"
-                  : "var(--ink-3)",
+              background: isErrored
+                ? "#dc2626"
+                : isRunning
+                  ? "var(--action-fg)"
+                  : isPaused
+                    ? "var(--signal-wait)"
+                    : "var(--ink-3)",
               animation: isRunning ? "rLivePulse 1.8s ease-out infinite" : undefined,
             }}
           />
           {statusKicker}
         </div>
+        {rhythmLine && (
+          <div
+            style={{
+              marginTop: 6,
+              fontFamily: MONO,
+              fontSize: 11.5,
+              letterSpacing: "0.04em",
+              color: "var(--ink-3)",
+            }}
+          >
+            {rhythmLine}
+          </div>
+        )}
         <h1
           style={{
             margin: "12px 0 0",
@@ -673,7 +755,11 @@ function LoopHero({
             color: "var(--heading)",
           }}
         >
-          {isRunning ? (
+          {isErrored ? (
+            <>
+              Stuck — <em style={{ fontStyle: "italic", color: "#dc2626" }}>let's look at it.</em>
+            </>
+          ) : isRunning ? (
             <>
               Out there working <em style={{ fontStyle: "italic", color: "var(--accent)" }}>for you.</em>
             </>
@@ -939,7 +1025,7 @@ function SectionHead({
 
 function EmailsSection({ items, loop }: { items: LoopActivityItem[]; loop: Loop }) {
   const copy = loopCopy(loop.loopMode ?? "people", { autoSendMode: loop.autoSendMode });
-  // Long lists collapse to the first 8 to keep the page scannable. The
+  // Long lists collapse to the first 5 to keep the page scannable. The
   // "Show N more" toggle reveals the rest in one click.
   const [expanded, setExpanded] = useState(false);
   const COLLAPSED_CAP = 5;
@@ -1061,29 +1147,6 @@ function CollapseToggle({
 }
 
 // Small bordered-pill action button used on the email/contact cards. Mirrors
-// the "Remove" button vocabulary in the hero (white bg, 1px var(--line)) —
-// explicitly not a colored pill, per the AI-slop guardrails.
-function CardActionButton({
-  to,
-  icon: Icon,
-  label,
-}: {
-  to: string;
-  icon: typeof Users;
-  label: string;
-}) {
-  return (
-    <Link
-      to={to}
-      className="inline-flex items-center gap-1.5 rounded-md border bg-white px-2.5 py-1.5 text-[12px] font-medium transition-colors hover:bg-[var(--paper-2)]"
-      style={{ borderColor: "var(--line)", color: "var(--ink-2)", textDecoration: "none" }}
-    >
-      <Icon className="h-3.5 w-3.5" />
-      {label}
-    </Link>
-  );
-}
-
 function EmailRow({
   item,
   index,
@@ -1093,24 +1156,32 @@ function EmailRow({
   index: number;
   last: boolean;
 }) {
-  // Subtitle is typically "Role · Company" or "Subject — Company" — we
-  // surface it as the secondary line. Real per-contact reply status isn't
-  // in the per-Loop feed yet; everything reads as "Sent" until the
-  // backend joins reply state into the activity stream.
-  const contactId = item.contactId || "";
-  // HM cards keep their single Find-tab destination; person cards get the
-  // My Network / Inbox pair. "View in Inbox" only when the contact has
-  // outreach (a draft, thread, or stage past new) — bare contacts show only
-  // "View in My Network".
+  // The row's leading slot is the contact's display name; the email
+  // address sits underneath in monospace. Two explicit action buttons
+  // on the right send the user to either the actual Gmail draft/thread
+  // or to that contact's row in /my-network/people — the whole-row
+  // click target is gone so the two destinations are unambiguous.
+  const name = titleCaseName(item.contactName || item.title);
+  const email = item.email || item.subtitle || "";
+  const draftHref = item.linkTo;
+  const draftExternal = !!item.external;
+  const networkHref = item.contactId
+    ? `/my-network/people?contact=${encodeURIComponent(item.contactId)}`
+    : "/my-network/people";
+
   return (
     <div
       style={{
         display: "flex",
         gap: 18,
-        alignItems: "flex-start",
-        padding: "16px 4px",
+        alignItems: "center",
+        padding: "16px 14px",
+        margin: "0 -10px",
+        borderRadius: 10,
         borderBottom: last ? "none" : "1px solid var(--line-2)",
+        transition: "background-color .15s ease",
       }}
+      className="hover:bg-[var(--paper-2)]"
     >
       <span
         style={{
@@ -1130,240 +1201,190 @@ function EmailRow({
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 9,
-            flexWrap: "wrap",
-            marginBottom: 4,
+            gap: 8,
+            marginBottom: 3,
+            minWidth: 0,
           }}
         >
+          <StateDot state={item.state} />
           <span
             style={{
-              fontSize: 14.5,
+              fontSize: 15,
               fontWeight: 600,
               color: "var(--ink)",
               letterSpacing: "-0.01em",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              minWidth: 0,
             }}
           >
-            {item.title}
+            {name}
           </span>
         </div>
-        {item.subtitle && (
-          <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 0 }}>
-            <Mail size={13} style={{ color: "var(--ink-3)" }} />
-            <span
-              style={{
-                fontFamily: MONO,
-                fontSize: 12.5,
-                color: "var(--accent)",
-                fontWeight: 500,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {item.subtitle}
-            </span>
-          </div>
-        )}
-        {contactId && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-            {item.isHm ? (
-              <CardActionButton
-                to={`/find?tab=hiring-managers&contact=${contactId}`}
-                icon={Building2}
-                label="View in Find"
-              />
-            ) : (
-              <>
-                <CardActionButton
-                  to={`/my-network/people?contact=${contactId}`}
-                  icon={Users}
-                  label="View in My Network"
-                />
-                {item.hasOutreach && (
-                  <CardActionButton
-                    to={`/outbox?contact=${contactId}`}
-                    icon={Inbox}
-                    label="View in Inbox"
-                  />
-                )}
-              </>
-            )}
-          </div>
-        )}
-      </div>
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "flex-end",
-          gap: 8,
-          flexShrink: 0,
-        }}
-      >
-        <StatusTag status="sent" align="right" />
-        <span style={{ fontSize: 11, color: "var(--ink-3)" }}>
-          {relativeTime(item.createdAt)}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-// ── Found, not yet emailed — people the Loop surfaced but hasn't drafted to ──
-
-function FoundContactsSection({ items }: { items: LoopActivityItem[] }) {
-  // Only people with no outreach yet (no draft / thread / stage past new).
-  // The drafted ones already live in the Emails section above; rendering them
-  // here too would double-list the same person. Adopted contacts (people the
-  // Loop re-discovered that were already in your network) are not in this
-  // stream — the adopt path enriches them in place without emitting an
-  // activity item — so they don't appear here.
-  const notEmailed = useMemo(() => items.filter((it) => !it.hasOutreach), [items]);
-  const [expanded, setExpanded] = useState(false);
-  const COLLAPSED_CAP = 5;
-  if (notEmailed.length === 0) return null;
-  const overflow = Math.max(0, notEmailed.length - COLLAPSED_CAP);
-  const shown = expanded || overflow === 0 ? notEmailed : notEmailed.slice(0, COLLAPSED_CAP);
-  return (
-    <div style={{ marginTop: 36 }}>
-      <SectionHead
-        kicker="Not yet contacted"
-        title="Found,"
-        italic="not yet emailed."
-        right={
-          <span style={{ fontFamily: MONO, fontSize: 11.5, color: "var(--ink-3)" }}>
-            {notEmailed.length} found
-          </span>
-        }
-      />
-      <div
-        style={{
-          border: "1px solid var(--line)",
-          borderRadius: 16,
-          background: "#fff",
-          padding: "6px 18px",
-          boxShadow: "var(--shadow-sm)",
-        }}
-      >
-        {shown.map((it, i) => (
-          <ContactRow
-            key={it.id}
-            item={it}
-            index={i + 1}
-            last={i === shown.length - 1 && overflow === 0}
-          />
-        ))}
-        {overflow > 0 && (
-          <CollapseToggle
-            expanded={expanded}
-            hiddenCount={overflow}
-            onToggle={() => setExpanded((e) => !e)}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ContactRow({
-  item,
-  index,
-  last,
-}: {
-  item: LoopActivityItem;
-  index: number;
-  last: boolean;
-}) {
-  // Same card vocabulary as EmailRow, minus the "Sent" status and the Inbox
-  // button — these contacts have no outreach by definition, so the only
-  // action is opening them in My Network.
-  const contactId = item.contactId || "";
-  return (
-    <div
-      style={{
-        display: "flex",
-        gap: 18,
-        alignItems: "flex-start",
-        padding: "16px 4px",
-        borderBottom: last ? "none" : "1px solid var(--line-2)",
-      }}
-    >
-      <span
-        style={{
-          fontFamily: "var(--font-display)",
-          fontSize: 22,
-          color: "var(--ink-3)",
-          width: 30,
-          fontVariantNumeric: "tabular-nums",
-          lineHeight: 1.3,
-          flexShrink: 0,
-        }}
-      >
-        {String(index).padStart(2, "0")}
-      </span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 9,
-            flexWrap: "wrap",
-            marginBottom: 4,
-          }}
-        >
-          <span
-            style={{
-              fontSize: 14.5,
-              fontWeight: 600,
-              color: "var(--ink)",
-              letterSpacing: "-0.01em",
-            }}
-          >
-            {item.title}
-          </span>
-        </div>
-        {item.subtitle && item.subtitle !== "—" && (
+        {email && (
           <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-            <Briefcase size={13} style={{ color: "var(--ink-3)" }} />
+            <Mail size={12} style={{ color: "var(--ink-3)", flexShrink: 0 }} />
             <span
               style={{
                 fontFamily: MONO,
-                fontSize: 12.5,
-                color: "var(--ink-2)",
-                fontWeight: 500,
+                fontSize: 12,
+                color: "var(--ink-3)",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
               }}
             >
-              {item.subtitle}
+              {email}
             </span>
-          </div>
-        )}
-        {contactId && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-            <CardActionButton
-              to={`/my-network/people?contact=${contactId}`}
-              icon={Users}
-              label="View in My Network"
-            />
           </div>
         )}
       </div>
       <div
         style={{
           display: "flex",
-          flexDirection: "column",
-          alignItems: "flex-end",
-          gap: 8,
+          alignItems: "center",
+          gap: 6,
           flexShrink: 0,
         }}
       >
-        <span style={{ fontSize: 11, color: "var(--ink-3)" }}>
+        <EmailRowButton
+          icon={<Mail size={13} />}
+          label={
+            item.state === "sent" || item.state === "replied" ? "Thread" : "Email Draft"
+          }
+          href={draftHref}
+          external={draftExternal}
+          variant="primary"
+        />
+        <EmailRowButton
+          icon={<UserRound size={13} />}
+          label="Contact"
+          href={networkHref}
+          external={false}
+          variant="ghost"
+        />
+        <span
+          style={{
+            fontSize: 11,
+            color: "var(--ink-3)",
+            marginLeft: 4,
+            minWidth: 44,
+            textAlign: "right",
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
           {relativeTime(item.createdAt)}
         </span>
       </div>
     </div>
+  );
+}
+
+function StateDot({ state }: { state?: "drafted" | "sent" | "replied" }) {
+  // Per-row phase chip on draft list rows. Replaces the old hardcoded "SENT"
+  // stamp — drives off the backend-computed state field, so a row reads as
+  // Drafted / Sent / Replied based on the live contact doc.
+  const meta =
+    state === "replied"
+      ? { dot: "#16a34a", label: "Replied", fg: "#15803d", bg: "rgba(22,163,74,0.10)" }
+      : state === "sent"
+        ? { dot: "var(--ink-3)", label: "Sent", fg: "var(--ink-2)", bg: "rgba(91,119,153,0.08)" }
+        : { dot: "var(--accent)", label: "Drafted", fg: "var(--accent)", bg: "rgba(224,122,62,0.10)" };
+  return (
+    <span
+      title={meta.label}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        padding: "2px 7px 2px 6px",
+        borderRadius: 999,
+        background: meta.bg,
+        flexShrink: 0,
+      }}
+    >
+      <span
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: 999,
+          background: meta.dot,
+          flexShrink: 0,
+        }}
+      />
+      <span
+        style={{
+          fontFamily: MONO,
+          fontSize: 9.5,
+          letterSpacing: "0.1em",
+          textTransform: "uppercase",
+          fontWeight: 600,
+          color: meta.fg,
+        }}
+      >
+        {meta.label}
+      </span>
+    </span>
+  );
+}
+
+function EmailRowButton({
+  icon,
+  label,
+  href,
+  external,
+  variant,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  href: string;
+  external: boolean;
+  variant: "primary" | "ghost";
+}) {
+  const isPrimary = variant === "primary";
+  const style: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    padding: "6px 10px",
+    borderRadius: 8,
+    fontSize: 12,
+    fontWeight: 500,
+    lineHeight: 1,
+    textDecoration: "none",
+    border: "1px solid",
+    borderColor: isPrimary ? "var(--ink)" : "var(--line)",
+    background: isPrimary ? "var(--ink)" : "#fff",
+    color: isPrimary ? "#fff" : "var(--ink-2)",
+    transition: "opacity .15s ease, background-color .15s ease",
+  };
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
+  if (external) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        onClick={stop}
+        style={style}
+        className={isPrimary ? "hover:opacity-90" : "hover:bg-[var(--paper-2)]"}
+      >
+        {icon}
+        {label}
+      </a>
+    );
+  }
+  return (
+    <Link
+      to={href}
+      onClick={stop}
+      style={style}
+      className={isPrimary ? "hover:opacity-90" : "hover:bg-[var(--paper-2)]"}
+    >
+      {icon}
+      {label}
+    </Link>
   );
 }
 
@@ -1375,7 +1396,7 @@ function RepliesSection({ loop }: { loop: Loop }) {
   const total = loop.totalRepliesReceived;
   return (
     <div style={{ marginTop: 38 }}>
-      <SectionHead kicker="02 · Waiting on you" title="Replies that landed" />
+      <SectionHead kicker="Waiting on you" title="Replies" italic="that landed." />
       {total === 0 ? (
         <div
           style={{
@@ -1443,6 +1464,20 @@ function RepliesSection({ loop }: { loop: Loop }) {
 }
 
 // ── Discovered along the way (Option 2 — collapsed, expandable) ─────────────
+
+// Copy for the "we widened your search" chip rendered on L1/L2/L3 job rows.
+// Returns null at L0 so the chip is skipped on exact-match results.
+function broadenChipCopy(j: LoopActivityItem): string | null {
+  const level = j.broadenLevel;
+  if (!level || level <= 0) return null;
+  const role = j.originalRole || "your role";
+  const company = j.targetCompany || "your target";
+  const wider = j.widerLocation || "a wider area";
+  if (level === 1) return `closely related to ${role}`;
+  if (level === 2) return `adjacent to your brief — ${role} at ${company}`;
+  if (level === 3) return `widened to ${wider}`;
+  return null;
+}
 
 function DiscoveredRow({
   companies,
@@ -1568,13 +1603,40 @@ function DiscoveredRow({
                 lineHeight: 1.25,
               }}
             >
-              <em style={{ fontStyle: "italic", color: "var(--accent)" }}>
-                {nJobs} {nJobs === 1 ? "role" : "roles"}
-              </em>{" "}
-              at{" "}
-              <em style={{ fontStyle: "italic", color: "var(--accent)" }}>
-                {nCo} {nCo === 1 ? "company" : "companies"}
-              </em>
+              {nJobs > 0 && nCo > 0 && (
+                <>
+                  <em style={{ fontStyle: "italic", color: "var(--accent)" }}>
+                    {nJobs} {nJobs === 1 ? "role" : "roles"}
+                  </em>{" "}
+                  and{" "}
+                  <em style={{ fontStyle: "italic", color: "var(--accent)" }}>
+                    {nCo} new {nCo === 1 ? "company" : "companies"}
+                  </em>
+                </>
+              )}
+              {nJobs > 0 && nCo === 0 && (() => {
+                const broadenedCount = jobs.filter(
+                  (j) => (j.broadenLevel ?? 0) >= 1,
+                ).length;
+                if (broadenedCount > 0) {
+                  return (
+                    <em style={{ fontStyle: "italic", color: "var(--accent)" }}>
+                      {nJobs} {nJobs === 1 ? "role" : "roles"} to explore — including{" "}
+                      {broadenedCount} closely related
+                    </em>
+                  );
+                }
+                return (
+                  <em style={{ fontStyle: "italic", color: "var(--accent)" }}>
+                    {nJobs} {nJobs === 1 ? "role" : "roles"} to explore
+                  </em>
+                );
+              })()}
+              {nJobs === 0 && nCo > 0 && (
+                <em style={{ fontStyle: "italic", color: "var(--accent)" }}>
+                  {nCo} new {nCo === 1 ? "company" : "companies"}
+                </em>
+              )}
               <span
                 style={{
                   fontFamily: "var(--font-body)",
@@ -1742,6 +1804,22 @@ function DiscoveredRow({
                               {j.subtitle}
                             </div>
                           )}
+                          {(() => {
+                            const copy = broadenChipCopy(j);
+                            return copy ? (
+                              <Badge
+                                variant="secondary"
+                                style={{
+                                  marginTop: 4,
+                                  fontSize: 10.5,
+                                  fontWeight: 500,
+                                  letterSpacing: "-0.005em",
+                                }}
+                              >
+                                {copy}
+                              </Badge>
+                            ) : null;
+                          })()}
                         </div>
                         <span style={{ fontSize: 11, color: "var(--ink-3)" }}>
                           {relativeTime(j.createdAt)}

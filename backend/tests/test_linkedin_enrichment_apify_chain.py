@@ -1,15 +1,11 @@
 """Tests for the Apify-first user-LinkedIn enrichment chain (D9).
 
 Two layers covered:
-  1. get_enrichment_tiers(prefer_scrape=True) composition under
-     ENABLE_APIFY_USER_LINKEDIN on/off and the contact-search path
-     (prefer_scrape=False) which must NOT be affected.
+  1. get_enrichment_tiers(prefer_scrape=True) composition: user-LinkedIn
+     onboarding is Apify -> PDL; contact-search (prefer_scrape=False) is
+     unchanged.
   2. The _try_apify wrapper around enrich_user_linkedin_profile_via_apify,
      covering happy path and every envelope.ok=False shape.
-
-Route-level integration (fallback_used response field) is not exercised here;
-the existing tier-loop in enrichment.py is unit-tested elsewhere and the
-tagging is one if-statement deep.
 """
 from __future__ import annotations
 
@@ -20,7 +16,6 @@ import pytest
 from app.utils.linkedin_enrichment import (
     _try_apify,
     _try_brightdata,
-    _try_firecrawl,
     _try_pdl,
     get_enrichment_tiers,
 )
@@ -30,59 +25,19 @@ from app.utils.linkedin_enrichment import (
 # Chain composition
 # ---------------------------------------------------------------------------
 
-def test_chain_off_returns_legacy_scrape_chain(monkeypatch):
-    """Flag off: existing Firecrawl -> BrightData -> PDL chain (unchanged)."""
-    monkeypatch.delenv("ENABLE_APIFY_USER_LINKEDIN", raising=False)
-    monkeypatch.delenv("ENABLE_JINA_FALLBACK", raising=False)
-
-    chain = get_enrichment_tiers(prefer_scrape=True)
-    assert chain == [_try_firecrawl, _try_brightdata, _try_pdl]
-
-
-def test_chain_on_replaces_scrape_chain_with_apify_first(monkeypatch):
-    """Flag on: Apify -> PDL only; Firecrawl/BrightData dropped from user path."""
-    monkeypatch.setenv("ENABLE_APIFY_USER_LINKEDIN", "1")
-    monkeypatch.delenv("ENABLE_JINA_FALLBACK", raising=False)
-
+def test_user_onboarding_chain_is_apify_then_pdl():
+    """prefer_scrape=True: user-LinkedIn onboarding uses Apify -> PDL only.
+    Firecrawl is policy-blocked from LinkedIn; Bright Data was expensive
+    and broken — both removed from this path."""
     chain = get_enrichment_tiers(prefer_scrape=True)
     assert chain == [_try_apify, _try_pdl]
-    # Critical: Firecrawl is policy-blocked from LinkedIn; must not appear.
-    assert _try_firecrawl not in chain
-    assert _try_brightdata not in chain
 
 
-def test_contact_search_path_is_unaffected_by_flag(monkeypatch):
-    """prefer_scrape=False is the contact-enrichment path. The Apify flag
-    must NOT change it — contact searches keep PDL -> BrightData."""
-    for value in (None, "1", "true"):
-        if value is None:
-            monkeypatch.delenv("ENABLE_APIFY_USER_LINKEDIN", raising=False)
-        else:
-            monkeypatch.setenv("ENABLE_APIFY_USER_LINKEDIN", value)
-
-        chain = get_enrichment_tiers(prefer_scrape=False)
-        assert chain == [_try_pdl, _try_brightdata]
-
-
-def test_jina_flag_still_works_when_apify_flag_is_off(monkeypatch):
-    """Legacy Jina fallback must keep working when Apify is not enabled."""
-    monkeypatch.delenv("ENABLE_APIFY_USER_LINKEDIN", raising=False)
-    monkeypatch.setenv("ENABLE_JINA_FALLBACK", "1")
-
-    chain = get_enrichment_tiers(prefer_scrape=True)
-    # Jina should be inserted between Firecrawl and BrightData.
-    assert chain[0] is _try_firecrawl
-    assert chain[1].__name__ == "_try_jina"
-    assert _try_pdl in chain
-
-
-def test_jina_flag_is_ignored_when_apify_flag_is_on(monkeypatch):
-    """Apify-first path is Apify -> PDL period. No legacy Jina insertion."""
-    monkeypatch.setenv("ENABLE_APIFY_USER_LINKEDIN", "1")
-    monkeypatch.setenv("ENABLE_JINA_FALLBACK", "1")
-
-    chain = get_enrichment_tiers(prefer_scrape=True)
-    assert chain == [_try_apify, _try_pdl]
+def test_contact_search_chain_is_pdl_then_brightdata():
+    """prefer_scrape=False is the contact-enrichment path. Stays on
+    PDL -> Bright Data (the Apify swap is for user-onboarding only)."""
+    chain = get_enrichment_tiers(prefer_scrape=False)
+    assert chain == [_try_pdl, _try_brightdata]
 
 
 # ---------------------------------------------------------------------------

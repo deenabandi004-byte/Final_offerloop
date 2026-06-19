@@ -178,6 +178,9 @@ def _try_pdl(url: str) -> tuple[dict | None, str]:
     return None, ""
 
 
+# DEPRECATED — replaced by _try_apify on 2026-06-18. Kept for one revision
+# so a quick git revert can flip back if Apify has an outage. Will be
+# deleted in the next cleanup pass once Apify proves stable in prod.
 def _try_brightdata(url: str) -> tuple[dict | None, str]:
     try:
         try:
@@ -215,9 +218,6 @@ def _try_firecrawl(url):
 def _try_apify(url: str) -> tuple[dict | None, str]:
     """Try Apify HarvestAPI for user LinkedIn enrichment (D9 onboarding path).
 
-    Gated by ENABLE_APIFY_USER_LINKEDIN so we can ship the path off-by-default
-    and ramp gradually. When the flag is off this function is never called.
-
     Returns (raw_data, "apify") on success; (None, "") on any failure so the
     caller's tier loop falls through to PDL.
     """
@@ -246,22 +246,19 @@ def get_enrichment_tiers(prefer_scrape: bool = False):
     Return the ordered list of tier functions for LinkedIn enrichment.
     Each tier function takes a normalized URL and returns (raw_data, source).
     Exposed so callers can loop through and validate the LLM-structured output
-    of each tier, falling through if a tier returns content the LLM can't parse
-    (e.g. a LinkedIn login wall served to Jina).
+    of each tier, falling through if a tier returns content the LLM can't parse.
 
-    When ENABLE_APIFY_USER_LINKEDIN is set, user-LinkedIn onboarding uses an
-    Apify-first chain with PDL as the only fallback (Firecrawl is policy-
-    blocked from LinkedIn, Bright Data was too expensive and broken). The
-    contact-search path (prefer_scrape=False) is unaffected.
+    Both paths now route through Apify after PDL. Bright Data and Jina are
+    deprecated (see comments on _try_brightdata / _try_jina); Firecrawl is
+    policy-blocked from LinkedIn. Apify is the single scraping vendor for
+    LinkedIn going forward.
+
+    - prefer_scrape=True  (user-LinkedIn onboarding): Apify → PDL
+    - prefer_scrape=False (contact-search enrichment):  PDL  → Apify
     """
     if prefer_scrape:
-        if os.getenv("ENABLE_APIFY_USER_LINKEDIN"):
-            return [_try_apify, _try_pdl]
-        chain = [_try_firecrawl, _try_brightdata, _try_pdl]
-        if os.getenv("ENABLE_JINA_FALLBACK"):
-            chain.insert(1, _try_jina)
-        return chain
-    return [_try_pdl, _try_brightdata]
+        return [_try_apify, _try_pdl]
+    return [_try_pdl, _try_apify]
 
 
 def enrich_linkedin_with_fallback(
@@ -638,7 +635,12 @@ def llm_enrich_profile(raw_data: dict, source: str) -> dict:
         elif source == "firecrawl":
             system_prompt = LLM_PROMPT_FIRECRAWL
         else:
-            # Covers "brightdata" (legacy) and "apify" (D9 user-onboarding path).
+            # Covers "brightdata" (deprecated 2026-06-18) and "apify" (now
+            # the primary scrape source for both user-onboarding and
+            # contact-search paths). HarvestAPI's LinkedIn JSON shape is
+            # close enough to Bright Data's that the BRIGHTDATA prompt
+            # extracts cleanly; if the actor swaps to a wildly different
+            # shape, add a dedicated LLM_PROMPT_APIFY here.
             system_prompt = LLM_PROMPT_BRIGHTDATA
 
         # Build the source-data payload string

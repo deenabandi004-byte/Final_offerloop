@@ -360,7 +360,8 @@ def check_credits():
                     'max_credits': max_credits,
                     'searches_remaining': searches_remaining,
                     'tier': tier,
-                    'user_email': user_email
+                    'user_email': user_email,
+                    'credit_costs': {'coffee_chat_prep': COFFEE_CHAT_CREDITS},
                 })
             else:
                 # User doesn't exist yet - return default free tier credits
@@ -369,16 +370,18 @@ def check_credits():
                     'max_credits': 300,
                     'searches_remaining': 20,
                     'tier': 'free',
-                    'user_email': user_email
+                    'user_email': user_email,
+                    'credit_costs': {'coffee_chat_prep': COFFEE_CHAT_CREDITS},
                 })
-        
+
         # If no Firebase, return defaults
         return jsonify({
             'credits': 0,
             'max_credits': 300,
             'searches_remaining': 0,
             'tier': 'free',
-            'user_email': user_email
+            'user_email': user_email,
+            'credit_costs': {'coffee_chat_prep': COFFEE_CHAT_CREDITS},
         })
         
     except Exception as e:

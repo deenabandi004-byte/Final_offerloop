@@ -2096,7 +2096,7 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
     const headers = await this.getAuthHeaders();
     return this.makeRequest<{ description: string | null }>(
       `/jobs/${encodeURIComponent(jobId)}/description`,
-      { method: 'GET', headers }
+      { method: 'GET', headers },
     );
   }
 

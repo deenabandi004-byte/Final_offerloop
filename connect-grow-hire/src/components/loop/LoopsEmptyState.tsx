@@ -236,6 +236,7 @@ export function LoopsEmptyState({ onStart }: LoopsEmptyStateProps) {
   const [briefDirty, setBriefDirty] = useState(false);
   const [briefFocused, setBriefFocused] = useState(false);
 
+  const firstName = (user?.name || "").trim().split(/\s+/)[0] || "there";
 
   // Load the user's dream companies once we know the uid. These come from
   // onboarding's Direction extractor (targetFirms / legacy dreamCompanies)
@@ -286,6 +287,7 @@ export function LoopsEmptyState({ onStart }: LoopsEmptyStateProps) {
     ? mergedCompanies
     : ["Google", "Meta", "Databricks", "Datadog", "Stripe"];
 
+  const peopleCount = proposedOk ? Math.max(60, suggestedCompanies.length * 24) : 120;
   const rolesCount = proposedOk ? Math.max(1, proposal.data!.roles.length) : 6;
   const industriesCount = proposedOk ? Math.max(1, proposal.data!.industries.length) : 3;
 
@@ -378,10 +380,58 @@ export function LoopsEmptyState({ onStart }: LoopsEmptyStateProps) {
           textAlign: "center",
         }}
       >
+        {/* Scout greeter */}
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 16 }}>
+          <img
+            src="/scout-loops.png"
+            alt="Scout"
+            style={{
+              width: 104,
+              objectFit: "contain",
+              flexShrink: 0,
+              filter: "drop-shadow(0 14px 22px rgba(30,45,77,.18))",
+              animation: "loops-empty-bob 3.4s ease-in-out infinite",
+            }}
+          />
+          <div
+            style={{
+              position: "relative",
+              background: "#fff",
+              border: `1px solid ${C.border}`,
+              borderRadius: 18,
+              padding: "15px 19px",
+              boxShadow: C.shadowMd,
+              marginBottom: 18,
+              maxWidth: 340,
+              textAlign: "left",
+            }}
+          >
+            <div style={{ fontSize: 14, color: C.ink2, lineHeight: 1.55 }}>
+              Hi {firstName}! I'm{" "}
+              <strong style={{ color: C.heading, fontWeight: 600 }}>Scout</strong>. I read
+              your resume, so I already have a head start. Let's set up your first Loop.
+            </div>
+            <span
+              aria-hidden
+              style={{
+                position: "absolute",
+                left: -6,
+                bottom: 22,
+                width: 12,
+                height: 12,
+                background: "#fff",
+                borderLeft: `1px solid ${C.border}`,
+                borderBottom: `1px solid ${C.border}`,
+                transform: "rotate(45deg)",
+              }}
+            />
+          </div>
+        </div>
+
         {/* Headline */}
         <h1
           style={{
-            margin: "0",
+            margin: "26px 0 0",
             fontFamily: "'Lora', 'Instrument Serif', Georgia, serif",
             fontWeight: 500,
             fontSize: 48,
@@ -509,7 +559,8 @@ export function LoopsEmptyState({ onStart }: LoopsEmptyStateProps) {
             <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 14 }}>
               <CoStack names={suggestedCompanies} size={28} max={4} />
               <span style={{ fontSize: 13, color: C.ink3 }}>
-                {rolesCount} role{rolesCount === 1 ? "" : "s"} · {industriesCount} industries
+                <strong style={{ color: C.ink2, fontWeight: 600 }}>~{peopleCount} people</strong>
+                {" "}we could reach · {rolesCount} role{rolesCount === 1 ? "" : "s"} · {industriesCount} industries
               </span>
             </div>
           </div>

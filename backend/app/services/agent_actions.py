@@ -352,6 +352,46 @@ def _has_fresh_cached_rows(
         return False
 
 
+def _has_fresh_exact_level_jobs(
+    db, uid: str, loop_id: str, ttl: timedelta, company: str,
+) -> bool:
+    """Variant of `_has_fresh_cached_rows` for `agent_jobs` that ONLY treats
+    a prior level-0 (exact "{role} at {company}") result as a cache hit.
+
+    Rationale: jobs saved at broadening levels 1-3 represent a relaxed query,
+    not a true match for "{role} at {company}". A subsequent cycle should
+    re-attempt the exact query rather than serving stale relaxed results.
+
+    Pre-PR docs without a `broadenLevel` field default to 0 (exact) so cache
+    semantics are preserved for loops that ran before this change shipped.
+    Filtering is done in Python — no new Firestore composite index needed.
+    """
+    if not loop_id or not company:
+        return False
+    try:
+        ref = (
+            db.collection("users").document(uid).collection("agent_jobs")
+              .where("loopId", "==", loop_id).where("company", "==", company)
+        )
+        fresh = 0
+        for doc in ref.stream():
+            data = doc.to_dict() or {}
+            # Pre-PR docs lack broadenLevel — treat as level 0 (exact).
+            if data.get("broadenLevel", 0) != 0:
+                continue
+            if _is_cache_fresh(data.get("createdAt"), ttl):
+                fresh += 1
+                if fresh >= _CACHE_MIN_ROWS:
+                    return True
+        return False
+    except Exception:
+        logger.warning(
+            "exact-level cache lookup failed: loop=%s company=%s",
+            loop_id, company, exc_info=True,
+        )
+        return False
+
+
 # Brief-dependent caches. agent_companies and agent_jobs are derived from
 # briefParsed.companies / briefParsed.roles, so a brief edit invalidates them.
 # HM cache (contacts/) stays — once a founder is identified at a small company,
@@ -541,6 +581,7 @@ def execute_find_and_draft(
         )
         # Returns (filtered_list, retry_level, already_saved, adjacency_metadata)
         raw_contacts = result[0] if isinstance(result, tuple) else result
+        adjacency_metadata = result[3] if isinstance(result, tuple) and len(result) > 3 else None
         logger.info("Agent find first attempt: %d contacts for %s", len(raw_contacts) if raw_contacts else 0, company)
 
         # If no results found with alumni+location+industry filters, retry
@@ -570,6 +611,7 @@ def execute_find_and_draft(
                 user_profile=user_profile,
             )
             raw_contacts = result[0] if isinstance(result, tuple) else result
+            adjacency_metadata = result[3] if isinstance(result, tuple) and len(result) > 3 else adjacency_metadata
             logger.info("Agent find relaxed retry: %d contacts for %s", len(raw_contacts) if raw_contacts else 0, company)
 
     except Exception as e:
@@ -846,8 +888,18 @@ def execute_find_and_draft(
             )
             continue
 
+        # Phase 2.2: when pdl_client flags the batch as low email quality
+        # (no verified addresses, all best-guesses), skip Gmail draft creation
+        # so we don't ship pattern-synthesized addresses straight to the
+        # student's inbox. The contact is still surfaced so the user can
+        # decide whether to re-find / verify; the UI reads
+        # emailVerificationStatus="needs_verification" to warn.
+        low_email_quality = (adjacency_metadata or {}).get("email_quality") == "low"
+        if low_email_quality:
+            contact_doc["emailVerificationStatus"] = "needs_verification"
+
         # Create Gmail draft if possible
-        if email_data and email.strip():
+        if email_data and email.strip() and not low_email_quality:
             try:
                 from app.services.gmail_client import create_gmail_draft_for_user
                 draft_result = create_gmail_draft_for_user(
@@ -859,8 +911,8 @@ def execute_find_and_draft(
                     user_id=uid,
                 )
                 if draft_result and isinstance(draft_result, dict):
-                    contact_doc["gmailDraftId"] = draft_result.get("id", "")
-                    contact_doc["gmailDraftUrl"] = draft_result.get("url", "")
+                    contact_doc["gmailDraftId"] = draft_result.get("draft_id", "")
+                    contact_doc["gmailDraftUrl"] = draft_result.get("draft_url", "")
             except Exception as e:
                 logger.warning("Gmail draft creation failed: %s", e)
 
@@ -932,6 +984,40 @@ def execute_find_and_draft(
 # ── FIND_JOBS executor ────────────────────────────────────────────────────
 
 
+# Sonar's failure mode when it can't find a real posting: return a
+# placeholder row with a generic title pointing at the company's careers
+# landing or search page. These three checks catch the patterns we've
+# actually observed in production.
+_PLACEHOLDER_TITLE_RE = __import__("re").compile(
+    r"^\s*(job|jobs)\s*(posting|postings|opening|openings|listing|listings)?\s*$",
+    __import__("re").IGNORECASE,
+)
+_LANDING_URL_HINTS = (
+    "/search?", "/search/", "?location=", "/jobs?",
+    "/jobs/search", "?keywords=",
+)
+_PLACEHOLDER_DESC_HINTS = (
+    "no specific", "do not show a specific", "could not find",
+    "no current postings", "no openings found",
+)
+
+
+def _is_real_job_posting(job: dict) -> bool:
+    if not isinstance(job, dict):
+        return False
+    title = (job.get("title") or "").strip()
+    if not title or _PLACEHOLDER_TITLE_RE.match(title):
+        return False
+    url = (job.get("url") or job.get("apply_link") or job.get("link") or "").lower()
+    # A real posting URL has a job ID in the path; landing/search pages do not.
+    if url and any(hint in url for hint in _LANDING_URL_HINTS):
+        return False
+    desc = (job.get("summary") or job.get("description") or "").lower()
+    if any(hint in desc for hint in _PLACEHOLDER_DESC_HINTS):
+        return False
+    return True
+
+
 def execute_find_jobs(
     uid: str,
     action: dict,
@@ -942,55 +1028,144 @@ def execute_find_jobs(
 
     Primary: Perplexity + Firecrawl for enriched job data.
     Fallback: SerpAPI google_jobs if Perplexity is unavailable.
+
+    Gradual broadening (4 levels). Each level builds a Perplexity query,
+    calls search_jobs_live, filters out placeholders via _is_real_job_posting,
+    and returns the first non-empty result. The level reached is persisted on
+    each saved doc as `broadenLevel` (0|1|2|3) and surfaced to the activity
+    feed so the UI can render a "we widened your search" badge.
+
+        L0: "{role} at {company}"               (exact — current behavior)
+        L1: family-expanded role + company       (e.g. Spatial DS → DS at Apple)
+        L2: family-expanded role, no company     (cross-company widen)
+        L3: family-expanded role + widened loc   (e.g. Cupertino → United States)
+
+                  ┌─────────────┐
+       enter ────►│  L0 query   │── jobs? ──► save, broadenLevel=0
+                  └──────┬──────┘
+                         │ empty
+                         ▼
+                  ┌─────────────┐
+                  │  L1 query   │── jobs? ──► save, broadenLevel=1
+                  └──────┬──────┘
+                         │ empty / dup / rate-limit
+                         ▼
+                  ┌─────────────┐
+                  │  L2 query   │── jobs? ──► save, broadenLevel=2
+                  └──────┬──────┘
+                         │ empty / dup / rate-limit
+                         ▼
+                  ┌─────────────┐
+                  │  L3 query   │── jobs? ──► save, broadenLevel=3
+                  └──────┬──────┘
+                         │ all empty
+                         ▼
+                    jobsFound=0
     """
     company = action.get("company", "")
     role = action.get("role", "")
     count = min(action.get("count", 5), 10)
-    location = config.get("targetLocations", ["United States"])
-    location = location[0] if location else "United States"
+    location_pref = config.get("targetLocations", ["United States"])
+    location = location_pref[0] if location_pref else "United States"
 
     db = get_db()
     loop_id = config.get("loopId") or ""
 
     # Cost-aware cache: postings change faster than companies (3-day TTL).
-    # Scoped per loop + company so a different company in the same Loop still
-    # hits the API.
-    if company and _has_fresh_cached_rows(
-        db, uid, "agent_jobs", loop_id, _CACHE_TTL_JOBS, company=company,
+    # Scoped per loop + company AND restricted to level-0 (exact) prior hits —
+    # broadened (level 1-3) results don't satisfy a fresh "{role} at {company}"
+    # query, so they shouldn't short-circuit a re-attempt. Pre-PR docs without
+    # the broadenLevel field default to 0 in code (no Firestore migration).
+    if company and _has_fresh_exact_level_jobs(
+        db, uid, loop_id, _CACHE_TTL_JOBS, company=company,
     ):
         logger.info(
-            "Agent find_jobs: uid=%s loop=%s company=%s cache hit, skipping Perplexity",
+            "Agent find_jobs: uid=%s loop=%s company=%s exact-level cache hit, skipping Perplexity",
             uid, loop_id, company,
         )
         return {"jobsFound": 0, "jobs": [], "creditsSpent": 0, "cacheHit": True}
 
-    query = f"{role} at {company}" if company else role
-    if not query:
-        query = "internship"
+    from app.utils.role_taxonomy import broaden_query_for_perplexity, _widen_location
 
     jobs = []
     source = "serpapi"
     rate_limited = False
+    broaden_level = 0
+    final_query = ""
+    wider_location = ""
 
-    # PRIMARY: Perplexity job search + structured enrichment (Perplexity or Firecrawl per flag)
+    # Build the empty-role fallback once. We still run level 0 with this so
+    # the existing "internship" search behavior is preserved, but levels 1-3
+    # are skipped (broadening a generic fallback wastes Perplexity calls
+    # without changing the result set).
+    has_role = bool((role or "").strip())
+
+    # PRIMARY: Perplexity job search + structured enrichment, with up to 4
+    # broadening rungs. Stop on first non-empty real result, on rate-limit,
+    # or after L3 returns empty.
     try:
         from app.services.perplexity_client import search_jobs_live
 
-        raw_jobs = search_jobs_live(
-            query=query, location=location, limit=10,
-            domain_filter=["linkedin.com", "greenhouse.io", "lever.co", "workday.com"],
-        )
+        prior_query = None
+        for level in range(4):
+            # Empty-role guard: skip levels 1-3 when there's no role to expand.
+            if level >= 1 and not has_role:
+                continue
 
-        if raw_jobs:
+            query = broaden_query_for_perplexity(role, company, location, level)
+            if level == 0 and not query:
+                # No role AND no company — fall through to the legacy
+                # "internship" placeholder so the cycle still returns something.
+                query = "internship"
+            if not query:
+                # Family expansion produced no novel query at this level.
+                logger.info(
+                    "find_jobs uid=%s loop=%s company=%s level=%d skipped=duplicate",
+                    uid, loop_id, company, level,
+                )
+                continue
+            if query == prior_query:
+                logger.info(
+                    "find_jobs uid=%s loop=%s company=%s level=%d skipped=duplicate_query=%r",
+                    uid, loop_id, company, level, query,
+                )
+                continue
+            prior_query = query
+
+            # No domain_filter — the old whitelist excluded every big-tech
+            # careers system (jobs.apple.com, careers.google.com, amazon.jobs,
+            # careers.meta.com, careers.microsoft.com), so target companies like
+            # Apple/Google/Meta would silently return zero real postings and
+            # Sonar would hallucinate a placeholder. search_jobs_live tells the
+            # LLM to return [] rather than improvise.
+            level_location = _widen_location(location) if level == 3 else location
+            raw_jobs = search_jobs_live(
+                query=query, location=level_location, limit=10,
+            )
+
+            # Belt-and-suspenders: even with the tightened prompt, Sonar
+            # occasionally returns a placeholder row. Drop those at the
+            # boundary so they never reach Firestore (or get counted/credited).
+            real_jobs = [j for j in (raw_jobs or []) if _is_real_job_posting(j)]
+
+            logger.info(
+                "find_jobs uid=%s loop=%s company=%s level=%d query=%r returned=%d real=%d",
+                uid, loop_id, company, level, query,
+                len(raw_jobs or []), len(real_jobs),
+            )
+
+            if not real_jobs:
+                continue
+
+            # Hit — enrich and stop broadening.
             use_perplexity_enrich = _perplexity_only(uid)
             if not use_perplexity_enrich:
                 from app.services.firecrawl_client import extract_job_posting
             else:
                 from app.services.perplexity_client import enrich_job_posting_live
 
-            # Enrich top 5 with structured extraction
             enriched_jobs = []
-            for job in raw_jobs[:5]:
+            for job in real_jobs[:5]:
                 enriched = dict(job)
                 try:
                     if use_perplexity_enrich:
@@ -998,7 +1173,7 @@ def execute_find_jobs(
                             url=job.get("url"),
                             title=job.get("title", ""),
                             company=job.get("company", company),
-                            location=job.get("location", location),
+                            location=job.get("location", level_location),
                         )
                     elif job.get("url"):
                         structured = extract_job_posting(job["url"])
@@ -1009,10 +1184,13 @@ def execute_find_jobs(
                 except Exception:
                     pass
                 enriched_jobs.append(enriched)
-            # Add remaining un-enriched jobs
-            enriched_jobs.extend(raw_jobs[5:count])
+            enriched_jobs.extend(real_jobs[5:count])
             jobs = enriched_jobs
             source = "perplexity"
+            broaden_level = level
+            final_query = query
+            wider_location = level_location if level == 3 else ""
+            break
     except RateLimitError:
         # Surface rate-limit signal so loop_jobs can bump the 3-strike streak.
         # Don't crash the cycle — partial results from other actions still ship.
@@ -1021,13 +1199,19 @@ def execute_find_jobs(
     except Exception:
         logger.warning("Perplexity job search failed; SerpAPI fallback gated by ENABLE_SERPAPI_FALLBACK", exc_info=True)
 
-    # FALLBACK: SerpAPI (kept until Phase 8 removes it, gated by ENABLE_SERPAPI_FALLBACK)
+    # FALLBACK: SerpAPI (kept until Phase 8 removes it, gated by ENABLE_SERPAPI_FALLBACK).
+    # Uses the level-0 exact query — the broadening retry loop is Perplexity-only.
     if not jobs and os.getenv("ENABLE_SERPAPI_FALLBACK"):
         try:
+            fallback_query = (
+                broaden_query_for_perplexity(role, company, location, 0)
+                or "internship"
+            )
             from app.routes.job_board import fetch_jobs_from_serpapi
-            serpapi_jobs, _ = fetch_jobs_from_serpapi(query, location, num_results=10, user_id=uid)
+            serpapi_jobs, _ = fetch_jobs_from_serpapi(fallback_query, location, num_results=10, user_id=uid)
             jobs = serpapi_jobs or []
             source = "serpapi"
+            final_query = fallback_query
         except Exception as e:
             logger.exception("SerpAPI job search also failed for agent uid=%s", uid)
             return {"jobsFound": 0, "jobs": [], "creditsSpent": 0, "error": str(e)}
@@ -1090,6 +1274,11 @@ def execute_find_jobs(
             "hmContactId": None,
             "createdAt": now_iso,
             "status": "new",
+            # Broadening telemetry + badge inputs.
+            "broadenLevel": broaden_level,
+            "originalRole": role,
+            "targetCompany": company,
+            "widerLocation": wider_location,
         }
         ref = jobs_ref.add(doc)
         saved.append({
@@ -1098,6 +1287,10 @@ def execute_find_jobs(
             "company": doc["company"],
             "location": doc["location"],
             "matchReasons": doc["matchReasons"],
+            "broadenLevel": broaden_level,
+            "originalRole": role,
+            "targetCompany": company,
+            "widerLocation": wider_location,
         })
 
     # Per-job credit cost — see CREDIT_COSTS in loop_budget.py.
@@ -1108,8 +1301,16 @@ def execute_find_jobs(
         except Exception:
             logger.warning("Credit deduction failed for agent_find_jobs uid=%s", uid)
 
-    logger.info("Agent find_jobs: uid=%s found %d jobs for %s", uid, len(saved), query)
-    result = {"jobsFound": len(saved), "jobs": saved, "creditsSpent": credits}
+    logger.info(
+        "Agent find_jobs: uid=%s loop=%s found=%d level=%d query=%r",
+        uid, loop_id, len(saved), broaden_level, final_query,
+    )
+    result = {
+        "jobsFound": len(saved),
+        "jobs": saved,
+        "creditsSpent": credits,
+        "broadenLevel": broaden_level,
+    }
     if rate_limited:
         result["rateLimited"] = True
     return result
@@ -1439,8 +1640,8 @@ def execute_find_hiring_managers(
                     user_id=uid,
                 )
                 if draft and isinstance(draft, dict):
-                    contact_doc["gmailDraftId"] = draft.get("id", "")
-                    contact_doc["gmailDraftUrl"] = draft.get("url", "")
+                    contact_doc["gmailDraftId"] = draft.get("draft_id", "")
+                    contact_doc["gmailDraftUrl"] = draft.get("draft_url", "")
             except Exception as e:
                 logger.warning("Gmail draft creation for HM failed: %s", e)
 
@@ -1604,7 +1805,7 @@ Return ONLY the JSON array."""
         import anthropic
         client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
         message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=1024,
             messages=[{"role": "user", "content": prompt}],
         )

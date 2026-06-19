@@ -39,15 +39,7 @@ def _user(**overrides):
     return base
 
 
-def test_flag_off_skips_backfill(monkeypatch, now_ts):
-    monkeypatch.delenv("ENABLE_APIFY_USER_LINKEDIN", raising=False)
-    should, reason = _user_needs_apify_backfill(_user(), now_ts)
-    assert should is False
-    assert reason == "no_flag"
-
-
-def test_apify_backfilled_flag_short_circuits(monkeypatch, now_ts):
-    monkeypatch.setenv("ENABLE_APIFY_USER_LINKEDIN", "1")
+def test_apify_backfilled_flag_short_circuits(now_ts):
     should, reason = _user_needs_apify_backfill(
         _user(apifyBackfilled=True), now_ts
     )
@@ -55,9 +47,8 @@ def test_apify_backfilled_flag_short_circuits(monkeypatch, now_ts):
     assert reason == "already_apify"
 
 
-def test_already_apify_source_short_circuits(monkeypatch, now_ts):
+def test_already_apify_source_short_circuits(now_ts):
     """User onboarded post-flip already has Apify as their source."""
-    monkeypatch.setenv("ENABLE_APIFY_USER_LINKEDIN", "1")
     should, reason = _user_needs_apify_backfill(
         _user(linkedinEnrichmentSource="apify"), now_ts
     )
@@ -65,17 +56,15 @@ def test_already_apify_source_short_circuits(monkeypatch, now_ts):
     assert reason == "already_apify"
 
 
-def test_missing_linkedin_url_skips(monkeypatch, now_ts):
+def test_missing_linkedin_url_skips(now_ts):
     """Nothing to scrape - user never gave us a URL or removed it."""
-    monkeypatch.setenv("ENABLE_APIFY_USER_LINKEDIN", "1")
     should, reason = _user_needs_apify_backfill({}, now_ts)
     assert should is False
     assert reason == "no_url"
 
 
-def test_recent_attempt_inside_cooldown_skips(monkeypatch, now_ts):
+def test_recent_attempt_inside_cooldown_skips(now_ts):
     """A failed attempt 1 hour ago must NOT re-fire — thundering herd guard."""
-    monkeypatch.setenv("ENABLE_APIFY_USER_LINKEDIN", "1")
     recent_iso = (
         datetime.fromtimestamp(now_ts, tz=timezone.utc)
         - timedelta(hours=1)
@@ -87,9 +76,8 @@ def test_recent_attempt_inside_cooldown_skips(monkeypatch, now_ts):
     assert reason == "recent_attempt"
 
 
-def test_old_attempt_past_cooldown_retries(monkeypatch, now_ts):
+def test_old_attempt_past_cooldown_retries(now_ts):
     """A failed attempt > 24h ago is fair game to retry."""
-    monkeypatch.setenv("ENABLE_APIFY_USER_LINKEDIN", "1")
     old_iso = (
         datetime.fromtimestamp(now_ts, tz=timezone.utc)
         - timedelta(seconds=_BACKFILL_RETRY_COOLDOWN_S + 60)
@@ -101,8 +89,7 @@ def test_old_attempt_past_cooldown_retries(monkeypatch, now_ts):
     assert reason == ""
 
 
-def test_malformed_timestamp_is_treated_as_no_attempt(monkeypatch, now_ts):
-    monkeypatch.setenv("ENABLE_APIFY_USER_LINKEDIN", "1")
+def test_malformed_timestamp_is_treated_as_no_attempt(now_ts):
     should, reason = _user_needs_apify_backfill(
         _user(apifyBackfillLastAttempt="not-a-date"), now_ts
     )
@@ -110,9 +97,8 @@ def test_malformed_timestamp_is_treated_as_no_attempt(monkeypatch, now_ts):
     assert reason == ""
 
 
-def test_happy_path_returns_true(monkeypatch, now_ts):
-    """Flag on, no Apify source yet, has URL, no recent attempt - go."""
-    monkeypatch.setenv("ENABLE_APIFY_USER_LINKEDIN", "1")
+def test_happy_path_returns_true(now_ts):
+    """No Apify source yet, has URL, no recent attempt - go."""
     should, reason = _user_needs_apify_backfill(
         _user(linkedinEnrichmentSource="firecrawl"), now_ts
     )

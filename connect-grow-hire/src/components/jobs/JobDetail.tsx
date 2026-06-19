@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { ProtoJob } from "@/pages/jobBoardAdapter";
+import { apiService } from "@/services/api";
 import { CompanyLogo } from "./CompanyLogo";
 import {
   IconArrowRight,
