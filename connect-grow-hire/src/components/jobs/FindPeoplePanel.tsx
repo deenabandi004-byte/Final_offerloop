@@ -21,7 +21,7 @@ const MAX_PEOPLE = 5;
 const DEFAULT_PEOPLE = 3;
 
 interface FindPeoplePanelProps {
-  userPlan?: "free" | "pro" | "elite";
+  userPlan?: "free" | "pro" | "elite" | "premium";
   currentCredits?: number;
   onFind: () => void;
   onFindEmployees?: (count: number) => void;
