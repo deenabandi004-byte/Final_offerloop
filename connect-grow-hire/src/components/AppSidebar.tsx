@@ -21,6 +21,7 @@ import {
   BookOpen,
   Bell,
   User,
+  Gift,
 } from "lucide-react";
 
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -88,6 +89,7 @@ const utilityNavItems: NavItemDef[] = [
 
 const userMenuItems = [
   { title: "Profile",           url: "/profile",            icon: User },
+  { title: "Refer & Earn",      url: "/refer",              icon: Gift },
   { title: "Account Settings",  url: "/account-settings",   icon: Settings },
   { title: "Documentation",     url: "/documentation",      icon: FileText },
   { title: "About Us",          url: "/about",              icon: Info },
