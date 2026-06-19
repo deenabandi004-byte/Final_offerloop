@@ -1,14 +1,14 @@
 import pytest
+from unittest.mock import MagicMock, patch
 from app import config
+from app.services import referral_service as rs
+from app.services import stripe_client
 
 
 def test_referral_config_constants():
     assert config.REFERRAL_TARGET_COUNT == 5
     assert config.REFERRAL_REWARD_TIER == 'elite'
     assert 'referral_reward' in config.STRIPE_COUPONS
-
-
-from app.services import referral_service as rs
 
 
 def test_generate_code_shape():
@@ -41,9 +41,6 @@ def test_is_eligible():
     assert rs.is_eligible(6, False) is True
     assert rs.is_eligible(4, False) is False
     assert rs.is_eligible(5, True) is False
-
-
-from unittest.mock import MagicMock
 
 
 def _user_snapshot(data, exists=True):
@@ -165,10 +162,6 @@ def test_attribute_success_increments():
     assert out == {'recorded': True, 'reason': None}
 
 
-from unittest.mock import patch
-from app.services import stripe_client
-
-
 def test_create_referral_trial_checkout_sets_trial_and_metadata(monkeypatch):
     monkeypatch.setattr(stripe_client, 'STRIPE_SECRET_KEY', 'sk_test')
     monkeypatch.setattr(stripe_client, 'STRIPE_ELITE_PRICE_ID', 'price_elite')
@@ -193,16 +186,19 @@ def test_apply_referral_reward_coupon(monkeypatch):
     modify.assert_called_once_with('sub_123', coupon='coupon_ref')
 
 
-def _claim_db(tier='free', count=5, claimed=False, sub_id=None):
+def _claim_db(tier='free', count=5, claimed=False, sub_id=None, pending_at=None):
     db = MagicMock()
     user_ref = db.collection.return_value.document.return_value
-    user_ref.get.return_value = _user_snapshot({
+    user_data = {
         'subscriptionTier': tier,
         'email': 'a@x.com',
         'referralQualifiedCount': count,
         'referralRewardClaimed': claimed,
         'stripeSubscriptionId': sub_id,
-    })
+    }
+    if pending_at is not None:
+        user_data['referralRewardPendingAt'] = pending_at
+    user_ref.get.return_value = _user_snapshot(user_data)
     return db, user_ref
 
 
@@ -222,6 +218,19 @@ def test_claim_free_user_returns_checkout(monkeypatch):
     assert out['ok'] is True
     assert out['mode'] == 'checkout'
     assert out['url'] == 'https://checkout/x'
+
+
+def test_claim_free_user_in_progress_blocks(monkeypatch):
+    from datetime import datetime, timezone
+    recent = datetime.now(timezone.utc)
+    db, _ = _claim_db(tier='free', pending_at=recent)
+    # Stripe must NOT be called when a checkout is already in progress.
+    monkeypatch.setattr(
+        'app.services.stripe_client.create_referral_trial_checkout',
+        lambda uid, email: (_ for _ in ()).throw(AssertionError('Stripe should not be called')),
+    )
+    out = rs.claim_reward(db, 'u1')
+    assert out == {'ok': False, 'reason': 'claim_in_progress'}
 
 
 def test_claim_paid_user_applies_coupon(monkeypatch):

@@ -4,8 +4,11 @@ Referral program logic.
 Functions are split into pure helpers (no I/O, unit-tested directly) and
 orchestration functions that touch Firestore / Stripe.
 """
+import os
 import secrets
 from datetime import datetime, timezone
+
+from firebase_admin import firestore as _firestore
 
 from app.config import REFERRAL_TARGET_COUNT, REFERRAL_REWARD_TIER
 
@@ -32,9 +35,6 @@ def is_self_referral(owner_uid: str, owner_email: str,
 def is_eligible(qualified_count: int, reward_claimed: bool) -> bool:
     """True when the referrer can claim their (one-time) reward."""
     return qualified_count >= REFERRAL_TARGET_COUNT and not reward_claimed
-
-
-import os
 
 
 def _referral_link(code: str) -> str:
@@ -79,9 +79,6 @@ def get_referral_status(db, uid: str) -> dict:
         'rewardClaimed': claimed,
         'rewardClaimedAt': claimed_at.isoformat() if hasattr(claimed_at, 'isoformat') else claimed_at,
     }
-
-
-from firebase_admin import firestore as _firestore
 
 
 def record_referral_signup(db, code: str, new_uid: str, new_email: str) -> dict:
@@ -138,9 +135,25 @@ def claim_reward(db, uid: str) -> dict:
 
     if tier == 'free':
         # Reward is finalized by the Stripe webhook on checkout completion.
+        # Guard against double-claim (double-click / two tabs / retry): if a
+        # checkout was started recently, don't spawn another. This closes the
+        # common double-submit window. Truly-concurrent requests would need a
+        # Firestore transaction to fully serialize — acceptable risk for v1.
+        pending_at = (data or {}).get('referralRewardPendingAt')
+        now = datetime.now(timezone.utc)
+        if pending_at is not None:
+            try:
+                age = (now - pending_at).total_seconds()
+            except TypeError:
+                age = None
+            if age is not None and age < 3600:
+                return {'ok': False, 'reason': 'claim_in_progress'}
+        user_ref.update({'referralRewardPendingAt': now})
         out = stripe_client.create_referral_trial_checkout(uid, email)
         if out.get('url'):
             return {'ok': True, 'mode': 'checkout', 'url': out['url']}
+        # Checkout failed to create — release the lock so the user can retry.
+        user_ref.update({'referralRewardPendingAt': None})
         return {'ok': False, 'reason': out.get('error', 'checkout_failed')}
 
     # Already paying: apply the one-month coupon to the live subscription.

@@ -282,10 +282,14 @@ export default function AccountSettings() {
     referralLink: string; signupCount: number; signupTarget: number;
     eligible: boolean; rewardClaimed: boolean;
   } | null>(null);
+  const [referralError, setReferralError] = useState(false);
   const [claiming, setClaiming] = useState(false);
 
   useEffect(() => {
-    apiService.getReferralStatus().then(setReferral).catch(() => setReferral(null));
+    apiService.getReferralStatus().then(setReferral).catch(() => {
+      setReferral(null);
+      setReferralError(true);
+    });
   }, []);
 
   const handleClaim = async () => {
@@ -2351,6 +2355,8 @@ export default function AccountSettings() {
                           </p>
                         )}
                       </div>
+                    ) : referralError ? (
+                      <p className="text-sm text-red-500">Couldn't load your referral info. Refresh to try again.</p>
                     ) : (
                       <p className="text-sm text-gray-500">Loading your referral link…</p>
                     )}

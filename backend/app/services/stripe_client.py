@@ -229,20 +229,23 @@ def create_referral_trial_checkout(user_id: str, user_email: str) -> dict:
     stripe.api_key = STRIPE_SECRET_KEY
 
     base_url = os.getenv('FRONTEND_BASE_URL', 'https://offerloop.ai').rstrip('/')
-    session = stripe.checkout.Session.create(
-        payment_method_types=['card'],
-        mode='subscription',
-        customer_email=user_email,
-        success_url=f"{base_url}/account-settings?referral=claimed",
-        cancel_url=f"{base_url}/account-settings?referral=cancelled",
-        line_items=[{'price': STRIPE_ELITE_PRICE_ID, 'quantity': 1}],
-        subscription_data={'trial_period_days': 30},
-        metadata={
-            'user_id': user_id,
-            'tier': 'elite',
-            'referral_reward': 'true',
-        },
-    )
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            mode='subscription',
+            customer_email=user_email,
+            success_url=f"{base_url}/account-settings?referral=claimed",
+            cancel_url=f"{base_url}/account-settings?referral=cancelled",
+            line_items=[{'price': STRIPE_ELITE_PRICE_ID, 'quantity': 1}],
+            subscription_data={'trial_period_days': 30},
+            metadata={
+                'user_id': user_id,
+                'tier': 'elite',
+                'referral_reward': 'true',
+            },
+        )
+    except stripe.error.StripeError as e:
+        return {'error': f'stripe_checkout_failed: {e}'}
     return {'url': session.url, 'sessionId': session.id}
 
 
@@ -510,12 +513,16 @@ def handle_checkout_completed(session):
         # Decision #5: if this checkout began as a trial, consume the one-per-
         # account trial token so neither path can grant a second one.
         if sub_status == 'trialing':
+            # A referral-reward checkout starts as a trial; consuming trialUsedAt
+            # here intentionally means a referral reward also uses the account's
+            # one no-card trial entitlement.
             update_payload['trialUsedAt'] = datetime.utcnow()
         # Referral reward: finalize the one-time claim flag.
         _meta = session.get('metadata') or {}
         if _meta.get('referral_reward') == 'true':
             update_payload['referralRewardClaimed'] = True
             update_payload['referralRewardClaimedAt'] = datetime.now().isoformat()
+            update_payload['referralRewardPendingAt'] = None  # clear the claim-in-progress lock
         user_ref.update(update_payload)
         
     except Exception as e:
