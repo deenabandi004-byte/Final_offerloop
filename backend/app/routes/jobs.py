@@ -164,7 +164,16 @@ def _dedup_by_title_company(jobs: list[dict]) -> list[dict]:
 
 
 def _serialize_jobs(jobs: list[dict]) -> list[dict]:
-    """Convert Firestore timestamps to ISO strings, strip large/internal fields."""
+    """Convert Firestore timestamps to ISO strings, strip large/internal fields.
+
+    Also re-orders the returned list to push auto-apply-eligible jobs
+    (Greenhouse / Lever / Ashby) ahead of ineligible ones (Workday,
+    Indeed, custom careers pages). Within each bucket the caller's
+    original ranking is preserved (Python's sorted is stable), so jobs
+    that were already ranked high by match score / posted_at stay
+    ordered among each other — they just shift relative to a less-
+    actionable Workday posting that would otherwise interleave.
+    """
     from app.services.auto_apply.ats_detector import detect_platform, is_eligible
     cleaned = []
     for job in jobs:
@@ -189,6 +198,9 @@ def _serialize_jobs(jobs: list[dict]) -> list[dict]:
         doc["ats_platform"] = detect_platform(job)
         doc["auto_apply_eligible"] = is_eligible(job)
         cleaned.append(doc)
+    # Stable sort: eligible jobs (key=False=0) come before ineligible
+    # (key=True=1). Preserves the caller's intra-bucket ranking.
+    cleaned.sort(key=lambda j: not j.get("auto_apply_eligible"))
     return cleaned
 
 

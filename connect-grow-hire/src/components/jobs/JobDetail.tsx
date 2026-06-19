@@ -41,7 +41,7 @@ interface JobDetailProps {
   onShare?: () => void;
   onFindPeople: () => void;
   onFindEmployees?: (count: number) => void;
-  userPlan?: "free" | "pro" | "elite";
+  userPlan?: "free" | "pro" | "elite" | "premium";
   currentCredits?: number;
 }
 

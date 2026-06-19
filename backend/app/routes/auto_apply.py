@@ -399,6 +399,20 @@ def resolve_needs_attention(auto_apply_id: str):
     job_id = data.get("job_id")
     dry_run = bool(data.get("dry_run"))
 
+    # Pass the user's drawer answers to the resume worker as edited_answers.
+    # Without this, sensitive-slot answers (work auth, demographics) that
+    # the library refuses to save get silently dropped, and the worker
+    # re-runs with the same resolver state — leading to the "asked twice"
+    # drawer loop. edited_answers wins over library+profile+LLM inside the
+    # filler so user input always trumps stale stored values.
+    drawer_answers = {qid: incoming[qid] for qid in saved_ids if qid in incoming}
+    # Also include answers that didn't save to the library (sensitive slots)
+    # so they at least flow through to this resume run, even if they won't
+    # persist to the next job.
+    for qid, value in incoming.items():
+        if qid not in drawer_answers and by_id.get(qid):
+            drawer_answers[qid] = value
+
     def _resume_worker():
         try:
             run_auto_apply_job(
@@ -406,7 +420,7 @@ def resolve_needs_attention(auto_apply_id: str):
                 uid=uid,
                 job_id=str(job_id),
                 dry_run=dry_run,
-                edited_answers={},
+                edited_answers=drawer_answers,
             )
         except Exception:
             logger.exception("resume worker crashed for %s", auto_apply_id)

@@ -75,9 +75,18 @@ def run_greenhouse_filler(
 ) -> Dict[str, Any]:
     """Drive the Greenhouse application form. Returns a result dict the
     runner persists to the autoApplyJobs doc."""
+    print(f"\n[auto_apply] === START Greenhouse filler ===", flush=True)
+    print(f"[auto_apply]   uid={uid!r} job_id={job_id!r} dry_run={dry_run}", flush=True)
+    print(f"[auto_apply]   apply_url={apply_url!r}", flush=True)
+    print(f"[auto_apply]   company={(job_data or {}).get('company')!r} title={(job_data or {}).get('title')!r}", flush=True)
+    print(f"[auto_apply]   edited_answers keys: {list((edited_answers or {}).keys())}", flush=True)
+    print(f"[auto_apply]   resume_path: {resume_path!r}", flush=True)
+
     candidate_urls = _candidate_apply_urls(apply_url, job_id)
     if not candidate_urls:
+        print(f"[auto_apply] FAIL: no usable apply_url", flush=True)
         return _failure("no usable apply_url for greenhouse")
+    print(f"[auto_apply]   candidate URLs to try: {candidate_urls}", flush=True)
 
     # Browserbase session: stealth defeats reCAPTCHA's behavioral signals,
     # solveCaptchas auto-handles reCAPTCHA / hCaptcha if it does score us low.
@@ -87,9 +96,12 @@ def run_greenhouse_filler(
     from app.services.auto_apply.browserbase_client import (
         BrowserbaseError, create_session, release_session,
     )
+    print(f"[auto_apply] creating Browserbase session (stealth=True, solveCaptchas=True)...", flush=True)
     try:
         session_id, ws_url = create_session(stealth=True, solve_captchas=True)
+        print(f"[auto_apply]   browserbase session_id={session_id}", flush=True)
     except BrowserbaseError as exc:
+        print(f"[auto_apply] FAIL: browserbase session create: {exc}", flush=True)
         return _failure(str(exc))
 
     # Lazy import so the rest of the auto_apply package keeps loading even if
@@ -125,7 +137,9 @@ def run_greenhouse_filler(
                 # candidates. Whichever one actually renders #first_name wins.
                 landed_on: Optional[str] = None
                 attempt_log: List[Dict[str, str]] = []
+                print(f"[auto_apply] === LOADING APPLY PAGE ===", flush=True)
                 for candidate in candidate_urls:
+                    print(f"[auto_apply]   trying URL: {candidate}", flush=True)
                     try:
                         page.goto(candidate, wait_until="domcontentloaded", timeout=20_000)
                         # Early-exit if the page redirected off Greenhouse —
@@ -133,6 +147,7 @@ def run_greenhouse_filler(
                         # for #first_name eats our Browserless session budget.
                         final_url = page.url
                         if "greenhouse.io" not in final_url.lower():
+                            print(f"[auto_apply]     redirected off greenhouse → {final_url}", flush=True)
                             attempt_log.append({
                                 "url": candidate,
                                 "result": "redirected off greenhouse",
@@ -142,6 +157,8 @@ def run_greenhouse_filler(
                         page.wait_for_selector("#first_name", timeout=12_000)
                         landed_on = candidate
                         attempt_log.append({"url": candidate, "result": "ok"})
+                        print(f"[auto_apply]     SUCCESS: #first_name selector found, page is the Greenhouse form", flush=True)
+                        print(f"[auto_apply]     page title: {page.title()!r}", flush=True)
                         break
                     except PWTimeout:
                         try:
@@ -176,10 +193,20 @@ def run_greenhouse_filler(
                         screenshot_b64=failure_b64,
                     )
 
+                print(f"[auto_apply] === FILLING STANDARD FIELDS (name, email, phone, country, location) ===", flush=True)
                 _fill_standard_fields(page, preview, filled, unmapped)
                 _record_standard_prepared(preview, prepared_answers)
+                print(f"[auto_apply]   standard fields filled: {list(filled.keys())}", flush=True)
+                print(f"[auto_apply]   standard fields unmapped: {[u.get('field_id') for u in unmapped]}", flush=True)
+
+                print(f"[auto_apply] === FILLING EEO SECTION ===", flush=True)
                 _fill_eeo_section(page, preview, filled, unmapped)
+
+                print(f"[auto_apply] === UPLOADING RESUME ===", flush=True)
                 _upload_resume(page, resume_path, filled, unmapped)
+                print(f"[auto_apply]   resume status: {filled.get('resume', 'not attempted')}", flush=True)
+
+                print(f"[auto_apply] === FILLING CUSTOM QUESTIONS (classify -> resolve -> fill) ===", flush=True)
                 _fill_custom_questions(
                     page=page,
                     preview=preview,
@@ -191,6 +218,7 @@ def run_greenhouse_filler(
                     job=job_data or {},
                     prepared_answers=prepared_answers,
                 )
+                print(f"[auto_apply]   custom fill complete: {len(filled)} filled, {len(unmapped)} unmapped", flush=True)
 
                 screenshot_bytes = page.screenshot(full_page=True)
                 screenshot_b64 = base64.b64encode(screenshot_bytes).decode("ascii")
@@ -200,7 +228,9 @@ def run_greenhouse_filler(
                 # runner will write status=needs_attention and surface
                 # pending_questions to the user.
                 pending = [u for u in unmapped if u.get("required") is True]
+                pending = _dedupe_pending_by_label(pending)
                 if pending and not dry_run:
+                    print(f"[auto_apply]   pre-submit pending questions (deduped): {len(pending)}", flush=True)
                     return {
                         "status": "needs_attention",
                         "filled": filled,
@@ -224,11 +254,13 @@ def run_greenhouse_filler(
                 status = "dry_run_complete"
                 failure_reason: Optional[str] = None
                 if not dry_run:
+                    print(f"[auto_apply] === CLICKING SUBMIT ===", flush=True)
                     try:
                         submit = page.query_selector('button[type="submit"]')
                         if not submit:
                             status = "submit_failed"
                             failure_reason = "no submit button found"
+                            print(f"[auto_apply]   FAIL: no submit button on page", flush=True)
                         else:
                             # Stamp the submit click time so we can window the
                             # Gmail search for the verification code email — old
@@ -236,8 +268,10 @@ def run_greenhouse_filler(
                             # have prior Greenhouse emails in the inbox.
                             import time as _time_now
                             submit_ts = int(_time_now.time())
+                            print(f"[auto_apply]   clicking submit at ts={submit_ts}", flush=True)
                             submit.click()
                             page.wait_for_load_state("networkidle", timeout=30_000)
+                            print(f"[auto_apply]   networkidle reached, URL now: {page.url!r}", flush=True)
 
                             # Per-tenant email-verification gate (Temelio,
                             # confirmed 2026-06-18): 8 new fields `#security-input-{0..7}`
@@ -248,20 +282,24 @@ def run_greenhouse_filler(
                             # render completes, and we measured at least one
                             # case where the inputs took >5s to appear after
                             # networkidle — so poll for 30s.
+                            print(f"[auto_apply]   polling for #security-input-0 (email-code gate detection, up to 30s)...", flush=True)
                             verification_visible = False
                             for _ in range(30):
                                 if page.query_selector("#security-input-0"):
                                     verification_visible = True
                                     break
                                 page.wait_for_timeout(1000)
+                            print(f"[auto_apply]   email-verification UI visible: {verification_visible}", flush=True)
                             if verification_visible:
                                 candidate_email = (preview.get("fields") or {}).get("email") or ""
+                                print(f"[auto_apply] === EMAIL-CODE PATH triggered ===", flush=True)
                                 _try_email_code_completion(
                                     page=page, uid=uid,
                                     candidate_email=candidate_email,
                                     submit_ts=submit_ts,
                                 )
                                 page.wait_for_load_state("networkidle", timeout=30_000)
+                                print(f"[auto_apply]   post-email-code URL: {page.url!r}", flush=True)
 
                             screenshot_bytes = page.screenshot(full_page=True)
                             screenshot_b64 = base64.b64encode(screenshot_bytes).decode("ascii")
@@ -291,9 +329,15 @@ def run_greenhouse_filler(
                                 kw in url_after
                                 for kw in ("thank", "confirmation", "/success", "complete")
                             )
+                            print(f"[auto_apply] === POST-SUBMIT SIGNALS ===", flush=True)
+                            print(f"[auto_apply]   final URL: {url_after}", flush=True)
+                            print(f"[auto_apply]   success_url marker present: {success_url}", flush=True)
+                            print(f"[auto_apply]   aria-invalid field count: {invalid_count}", flush=True)
+                            print(f"[auto_apply]   #first_name still on page (form not unmounted): {form_still_present}", flush=True)
 
                             if success_url:
                                 status = "submitted"
+                                print(f"[auto_apply]   STATUS: submitted (success URL detected)", flush=True)
                             elif invalid_count > 0:
                                 # Submit-and-learn: Greenhouse tells us which
                                 # fields it needed via aria-invalid. Many of
@@ -320,6 +364,7 @@ def run_greenhouse_filler(
                                             filled=filled,
                                             unmapped=unmapped,
                                             current_screenshot_b64=screenshot_b64,
+                                            edited_answers=edited_answers,
                                         )
                                     )
                                     if status == "submitted":
@@ -327,6 +372,8 @@ def run_greenhouse_filler(
                                         # the success return at the bottom.
                                         pass
                                     elif validation_pending:
+                                        validation_pending = _dedupe_pending_by_label(validation_pending)
+                                        print(f"[auto_apply]   post-submit pending questions (deduped): {len(validation_pending)}", flush=True)
                                         return {
                                             "status": "needs_attention",
                                             "filled": filled,
@@ -362,17 +409,29 @@ def run_greenhouse_filler(
                                     "form is still on the page after Submit click — "
                                     "submission was not accepted (likely silent validation)"
                                 )
+                                print(f"[auto_apply]   STATUS: submit_failed (form still present, no markers)", flush=True)
                             else:
                                 # Form unmounted, no error markers, URL didn't
                                 # change obviously — best-effort: assume success.
                                 status = "submitted"
+                                print(f"[auto_apply]   STATUS: submitted (form unmounted, best-effort)", flush=True)
                     except PWTimeout:
                         status = "submit_failed"
                         failure_reason = "submit network-idle timeout"
+                        print(f"[auto_apply]   STATUS: submit_failed (network-idle timeout)", flush=True)
                     except Exception as exc:
                         status = "submit_failed"
                         failure_reason = f"submit click failed: {exc}"
 
+                print(f"\n[auto_apply] === FINAL RESULT ===", flush=True)
+                print(f"[auto_apply]   status: {status}", flush=True)
+                print(f"[auto_apply]   failure_reason: {failure_reason}", flush=True)
+                print(f"[auto_apply]   filled: {len(filled)} fields", flush=True)
+                print(f"[auto_apply]   unmapped: {len(unmapped)} fields", flush=True)
+                if unmapped:
+                    for u in unmapped[:5]:
+                        print(f"[auto_apply]     - unmapped: {u.get('field_id')!r} ({u.get('label', '')[:60]!r}) reason={u.get('reason')!r}", flush=True)
+                print(f"[auto_apply] === END Greenhouse filler ===\n", flush=True)
                 return {
                     "status": status,
                     "filled": filled,
@@ -391,10 +450,166 @@ def run_greenhouse_filler(
                 # leaving the session open until plan-side timeout would
                 # waste unit budget on no real work.
                 release_session(session_id)
+                print(f"[auto_apply]   browserbase session {session_id} released", flush=True)
     except Exception as exc:
         logger.exception("greenhouse filler crashed")
         release_session(session_id)
         return _failure(f"{type(exc).__name__}: {exc}", filled=filled, unmapped=unmapped)
+
+
+# ---------- checkbox-group collapsing ("select all that apply") ----------
+
+def _group_checkbox_groups(page, classified_fields, meta_by_id):
+    """Greenhouse renders 'select all that apply' multi-checkbox questions as
+    N <input type="checkbox"> children of one <fieldset>. Each child shares
+    the fieldset's legend text as its 'label' in our classifier, but has
+    its OWN `<label for=checkbox_id>` carrying the option name (LinkedIn,
+    Indeed, etc.). Without this collapse, the LLM sees 14 identical questions
+    and tries to YES/NO each one — checking everything is wrong because
+    Greenhouse rejects "you can't pick all of these for a question that asks
+    one source."
+
+    Collapse to a single virtual question: keep the first checkbox's
+    field_id as the representative, populate `options` with the per-checkbox
+    option texts, and store `group_members` so the fill step can locate the
+    matching checkbox after the LLM picks an answer.
+    """
+    # Group field_ids by normalized (label, field_type=checkbox)
+    groups: Dict[str, List[str]] = {}
+    for f in classified_fields:
+        if f.get("field_type") != "checkbox":
+            continue
+        label_key = (f.get("label") or "").strip().lower()
+        for suf in ("(select all that apply)", "(select one)", "*"):
+            label_key = label_key.replace(suf, "").strip()
+        if not label_key:
+            continue
+        groups.setdefault(label_key, []).append(str(f["field_id"]))
+
+    # Only collapse groups with ≥2 members
+    collapse_groups = {k: ids for k, ids in groups.items() if len(ids) >= 2}
+    if not collapse_groups:
+        return classified_fields, meta_by_id
+
+    # Fetch each checkbox's individual option text from the DOM
+    print(
+        f"[auto_apply.classify] collapsing {len(collapse_groups)} multi-checkbox group(s): "
+        f"{ {k: len(v) for k, v in collapse_groups.items()} }",
+        flush=True,
+    )
+    all_member_ids = [fid for ids in collapse_groups.values() for fid in ids]
+    try:
+        option_map = page.evaluate(
+            """(ids) => {
+                const out = {};
+                for (const id of ids) {
+                    let text = '';
+                    try {
+                        const esc = (window.CSS && CSS.escape) ? CSS.escape(id) : id;
+                        const lbl = document.querySelector(`label[for="${esc}"]`);
+                        if (lbl) text = (lbl.textContent || '').trim();
+                    } catch (e) {}
+                    if (!text) {
+                        const el = document.getElementById(id);
+                        if (el) {
+                            text = el.value || el.getAttribute('aria-label') || '';
+                            text = (text || '').trim();
+                        }
+                    }
+                    out[id] = text;
+                }
+                return out;
+            }""",
+            all_member_ids,
+        )
+    except Exception as exc:
+        print(f"[auto_apply.classify] checkbox-group option-text fetch failed: {exc}", flush=True)
+        return classified_fields, meta_by_id
+
+    # Build the collapsed structures: keep first member's field_id as the
+    # representative; mark the rest for removal.
+    drop_ids: set = set()
+    representative_ids: Dict[str, str] = {}  # label_key -> representative field_id
+    for label_key, ids in collapse_groups.items():
+        rep_id = ids[0]
+        representative_ids[label_key] = rep_id
+        # Pull option text per member; skip empty (no <label for>) cases
+        members = [
+            {"field_id": fid, "option_text": (option_map.get(fid) or "").strip()}
+            for fid in ids
+        ]
+        members = [m for m in members if m["option_text"]]
+        if not members:
+            continue
+        options = [m["option_text"] for m in members]
+
+        # Patch the representative's meta
+        if rep_id in meta_by_id:
+            meta_by_id[rep_id]["options"] = options
+            meta_by_id[rep_id]["is_checkbox_group"] = True
+            meta_by_id[rep_id]["group_members"] = members
+            # Treat as a select-shaped question for the LLM so it picks ONE
+            # option from the list rather than YES/NO-ing a checkbox.
+            meta_by_id[rep_id]["field_type"] = "select"
+            meta_by_id[rep_id]["is_combobox"] = False
+
+        drop_ids.update(ids[1:])
+        print(
+            f"[auto_apply.classify]   group {label_key!r}: {len(members)} options, "
+            f"representative={rep_id!r}, drop={len(ids)-1}",
+            flush=True,
+        )
+
+    # Filter classified_fields + meta_by_id
+    new_classified: List[Dict[str, Any]] = []
+    for f in classified_fields:
+        fid = str(f.get("field_id") or "")
+        if fid in drop_ids:
+            continue
+        # Sync the representative's options + field_type into the
+        # classified_fields entry (which is what the LLM batch reads).
+        if fid in meta_by_id and meta_by_id[fid].get("is_checkbox_group"):
+            f["options"] = meta_by_id[fid]["options"]
+            f["field_type"] = "select"
+        new_classified.append(f)
+    for fid in drop_ids:
+        meta_by_id.pop(fid, None)
+    return new_classified, meta_by_id
+
+
+# ---------- pending-question dedup ----------
+
+def _dedupe_pending_by_label(pending: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Collapse duplicate-label entries so the drawer only asks once.
+
+    Greenhouse's 'select all that apply' fields render as N individual
+    checkboxes that share the parent fieldset's <legend> text — our
+    classifier captures each as a separate required question with the
+    SAME label ('How did you hear about this opportunity?' x14). Same
+    pattern hit on Lever's Pronouns (6 checkboxes one label). Showing
+    14 identical rows in the Needs Attention drawer is broken UX and
+    the user has no way to tell them apart anyway.
+
+    Keep the first entry per (normalized label, field_type) tuple,
+    drop the rest. The first entry retains the canonical field_id so
+    the resolve endpoint can route the user's answer back to its
+    parent group.
+    """
+    seen: set = set()
+    out: List[Dict[str, Any]] = []
+    for p in pending:
+        label = (p.get("label") or "").strip().lower()
+        # Trim trailing `*` required markers and standard "(select all that apply)"
+        # suffix so variants don't escape the dedup.
+        for suffix in ("(select all that apply)", "(select one)", "*"):
+            label = label.replace(suffix, "").strip()
+        ftype = (p.get("field_type") or "").lower()
+        key = (label, ftype)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(p)
+    return out
 
 
 # ---------- email-code completion (Greenhouse per-tenant verification gate) ----------
@@ -819,13 +1034,39 @@ def _fill_custom_questions(
     if not classified_fields:
         return
 
+    # Collapse "select all that apply" checkbox groups into a single virtual
+    # question. Greenhouse renders these as N individual checkboxes that
+    # share the parent fieldset's <legend> as their label — without grouping
+    # we'd send the LLM 14 copies of "How did you hear about this
+    # opportunity?", get a YES/NO style answer back, and try to check ALL 14
+    # boxes. Per-checkbox option text comes from each input's own
+    # `<label for="...">`, which we pull from the DOM here.
+    classified_fields, meta_by_id = _group_checkbox_groups(
+        page, classified_fields, meta_by_id,
+    )
+
+    # User's drawer answers win over profile/library/LLM. On a resume from
+    # the Needs Attention drawer, edited_answers carries the values the
+    # user just typed — without honoring them here the worker would re-run
+    # the same resolver chain that produced the wrong answers in the first
+    # place, fail the same combobox fill, escalate to drawer again, and
+    # ask the user the same questions in a loop.
+    edited = edited_answers or {}
+    unanswered_fields = [
+        f for f in classified_fields
+        if str(f.get("field_id") or "") not in edited
+    ]
     try:
-        resolved = auto_answer_form_questions(
-            uid=uid,
-            profile=profile,
-            resume_summary=resume_summary,
-            job=job,
-            classified_fields=classified_fields,
+        resolved = (
+            auto_answer_form_questions(
+                uid=uid,
+                profile=profile,
+                resume_summary=resume_summary,
+                job=job,
+                classified_fields=unanswered_fields,
+            )
+            if unanswered_fields
+            else {}
         )
     except Exception as exc:
         logger.exception("auto_answer_form_questions crashed: %s", exc)
@@ -833,11 +1074,15 @@ def _fill_custom_questions(
         # the Needs Attention drawer rather than submitting bad data.
         resolved = {
             f["field_id"]: {"answer": None, "source": "needs_user"}
-            for f in classified_fields
+            for f in unanswered_fields
         }
 
     for field_id, meta in meta_by_id.items():
-        info = resolved.get(field_id) or {"answer": None, "source": "needs_user"}
+        user_answer = edited.get(str(field_id))
+        if user_answer:
+            info = {"answer": user_answer, "source": "drawer"}
+        else:
+            info = resolved.get(field_id) or {"answer": None, "source": "needs_user"}
         answer = info.get("answer")
         selector = meta["selector"]
 
@@ -852,7 +1097,45 @@ def _fill_custom_questions(
             })
             continue
 
-        if meta["field_type"] == "checkbox":
+        if meta.get("is_checkbox_group"):
+            # Multi-checkbox "select all that apply" group. The LLM/profile
+            # answer is the option TEXT (e.g. "LinkedIn"). Find the member
+            # checkbox whose option_text matches and check ONLY that one.
+            members = meta.get("group_members") or []
+            ans_lower = str(answer).strip().lower()
+            picked = None
+            # 1. Exact match
+            for m in members:
+                if (m["option_text"] or "").strip().lower() == ans_lower:
+                    picked = m
+                    break
+            # 2. Substring either direction
+            if not picked:
+                for m in members:
+                    opt = (m["option_text"] or "").strip().lower()
+                    if opt and (opt in ans_lower or ans_lower in opt):
+                        picked = m
+                        break
+            if picked:
+                sel = _id_selector(picked["field_id"])
+                _check_checkbox(page, sel, True, filled, unmapped,
+                                picked["field_id"], meta["label"])
+                print(
+                    f"[auto_apply.fill] checkbox-group: picked option "
+                    f"{picked['option_text']!r} (field_id={picked['field_id']!r}) "
+                    f"from {len(members)} group members for answer {answer!r}",
+                    flush=True,
+                )
+            else:
+                unmapped.append({
+                    "field_id": field_id,
+                    "label": meta["label"],
+                    "reason": f"answer {answer!r} did not match any group option",
+                    "field_type": "select",
+                    "options": meta.get("options"),
+                    "required": meta["required"],
+                })
+        elif meta["field_type"] == "checkbox":
             _check_checkbox(page, selector, answer, filled, unmapped, field_id, meta["label"])
         elif meta["is_combobox"]:
             _fill_combobox(page, selector, str(answer), filled, unmapped)
@@ -1015,6 +1298,7 @@ def _resolve_refill_and_resubmit(
     filled: Dict[str, str],
     unmapped: List,
     current_screenshot_b64: str,
+    edited_answers: Optional[Dict[str, str]] = None,
 ) -> tuple:
     """Second-chance pass over Greenhouse aria-invalid fields.
 
@@ -1039,13 +1323,28 @@ def _resolve_refill_and_resubmit(
     from app.services.auto_apply.screening_answers import auto_answer_form_questions
 
     profile = preview.get("_application_profile") or {}
+    edited = edited_answers or {}
+
+    # Only run the resolver on fields the user HASN'T already answered via
+    # the drawer. Re-running profile+library+LLM on a field that the user
+    # explicitly answered means we'd overwrite their input with the same
+    # stale LLM answer and loop the drawer ("asked twice for location" bug
+    # from Verkada dogfood).
+    unanswered_fields = [
+        f for f in invalid_fields
+        if not edited.get(str(f.get("field_id") or ""))
+    ]
     try:
-        resolved = auto_answer_form_questions(
-            uid=uid,
-            profile=profile,
-            resume_summary=resume_summary,
-            job=job_data or {},
-            classified_fields=invalid_fields,
+        resolved = (
+            auto_answer_form_questions(
+                uid=uid,
+                profile=profile,
+                resume_summary=resume_summary,
+                job=job_data or {},
+                classified_fields=unanswered_fields,
+            )
+            if unanswered_fields
+            else {}
         )
     except Exception as exc:
         logger.exception("retry resolver crashed: %s", exc)
@@ -1058,7 +1357,13 @@ def _resolve_refill_and_resubmit(
             continue
         field_type = field.get("field_type") or "text"
         label = field.get("label") or ""
-        info = resolved.get(fid) or {}
+        # User's drawer answer wins. Falls back to LLM-resolved value only
+        # if drawer didn't speak for this field.
+        user_answer = edited.get(str(fid))
+        if user_answer:
+            info = {"answer": user_answer, "source": "drawer"}
+        else:
+            info = resolved.get(fid) or {}
         answer = info.get("answer")
         if not answer or answer == "NEEDS_USER":
             continue
@@ -1759,11 +2064,149 @@ def _fill_combobox(
                     page.wait_for_timeout(200)
             except Exception:
                 pass
-        page.keyboard.type(option_text, delay=20)
-        page.wait_for_timeout(200)
-        # Pick the highlighted option; react-select highlights the first match.
-        page.keyboard.press("Enter")
-        filled[selector] = f"combo:{option_text}"
+        # Greenhouse autocomplete-backed selects (Verkada/Warp country,
+        # candidate-location) filter the listbox in real time as we type.
+        # Strategy: try progressively shorter prefixes of the answer until
+        # the filtered list contains an option that genuinely matches.
+        # Pick that one. Never click the "first option overall" because the
+        # autocomplete-filtered first option is whatever happens to share
+        # a stray character with our typed string (the Afghanistan bug
+        # from 2026-06-18 dogfood).
+        option_clicked = False
+        # Tokens we'll try, in priority order:
+        #   1. Full answer
+        #   2. Answer up to first comma (e.g. "Los Angeles" from "Los Angeles, CA")
+        #   3. Answer up to first " +" (strips phone prefix "+1" suffix)
+        #   4. First word only
+        cleaned = option_text.strip()
+        prefix_tail_split = cleaned.split(" +", 1)[0].strip()
+        comma_split = cleaned.split(",", 1)[0].strip()
+        first_word = cleaned.split()[0] if cleaned.split() else cleaned
+        # De-dupe while preserving order
+        tries: List[str] = []
+        for t in (cleaned, prefix_tail_split, comma_split, first_word):
+            if t and t not in tries:
+                tries.append(t)
+
+        for query in tries:
+            # Clear the input before each retry (Ctrl-A + Backspace works on
+            # react-select hidden inputs across platforms — react-select
+            # listens for the synthetic input event).
+            try:
+                page.keyboard.press("Control+A")
+                page.keyboard.press("Backspace")
+            except Exception:
+                pass
+            page.keyboard.type(query, delay=30)
+            # Poll up to 2s for matching options
+            for _ in range(20):
+                page.wait_for_timeout(100)
+                try:
+                    hit = page.evaluate(
+                        """(args) => {
+                            const wantedFull = (args.full || '').toLowerCase().trim();
+                            const wantedQuery = (args.query || '').toLowerCase().trim();
+                            const boxes = document.querySelectorAll('[role="listbox"]');
+                            const box = boxes[boxes.length - 1];
+                            if (!box) return null;
+                            const opts = Array.from(box.querySelectorAll('[role="option"]'));
+                            if (opts.length === 0) return null;
+
+                            // Score every option, then pick the highest. Prevents
+                            // the "United Arab Emirates" bug where the FIRST
+                            // option starting with the prefix wins over the
+                            // genuine intended match elsewhere in the list.
+                            const wantedFullWords = new Set(
+                                wantedFull.split(/[\\s,+]+/).filter(w => w.length > 1)
+                            );
+                            function score(optionText) {
+                                const t = (optionText || '').trim().toLowerCase();
+                                if (!t) return 0;
+                                if (t === wantedFull) return 1000;
+                                if (t === wantedQuery) return 900;
+                                if (t.includes(wantedFull)) return 800;
+                                if (wantedFull.length > 3 && wantedFull.includes(t)) return 700;
+                                // Word-overlap: how many of the FULL answer's
+                                // distinct words appear in the option
+                                const tWords = new Set(t.split(/[\\s,+]+/).filter(w => w.length > 1));
+                                let overlap = 0;
+                                for (const w of wantedFullWords) {
+                                    if (tWords.has(w)) overlap++;
+                                }
+                                if (wantedFullWords.size === 0) return 0;
+                                const overlapRatio = overlap / wantedFullWords.size;
+                                // Only accept overlap ratio if at least one
+                                // matched word is substantive (>= 4 chars). This
+                                // blocks "united arab emirates" from winning on
+                                // just "united" alone.
+                                let hasSubstantiveMatch = false;
+                                for (const w of wantedFullWords) {
+                                    if (w.length >= 4 && tWords.has(w)) {
+                                        hasSubstantiveMatch = true;
+                                        break;
+                                    }
+                                }
+                                if (!hasSubstantiveMatch) return 0;
+                                return Math.round(500 * overlapRatio);
+                            }
+
+                            let bestIdx = -1;
+                            let bestScore = 0;
+                            for (let i = 0; i < opts.length; i++) {
+                                const s = score(opts[i].textContent || '');
+                                if (s > bestScore) {
+                                    bestIdx = i;
+                                    bestScore = s;
+                                }
+                            }
+                            if (bestIdx >= 0 && bestScore >= 400) {
+                                opts[bestIdx].scrollIntoView({block: 'nearest'});
+                                return {
+                                    index: bestIdx,
+                                    text: (opts[bestIdx].textContent || '').trim().toLowerCase(),
+                                    score: bestScore,
+                                };
+                            }
+                            return null;
+                        }""",
+                        {"full": option_text, "query": query},
+                    )
+                except Exception:
+                    hit = None
+                if hit:
+                    # Navigate to the matched option via keyboard so
+                    # react-select's event chain fires correctly. Calling
+                    # `.click()` from JS only flips the visual highlight —
+                    # React state never gets the change and the form
+                    # re-renders empty on validation. ArrowDown + Enter is
+                    # the documented react-select keyboard pattern.
+                    target_idx = int(hit.get("index") or 0)
+                    for _ in range(target_idx + 1):
+                        page.keyboard.press("ArrowDown")
+                    page.wait_for_timeout(50)
+                    page.keyboard.press("Enter")
+                    option_clicked = True
+                    filled[selector] = (
+                        f"combo:{hit.get('text')}[idx={target_idx}|q={query!r}]"
+                    )
+                    break
+            if option_clicked:
+                break
+
+        # No prefix surfaced a real match. Leave the field empty — do NOT
+        # click the first random option (that's the Afghanistan bug). The
+        # validation pass will mark this field aria-invalid and route to
+        # the drawer with the actual options exposed.
+        if not option_clicked:
+            try:
+                page.keyboard.press("Escape")  # close the listbox
+            except Exception:
+                pass
+            unmapped.append({
+                "field_id": selector, "label": option_text,
+                "reason": "no option matched any prefix of the answer",
+            })
+            filled[selector] = f"combo:{option_text}[no-match]"
     except Exception as exc:
         unmapped.append({"field_id": selector, "label": option_text,
                           "reason": f"combobox failure: {exc}"})
