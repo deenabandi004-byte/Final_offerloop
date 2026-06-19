@@ -266,6 +266,7 @@ def test_blueprint_registered(app):
     assert '/api/referrals/me' in rules
     assert '/api/referrals/attribute' in rules
     assert '/api/referrals/claim' in rules
+    assert '/api/referrals/ack' in rules
 
 
 def test_ack_valid_surface_updates_field():
