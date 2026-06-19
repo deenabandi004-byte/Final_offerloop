@@ -53,6 +53,7 @@ from .app.routes.find_hiring_manager_public import find_hiring_manager_public_bp
 from .app.routes.find_companies_public import find_companies_public_bp
 from .app.routes.find_jobs_public import find_jobs_public_bp
 from .app.routes.find_people_public import find_people_public_bp
+from .app.routes.shares import shares_bp
 from .app.extensions import init_app_extensions
 
 def create_app() -> Flask:
@@ -211,6 +212,7 @@ def create_app() -> Flask:
     app.register_blueprint(emails_bp)
     app.register_blueprint(linkedin_import_bp)  # Register before contacts_bp to avoid route conflicts
     app.register_blueprint(contacts_bp)
+    app.register_blueprint(shares_bp)
     app.register_blueprint(runs_bp)
     app.register_blueprint(enrichment_bp)
     app.register_blueprint(resume_bp)
@@ -253,8 +255,12 @@ def create_app() -> Flask:
     app.register_blueprint(find_people_public_bp)
 
     # --- MCP server (anonymous IP-based, mounts /mcp + /api/mcp/health) ---
-    from .app.mcp_server.flask_mount import register_mcp_blueprint
-    register_mcp_blueprint(app)
+    # Skippable for local dev: the MCP mount refuses to boot against the prod
+    # Firestore project from a non-prod env, so DISABLE_MCP=1 lets a developer
+    # run the rest of the app locally without it.
+    if os.getenv("DISABLE_MCP") != "1":
+        from .app.mcp_server.flask_mount import register_mcp_blueprint
+        register_mcp_blueprint(app)
 
     # --- /claim?token=xyz attribution landing for MCP paywall ---
     from .app.routes.claim import claim_bp
