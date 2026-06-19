@@ -75,3 +75,27 @@ def create_share():
     ref = db.collection("pendingShares").add(share)
     share_id = ref[1].id
     return jsonify({"shareId": share_id, "toName": to_name}), 201
+
+
+@shares_bp.route("/pending", methods=["GET"])
+@require_firebase_auth
+def list_pending():
+    db = get_db()
+    uid = request.firebase_user["uid"]
+    docs = (
+        db.collection("pendingShares")
+        .where("toUid", "==", uid)
+        .where("status", "==", "pending")
+        .stream()
+    )
+    out = []
+    for d in docs:
+        data = d.to_dict() or {}
+        out.append({
+            "id": d.id,
+            "fromName": data.get("fromName", "Someone"),
+            "kind": data.get("kind", "contacts"),
+            "count": len(data.get("items") or []),
+            "createdAt": data.get("createdAt"),
+        })
+    return jsonify({"shares": out}), 200

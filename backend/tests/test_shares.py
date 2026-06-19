@@ -107,3 +107,21 @@ def test_create_share_success_writes_pending_doc(client, db):
     written_payload = db.collection.return_value.add.call_args[0][0]
     assert written_payload["status"] == "pending"
     assert written_payload["kind"] == "contacts"
+
+
+def test_list_pending_returns_only_my_pending(client, db):
+    share_doc = type("Doc", (), {
+        "id": "s1",
+        "to_dict": lambda self: {"fromName": "Pat", "kind": "contacts",
+                                  "items": [{}, {}, {}], "status": "pending",
+                                  "createdAt": "2026-06-18T00:00:00Z"},
+    })()
+    (db.collection.return_value.where.return_value
+        .where.return_value.stream.return_value) = iter([share_doc])
+
+    resp = client.get("/api/shares/pending", headers=_auth_headers())
+    assert resp.status_code == 200
+    shares = resp.get_json()["shares"]
+    assert len(shares) == 1
+    assert shares[0]["count"] == 3
+    assert shares[0]["fromName"] == "Pat"
