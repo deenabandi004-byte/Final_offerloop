@@ -1,3 +1,4 @@
+import pytest
 from app import config
 
 
@@ -238,3 +239,21 @@ def test_claim_paid_user_without_subscription():
     db, _ = _claim_db(tier='elite', sub_id=None)
     out = rs.claim_reward(db, 'u1')
     assert out == {'ok': False, 'reason': 'no_subscription'}
+
+
+@pytest.fixture
+def app():
+    """Minimal Flask app with the referrals blueprint registered."""
+    from flask import Flask
+    from app.routes.referrals import referrals_bp
+    a = Flask(__name__)
+    a.config['TESTING'] = True
+    a.register_blueprint(referrals_bp)
+    return a
+
+
+def test_blueprint_registered(app):
+    rules = {r.rule for r in app.url_map.iter_rules()}
+    assert '/api/referrals/me' in rules
+    assert '/api/referrals/attribute' in rules
+    assert '/api/referrals/claim' in rules
