@@ -511,6 +511,11 @@ def handle_checkout_completed(session):
         # account trial token so neither path can grant a second one.
         if sub_status == 'trialing':
             update_payload['trialUsedAt'] = datetime.utcnow()
+        # Referral reward: finalize the one-time claim flag.
+        _meta = session.get('metadata') or {}
+        if _meta.get('referral_reward') == 'true':
+            update_payload['referralRewardClaimed'] = True
+            update_payload['referralRewardClaimedAt'] = datetime.now().isoformat()
         user_ref.update(update_payload)
         
     except Exception as e:

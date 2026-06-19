@@ -257,3 +257,25 @@ def test_blueprint_registered(app):
     assert '/api/referrals/me' in rules
     assert '/api/referrals/attribute' in rules
     assert '/api/referrals/claim' in rules
+
+
+def test_webhook_marks_referral_reward_claimed(monkeypatch):
+    db = MagicMock()
+    user_ref = db.collection.return_value.document.return_value
+    monkeypatch.setattr(stripe_client, 'get_db', lambda: db)
+    monkeypatch.setattr(stripe_client, 'STRIPE_SECRET_KEY', 'sk_test')
+
+    fake_sub = MagicMock(status='trialing')
+    fake_sub.items.data = [MagicMock(price=MagicMock(id='price_elite'))]
+    monkeypatch.setattr('stripe.Subscription.retrieve', lambda sid: fake_sub)
+
+    session = {
+        'metadata': {'user_id': 'u1', 'tier': 'elite', 'referral_reward': 'true'},
+        'subscription': 'sub_1',
+        'customer': 'cus_1',
+    }
+    stripe_client.handle_checkout_completed(session)
+
+    # The final update payload should carry the referral flag.
+    payloads = [c[0][0] for c in user_ref.update.call_args_list]
+    assert any(p.get('referralRewardClaimed') is True for p in payloads)
