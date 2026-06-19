@@ -81,6 +81,14 @@ export default function PendingShareModal() {
       }
       setImported({ count: res.imported ?? current.count });
       dismissCurrent();
+    } catch (e: any) {
+      console.error("[shares] accept failed", e);
+      toast({
+        title: e?.needsAuth
+          ? "Your session expired — please sign in again."
+          : "Couldn't accept the share. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setBusy(false);
     }
@@ -91,9 +99,12 @@ export default function PendingShareModal() {
     setBusy(true);
     try {
       await apiService.declineShare(current.id);
+      dismissCurrent();
+    } catch (e: any) {
+      console.error("[shares] decline failed", e);
+      toast({ title: "Couldn't decline the share. Please try again.", variant: "destructive" });
     } finally {
       setBusy(false);
-      dismissCurrent();
     }
   };
 
