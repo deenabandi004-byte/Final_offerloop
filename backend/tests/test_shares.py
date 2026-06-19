@@ -101,3 +101,9 @@ def test_create_share_success_writes_pending_doc(client, db):
     body = resp.get_json()
     assert body["shareId"] == "share-123"
     assert body["toName"] == "Friend"
+
+    # Assert the route actually wrote the pending-share doc to Firestore
+    db.collection.return_value.add.assert_called_once()
+    written_payload = db.collection.return_value.add.call_args[0][0]
+    assert written_payload["status"] == "pending"
+    assert written_payload["kind"] == "contacts"
