@@ -149,3 +149,61 @@ def test_decline_marks_status(client, db):
     resp = client.post("/api/shares/s1/decline", headers=_auth_headers())
     assert resp.status_code == 200
     assert resp.get_json()["ok"] is True
+
+    # Assert the ref was mutated with status == "declined"
+    ref = db.collection.return_value.document.return_value
+    ref.set.assert_called_once()
+    call_payload = ref.set.call_args[0][0]
+    assert call_payload["status"] == "declined"
+
+
+def test_accept_share_imports_contacts(client, db):
+    """Happy path: pending share owned by caller, kind=contacts, 1 item → 200."""
+    share = type("Doc", (), {
+        "exists": True,
+        "id": "s1",
+        "to_dict": lambda self: {
+            "toUid": "test-user-id",
+            "status": "pending",
+            "kind": "contacts",
+            "items": [{"name": "Alice", "email": "alice@x.com"}],
+        },
+    })()
+
+    # require_tier (inner decorator after @require_firebase_auth) fetches the user doc
+    # from Firestore via extensions.get_db() to verify the subscription tier.
+    # Wire the mock so collection("users").document(uid).get() returns a pro-tier doc,
+    # and the share document lookup also resolves correctly via the same mock chain.
+    user_doc = MagicMock()
+    user_doc.exists = True
+    user_doc.to_dict.return_value = {"subscriptionTier": "pro"}
+
+    call_counter = {"n": 0}
+
+    def _get_side_effect():
+        call_counter["n"] += 1
+        # First call: require_tier fetching the user document
+        if call_counter["n"] == 1:
+            return user_doc
+        # Subsequent calls: _load_owned_pending fetching the share document
+        return share
+
+    db.collection.return_value.document.return_value.get.side_effect = _get_side_effect
+
+    # Stub db.batch() to return a controllable mock
+    mock_batch = MagicMock()
+    db.batch.return_value = mock_batch
+
+    # require_tier's get_db lookup resolves through backend.app.extensions
+    # (shares.py uses relative imports → backend.app.extensions).
+    # Patch that namespace so require_tier sees the mock db.
+    with patch("backend.app.extensions.get_db", return_value=db):
+        resp = client.post("/api/shares/s1/accept", headers=_auth_headers())
+
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["imported"] == 1
+    assert body["kind"] == "contacts"
+
+    # Assert the batch was committed exactly once
+    mock_batch.commit.assert_called_once()

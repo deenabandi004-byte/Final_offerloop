@@ -90,8 +90,8 @@ def _load_owned_pending(db, uid, share_id):
 
 
 @shares_bp.route("/<share_id>/accept", methods=["POST"])
-@require_tier(["pro", "elite"])
 @require_firebase_auth
+@require_tier(["pro", "elite"])
 def accept_share(share_id):
     db = get_db()
     uid = request.firebase_user["uid"]
@@ -101,9 +101,9 @@ def accept_share(share_id):
 
     kind = data.get("kind")
     items = data.get("items") or []
-    sub = _SUBCOLLECTION.get(kind)
-    if not sub:
+    if kind not in VALID_KINDS:
         return jsonify({"error": "Invalid share."}), 400
+    sub = _SUBCOLLECTION[kind]
 
     dest = db.collection("users").document(uid).collection(sub)
     batch = db.batch()
@@ -113,7 +113,7 @@ def accept_share(share_id):
         doc["createdAt"] = _now_z()
         doc.setdefault("status", "Not Contacted")
         batch.set(dest.document(), doc)
-    batch.set(ref, {"status": "accepted"}, merge=True)
+    batch.set(ref, {"status": "accepted", "acceptedAt": _now_z()}, merge=True)
     batch.commit()
 
     return jsonify({"imported": len(items), "kind": kind}), 200
@@ -127,7 +127,7 @@ def decline_share(share_id):
     ref, data = _load_owned_pending(db, uid, share_id)
     if not ref:
         return jsonify({"error": "Share not found."}), 404
-    ref.set({"status": "declined"}, merge=True)
+    ref.set({"status": "declined", "declinedAt": _now_z()}, merge=True)
     return jsonify({"ok": True}), 200
 
 
