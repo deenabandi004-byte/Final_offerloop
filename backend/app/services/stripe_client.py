@@ -398,8 +398,13 @@ def handle_stripe_webhook():
             # would no-op here).
             metadata = (session_obj.get('metadata') or {})
             from app.services.topup_service import TOPUP_METADATA_KEY, TOPUP_METADATA_VALUE, apply_topup_purchase
+            from app.services.season_pass_service import (
+                SEASON_PASS_METADATA_KEY, SEASON_PASS_METADATA_VALUE, apply_season_pass_purchase,
+            )
             if metadata.get(TOPUP_METADATA_KEY) == TOPUP_METADATA_VALUE:
                 apply_topup_purchase(session_obj)
+            elif metadata.get(SEASON_PASS_METADATA_KEY) == SEASON_PASS_METADATA_VALUE:
+                apply_season_pass_purchase(session_obj)
             else:
                 handle_checkout_completed(session_obj)
         elif event['type'] == 'checkout.session.expired':

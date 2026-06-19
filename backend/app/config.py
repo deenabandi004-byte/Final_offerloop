@@ -260,7 +260,7 @@ STRIPE_PRICE_CATALOG = {
     },
     'topup': {
         500:  os.getenv('STRIPE_TOPUP_500',  ''),
-        1000: os.getenv('STRIPE_TOPUP_1000', ''),
+        1500: os.getenv('STRIPE_TOPUP_1500', ''),
         3000: os.getenv('STRIPE_TOPUP_3000', ''),
     },
 }
@@ -328,7 +328,7 @@ SEASON_PASS = {
 # 10 cr/email rate. Same dollar prices, same email outputs.
 TOPUP_PACKS = [
     {'id': 'starter', 'credits': 500,  'price': 4.99,  'label': 'Starter'},
-    {'id': 'best',    'credits': 1000, 'price': 9.99,  'label': 'Best value', 'recommended': True},
+    {'id': 'best',    'credits': 1500, 'price': 9.99,  'label': 'Best value', 'recommended': True},
     {'id': 'bulk',    'credits': 3000, 'price': 24.99, 'label': 'Bulk'},
 ]
 

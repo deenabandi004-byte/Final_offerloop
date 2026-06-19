@@ -18,6 +18,7 @@ from app.services.stripe_client import (
 )
 from app.services.refund_service import create_refund_request
 from app.services.topup_service import create_topup_session
+from app.services.season_pass_service import create_season_pass_session
 from app.services.credit_ledger import get_balance_breakdown
 from app.config import (
     TIER_CONFIGS,
@@ -152,6 +153,44 @@ def create_topup_session_route():
         err = result.get('error', 'unknown')
         if err == 'unknown_pack':
             return jsonify(result), 404
+        if err == 'stripe_sku_not_wired':
+            return jsonify(result), 503
+        return jsonify(result), 500
+
+    return jsonify({'sessionId': result['session_id'], 'url': result['url']}), 200
+
+
+@billing_bp.route('/billing/create-season-pass-session', methods=['POST'])
+@require_firebase_auth
+def create_season_pass_session_route():
+    """Start a Stripe Checkout Session for a one-time Recruiting Season Pass.
+
+    Body: { audience?: 'student' | 'list' }
+    Returns: { sessionId, url } on success, { ok: False, error } otherwise.
+
+    On payment success, the webhook handler in stripe_client.py routes the
+    completed session to season_pass_service.apply_season_pass_purchase, which
+    grants the season_pass tier for SEASON_PASS['months'] months.
+    """
+    user_id = request.firebase_user.get('uid')
+    user_email = request.firebase_user.get('email')
+    if not user_id:
+        return jsonify({'error': 'unauthenticated'}), 401
+
+    data = request.get_json() or {}
+    audience = data.get('audience') or 'list'
+
+    base = request.url_root.rstrip('/')
+    if 'localhost' in base:
+        base = 'http://localhost:8080'
+    elif base.endswith('/api'):
+        base = base[:-4]
+    success_url = data.get('successUrl') or f"{base}/payment-success?season_pass=1&session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = data.get('cancelUrl') or f"{base}/pricing"
+
+    result = create_season_pass_session(user_id, user_email or '', audience, success_url, cancel_url)
+    if not result.get('ok'):
+        err = result.get('error', 'unknown')
         if err == 'stripe_sku_not_wired':
             return jsonify(result), 503
         return jsonify(result), 500
