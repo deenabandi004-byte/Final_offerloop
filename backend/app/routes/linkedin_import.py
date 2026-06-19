@@ -13,7 +13,7 @@ from ..utils.warmth_scoring import score_contacts_for_email
 from ..utils.users import get_outreach_email
 from ..services.gmail_client import create_gmail_draft_for_user, download_resume_from_url
 from ..services.hunter import get_verified_email, get_smart_company_domain
-from ..services.pdl_client import _choose_best_email, _pdl_email_is_fresh
+from ..services.pdl_client import _choose_best_email
 from ..services.resume_parser import extract_text_from_pdf_bytes
 from ..utils.email_quality import check_email_quality
 from app.routes.runs import _resolve_email_template
