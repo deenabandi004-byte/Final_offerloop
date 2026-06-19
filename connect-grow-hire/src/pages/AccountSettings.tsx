@@ -1,4 +1,4 @@
-import { ArrowLeft, Upload, Trash2, LogOut, CreditCard, FileText, User, GraduationCap, Briefcase, Rocket, Settings, AlertTriangle, Lock, Eye, RefreshCw, X, CheckCircle, Mail, Target, Star } from "lucide-react";
+import { ArrowLeft, Upload, Trash2, LogOut, CreditCard, FileText, User, GraduationCap, Briefcase, Rocket, Settings, AlertTriangle, Lock, Eye, RefreshCw, X, CheckCircle, Mail, Target, Star, Gift, Copy } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -105,6 +105,7 @@ const sections = [
   { id: 'professional', label: 'Professional Profile', icon: Briefcase },
   { id: 'career', label: 'Career Interests', icon: Rocket },
   { id: 'goals', label: 'Career Goals', icon: Target },
+  { id: 'referrals', label: 'Refer & Earn', icon: Gift },
   { id: 'gmail', label: 'Gmail Integration', icon: Mail },
   { id: 'account', label: 'Account Management', icon: Settings },
   { id: 'danger', label: 'Danger Zone', icon: AlertTriangle },
@@ -275,6 +276,35 @@ export default function AccountSettings() {
   const [gmailEmail, setGmailEmail] = useState<string | null>(null);
   const [gmailLoading, setGmailLoading] = useState(true);
   const [gmailActionLoading, setGmailActionLoading] = useState(false);
+
+  // Referral state
+  const [referral, setReferral] = useState<{
+    referralLink: string; signupCount: number; signupTarget: number;
+    eligible: boolean; rewardClaimed: boolean;
+  } | null>(null);
+  const [claiming, setClaiming] = useState(false);
+
+  useEffect(() => {
+    apiService.getReferralStatus().then(setReferral).catch(() => setReferral(null));
+  }, []);
+
+  const handleClaim = async () => {
+    setClaiming(true);
+    try {
+      const res = await apiService.claimReferralReward();
+      if (res.ok && res.mode === 'checkout' && res.url) {
+        window.location.href = res.url;
+      } else if (res.ok) {
+        toast({ title: 'Reward applied!', description: 'Your next month is on us.' });
+        const fresh = await apiService.getReferralStatus();
+        setReferral(fresh);
+      } else {
+        toast({ title: 'Could not claim', description: res.reason || 'Try again later.', variant: 'destructive' });
+      }
+    } finally {
+      setClaiming(false);
+    }
+  };
 
   // User initials for avatar
   const userInitials = `${personalInfo.firstName.charAt(0) || ''}${personalInfo.lastName.charAt(0) || ''}`.toUpperCase() || 'U';
@@ -2273,6 +2303,57 @@ export default function AccountSettings() {
                         </div>
                       )}
                     </div>
+                  </SettingsSection>
+
+                  {/* Refer & Earn Section */}
+                  <SettingsSection
+                    id="referrals"
+                    icon={Gift}
+                    title="Refer & Earn"
+                    description="Invite 5 friends who sign up and get a free month of Elite."
+                  >
+                    {referral ? (
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Your referral link</label>
+                          <div className="flex gap-2">
+                            <input type="text" value={referral.referralLink} readOnly
+                              className="flex-1 px-3 py-2 border border-gray-300 rounded bg-gray-50 text-sm" />
+                            <button
+                              onClick={() => { navigator.clipboard.writeText(referral.referralLink);
+                                toast({ title: 'Copied!', description: 'Referral link copied.' }); }}
+                              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                              <Copy className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="flex justify-between text-sm text-gray-600 mb-1">
+                            <span>Signups</span>
+                            <span>{referral.signupCount} / {referral.signupTarget}</span>
+                          </div>
+                          <div className="w-full bg-gray-100 rounded-full h-2">
+                            <div className="bg-blue-600 h-2 rounded-full"
+                              style={{ width: `${Math.min(100, (referral.signupCount / referral.signupTarget) * 100)}%` }} />
+                          </div>
+                        </div>
+                        {referral.rewardClaimed ? (
+                          <p className="text-sm text-green-700">🎉 Reward claimed — enjoy your free month of Elite!</p>
+                        ) : referral.eligible ? (
+                          <button onClick={handleClaim} disabled={claiming}
+                            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
+                            {claiming ? 'Starting…' : 'Claim your free month of Elite'}
+                          </button>
+                        ) : (
+                          <p className="text-sm text-gray-500">
+                            {referral.signupTarget - referral.signupCount} more signup
+                            {referral.signupTarget - referral.signupCount === 1 ? '' : 's'} to unlock a free month of Elite.
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-500">Loading your referral link…</p>
+                    )}
                   </SettingsSection>
 
                   {/* Gmail Integration Section */}
