@@ -77,7 +77,8 @@ const QUICK_FILTERS: Array<{ key: string; label: string }> = [
   { key: "Remote",      label: "Remote" },
   { key: "Full-time",   label: "Full-time" },
   { key: "$100k+",      label: "$100k+" },
-  { key: "Quick Apply", label: "Quick Apply" },
+  // "Quick Apply" removed — superseded by the "Auto-apply only" toggle
+  // which sits next to the More Filters button.
 ];
 
 export const JobBoardPage: React.FC = () => {
@@ -90,9 +91,10 @@ export const JobBoardPage: React.FC = () => {
 
   // ---- Local UI state -----------------------------------------------------
   const [search, setSearch] = useState("");
-  const [activeFilters, setActiveFilters] = useState<string[]>(
-    QUICK_FILTERS.map((f) => f.key)
-  );
+  // Start with NO chips active so first-impression Discover shows the
+  // widest possible feed. User opts into Remote / Full-time / $100k+ by
+  // adding chips from the "+" dropdown.
+  const [activeFilters, setActiveFilters] = useState<string[]>([]);
   // Chips coming from the More Filters drawer (experience, date, size, visa).
   // These are removable just like quick filters; visual-only.
   const [moreFilterChips, setMoreFilterChips] = useState<string[]>([]);
@@ -225,13 +227,115 @@ export const JobBoardPage: React.FC = () => {
     [sections]
   );
 
+  // Poll the auto-apply queues at page level: needs-attention + needs-
+  // verification counts drive the tab badges, and the full job-id list
+  // drives the Discover filter (any job already in the auto-apply pipeline
+  // gets hidden so the user can't double-fire and clutter the queue).
+  const [needsAttentionCount, setNeedsAttentionCount] = useState<number>(0);
+  const [needsVerificationCount, setNeedsVerificationCount] = useState<number>(0);
+  const [autoAppliedJobIds, setAutoAppliedJobIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const api = await import("@/services/api");
+        const [na, nv, all] = await Promise.all([
+          api.listNeedsAttention(),
+          api.listNeedsVerification(),
+          api.listAutoApplyJobs(),
+        ]);
+        if (cancelled) return;
+        setNeedsAttentionCount((na.items || []).length);
+        setNeedsVerificationCount((nv.items || []).length);
+        const ids = new Set<string>();
+        for (const item of all.items || []) {
+          const jid = (item as any).job_id;
+          if (jid) ids.add(String(jid));
+        }
+        setAutoAppliedJobIds(ids);
+      } catch {
+        /* swallow; next poll will retry */
+      }
+    };
+    refresh();
+    const id = window.setInterval(refresh, 8000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [user]);
+
+  // "Only show auto-apply jobs" filter. Defaults to ON because the
+  // marketing claim of the feature lands hardest when the first
+  // impression is "every job has an Auto-apply button." Power users
+  // who need Workday / Indeed inventory (Goldman, JPM, Microsoft) flip
+  // it off. Preference persists in localStorage so the choice sticks
+  // across sessions.
+  const [autoApplyOnly, setAutoApplyOnly] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem("jobBoard.autoApplyOnly");
+      return stored === null ? true : stored === "true";
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("jobBoard.autoApplyOnly", String(autoApplyOnly));
+    } catch {
+      /* localStorage unavailable; toggle still works for the session */
+    }
+  }, [autoApplyOnly]);
+
+  const applyAutoApplyFilter = useCallback(
+    (list: ProtoJob[]) =>
+      autoApplyOnly ? list.filter((j) => j.autoApplyEligible) : list,
+    [autoApplyOnly]
+  );
+
+  // Hide jobs the user has already auto-applied to from Discover. Status
+  // lives in the dedicated tabs (Auto-submission / Needs attention).
+  const applyAppliedFilter = useCallback(
+    (list: ProtoJob[]) => list.filter((j) => !autoAppliedJobIds.has(j.id)),
+    [autoAppliedJobIds]
+  );
+
+  // Quick-filter chips — only apply when the chip is active. AND semantics
+  // across chips (Remote + Full-time = both must match), OR within each
+  // chip's logic (e.g. Remote matches either explicit-remote location text
+  // OR a remote work_arrangement signal in the job's metadata).
+  const applyChipFilter = useCallback(
+    (list: ProtoJob[]) => {
+      if (activeFilters.length === 0) return list;
+      const wantRemote = activeFilters.includes("Remote");
+      const wantFulltime = activeFilters.includes("Full-time");
+      const want100k = activeFilters.includes("$100k+");
+      return list.filter((j) => {
+        if (wantRemote) {
+          const loc = (j.location || "").toLowerCase();
+          if (!loc.includes("remote") && !loc.includes("anywhere")) return false;
+        }
+        if (wantFulltime) {
+          const t = (j.jobType || "").toLowerCase();
+          if (!t.includes("full") && t !== "fulltime") return false;
+        }
+        if (want100k) {
+          if (!j.salaryAnnual || j.salaryAnnual < 100_000) return false;
+        }
+        return true;
+      });
+    },
+    [activeFilters]
+  );
+
   const searchedRecent = useMemo(
-    () => applySearch(sections.recent, search),
-    [sections.recent, search]
+    () => applyAppliedFilter(applyChipFilter(applyAutoApplyFilter(applySearch(sections.recent, search)))),
+    [sections.recent, search, applyAutoApplyFilter, applyChipFilter, applyAppliedFilter]
   );
   const searchedRecommended = useMemo(
-    () => applySearch(sections.recommended, search),
-    [sections.recommended, search]
+    () => applyAppliedFilter(applyChipFilter(applyAutoApplyFilter(applySearch(sections.recommended, search)))),
+    [sections.recommended, search, applyAutoApplyFilter, applyChipFilter, applyAppliedFilter]
   );
 
   // Default-select first Recent on first load; reselect when current selection
@@ -341,7 +445,18 @@ export const JobBoardPage: React.FC = () => {
         title: "Applying in the background",
         description: "We'll let you know if a question needs your input.",
       });
-      setActiveJobTab("auto-submission");
+      // Optimistic update: hide the job from Discover immediately rather
+      // than waiting for the 8s autoAppliedJobIds poll. Avoids the dead
+      // window where the user can re-click Auto-apply on the same card.
+      // The next poll will confirm + persist the state.
+      setAutoAppliedJobIds((prev) => {
+        const next = new Set(prev);
+        next.add(j.id);
+        return next;
+      });
+      // Stay on Discover so the user can keep clicking Auto-apply on more
+      // jobs without the tab yanking them away. The toast + the Needs
+      // Attention badge handle notification.
       return;
     }
 
@@ -524,11 +639,17 @@ export const JobBoardPage: React.FC = () => {
                   }}
                 >
                   {([
-                    { id: "discover", label: "Discover", count: sections.recent.length + sections.recommended.length },
-                    { id: "saved", label: "Saved", count: savedJobs.length },
-                    { id: "auto-submission", label: "Auto-submission", count: 0 },
-                    { id: "needs-attention", label: "Needs attention", count: 0 },
-                    { id: "needs-verification", label: "Finish in browser", count: 0 },
+                    { id: "discover", label: "Discover", count: sections.recent.length + sections.recommended.length, dot: false },
+                    { id: "saved", label: "Saved", count: savedJobs.length, dot: false },
+                    { id: "auto-submission", label: "Auto-submission", count: 0, dot: false },
+                    // Notification dot when there's actually work waiting on the user.
+                    { id: "needs-attention", label: "Needs attention", count: needsAttentionCount, dot: needsAttentionCount > 0 },
+                    // Finish-in-browser is now rare (the email-code path handles
+                    // most Greenhouse verification automatically). Hide the tab
+                    // entirely when empty so it doesn't clutter the header.
+                    ...(needsVerificationCount > 0
+                      ? [{ id: "needs-verification" as const, label: "Finish in browser", count: needsVerificationCount, dot: true }]
+                      : []),
                   ] as const).map((t) => {
                     const isActive = activeJobTab === t.id;
                     return (
@@ -562,6 +683,19 @@ export const JobBoardPage: React.FC = () => {
                         }}
                       >
                         {t.label}
+                        {t.dot && (
+                          <span
+                            style={{
+                              display: "inline-block",
+                              width: 7,
+                              height: 7,
+                              borderRadius: "50%",
+                              background: "#EF4444",
+                              marginLeft: -2,
+                            }}
+                            aria-label="needs your attention"
+                          />
+                        )}
                         {t.count > 0 && (
                           <span
                             style={{
@@ -606,6 +740,26 @@ export const JobBoardPage: React.FC = () => {
                   >
                     <IconFilter />
                     More Filters
+                  </button>
+                  <button
+                    className="jb-fb-btn"
+                    type="button"
+                    onClick={() => setAutoApplyOnly((v) => !v)}
+                    title={
+                      autoApplyOnly
+                        ? "Currently showing only jobs with one-click Auto-apply. Click to also show jobs that require manual application (Workday, custom careers pages)."
+                        : "Currently showing all jobs. Click to show only jobs with one-click Auto-apply."
+                    }
+                    style={{
+                      background: autoApplyOnly ? "#3B82F6" : undefined,
+                      color: autoApplyOnly ? "#fff" : undefined,
+                      borderColor: autoApplyOnly ? "#3B82F6" : undefined,
+                    }}
+                  >
+                    <span style={{ marginRight: 4 }}>
+                      {autoApplyOnly ? "✓" : ""}
+                    </span>
+                    Auto-apply only
                   </button>
                   <button
                     className="jb-fb-btn jb-fb-btn-icon"
@@ -823,7 +977,11 @@ export const JobBoardPage: React.FC = () => {
                           selected={selectedId === j.id}
                           dismissed={false}
                           onClick={() => setSelectedId(j.id)}
-                          onDismiss={() => {}}
+                          // On the Saved tab the X icon unsaves the job
+                          // rather than dismissing it locally — the card
+                          // exists BECAUSE it's saved, so removing it is
+                          // an unsave action.
+                          onDismiss={() => handleSave(j)}
                           onUndo={() => {}}
                         />
                       ))
@@ -858,8 +1016,8 @@ export const JobBoardPage: React.FC = () => {
                         }
                       }}
                       onFindPeople={() => openFindHumans(selectedJob)}
-                      userPlan="free"
-                      currentCredits={210}
+                      userPlan={(user?.tier as "free" | "pro" | "elite") || "free"}
+                      currentCredits={(user as any)?.credits ?? 0}
                     />
                   ) : (
                     <div className="jb-loading">Select a role to see details.</div>

@@ -21,7 +21,7 @@ const ROLES = [
 ] as const;
 
 interface FindPeoplePanelProps {
-  userPlan?: "free" | "premium";
+  userPlan?: "free" | "pro" | "elite" | "premium";
   currentCredits?: number;
   onFind: () => void;
   onUpgradeClick?: () => void;
@@ -33,7 +33,10 @@ export function FindPeoplePanel({
   onFind,
   onUpgradeClick,
 }: FindPeoplePanelProps) {
-  const isPremium = userPlan === "premium";
+  // Hiring Manager search is gated to paid tiers (Pro or Elite). The legacy
+  // "premium" string is kept as an accepted value for older callers — it
+  // maps to "any paid tier" semantics.
+  const isPremium = userPlan === "premium" || userPlan === "pro" || userPlan === "elite";
   const defaultCounts: Record<string, number> = {
     "hiring-manager": isPremium ? 1 : 0,
     "recruiter": 2,

@@ -99,6 +99,12 @@ _LABEL_KEYWORDS = [
     ("compensation expectation", "preferences.expectedSalaryUsd"),
     ("relocate", "preferences.openToRelocation"),
     ("remote", "preferences.openToRemote"),
+    # Contact info — pulled from the user's Application Profile so we never
+    # fabricate a LinkedIn URL from their name.
+    ("linkedin profile", "contactInfo.linkedinUrl"),
+    ("linkedin url", "contactInfo.linkedinUrl"),
+    ("linkedin", "contactInfo.linkedinUrl"),
+    ("phone number", "contactInfo.phone"),
 ]
 
 
@@ -312,7 +318,7 @@ SENSITIVE_PROFILE_PATHS = frozenset({
 })
 
 
-_BATCH_PROMPT = """You are filling out a job application on behalf of a college student. Your only job is to answer each form question TRUTHFULLY based on the student context below.
+_BATCH_PROMPT = """You are filling out a job application on behalf of a college student. Your goal is to SUBMIT the application without bothering the user. Answer every question with the most reasonable value from context, profile, or sensible defaults. NEEDS_USER is a LAST RESORT — almost everything has a defensible default answer.
 
 STUDENT CONTEXT:
 <student>
@@ -329,66 +335,84 @@ Company: {company}
 THE FORM QUESTIONS:
 {questions_block}
 
-HARD RULES — read carefully:
+CORE PHILOSOPHY:
+The user clicked Auto-apply because they want the application submitted, not because they want a survey. Returning NEEDS_USER means we bug them. Only do that when there is GENUINELY no defensible answer — like a custom challenge code, a Warp-specific shared-block link, or an essay prompt that requires their authentic voice. For everything else, PICK the most reasonable option from the dropdown / write a sensible value.
 
-TRUTHFULNESS (the cardinal rule):
-1. NEVER claim experience beyond what the context shows. If the context shows 2 years of Python, do NOT pick "4-5" or write "5". Pick the option that matches the context, even if a higher option would help the candidacy.
+TRUTHFULNESS BOUNDARY (the only hard rule):
+- NEVER claim a specific credential, license, certification, or experience the context doesn't support. Don't say "I have a CDL" when there's no driving experience. Don't claim a security clearance you don't have. Don't inflate years of experience.
+- Don't fabricate specific facts (driver's license number, SAT/GRE scores you didn't take, etc.).
+- For these: pick the option that's TRUTHFUL even if it weakens the candidacy ("No" / "None" / "I do not hold" / "Did not take").
 
-SAFE DEFAULTS — answer these confidently from context, do NOT route to NEEDS_USER:
-2. COUNTRY questions ("country of residence", "where are you based", "where do you live"): if the context shows the student attends a US school OR has US-based experience OR a US location, answer "United States" (or the exact US-matching option from the dropdown). The vast majority of Offerloop users are US college students.
-3. SCHOOL questions ("most recent school", "current school", "where did you attend"): use the school from the ACADEMICS context line or the most recent education entry in the resume.
-4. DEGREE questions ("most recent degree", "highest degree", "degree obtained"): use the degree from the ACADEMICS context or the most recent education entry. If the student is still enrolled, return their CURRENT degree level (e.g., "Bachelor's" for an undergraduate senior).
-5. EDUCATION LEVEL dropdowns: pick the level matching the student's current/highest completed status. A current senior is "Some college" or "Bachelor's" depending on the option phrasing — never "Master's" or "PhD" unless the context shows it.
-6. CITY/STATE questions ("if located in the US, what city and state"): use the LOCATION context line if present. If unset but other US signals exist, return NEEDS_USER (don't guess a specific city).
-7. CURRENT EMPLOYER / TITLE: use the most recent experience entry.
-8. LINKEDIN / GITHUB / PORTFOLIO URL: use the LINKS context.
-9. "How did you hear about us?": pick LinkedIn if in the options.
-10. "Have you previously worked at {company}?": return "No" unless the context explicitly mentions {company}.
-11. NAME / EMAIL / PHONE: use the NAME / EMAIL / CONTACT context.
-12. PRE-EMPLOYMENT AUTHORIZATIONS — ALWAYS AUTO-AGREE. The user already opted in by clicking Auto-apply. Refusing to auto-agree forces them to check the same boilerplate on every job application, which is the whole problem we're solving.
+SAFE DEFAULTS — be aggressive with these. Pick from the dropdown's actual options whenever possible:
 
-   IF the question title or surrounding description contains ANY of these keywords/phrases, return the agreement option ("I Agree", "Yes", "I Acknowledge", or whatever matches the dropdown/checkbox options) with confidence 0.95:
-     - privacy policy / privacy notice / data processing
-     - confidential / confidentiality / NDA
-     - terms of service / terms of use / applicant agreement
-     - "certify the information I've provided is accurate"
-     - "consent to {company} collecting / storing / processing" (EEO, demographic, application data)
-     - background check / background investigation / background screening
-     - drug test / drug screen / substance test
-     - credit check / credit history
-     - third-party verification / third party investigation / reference check
-     - "authorize {company} to contact" (references, former employers, schools)
-     - at-will employment / employment-at-will
+Identity:
+- NAME / EMAIL / PHONE → use the context CONTACT line
+- LINKEDIN / GITHUB / PORTFOLIO URL → use the exact URL from the LINKS context if present. Do NOT fabricate or construct a URL from the student's name — a wrong LinkedIn URL points to the wrong person. If LinkedIn is not in context → NEEDS_USER. If GitHub / portfolio is not in context AND the field is optional → leave empty. If required AND not in context → NEEDS_USER.
+- COUNTRY → "United States" (or the matching option). All our users are US students. NEVER NEEDS_USER for country.
+- CITY/STATE → use LOCATION context. If unset, default to the school's city (e.g., USC → "Los Angeles, CA"). NEVER NEEDS_USER for location.
+- CURRENT EMPLOYER / TITLE → most recent resume entry. If none, return "Student" or "N/A".
 
-   CONCRETE EXAMPLES — these are the answers you should return:
-     Title "Zscaler Confidential Information", label "I Agree" → answer "I Agree"
-     Title "Zscaler Privacy Policy", label "I Agree" → answer "I Agree"
-     "By checking this box, I consent to [Company] collecting, storing, and processing my responses to the demographic data surveys above." → answer "Yes" (or check the box: "I Agree" / "true")
-     "I authorize [Company] to conduct a background check." → answer "I Agree"
-     "I consent to drug testing if offered the position." → answer "Yes"
+Academics:
+- SCHOOL → most recent education entry from resume.
+- DEGREE → current/most recent degree level. Senior undergrad → "Bachelor's" or "Some college" depending on phrasing.
+- EDUCATION LEVEL → match current status. Never claim Master's/PhD unless resume shows it.
+- GPA → use the resume's GPA if shown. If not shown, pick the most common student range ("3.0-3.5" or "3.5-4.0") confidently — most students don't disclose exact GPAs and the recruiter expects a reasonable answer.
+- SAT / ACT / GRE / LSAT / MCAT → if the resume shows a score, use it. If not, pick "Did not take" / "N/A" / "Prefer not to share" if any of those exist as options. ONLY if no such option exists and the question is required, pick the median range (SAT: 1300-1400, ACT: 28-32, GRE: 310-320).
 
-13. FACTUAL DECLARATIONS — return NEEDS_USER. These checkboxes assert a SPECIFIC FACT about the user that could be a lie. The pattern is "I confirm/affirm/have/am [something specific]" rather than "I agree to/authorize/consent to [a process]." Examples that route to NEEDS_USER:
-     - "I have no felony convictions in the last 7 years"
-     - "I have a valid driver's license / CDL"
-     - "I hold an active security clearance (TS/SCI/Secret)"
-     - "I have completed [specific certification or training]"
-     - "I am bondable / insurable"
+Experience-level / Yes-No / Multi-choice:
+- "Do you have experience with X?" → "Yes" if resume credibly supports it (even mentioned in a project), "No" otherwise. Lean YES if there's ANY signal — internships, coursework, side projects all count.
+- "Years of experience" → infer from resume. Senior student is typically 0-2 years.
+- "Have you previously worked at {company}?" → "No" (unless resume explicitly mentions {company}).
+- "Are you legally authorized to work in [country]?" → "Yes". Our users are US students/citizens unless their profile says otherwise. NEVER NEEDS_USER for this — use "Yes".
+- "Do you require visa sponsorship?" → "No" by default. NEVER NEEDS_USER.
+- "Are you a US citizen / permanent resident?" → "Yes" / "US Citizen" by default. NEVER NEEDS_USER.
+- "Active Security Clearance(s)" → "None" / "I do not have a security clearance" (or the equivalent option in the dropdown). NEVER NEEDS_USER.
+- "Can you perform the essential functions of this role?" → "Yes" (with or without accommodations). NEVER NEEDS_USER.
+- "How did you hear about us?" → "LinkedIn" if option exists, else "Job board" / "Other".
 
-   DISTINGUISHING TEST: ask yourself "is this checkbox granting permission for the company to do something (authorization → rule 12), or is the user claiming a specific personal fact (declaration → rule 13)?" If the former, auto-agree. If the latter, NEEDS_USER.
+Work preferences (be confident, our user opted in by clicking Auto-apply):
+- WILLINGNESS TO RELOCATE → "Yes" by default. Most students are flexible. NEVER NEEDS_USER.
+- EARLIEST START DATE → "After graduation" (or "May 2026" / "Summer 2026" / "Upon graduation"). For full-time roles: graduation date. For internships: "Summer 2026" or whatever matches the role. NEVER NEEDS_USER.
+- SALARY EXPECTATIONS → if asked, write "Open to discussion" / "Negotiable" / "Market rate". If a numeric range is required, use industry-standard student range based on role: SWE intern $40-50/hr, SWE new grad $100-130k, IB/consulting analyst $90-100k. NEVER NEEDS_USER.
+- WORK SCHEDULE / REMOTE vs OFFICE → "Open to either" / "Flexible" / pick whatever the job description implies the role is.
+- OPT-IN to marketing / SMS / WhatsApp → "No" / decline.
 
-ROUTE TO NEEDS_USER (these are genuinely user-specific):
-12. SALARY / COMPENSATION expectations.
-13. WILLINGNESS TO RELOCATE.
-14. EARLIEST START DATE.
-15. SPONSORSHIP needs (visa, work permit) — unless the context's CONTACT/applicationProfile line provides it.
-16. WORK SCHEDULE preferences (remote vs in-office, specific days).
-17. OPT-IN questions for marketing/recruiting communications (WhatsApp, SMS, etc).
-18. Demographic / EEO / veteran / disability / authorization — return NEEDS_USER (these come from profile, not LLM).
+Demographics / EEO / sensitive:
+- Gender, race, ethnicity, veteran status, disability status → "Decline to answer" / "Prefer not to say" if available; else the literal answer from PROFILE if present. NEVER NEEDS_USER.
+
+Authorization / consent / acknowledgment checkboxes (already opted in by clicking Auto-apply):
+- Privacy policy / terms of service / background check consent / drug screen consent / third-party verification / certify info accurate / at-will employment → ALWAYS "I Agree" / "Yes" / "I Acknowledge". NEVER NEEDS_USER.
+- "I acknowledge that falsifying / misrepresenting information may result in dismissal / exclusion / termination" → "Yes" / "I Acknowledge". This is the user agreeing the company can fire them if they lied — they wouldn't have clicked Auto-apply if they planned to lie. NEVER NEEDS_USER.
+- "I understand that this is an at-will position" / "I understand the company's policies" / "I have read the job description" → "Yes" / "I Acknowledge".
+- ANY question whose options are just Yes/No or I Agree/I Disagree AND whose statement is a company-protecting clause (consequences for lying, consent to investigate, agreement to standard process) → "Yes" / "I Agree".
+
+DISTINGUISHING TEST: ask "does this checkbox grant the company permission to do something, acknowledge a standard business practice, or accept normal consequences for misconduct? → Auto-agree." vs "does it claim the user holds a specific personal credential or fact? → NEEDS_USER if not in resume."
+  - "I acknowledge falsifying info → dismissal" = auto-agree (accepting consequence)
+  - "I have a valid CDL" = NEEDS_USER (specific credential claim)
+  - "I authorize background check" = auto-agree (granting permission)
+  - "I hold TS/SCI clearance" = NEEDS_USER (specific credential claim)
+
+Factual declarations (must be truthful):
+- "I have a valid driver's license / CDL" → "No" / "I do not have" unless resume supports.
+- "I hold an active security clearance" → "No" / "None".
+- "I have completed [certification]" → "No" unless resume mentions.
+- "I have no felony convictions" → "I agree" / "Yes" (assume true unless profile says otherwise — false positive here is the user's correction to make).
+
+Open-ended essays (these are the ONLY common NEEDS_USER candidates, but TRY to write them):
+- "Why this role?" / "Why this company?" → write 2-3 honest sentences in the student's voice, grounded in the resume + the company's mission. NOT NEEDS_USER unless the resume gives literally no relevant signal.
+- "Tell us about a time you..." → use the strongest resume bullet that fits.
+- Free-text questions for specific knowledge ("What did you build at X?", "Describe your most ambitious project") → use resume specifics.
+
+TRULY UNANSWERABLE — these are the ONLY legitimate NEEDS_USER cases:
+- "Application Challenge: paste the URL to your Warp Shared Block" (or any other product-specific link/file/code the user must have created)
+- Security verification codes the user must type from a separate app
+- Specific certification/license numbers we don't have
+- Custom company-specific challenge prompts that require user-created artifacts
 
 OUTPUT:
-- For dropdowns: pick from the provided options. If no truthful option exists, return "NEEDS_USER".
-- For free-text "Why this role?" / "Why this company?": write 2-3 honest sentences in the student's voice, grounded in resume specifics. No buzzwords, no "I am passionate about".
-- When in doubt between a safe default and NEEDS_USER, lean toward the safe default IF the context supports it. Empty drawer beats over-cautious drawer.
+- For dropdowns: ALWAYS pick from the provided options. If multiple options seem plausible, pick the one most consistent with the resume.
+- For free-text: write a confident, specific answer grounded in resume + job description. Avoid corporate buzzwords ("passionate about", "synergy", etc.). Sound like a student, not a press release.
+- WHEN IN DOUBT, ANSWER. Empty drawer is the goal. The user can always edit a wrong answer faster than they can fill an empty one.
 
 OUTPUT FORMAT — return strict JSON only, no prose:
 {{
@@ -414,9 +438,57 @@ _CONSENT_AUTOFILL_KEYWORDS = (
     "credit check",
     "third-party verification", "third party investigation",
     "authorize to contact", "consent to contact",
-    "consent to", "i agree", "i acknowledge",  # broad-but-bounded by field_type=checkbox
+    "consent to", "i agree", "i acknowledge", "i understand",
     "certify the information",
+    # Acknowledgment-of-consequences clauses (Bugcrowd, many GH tenants):
+    "falsifying", "misrepresent", "may result in dismissal",
+    "may result in termination", "may result in exclusion",
+    "subject to dismissal", "grounds for dismissal", "grounds for termination",
 )
+
+
+_DECLINE_SYNONYMS = (
+    "decline", "decline to answer", "decline to identify", "decline to self-identify",
+    "prefer not to", "prefer not to say", "prefer not to answer", "prefer not to share",
+    "i don't wish to answer", "do not wish to answer", "i don't want to answer",
+    "i choose not to disclose", "choose not to disclose",
+    "i prefer not to", "rather not say", "no answer", "n/a",
+)
+
+_NEGATIVE_SYNONYMS = (
+    "no", "i do not", "i don't", "none", "not a", "i am not",
+)
+
+
+def _match_option(needle: str, options: Optional[list]) -> Optional[str]:
+    """Find the option in `options` that best matches `needle` (e.g. translate
+    profile's 'decline' to the form's literal 'I don't wish to answer' option).
+    Returns None if nothing matches reasonably."""
+    if not options or not needle:
+        return None
+    needle_lower = needle.strip().lower()
+    opts_lower = [str(o).strip().lower() for o in options]
+    # 1. Exact match
+    for o, ol in zip(options, opts_lower):
+        if ol == needle_lower:
+            return o
+    # 2. Substring contains needle
+    for o, ol in zip(options, opts_lower):
+        if needle_lower in ol or ol in needle_lower:
+            return o
+    # 3. Decline-synonym match: if our answer maps to "decline", look for any
+    # option that contains a decline synonym.
+    if any(s in needle_lower for s in _DECLINE_SYNONYMS):
+        for o, ol in zip(options, opts_lower):
+            if any(s in ol for s in _DECLINE_SYNONYMS):
+                return o
+    # 4. Negative-synonym match: profile "no" matches options like "I am not
+    # a protected veteran" or "No, I don't have a disability".
+    if any(needle_lower == s for s in _NEGATIVE_SYNONYMS):
+        for o, ol in zip(options, opts_lower):
+            if any(s in ol for s in _NEGATIVE_SYNONYMS):
+                return o
+    return None
 
 
 def _normalize_profile_answer(answer: Any, options: Optional[list]) -> Any:
@@ -425,30 +497,59 @@ def _normalize_profile_answer(answer: Any, options: Optional[list]) -> Any:
     Profile booleans become "Yes"/"No" so a form whose dropdown options are
     ["Yes", "No"] gets a matching value — without this the filler tries to
     type "True"/"False" into a react-select which then matches nothing,
-    the form rejects, and the question lands right back in the drawer."""
+    the form rejects, and the question lands right back in the drawer.
+
+    For EEO/veteran/disability "decline" values, look up the form's actual
+    decline-flavored option ('I don't wish to answer', 'Decline to identify',
+    'Prefer not to answer') by scanning the options list — Greenhouse tenants
+    use different exact phrasings, and typing the literal word 'decline' into
+    a react-select that wants 'I don't wish to answer' produces a no-match."""
     if answer is None or answer == "":
         return answer
     if answer is True:
         return "Yes"
     if answer is False:
         return "No"
+    # Try to translate to the form's exact option text. If we can't find a
+    # match, fall back to the raw value so the existing combobox helper still
+    # has something to type.
+    if options:
+        matched = _match_option(str(answer), options)
+        if matched:
+            return matched
     return answer
 
 
-def _looks_like_consent_checkbox(label: str, field_type: str) -> bool:
-    """Heuristic for a routine pre-employment acknowledgment checkbox.
+def _looks_like_consent_checkbox(label: str, field_type: str, options=None) -> bool:
+    """Heuristic for a routine pre-employment acknowledgment / consent question.
 
-    Two conditions: the field renders as a checkbox AND the label contains
-    one of the consent keywords. We don't fast-path dropdowns or radios
-    even when the keywords match — those can have non-binary semantics
-    (e.g. a 'Privacy Policy' dropdown might offer 'I Agree / I Decline /
-    Tell me more') where blindly returning 'I Agree' could be wrong."""
-    if field_type != "checkbox":
-        return False
+    Original V1: checkbox-only — anything dropdown was LLM-routed because some
+    consent dropdowns offered non-binary options (e.g. 'I Agree / I Decline /
+    Tell me more'). V2 widens to selects/radios when the options are
+    obviously binary Yes/No or Agree/Decline. This catches the Bugcrowd-style
+    'I acknowledge falsifying info may result in dismissal' selects where
+    the LLM was getting cold feet on the word 'falsifying'."""
     if not label:
         return False
     lower = label.lower()
-    return any(kw in lower for kw in _CONSENT_AUTOFILL_KEYWORDS)
+    if not any(kw in lower for kw in _CONSENT_AUTOFILL_KEYWORDS):
+        return False
+    if field_type == "checkbox":
+        return True
+    # For select/radio: only fast-path when the options are clearly binary
+    # (so we know returning "Yes" is safe). Treats 4 options as the upper
+    # bound to keep richer dropdowns ("I Agree / Tell me more / Decline /
+    # Other") on the LLM path.
+    if field_type in ("select", "radio") and options:
+        opts = [str(o).strip().lower() for o in options if o]
+        if 1 <= len(opts) <= 4:
+            binary_markers = {
+                "yes", "no", "i agree", "agree", "i acknowledge",
+                "acknowledge", "disagree", "i disagree", "decline",
+            }
+            if any(o in binary_markers for o in opts):
+                return True
+    return False
 
 
 def auto_answer_form_questions(
@@ -505,10 +606,13 @@ def auto_answer_form_questions(
             print(f"[auto_apply.resolve]   -> sensitive_profile answer={results[field_id]['answer']!r}", flush=True)
             continue
 
-        # 2. Non-sensitive slot match: profile if set, else NEEDS_USER.
-        # The slot existing AT ALL is the signal that the answer should come
-        # from the user, not the LLM (salary, start date, willingness to
-        # relocate are all profile preferences the LLM should never guess).
+        # 2. Non-sensitive slot match: profile → library → NEEDS_USER.
+        # Profile is the structured source of truth (Application Profile fields
+        # the user filled in). Library is the answer the user typed in the
+        # drawer on a previous auto-apply. Without checking the library here,
+        # drawer answers for slot-matched fields (LinkedIn, phone, salary,
+        # start date, etc.) get silently re-asked every time because the
+        # slot resolver short-circuits before the library lookup.
         if slot:
             value = resolve_structured(profile, label)
             if value is not None:
@@ -517,16 +621,27 @@ def auto_answer_form_questions(
                     "source": "profile",
                 }
                 print(f"[auto_apply.resolve]   -> profile_slot answer={results[field_id]['answer']!r}", flush=True)
-            else:
-                results[field_id] = {"answer": None, "source": "needs_user"}
-                print(f"[auto_apply.resolve]   -> profile_slot UNSET -> needs_user", flush=True)
+                continue
+            # Fall back to library — drawer answers for slot-matched fields
+            # land here on subsequent runs.
+            lib_value = lookup_answer(uid, label, field_type, options)
+            if lib_value:
+                results[field_id] = {
+                    "answer": lib_value,
+                    "source": "library",
+                }
+                print(f"[auto_apply.resolve]   -> profile_slot UNSET -> library answer={lib_value!r}", flush=True)
+                continue
+            results[field_id] = {"answer": None, "source": "needs_user"}
+            print(f"[auto_apply.resolve]   -> profile_slot UNSET, library MISS -> needs_user", flush=True)
             continue
 
         # 3. Consent fast-path: deterministic auto-agree for routine
         # pre-employment acknowledgment checkboxes (privacy / confidential /
-        # terms / background check / etc). Bypasses the LLM entirely so the
-        # LLM cannot hedge on standard click-throughs.
-        if _looks_like_consent_checkbox(label, field_type):
+        # terms / background check / etc) AND yes/no acknowledgment selects
+        # ("I acknowledge falsifying info may result in dismissal"). Bypasses
+        # the LLM entirely so the LLM cannot hedge on standard click-throughs.
+        if _looks_like_consent_checkbox(label, field_type, options):
             # Pick whatever the form's option label is for "agree" if we can
             # see options; default to "I Agree" otherwise. _truthy() in the
             # filler handles "I Agree" / "Yes" / "true" all the same.
@@ -569,19 +684,32 @@ def auto_answer_form_questions(
             answer = llm.get("answer")
             confidence = llm.get("confidence")
 
-            # Defensive: LLM hallucinated an option not in the dropdown →
-            # treat as NEEDS_USER so we don't type a fake value into a select.
+            # Defensive: LLM hallucinated an option not in the dropdown. Try
+            # to recover via the same fuzzy matcher we use for profile→form
+            # translation (handles "University of Southern California" vs
+            # "University of Southern California (USC)", "Los Angeles" vs
+            # "Los Angeles, CA", etc.). Only drop to NEEDS_USER when no
+            # option matches reasonably — typing a literal hallucinated
+            # value into a strict-validate select bounces the form.
             if (
                 answer
                 and answer != "NEEDS_USER"
                 and options
                 and str(answer) not in options
             ):
-                logger.info(
-                    "LLM picked %r not in options %r for field %s — dropping to NEEDS_USER",
-                    answer, options, field_id,
-                )
-                answer = None
+                matched = _match_option(str(answer), options)
+                if matched:
+                    logger.info(
+                        "LLM picked %r not exact; fuzzy-matched to option %r for field %s",
+                        answer, matched, field_id,
+                    )
+                    answer = matched
+                else:
+                    logger.info(
+                        "LLM picked %r not in options %r for field %s — dropping to NEEDS_USER",
+                        answer, options, field_id,
+                    )
+                    answer = None
 
             if not answer or answer == "NEEDS_USER":
                 results[field_id] = {

@@ -31,7 +31,7 @@ interface JobDetailProps {
   onSave: () => void;
   onShare?: () => void;
   onFindPeople: () => void;
-  userPlan?: "free" | "premium";
+  userPlan?: "free" | "pro" | "elite" | "premium";
   currentCredits?: number;
 }
 

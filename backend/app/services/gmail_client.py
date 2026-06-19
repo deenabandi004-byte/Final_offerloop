@@ -1236,6 +1236,41 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}"
 
 
+def find_sent_thread_for_recipient(user_email, user_id, recipient_email, subject=None):
+    """Look up the most recent sent Gmail thread addressed to a recipient.
+
+    Used to backfill gmailThreadId on Loop-found contacts whose email was
+    sent (manually from the tracker, or via an older code path that didn't
+    stamp the thread id). Once stamped, the activity feed's Draft button
+    deep-links to the exact thread instead of falling back to a compose URL
+    or the tracker.
+
+    Returns {thread_id, message_id} on a match, else None.
+    """
+    if not recipient_email:
+        return None
+    try:
+        service = get_gmail_service_for_user(user_email, user_id=user_id)
+        if not service:
+            return None
+        q = f'in:sent to:{recipient_email}'
+        if subject:
+            clean = subject.replace('"', '').strip()
+            if clean:
+                q += f' subject:"{clean}"'
+        resp = service.users().messages().list(userId='me', q=q, maxResults=1).execute()
+        messages = resp.get('messages') or []
+        if not messages:
+            return None
+        return {
+            'thread_id': messages[0].get('threadId') or '',
+            'message_id': messages[0].get('id') or '',
+        }
+    except Exception as e:
+        print(f"[GmailClient] find_sent_thread_for_recipient failed for {recipient_email}: {e}")
+        return None
+
+
 def find_draft_for_recipient(user_email, user_id, recipient_email, subject=None):
     """Look up an existing Gmail draft addressed to a specific recipient.
 
