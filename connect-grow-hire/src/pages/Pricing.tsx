@@ -254,6 +254,9 @@ const ComparisonRow: React.FC<ComparisonRowProps> = ({ feature, free, pro, elite
 const Pricing = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
+  // True once we KNOW the user's tier (subscription fetched, or no user → free).
+  // Tier-dependent CTAs wait on this to avoid a free→paid flash on load.
+  const [subscriptionLoaded, setSubscriptionLoaded] = useState(false);
   const [billingCadence, setBillingCadence] = useState<'monthly' | 'annual'>('monthly');
   // showStudentPrice is a visual toggle — lets visitors SEE the .edu discount
   // before signing up. Real checkout uses the student SKU only when the user's
@@ -267,7 +270,7 @@ const Pricing = () => {
   const [eliteStopIdx, setEliteStopIdx] = useState(1);
   const [topUpModalOpen, setTopUpModalOpen] = useState(false);
   const navigate = useNavigate();
-  const { user, updateUser, checkCredits } = useFirebaseAuth();
+  const { user, updateUser, checkCredits, isLoading: authLoading } = useFirebaseAuth();
   // isStudent is on the Firestore user doc; not yet typed on the auth-context User shape.
   const isStudent = Boolean((user as { isStudent?: boolean } | null)?.isStudent);
 
@@ -352,6 +355,9 @@ const Pricing = () => {
   useEffect(() => {
     if (user) {
       fetchSubscriptionStatus();
+    } else {
+      // No signed-in user → tier is definitively 'free'; nothing to fetch.
+      setSubscriptionLoaded(true);
     }
   }, [user]);
 
@@ -403,6 +409,8 @@ const Pricing = () => {
       }
     } catch (error) {
       console.error('Failed to fetch subscription status:', error);
+    } finally {
+      setSubscriptionLoaded(true);
     }
   };
 
@@ -703,6 +711,9 @@ const Pricing = () => {
   const isEliteUser = subscriptionStatus?.tier === 'elite' && (subscriptionStatus?.status === 'active' || subscriptionStatus?.status === 'trialing');
   const hasActiveSubscription = isProUser || isEliteUser;
   const currentTier = subscriptionStatus?.tier || 'free';
+  // Tier-dependent CTAs/promo render only once the tier is known, so paying
+  // users don't briefly see the free-tier CTAs (gradient buttons) flash and snap.
+  const ctaReady = !authLoading && (!user || subscriptionLoaded);
 
   // Format renewal date
   const renewalDate = subscriptionStatus?.currentPeriodEnd 
@@ -1092,6 +1103,11 @@ const Pricing = () => {
             
             {/* CTA Button */}
             <div className="mt-8">
+              {!ctaReady ? (
+                <div className="w-full py-3.5 px-6 rounded-[3px] font-semibold border-2 border-gray-100 bg-gray-50 text-transparent animate-pulse select-none" aria-hidden="true">
+                  &nbsp;
+                </div>
+              ) : (
               <button
                 onClick={() => {
                   if (!user) {
@@ -1106,6 +1122,7 @@ const Pricing = () => {
               >
                 {!user ? 'Sign up free' : currentTier === 'free' ? 'Current Plan' : 'Start for Free'}
               </button>
+              )}
             </div>
           </div>
 
@@ -1296,7 +1313,12 @@ const Pricing = () => {
               
               {/* CTA Button */}
               <div className="mt-8">
-                <button 
+                {!ctaReady ? (
+                  <div className="w-full py-3.5 px-6 rounded-lg font-bold bg-gray-100 text-transparent animate-pulse select-none" aria-hidden="true">
+                    &nbsp;
+                  </div>
+                ) : (
+                <button
                   onClick={
                     isLoading ? undefined :
                     currentTier === 'pro'
@@ -1332,6 +1354,7 @@ const Pricing = () => {
                 >
                   {isLoading ? 'Processing...' : currentTier === 'pro' ? 'Manage Subscription' : currentTier === 'elite' ? 'On Elite Plan' : `Start ${trialDays}-Day Free Trial`}
                 </button>
+                )}
               </div>
             </div>
           </div>
@@ -1488,7 +1511,12 @@ const Pricing = () => {
             
             {/* CTA Button */}
             <div className="mt-8">
-              <button 
+              {!ctaReady ? (
+                <div className="w-full py-3.5 px-6 rounded-lg font-bold bg-gray-100 text-transparent animate-pulse select-none" aria-hidden="true">
+                  &nbsp;
+                </div>
+              ) : (
+              <button
                 onClick={
                   isLoading ? undefined :
                   currentTier === 'elite'
@@ -1521,13 +1549,14 @@ const Pricing = () => {
               >
                 {isLoading ? 'Processing...' : currentTier === 'elite' ? 'Manage Subscription' : currentTier === 'pro' ? 'Upgrade to Elite' : 'Get Elite'}
               </button>
+              )}
             </div>
           </div>
         </div>
 
         {/* Season Pass — 4-month one-time pre-paid pass. Date-gated visibility:
             shown to all if past `new_users_only_until`, otherwise new users only. */}
-        {seasonPassVisible(tierConfig.season_pass, !hasActiveSubscription) && (
+        {ctaReady && seasonPassVisible(tierConfig.season_pass, !hasActiveSubscription) && (
           <div
             className="max-w-5xl mx-auto mb-16 animate-fadeInUp"
             style={{ animationDelay: '250ms' }}
