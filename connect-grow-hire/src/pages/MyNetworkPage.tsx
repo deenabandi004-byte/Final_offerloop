@@ -10,7 +10,6 @@ import {
   Plus,
   Upload,
   Download,
-  RefreshCw,
   ChevronUp,
   ChevronDown,
   ChevronLeft,
@@ -22,12 +21,13 @@ import {
   List,
   StickyNote,
   Loader2,
+  Share2,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useTour } from "@/contexts/TourContext";
 import { firebaseApi, type ManualFirm } from "@/services/firebaseApi";
-import { apiService, type Firm, type OutboxThread } from "@/services/api";
+import { apiService, type Firm, type OutboxThread, type ShareKind } from "@/services/api";
 import { getCompanyLogoUrl } from "@/utils/suggestionChips";
 import { CompanyLogo } from "@/components/CompanyLogo";
 import { toast } from "@/hooks/use-toast";
@@ -2718,6 +2718,10 @@ const MyNetworkPage: React.FC = () => {
   const [managersSelected, setManagersSelected] = useState<Set<string>>(new Set());
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareEmail, setShareEmail] = useState("");
+  const [shareError, setShareError] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
 
   // Redirect bare /my-network to /my-network/people (AFTER all hooks)
   if (!tab) {
@@ -2859,13 +2863,6 @@ const MyNetworkPage: React.FC = () => {
     </button>
   );
 
-  // Re-pull the active tab's data (contacts/firms/managers) without a full
-  // page reload by bumping the nonce wired into the data-loading effect.
-  const handleRefresh = () => {
-    setRefreshNonce((n) => n + 1);
-    toast({ title: "Refreshing your network…" });
-  };
-
   // Export the active tab's rows to a CSV download. Exports the full saved
   // set for that tab (not just the current search filter) so the file is a
   // complete snapshot of that part of the network.
@@ -2895,7 +2892,51 @@ const MyNetworkPage: React.FC = () => {
     }
   };
 
-  // Pill (icon + optional label) for the Refresh / Export CSV actions — shares
+  // Share helpers — map the active selection to the items array for the API.
+  const shareKind = (): ShareKind =>
+    activeTab === "companies" ? "companies" : activeTab === "managers" ? "hiringManagers" : "contacts";
+
+  const selectedItems = (): any[] => {
+    const ids = activeSelection;
+    if (activeTab === "companies") {
+      return companies.filter((c) => ids.has(c.id)).map((c) => ({
+        name: c.name, industry: c.industry, hq: c.hq, alumni: c.alumni ?? 0,
+      }));
+    }
+    if (activeTab === "managers") {
+      return managers.filter((m) => ids.has(m.id)).map((m) => ({
+        firstName: (m.name || "").split(" ")[0] || "", lastName: (m.name || "").split(" ").slice(1).join(" "),
+        name: m.name, email: m.email, linkedinUrl: m.linkedinUrl, jobTitle: m.title,
+        company: m.company, roleHiringFor: m.roleHiringFor, location: m.location,
+      }));
+    }
+    return people.filter((p) => ids.has(p.id)).map((p) => ({
+      firstName: (p.name || "").split(" ")[0] || "", lastName: (p.name || "").split(" ").slice(1).join(" "),
+      name: p.name, email: p.email, linkedinUrl: p.linkedinUrl, jobTitle: p.role,
+      company: p.company, college: p.school, location: p.location,
+    }));
+  };
+
+  const handleShareSubmit = async () => {
+    setShareError(null);
+    const email = shareEmail.trim().toLowerCase();
+    if (!email) { setShareError("Enter an email."); return; }
+    setSharing(true);
+    try {
+      const res: any = await apiService.shareRecords({ toEmail: email, kind: shareKind(), items: selectedItems() });
+      if (res?.error) { setShareError(res.error); return; }
+      setShareOpen(false);
+      setShareEmail("");
+      clearActiveSelection();
+      toast({ title: `Shared with ${res.toName || email}` });
+    } catch (e: any) {
+      setShareError(e?.message || "Something went wrong.");
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  // Pill (icon + optional label) for the Export CSV actions — shares
   // the same FB_SIZE/FB_FILL tokens as every other control.
   const renderToolButton = (
     icon: React.ReactNode,
@@ -2978,10 +3019,11 @@ const MyNetworkPage: React.FC = () => {
       variant="outline"
       size="sm"
       onClick={() => setConfirmOpen(true)}
-      className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+      title="Delete selected"
+      aria-label="Delete selected"
+      className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 px-2"
     >
-      <Trash2 className="h-3.5 w-3.5" />
-      Delete selected ({activeSelection.size})
+      <Trash2 className="h-4 w-4" />
     </Button>
   ) : null;
 
@@ -3080,8 +3122,19 @@ const MyNetworkPage: React.FC = () => {
 
                   {/* Right group: actions */}
                   <div className={FB_GROUP}>
-                    {renderToolButton(<RefreshCw className={FB_ICON} />, "Refresh", handleRefresh, false)}
+                    {renderToolButton(<Share2 className={`${FB_ICON} text-muted-foreground`} />, "Share", () => { if (activeSelection.size > 0) setShareOpen(true); }, false)}
                     {renderToolButton(<Download className={FB_ICON} />, "Export CSV", handleExportCsv)}
+                    {activeSelection.size > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShareOpen(true)}
+                        className="gap-1.5"
+                      >
+                        <Share2 className="h-3.5 w-3.5" />
+                        Share selected
+                      </Button>
+                    )}
                     {BulkDeleteButton}
                     {renderAddButton()}
                   </div>
@@ -3118,8 +3171,19 @@ const MyNetworkPage: React.FC = () => {
 
                   {/* Right group: actions */}
                   <div className={FB_GROUP}>
-                    {renderToolButton(<RefreshCw className={FB_ICON} />, "Refresh", handleRefresh, false)}
+                    {renderToolButton(<Share2 className={`${FB_ICON} text-muted-foreground`} />, "Share", () => { if (activeSelection.size > 0) setShareOpen(true); }, false)}
                     {renderToolButton(<Download className={FB_ICON} />, "Export CSV", handleExportCsv)}
+                    {activeSelection.size > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShareOpen(true)}
+                        className="gap-1.5"
+                      >
+                        <Share2 className="h-3.5 w-3.5" />
+                        Share selected
+                      </Button>
+                    )}
                     {BulkDeleteButton}
                     {renderAddButton()}
                   </div>
@@ -3150,8 +3214,19 @@ const MyNetworkPage: React.FC = () => {
 
                   {/* Right group: actions */}
                   <div className={FB_GROUP}>
-                    {renderToolButton(<RefreshCw className={FB_ICON} />, "Refresh", handleRefresh, false)}
+                    {renderToolButton(<Share2 className={`${FB_ICON} text-muted-foreground`} />, "Share", () => { if (activeSelection.size > 0) setShareOpen(true); }, false)}
                     {renderToolButton(<Download className={FB_ICON} />, "Export CSV", handleExportCsv)}
+                    {activeSelection.size > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShareOpen(true)}
+                        className="gap-1.5"
+                      >
+                        <Share2 className="h-3.5 w-3.5" />
+                        Share selected
+                      </Button>
+                    )}
                     {BulkDeleteButton}
                     {renderAddButton()}
                   </div>
@@ -3282,6 +3357,37 @@ const MyNetworkPage: React.FC = () => {
               className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
             >
               {deleting ? "Deleting..." : `Delete ${activeSelection.size}`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={shareOpen} onOpenChange={(o) => !sharing && setShareOpen(o)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Share {activeSelection.size} {bulkSubject}</AlertDialogTitle>
+            <AlertDialogDescription>
+              Enter the Offerloop account email to share with. They'll get a popup to accept.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-2">
+            <input
+              type="email"
+              autoFocus
+              value={shareEmail}
+              onChange={(e) => { setShareEmail(e.target.value); setShareError(null); }}
+              placeholder="name@example.com"
+              className="w-full rounded-md border px-3 py-2 text-sm"
+            />
+            {shareError && <p className="mt-2 text-sm text-red-600">{shareError}</p>}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={sharing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleShareSubmit(); }}
+              disabled={sharing}
+            >
+              {sharing ? "Sharing…" : "Share"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
