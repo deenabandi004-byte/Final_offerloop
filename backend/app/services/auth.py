@@ -37,6 +37,25 @@ def _check_reset_needed(user_data) -> tuple[bool, int, dict]:
     Does NOT write to Firestore — caller is responsible for applying updates.
     """
     now = datetime.now()
+
+    # Season Pass expiry — a one-time 4-month prepaid pass has no Stripe
+    # subscription, so nothing downgrades it automatically. Enforce it lazily
+    # here (same model as the monthly reset below): once past its expiry, drop
+    # the user to Free on their next request.
+    tier = user_data.get('subscriptionTier') or user_data.get('tier', 'free')
+    if tier == 'season_pass':
+        expires = _parse_datetime(user_data.get('seasonPassExpiresAt'))
+        if expires and now >= expires:
+            free_credits = TIER_CONFIGS['free']['credits']
+            return True, min(user_data.get('credits', 0), free_credits), {
+                'subscriptionTier': 'free',
+                'tier': 'free',
+                'credits': min(user_data.get('credits', 0), free_credits),
+                'maxCredits': free_credits,
+                'lastCreditReset': now.isoformat(),
+                'seasonPassExpiredAt': now.isoformat(),
+            }
+
     last_reset = _parse_datetime(user_data.get('lastCreditReset'))
 
     if not last_reset:

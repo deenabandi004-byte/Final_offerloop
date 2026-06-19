@@ -212,6 +212,20 @@ export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ childr
           needsOnboarding: true,
         };
         await setDoc(userDocRef, { ...newUser, createdAt: new Date().toISOString() });
+        // Referral attribution (best-effort, must not block onboarding)
+        try {
+          const refCode =
+            new URLSearchParams(window.location.search).get('ref') ||
+            localStorage.getItem('offerloop_ref');
+          if (refCode) {
+            const { apiService } = await import('../services/api');
+            await apiService.attributeReferral(refCode);
+          }
+        } catch (e) {
+          console.error('Referral attribution failed:', e);
+        } finally {
+          localStorage.removeItem('offerloop_ref');
+        }
         setUser(newUser);
         // Identify new user after data is set
         identifyUser(newUser);
@@ -297,6 +311,8 @@ const signIn = async (opts?: SignInOptions): Promise<NextRoute> => {
         console.error("❌ [PostHog] Failed to reset session:", error);
       }
       console.log("🔐 [AUTH CONTEXT] Firebase signOut() completed, setting user state to null");
+      // Clear the pricing-page tier hint so a signed-out visitor never sees a stale tier.
+      try { localStorage.removeItem('offerloop_tier'); } catch {}
       setUser(null);
       console.log("🔐 [AUTH CONTEXT] User state set to null");
     } catch (error) {

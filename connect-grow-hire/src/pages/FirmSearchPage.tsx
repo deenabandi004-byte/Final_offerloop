@@ -1482,7 +1482,17 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
 
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 <button
-                  onClick={() => { setSearchComplete(false); navigate('/my-network/companies'); }}
+                  onClick={() => {
+                    setSearchComplete(false);
+                    // Land on the Companies table in list mode, newest-first, so the
+                    // firms we just found are scannable and sit at the top - overrides
+                    // any persisted grid/oldest preference for this hand-off.
+                    try {
+                      localStorage.setItem('ofl_my_network_companies_view', 'list');
+                      localStorage.setItem('ofl_my_network_companies_sort', 'newest');
+                    } catch {}
+                    navigate('/my-network/companies');
+                  }}
                   className="px-6 py-3 text-white font-semibold transition-all"
                   style={{ background: '#3B82F6', borderRadius: 3 }}
                 >

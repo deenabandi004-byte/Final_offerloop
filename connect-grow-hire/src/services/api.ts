@@ -300,6 +300,19 @@ export interface ErrorResponse {
 }
 
 // ================================
+// Contact Sharing Types
+// ================================
+export type ShareKind = "contacts" | "companies" | "hiringManagers";
+
+export interface PendingShare {
+  id: string;
+  fromName: string;
+  kind: ShareKind;
+  count: number;
+  createdAt?: string;
+}
+
+// ================================
 // List Builder (Bulk Tracker) Types
 // ================================
 // ================================
@@ -1227,6 +1240,48 @@ class ApiService {
   async getEmailTemplate(): Promise<EmailTemplate> {
     const headers = await this.getAuthHeaders();
     return this.makeRequest<EmailTemplate>('/email-template', { method: 'GET', headers });
+  }
+
+  async getReferralStatus(): Promise<{
+    referralCode: string;
+    referralLink: string;
+    signupCount: number;
+    signupTarget: number;
+    eligible: boolean;
+    rewardClaimed: boolean;
+    rewardClaimedAt: string | null;
+    bannerDismissed: boolean;
+    launchModalSeen: boolean;
+  }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest('/referrals/me', { method: 'GET', headers });
+  }
+
+  async ackReferral(surface: 'banner' | 'launch_modal'): Promise<{ ok: boolean; reason?: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest('/referrals/ack', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ surface }),
+    });
+  }
+
+  async attributeReferral(code: string): Promise<{ recorded: boolean; reason: string | null }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest('/referrals/attribute', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ code }),
+    });
+  }
+
+  async claimReferralReward(): Promise<{ ok: boolean; mode?: string; url?: string; reason?: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest('/referrals/claim', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({}),
+    });
   }
 
   async saveEmailTemplate(template: EmailTemplate): Promise<{ success: boolean }> {
@@ -2534,6 +2589,34 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
   async getSearchSuggestions(): Promise<{ suggestions: SearchSuggestion[] } | { error: string }> {
     const headers = await this.getAuthHeaders();
     return this.makeRequest<{ suggestions: SearchSuggestion[] }>('/search-suggestions', { method: 'GET', headers });
+  }
+
+  // ================================
+  // Contact Sharing Endpoints
+  // ================================
+
+  async shareRecords(payload: { toEmail: string; kind: ShareKind; items: any[] }): Promise<{ shareId: string; toName: string } | { error: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ shareId: string; toName: string } | { error: string }>('/shares', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async getPendingShares(): Promise<{ shares: PendingShare[] } | { error: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest('/shares/pending', { method: 'GET', headers });
+  }
+
+  async acceptShare(id: string): Promise<{ imported: number; kind: ShareKind } | { error: string; current_tier?: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ imported: number; kind: ShareKind } | { error: string; current_tier?: string }>(`/shares/${id}/accept`, { method: 'POST', headers });
+  }
+
+  async declineShare(id: string): Promise<{ ok: true } | { error: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ ok: true } | { error: string }>(`/shares/${id}/decline`, { method: 'POST', headers });
   }
 }
 

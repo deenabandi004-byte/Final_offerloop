@@ -573,7 +573,7 @@ class TestExcludeKeysWiring:
 
         with patch("app.extensions.get_db", return_value=db), \
              patch("app.routes.job_board._check_user_rate_limit", return_value=True), \
-             patch("app.routes.runs._get_cached_exclusion_list", return_value=excl), \
+             patch("app.routes.runs._build_exclusion_data_from_firestore", return_value=excl), \
              patch("app.services.alumni_discovery._run_search_with_timeout",
                    side_effect=fake_run):
             resp = client.post(

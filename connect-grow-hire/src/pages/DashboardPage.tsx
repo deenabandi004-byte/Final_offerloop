@@ -39,6 +39,7 @@ import {
 } from "@/hooks/useAgent";
 import { apiService, type Nudge } from "@/services/api";
 import { firebaseApi } from "@/services/firebaseApi";
+import { ReferralTile } from "@/components/referral/ReferralTile";
 
 /* ============================================================
    Helpers
@@ -1267,6 +1268,9 @@ export default function DashboardPage() {
                     </div>
                   )}
               </section>
+
+              {/* ── 5b. Referral nudge (compact, secondary) ───────── */}
+              <ReferralTile />
 
               {/* ── 6. Tools (demoted chip row) ───────────────────── */}
               <section className="animate-fadeInUp">

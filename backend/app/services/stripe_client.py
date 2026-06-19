@@ -1,10 +1,11 @@
 """
 Stripe client service - payment processing and subscription management
 """
+import os
 import stripe
 from datetime import datetime
 from flask import request, jsonify
-from app.config import STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, TIER_CONFIGS, STRIPE_PRO_PRICE_ID, STRIPE_ELITE_PRICE_ID, STRIPE_PRICE_CATALOG
+from app.config import STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, TIER_CONFIGS, STRIPE_PRO_PRICE_ID, STRIPE_ELITE_PRICE_ID, STRIPE_PRICE_CATALOG, STRIPE_COUPONS
 from app.extensions import get_db
 from app.services.auth import check_and_reset_credits
 
@@ -221,6 +222,48 @@ def record_post_checkout_upsell_decline(user_id: str) -> dict:
     return {'ok': True}
 
 
+def create_referral_trial_checkout(user_id: str, user_email: str) -> dict:
+    """Create an Elite Checkout with a 30-day free trial for a referral reward."""
+    if not STRIPE_SECRET_KEY:
+        return {'error': 'Stripe not configured'}
+    stripe.api_key = STRIPE_SECRET_KEY
+
+    base_url = os.getenv('FRONTEND_BASE_URL', 'https://offerloop.ai').rstrip('/')
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            mode='subscription',
+            customer_email=user_email,
+            success_url=f"{base_url}/account-settings?referral=claimed",
+            cancel_url=f"{base_url}/account-settings?referral=cancelled",
+            line_items=[{'price': STRIPE_ELITE_PRICE_ID, 'quantity': 1}],
+            subscription_data={'trial_period_days': 30},
+            metadata={
+                'user_id': user_id,
+                'tier': 'elite',
+                'referral_reward': 'true',
+            },
+        )
+    except stripe.error.StripeError as e:
+        return {'error': f'stripe_checkout_failed: {e}'}
+    return {'url': session.url, 'sessionId': session.id}
+
+
+def apply_referral_reward_coupon(subscription_id: str) -> dict:
+    """Apply the 100%-off one-month referral coupon to an existing subscription."""
+    if not STRIPE_SECRET_KEY:
+        return {'ok': False, 'error': 'stripe_not_configured'}
+    coupon_id = (STRIPE_COUPONS or {}).get('referral_reward')
+    if not coupon_id:
+        return {'ok': False, 'error': 'coupon_not_configured'}
+    stripe.api_key = STRIPE_SECRET_KEY
+    try:
+        stripe.Subscription.modify(subscription_id, coupon=coupon_id)
+        return {'ok': True}
+    except stripe.error.StripeError as e:
+        return {'ok': False, 'error': f'stripe_modify_failed: {e}'}
+
+
 def create_checkout_session():
     """Create Stripe checkout session for upgrade"""
     try:
@@ -355,8 +398,13 @@ def handle_stripe_webhook():
             # would no-op here).
             metadata = (session_obj.get('metadata') or {})
             from app.services.topup_service import TOPUP_METADATA_KEY, TOPUP_METADATA_VALUE, apply_topup_purchase
+            from app.services.season_pass_service import (
+                SEASON_PASS_METADATA_KEY, SEASON_PASS_METADATA_VALUE, apply_season_pass_purchase,
+            )
             if metadata.get(TOPUP_METADATA_KEY) == TOPUP_METADATA_VALUE:
                 apply_topup_purchase(session_obj)
+            elif metadata.get(SEASON_PASS_METADATA_KEY) == SEASON_PASS_METADATA_VALUE:
+                apply_season_pass_purchase(session_obj)
             else:
                 handle_checkout_completed(session_obj)
         elif event['type'] == 'checkout.session.expired':
@@ -470,7 +518,16 @@ def handle_checkout_completed(session):
         # Decision #5: if this checkout began as a trial, consume the one-per-
         # account trial token so neither path can grant a second one.
         if sub_status == 'trialing':
+            # A referral-reward checkout starts as a trial; consuming trialUsedAt
+            # here intentionally means a referral reward also uses the account's
+            # one no-card trial entitlement.
             update_payload['trialUsedAt'] = datetime.utcnow()
+        # Referral reward: finalize the one-time claim flag.
+        _meta = session.get('metadata') or {}
+        if _meta.get('referral_reward') == 'true':
+            update_payload['referralRewardClaimed'] = True
+            update_payload['referralRewardClaimedAt'] = datetime.now().isoformat()
+            update_payload['referralRewardPendingAt'] = None  # clear the claim-in-progress lock
         user_ref.update(update_payload)
         
     except Exception as e:

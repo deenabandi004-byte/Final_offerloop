@@ -267,7 +267,7 @@ const Pricing = () => {
   const [eliteStopIdx, setEliteStopIdx] = useState(1);
   const [topUpModalOpen, setTopUpModalOpen] = useState(false);
   const navigate = useNavigate();
-  const { user, updateUser, checkCredits } = useFirebaseAuth();
+  const { user, updateUser, checkCredits, isLoading: authLoading } = useFirebaseAuth();
   // isStudent is on the Firestore user doc; not yet typed on the auth-context User shape.
   const isStudent = Boolean((user as { isStudent?: boolean } | null)?.isStudent);
 
@@ -699,10 +699,79 @@ const Pricing = () => {
     }
   };
 
-  const isProUser = subscriptionStatus?.tier === 'pro' && (subscriptionStatus?.status === 'active' || subscriptionStatus?.status === 'trialing');
-  const isEliteUser = subscriptionStatus?.tier === 'elite' && (subscriptionStatus?.status === 'active' || subscriptionStatus?.status === 'trialing');
+  // Season Pass — one-time, mode=payment checkout (NOT a subscription). Routed
+  // to its own backend endpoint, which grants the season_pass tier on the
+  // webhook. Mirrors the top-up purchase path, not handleStripeCheckout.
+  const handleSeasonPassCheckout = async () => {
+    if (!user) {
+      navigate(`/signin?mode=signup&redirect=${encodeURIComponent('/pricing')}`);
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const fbUser = getAuth().currentUser;
+      if (!fbUser) throw new Error('No Firebase user found');
+      const token = await fbUser.getIdToken();
+      const res = await fetch(`${BACKEND_URL}/api/billing/create-season-pass-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          audience,
+          successUrl: `${window.location.origin}/payment-success?season_pass=1&session_id={CHECKOUT_SESSION_ID}`,
+          cancelUrl: `${window.location.origin}/pricing`,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || `Season Pass checkout failed: ${res.status}`);
+      }
+      const { sessionId } = await res.json();
+      const stripe = await stripePromise;
+      if (!stripe) throw new Error('Stripe failed to initialize');
+      const { error } = await stripe.redirectToCheckout({ sessionId });
+      if (error) alert('Payment error: ' + error.message);
+    } catch (error) {
+      console.error('Season Pass checkout error:', error);
+      alert(error instanceof Error ? error.message : 'Something went wrong');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Tier resolution, in priority order:
+  //   1. the freshly-fetched subscription status (richest, but async),
+  //   2. the `user` object (auth context resolves it from Firestore),
+  //   3. a localStorage hint from a prior visit — lets a returning user see the
+  //      correct UI on the VERY FIRST paint, with no flash.
+  const cachedTier = (typeof window !== 'undefined'
+    ? (localStorage.getItem('offerloop_tier') as 'free' | 'pro' | 'elite' | null)
+    : null);
+  const currentTier = subscriptionStatus?.tier || user?.subscriptionTier || user?.tier || cachedTier || 'free';
+  // Derive subscription flags from the RESOLVED tier so the promo card, the
+  // subscription banner, and locked-feature states don't flash in/out before
+  // /api/subscription-status returns. Once that fetch lands we honor its live
+  // active/trialing status; until then we trust the tier from user/cache.
+  const isProUser = subscriptionStatus
+    ? (subscriptionStatus.tier === 'pro' && (subscriptionStatus.status === 'active' || subscriptionStatus.status === 'trialing'))
+    : currentTier === 'pro';
+  const isEliteUser = subscriptionStatus
+    ? (subscriptionStatus.tier === 'elite' && (subscriptionStatus.status === 'active' || subscriptionStatus.status === 'trialing'))
+    : currentTier === 'elite';
   const hasActiveSubscription = isProUser || isEliteUser;
-  const currentTier = subscriptionStatus?.tier || 'free';
+  // Ready as soon as auth resolves — or immediately if we have a cached tier hint
+  // (the common returning-visitor case), so the buttons never pop in from a box.
+  const ctaReady = !authLoading || !!cachedTier;
+
+  // Persist the resolved tier as a first-paint hint; clear it once we know the
+  // user is signed out, so a returning visitor never sees a stale tier.
+  useEffect(() => {
+    if (user) {
+      const t = user.subscriptionTier || user.tier;
+      if (t) localStorage.setItem('offerloop_tier', t);
+    } else if (!authLoading) {
+      localStorage.removeItem('offerloop_tier');
+    }
+  }, [user, authLoading]);
 
   // Format renewal date
   const renewalDate = subscriptionStatus?.currentPeriodEnd 
@@ -1092,6 +1161,11 @@ const Pricing = () => {
             
             {/* CTA Button */}
             <div className="mt-8">
+              {!ctaReady ? (
+                <div className="w-full py-3.5 px-6 rounded-[3px] font-semibold border-2 border-gray-100 bg-gray-50 text-transparent animate-pulse select-none" aria-hidden="true">
+                  &nbsp;
+                </div>
+              ) : (
               <button
                 onClick={() => {
                   if (!user) {
@@ -1106,6 +1180,7 @@ const Pricing = () => {
               >
                 {!user ? 'Sign up free' : currentTier === 'free' ? 'Current Plan' : 'Start for Free'}
               </button>
+              )}
             </div>
           </div>
 
@@ -1296,7 +1371,12 @@ const Pricing = () => {
               
               {/* CTA Button */}
               <div className="mt-8">
-                <button 
+                {!ctaReady ? (
+                  <div className="w-full py-3.5 px-6 rounded-lg font-bold bg-gray-100 text-transparent animate-pulse select-none" aria-hidden="true">
+                    &nbsp;
+                  </div>
+                ) : (
+                <button
                   onClick={
                     isLoading ? undefined :
                     currentTier === 'pro'
@@ -1332,6 +1412,7 @@ const Pricing = () => {
                 >
                   {isLoading ? 'Processing...' : currentTier === 'pro' ? 'Manage Subscription' : currentTier === 'elite' ? 'On Elite Plan' : `Start ${trialDays}-Day Free Trial`}
                 </button>
+                )}
               </div>
             </div>
           </div>
@@ -1488,7 +1569,12 @@ const Pricing = () => {
             
             {/* CTA Button */}
             <div className="mt-8">
-              <button 
+              {!ctaReady ? (
+                <div className="w-full py-3.5 px-6 rounded-lg font-bold bg-gray-100 text-transparent animate-pulse select-none" aria-hidden="true">
+                  &nbsp;
+                </div>
+              ) : (
+              <button
                 onClick={
                   isLoading ? undefined :
                   currentTier === 'elite'
@@ -1521,13 +1607,17 @@ const Pricing = () => {
               >
                 {isLoading ? 'Processing...' : currentTier === 'elite' ? 'Manage Subscription' : currentTier === 'pro' ? 'Upgrade to Elite' : 'Get Elite'}
               </button>
+              )}
             </div>
           </div>
         </div>
 
         {/* Season Pass — 4-month one-time pre-paid pass. Date-gated visibility:
             shown to all if past `new_users_only_until`, otherwise new users only. */}
-        {seasonPassVisible(tierConfig.season_pass, !hasActiveSubscription) && (
+        {/* Season Pass is shown to everyone — subscribers and non-subscribers alike.
+            Passing isNewUser=true makes it always visible regardless of tier, and
+            it no longer depends on subscription state, so there's no flash. */}
+        {seasonPassVisible(tierConfig.season_pass, true) && (
           <div
             className="max-w-5xl mx-auto mb-16 animate-fadeInUp"
             style={{ animationDelay: '250ms' }}
@@ -1736,8 +1826,9 @@ const Pricing = () => {
                         plan_selected: 'season_pass',
                       });
                       trackSeasonPassClicked({ audience });
-                      // Route through existing checkout flow; cofounders wire the SKU.
-                      if (seasonPassPriceId) handleStripeCheckout('pro');
+                      // One-time Season Pass checkout (grants season_pass tier
+                      // via webhook). Gated on the SKU being wired in Stripe.
+                      if (seasonPassPriceId) handleSeasonPassCheckout();
                     }}
                     title={!seasonPassPriceId ? 'Season Pass SKU coming soon in Stripe' : undefined}
                     style={{
@@ -1772,163 +1863,116 @@ const Pricing = () => {
               gap: 16,
             }}
           >
-            {/* Pillar 1 — free trial */}
+            {/* Pillar 1 — free trial (Season Pass styling, header only) */}
             <div
               style={{
-                background: '#ffffff',
-                border: `1px solid ${C_FS.cardBorder}`,
+                position: 'relative',
+                background: 'linear-gradient(135deg, #003262 0%, #1E3A8A 50%, #2563EB 100%)',
                 borderRadius: 14,
                 padding: '22px 22px 20px',
-                display: 'flex',
-                gap: 14,
-                alignItems: 'flex-start',
+                color: '#fff',
+                overflow: 'hidden',
                 boxShadow:
-                  '0 1px 2px rgba(15,37,69,.04), 0 8px 18px -8px rgba(15,37,69,.10)',
+                  '0 1px 2px rgba(15,37,69,.04), 0 8px 18px -8px rgba(15,37,69,.20)',
               }}
             >
               <div
                 style={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: 10,
-                  background: '#EFF4FF',
-                  border: '1px solid rgba(37, 99, 235, 0.18)',
-                  display: 'flex',
+                  display: 'inline-flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  fontSize: 20,
-                  lineHeight: 1,
+                  gap: 6,
+                  background: 'rgba(255,255,255,0.15)',
+                  color: '#fff',
+                  fontSize: 10,
+                  fontWeight: 800,
+                  letterSpacing: '0.18em',
+                  textTransform: 'uppercase',
+                  padding: '5px 10px',
+                  borderRadius: 999,
+                  marginBottom: 14,
+                  fontFamily: "'Inter', sans-serif",
                 }}
-                aria-hidden
               >
-                🎓
+                🎓 Free trial
               </div>
-              <div>
-                <p
+              <h3
+                style={{
+                  fontFamily: "'Libre Baskerville', Georgia, serif",
+                  fontSize: 20,
+                  lineHeight: 1.2,
+                  color: '#fff',
+                  margin: 0,
+                  fontWeight: 400,
+                }}
+              >
+                <em
                   style={{
-                    fontFamily: "'Inter', sans-serif",
-                    fontSize: 11,
+                    background: `linear-gradient(135deg, ${C_POP.lime} 0%, #FDE047 100%)`,
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    backgroundClip: 'text',
                     fontWeight: 700,
-                    letterSpacing: '0.16em',
-                    textTransform: 'uppercase',
-                    color: C_FS.eyebrow,
-                    margin: '0 0 6px',
                   }}
                 >
-                  Free trial
-                </p>
-                <h3
-                  style={{
-                    fontFamily: "'Libre Baskerville', Georgia, serif",
-                    fontSize: 18,
-                    lineHeight: 1.25,
-                    color: C_FS.ink,
-                    margin: '0 0 6px',
-                    fontWeight: 400,
-                  }}
-                >
-                  <Hl>{trialDays} days free</Hl> on Pro
-                </h3>
-                <p
-                  style={{
-                    fontFamily: "'Inter', sans-serif",
-                    fontSize: 13.5,
-                    lineHeight: 1.55,
-                    color: C_FS.body,
-                    margin: 0,
-                  }}
-                >
-                  Full Pro access. No credit card required.
-                  Drops to Free automatically if you don&apos;t upgrade.
-                </p>
-              </div>
+                  {trialDays} days free
+                </em>{' '}on Pro
+              </h3>
             </div>
 
-            {/* Pillar 2 — money-back */}
+            {/* Pillar 2 — money-back (Season Pass styling, header only) */}
             <div
               style={{
-                background: '#ffffff',
-                border: `1px solid ${C_FS.cardBorder}`,
+                position: 'relative',
+                background: 'linear-gradient(135deg, #003262 0%, #1E3A8A 50%, #2563EB 100%)',
                 borderRadius: 14,
                 padding: '22px 22px 20px',
-                display: 'flex',
-                gap: 14,
-                alignItems: 'flex-start',
+                color: '#fff',
+                overflow: 'hidden',
                 boxShadow:
-                  '0 1px 2px rgba(15,37,69,.04), 0 8px 18px -8px rgba(15,37,69,.10)',
+                  '0 1px 2px rgba(15,37,69,.04), 0 8px 18px -8px rgba(15,37,69,.20)',
               }}
             >
               <div
                 style={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: 10,
-                  background: '#EFF4FF',
-                  border: '1px solid rgba(37, 99, 235, 0.18)',
-                  display: 'flex',
+                  display: 'inline-flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
+                  gap: 6,
+                  background: 'rgba(255,255,255,0.15)',
+                  color: '#fff',
+                  fontSize: 10,
+                  fontWeight: 800,
+                  letterSpacing: '0.18em',
+                  textTransform: 'uppercase',
+                  padding: '5px 10px',
+                  borderRadius: 999,
+                  marginBottom: 14,
+                  fontFamily: "'Inter', sans-serif",
                 }}
-                aria-hidden
               >
-                <Shield className="w-4 h-4" style={{ color: C_FS.brand }} />
+                <Shield className="w-3 h-3" style={{ color: C_POP.lime }} /> Money-back
               </div>
-              <div>
-                <p
+              <h3
+                style={{
+                  fontFamily: "'Libre Baskerville', Georgia, serif",
+                  fontSize: 20,
+                  lineHeight: 1.2,
+                  color: '#fff',
+                  margin: 0,
+                  fontWeight: 400,
+                }}
+              >
+                <em
                   style={{
-                    fontFamily: "'Inter', sans-serif",
-                    fontSize: 11,
+                    background: `linear-gradient(135deg, ${C_POP.lime} 0%, #FDE047 100%)`,
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    backgroundClip: 'text',
                     fontWeight: 700,
-                    letterSpacing: '0.16em',
-                    textTransform: 'uppercase',
-                    color: C_FS.eyebrow,
-                    margin: '0 0 6px',
                   }}
                 >
-                  Money-back
-                </p>
-                <h3
-                  style={{
-                    fontFamily: "'Libre Baskerville', Georgia, serif",
-                    fontSize: 18,
-                    lineHeight: 1.25,
-                    color: C_FS.ink,
-                    margin: '0 0 6px',
-                    fontWeight: 400,
-                  }}
-                >
-                  <Hl>7-day refund</Hl> on Pro &amp; Elite, 14 days on Season Pass
-                </h3>
-                <p
-                  style={{
-                    fontFamily: "'Inter', sans-serif",
-                    fontSize: 13.5,
-                    lineHeight: 1.55,
-                    color: C_FS.body,
-                    margin: 0,
-                  }}
-                >
-                  Not for you?{' '}
-                  <button
-                    type="button"
-                    onClick={() => navigate(user ? '/account-settings?tab=billing' : '/terms-of-service#refunds')}
-                    style={{
-                      background: 'transparent',
-                      border: 'none',
-                      padding: 0,
-                      color: C_FS.brand,
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      textDecoration: 'underline',
-                    }}
-                  >
-                    Request a refund
-                  </button>
-                  {' '}— we typically respond in 24h. Top-up credit packs are non-refundable since they never expire.
-                </p>
-              </div>
+                  7-day refund
+                </em>{' '}on Pro &amp; Elite, 14 days on Season Pass
+              </h3>
             </div>
           </div>
         </div>
