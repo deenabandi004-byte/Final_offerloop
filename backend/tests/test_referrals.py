@@ -162,3 +162,31 @@ def test_attribute_success_increments():
     db = _make_db_for_attribution()
     out = rs.record_referral_signup(db, 'CODE1234', 'new1', 'new@x.com')
     assert out == {'recorded': True, 'reason': None}
+
+
+from unittest.mock import patch
+from app.services import stripe_client
+
+
+def test_create_referral_trial_checkout_sets_trial_and_metadata(monkeypatch):
+    monkeypatch.setattr(stripe_client, 'STRIPE_SECRET_KEY', 'sk_test')
+    monkeypatch.setattr(stripe_client, 'STRIPE_ELITE_PRICE_ID', 'price_elite')
+    fake_session = MagicMock(url='https://checkout.stripe/x', id='cs_1')
+    with patch('stripe.checkout.Session.create', return_value=fake_session) as create:
+        out = stripe_client.create_referral_trial_checkout('u1', 'a@x.com')
+    assert out['url'] == 'https://checkout.stripe/x'
+    params = create.call_args.kwargs
+    assert params['subscription_data']['trial_period_days'] == 30
+    assert params['metadata']['referral_reward'] == 'true'
+    assert params['metadata']['user_id'] == 'u1'
+    assert params['line_items'][0]['price'] == 'price_elite'
+
+
+def test_apply_referral_reward_coupon(monkeypatch):
+    monkeypatch.setattr(stripe_client, 'STRIPE_SECRET_KEY', 'sk_test')
+    monkeypatch.setattr(stripe_client, 'STRIPE_COUPONS',
+                        {'referral_reward': 'coupon_ref'})
+    with patch('stripe.Subscription.modify') as modify:
+        out = stripe_client.apply_referral_reward_coupon('sub_123')
+    assert out['ok'] is True
+    modify.assert_called_once_with('sub_123', coupon='coupon_ref')
