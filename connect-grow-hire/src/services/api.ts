@@ -300,6 +300,19 @@ export interface ErrorResponse {
 }
 
 // ================================
+// Contact Sharing Types
+// ================================
+export type ShareKind = "contacts" | "companies" | "hiringManagers";
+
+export interface PendingShare {
+  id: string;
+  fromName: string;
+  kind: ShareKind;
+  count: number;
+  createdAt?: string;
+}
+
+// ================================
 // List Builder (Bulk Tracker) Types
 // ================================
 // ================================
@@ -2530,6 +2543,34 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
   async getSearchSuggestions(): Promise<{ suggestions: SearchSuggestion[] } | { error: string }> {
     const headers = await this.getAuthHeaders();
     return this.makeRequest<{ suggestions: SearchSuggestion[] }>('/search-suggestions', { method: 'GET', headers });
+  }
+
+  // ================================
+  // Contact Sharing Endpoints
+  // ================================
+
+  async shareRecords(payload: { toEmail: string; kind: ShareKind; items: any[] }) {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest('/shares', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async getPendingShares(): Promise<{ shares: PendingShare[] } | { error: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest('/shares/pending', { method: 'GET', headers });
+  }
+
+  async acceptShare(id: string) {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest(`/shares/${id}/accept`, { method: 'POST', headers });
+  }
+
+  async declineShare(id: string) {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest(`/shares/${id}/decline`, { method: 'POST', headers });
   }
 }
 
