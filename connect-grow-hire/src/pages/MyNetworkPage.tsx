@@ -22,6 +22,7 @@ import {
   StickyNote,
   Loader2,
   Share2,
+  Forward,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
@@ -408,6 +409,8 @@ interface PeopleTableProps {
   focusId?: string;
   onDelete?: (id: string) => void;
   onSaveNote?: (id: string, note: string) => void;
+  // Share a single row: selects just that contact and opens the share dialog.
+  onShare?: (row: PersonRow) => void;
   // Selection is controlled by the parent so the bulk-delete pill can live
   // next to "Add person" in the filter bar instead of inside the table.
   selected: Set<string>;
@@ -434,6 +437,7 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
   focusId,
   onDelete,
   onSaveNote,
+  onShare,
   selected,
   onSelectionChange,
   addingMode,
@@ -646,7 +650,7 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
   // right after the checkbox so the row visually echoes the Companies tab.
   // Each cell uses overflow truncation so long values don't bleed into
   // adjacent cells.
-  const COLS = "28px 36px minmax(180px, 1.5fr) minmax(140px, 1.1fr) minmax(170px, 1.25fr) minmax(150px, 1.1fr) 76px";
+  const COLS = "28px 36px minmax(180px, 1.5fr) minmax(140px, 1.1fr) minmax(140px, 1fr) minmax(150px, 1.1fr) 104px";
 
   const HeaderRow = (
     <div
@@ -782,6 +786,19 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
         {row.school || (row.location ? <span className="text-ink-3">{row.location}</span> : " - ")}
       </div>
       <div className="flex items-center justify-end gap-1.5 text-ink-3">
+        {onShare && (
+          <button
+            type="button"
+            title="Share"
+            className="hover:text-ink p-0.5"
+            onClick={(e) => {
+              e.stopPropagation();
+              onShare(row);
+            }}
+          >
+            <Forward className="h-3.5 w-3.5" />
+          </button>
+        )}
         {row.email && (
           <button
             type="button"
@@ -3136,19 +3153,8 @@ const MyNetworkPage: React.FC = () => {
 
                   {/* Right group: actions */}
                   <div className={FB_GROUP}>
-                    {renderToolButton(<Share2 className={`${FB_ICON} text-muted-foreground`} />, "Share", () => { if (activeSelection.size > 0) setShareOpen(true); }, false)}
+                    {renderToolButton(<Share2 className={`${FB_ICON} text-muted-foreground`} />, "Share", () => { if (activeSelection.size > 0) setShareOpen(true); else toast({ title: "Select rows to share first." }); }, true)}
                     {renderToolButton(<Download className={FB_ICON} />, "Export CSV", handleExportCsv)}
-                    {activeSelection.size > 0 && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShareOpen(true)}
-                        className="gap-1.5"
-                      >
-                        <Share2 className="h-3.5 w-3.5" />
-                        Share selected
-                      </Button>
-                    )}
                     {BulkDeleteButton}
                     {renderAddButton()}
                   </div>
@@ -3185,19 +3191,8 @@ const MyNetworkPage: React.FC = () => {
 
                   {/* Right group: actions */}
                   <div className={FB_GROUP}>
-                    {renderToolButton(<Share2 className={`${FB_ICON} text-muted-foreground`} />, "Share", () => { if (activeSelection.size > 0) setShareOpen(true); }, false)}
+                    {renderToolButton(<Share2 className={`${FB_ICON} text-muted-foreground`} />, "Share", () => { if (activeSelection.size > 0) setShareOpen(true); else toast({ title: "Select rows to share first." }); }, true)}
                     {renderToolButton(<Download className={FB_ICON} />, "Export CSV", handleExportCsv)}
-                    {activeSelection.size > 0 && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShareOpen(true)}
-                        className="gap-1.5"
-                      >
-                        <Share2 className="h-3.5 w-3.5" />
-                        Share selected
-                      </Button>
-                    )}
                     {BulkDeleteButton}
                     {renderAddButton()}
                   </div>
@@ -3228,19 +3223,8 @@ const MyNetworkPage: React.FC = () => {
 
                   {/* Right group: actions */}
                   <div className={FB_GROUP}>
-                    {renderToolButton(<Share2 className={`${FB_ICON} text-muted-foreground`} />, "Share", () => { if (activeSelection.size > 0) setShareOpen(true); }, false)}
+                    {renderToolButton(<Share2 className={`${FB_ICON} text-muted-foreground`} />, "Share", () => { if (activeSelection.size > 0) setShareOpen(true); else toast({ title: "Select rows to share first." }); }, true)}
                     {renderToolButton(<Download className={FB_ICON} />, "Export CSV", handleExportCsv)}
-                    {activeSelection.size > 0 && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShareOpen(true)}
-                        className="gap-1.5"
-                      >
-                        <Share2 className="h-3.5 w-3.5" />
-                        Share selected
-                      </Button>
-                    )}
                     {BulkDeleteButton}
                     {renderAddButton()}
                   </div>
@@ -3261,6 +3245,10 @@ const MyNetworkPage: React.FC = () => {
                   focusId={focusContactId}
                   selected={peopleSelected}
                   onSelectionChange={setPeopleSelected}
+                  onShare={(row) => {
+                    setPeopleSelected(new Set([row.id]));
+                    setShareOpen(true);
+                  }}
                   addingMode={addingPerson}
                   onCancelAdd={() => setAddingPerson(false)}
                   onSaveNew={handleSavePerson}
