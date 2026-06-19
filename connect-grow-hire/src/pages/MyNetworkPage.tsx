@@ -262,6 +262,7 @@ interface PersonRow {
   createdAt?: string;
   // Provenance — "agent" for Loop-discovered contacts, "" for manual.
   source?: string;
+  sharedImport?: boolean;
 }
 
 type SortCol = "name" | "company" | "role" | "school" | null;
@@ -692,6 +693,7 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
   // spot what's new at a glance. The tint replaces the normal alternating
   // background for that row.
   const rowBaseBg = (row: PersonRow, idx: number): string => {
+    if (row.sharedImport) return "rgba(34,197,94,0.10)";
     if (focusId && row.id === focusId) return "rgba(59,130,246,0.14)";
     const ts = row.createdAt ? Date.parse(row.createdAt) : 0;
     if (highlightSince && ts > highlightSince) return "rgba(59,130,246,0.08)";
@@ -990,6 +992,7 @@ interface CompanyRow {
   // Most recent underlying timestamp (max of contact.createdAt, manual firm
   // createdAt, exploring ts) - used for recency highlight in My Network.
   recencyTs?: number;
+  sharedImport?: boolean;
 }
 
 // Soft-blue color tokens used across both the list and grid views - picked to
@@ -1279,7 +1282,9 @@ const CompaniesTable: React.FC<{
                   gridTemplateColumns: COMPANIES_LIST_COLS,
                   gap: 14,
                   padding: "12px 16px",
-                  background: (highlightSince && (row.recencyTs || 0) > highlightSince)
+                  background: row.sharedImport
+                    ? "rgba(34,197,94,0.10)"
+                    : (highlightSince && (row.recencyTs || 0) > highlightSince)
                     ? "rgba(59,130,246,0.08)"
                     : (i % 2 === 1 ? "var(--paper-2, #FAFBFF)" : "white"),
                   cursor: rowClickable ? "pointer" : "default",
@@ -1290,7 +1295,9 @@ const CompaniesTable: React.FC<{
                   e.currentTarget.style.background = COMPANY_BLUE_TINT;
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = (highlightSince && (row.recencyTs || 0) > highlightSince)
+                  e.currentTarget.style.background = row.sharedImport
+                    ? "rgba(34,197,94,0.10)"
+                    : (highlightSince && (row.recencyTs || 0) > highlightSince)
                     ? "rgba(59,130,246,0.08)"
                     : (i % 2 === 1 ? "var(--paper-2, #FAFBFF)" : "white");
                 }}
@@ -1595,6 +1602,7 @@ interface ManagerRow {
   company?: string;
   location?: string;
   dateAdded?: string;
+  sharedImport?: boolean;
 }
 
 const AddManagerRow: React.FC<{
@@ -1883,6 +1891,7 @@ const ManagersTable: React.FC<{
   );
 
   const rowBaseBg = (row: ManagerRow, i: number): string => {
+    if (row.sharedImport) return "rgba(34,197,94,0.10)";
     const ts = row.dateAdded ? Date.parse(row.dateAdded) : 0;
     if (highlightSince && ts > highlightSince) return "rgba(59,130,246,0.08)";
     return i % 2 === 1 ? "var(--paper-2, #FAFBFF)" : "white";
@@ -2263,6 +2272,7 @@ const MyNetworkPage: React.FC = () => {
       firm?: Firm;
       manualFirmId?: string;
       latestTs: number;
+      sharedImport?: boolean;
     };
     const map = new Map<string, Bucket>();
     const tsOf = (s?: string): number => (s ? Date.parse(s) || 0 : 0);
@@ -2306,6 +2316,7 @@ const MyNetworkPage: React.FC = () => {
         map.set(key, b);
       }
       if (mf.id) b.manualFirmId = mf.id;
+      if ((mf as any).sharedImport) b.sharedImport = true;
       const t = tsOf(mf.createdAt);
       if (t > b.latestTs) b.latestTs = t;
       if (!b.firm) {
@@ -2341,6 +2352,7 @@ const MyNetworkPage: React.FC = () => {
         alumni: b.count,
         manualFirmId: b.manualFirmId,
         recencyTs: b.latestTs,
+        sharedImport: b.sharedImport,
       };
     });
 
@@ -2491,6 +2503,7 @@ const MyNetworkPage: React.FC = () => {
             notes: c.notes || undefined,
             createdAt: c.createdAt || c.firstContactDate || undefined,
             source: c.source || undefined,
+            sharedImport: !!c.sharedImport,
           };
         })
       );
@@ -2564,6 +2577,7 @@ const MyNetworkPage: React.FC = () => {
             company: r.company || undefined,
             location: r.location || undefined,
             dateAdded: r.dateAdded || r.createdAt || undefined,
+            sharedImport: !!r.sharedImport,
           };
         })
       );
