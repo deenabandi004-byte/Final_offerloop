@@ -79,3 +79,42 @@ def get_referral_status(db, uid: str) -> dict:
         'rewardClaimed': claimed,
         'rewardClaimedAt': claimed_at.isoformat() if hasattr(claimed_at, 'isoformat') else claimed_at,
     }
+
+
+from firebase_admin import firestore as _firestore
+
+
+def record_referral_signup(db, code: str, new_uid: str, new_email: str) -> dict:
+    """Record a new signup against a referral code. Idempotent + abuse-guarded."""
+    code = (code or '').strip().upper()
+    if not code:
+        return {'recorded': False, 'reason': 'invalid_code'}
+
+    code_snap = db.collection('referralCodes').document(code).get()
+    if not code_snap or not code_snap.exists:
+        return {'recorded': False, 'reason': 'invalid_code'}
+    owner_uid = (code_snap.to_dict() or {}).get('uid')
+    if not owner_uid:
+        return {'recorded': False, 'reason': 'invalid_code'}
+
+    owner_snap = db.collection('users').document(owner_uid).get()
+    owner_email = (owner_snap.to_dict() or {}).get('email', '') if owner_snap and owner_snap.exists else ''
+
+    if is_self_referral(owner_uid, owner_email, new_uid, new_email):
+        return {'recorded': False, 'reason': 'self_referral'}
+
+    new_ref = db.collection('users').document(new_uid)
+    new_snap = new_ref.get()
+    if (new_snap.to_dict() or {}).get('referredBy') if new_snap and new_snap.exists else False:
+        return {'recorded': False, 'reason': 'already_referred'}
+
+    owner_ref = db.collection('users').document(owner_uid)
+    dedupe_ref = owner_ref.collection('referrals').document(new_uid)
+    if dedupe_ref.get().exists:
+        return {'recorded': False, 'reason': 'duplicate'}
+
+    now = datetime.now(timezone.utc)
+    new_ref.update({'referredBy': code})
+    dedupe_ref.set({'signedUpAt': now, 'newUserEmail': new_email})
+    owner_ref.update({'referralQualifiedCount': _firestore.Increment(1)})
+    return {'recorded': True, 'reason': None}

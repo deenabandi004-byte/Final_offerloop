@@ -95,3 +95,70 @@ def test_get_referral_status_shape():
     assert status['eligible'] is True
     assert status['rewardClaimed'] is False
     assert status['referralLink'].endswith('ref=CODE1234')
+
+
+def _make_db_for_attribution(*, code_exists=True, owner_uid='owner1',
+                             owner_email='owner@x.com',
+                             new_already_referred=False,
+                             dedupe_exists=False):
+    """Build a MagicMock db wired for record_referral_signup paths."""
+    db = MagicMock()
+
+    code_snap = _user_snapshot({'uid': owner_uid}, exists=code_exists)
+    owner_snap = _user_snapshot({'email': owner_email})
+    new_snap = _user_snapshot(
+        {'referredBy': 'SOMECODE'} if new_already_referred else {'email': 'new@x.com'}
+    )
+    dedupe_snap = MagicMock(); dedupe_snap.exists = dedupe_exists
+
+    def collection(name):
+        col = MagicMock()
+        if name == 'referralCodes':
+            col.document.return_value.get.return_value = code_snap
+        elif name == 'users':
+            def document(uid):
+                d = MagicMock()
+                if uid == owner_uid:
+                    d.get.return_value = owner_snap
+                    d.collection.return_value.document.return_value.get.return_value = dedupe_snap
+                else:
+                    d.get.return_value = new_snap
+                return d
+            col.document.side_effect = document
+        return col
+
+    db.collection.side_effect = collection
+    return db
+
+
+def test_attribute_invalid_code():
+    db = _make_db_for_attribution(code_exists=False)
+    out = rs.record_referral_signup(db, 'NOPE', 'new1', 'new@x.com')
+    assert out == {'recorded': False, 'reason': 'invalid_code'}
+
+
+def test_attribute_self_referral_by_uid():
+    db = _make_db_for_attribution(owner_uid='new1')
+    out = rs.record_referral_signup(db, 'CODE1234', 'new1', 'new@x.com')
+    assert out['recorded'] is False
+    assert out['reason'] == 'self_referral'
+
+
+def test_attribute_already_referred():
+    db = _make_db_for_attribution(new_already_referred=True)
+    out = rs.record_referral_signup(db, 'CODE1234', 'new1', 'new@x.com')
+    assert out['recorded'] is False
+    assert out['reason'] == 'already_referred'
+
+
+def test_attribute_duplicate_dedupe_doc():
+    db = _make_db_for_attribution(dedupe_exists=True)
+    out = rs.record_referral_signup(db, 'CODE1234', 'new1', 'new@x.com')
+    assert out['recorded'] is False
+    assert out['reason'] == 'duplicate'
+
+
+def test_attribute_success_increments():
+    db = _make_db_for_attribution()
+    out = rs.record_referral_signup(db, 'CODE1234', 'new1', 'new@x.com')
+    assert out == {'recorded': True, 'reason': None}
