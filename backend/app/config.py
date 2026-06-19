@@ -274,7 +274,14 @@ STRIPE_COUPONS = {
     'pricing_recapture': os.getenv('STRIPE_PRICING_RECAPTURE_COUPON_ID',   ''),  # 20% off Pro — STAYHIRED
     'winback':           os.getenv('STRIPE_WINBACK_COUPON_ID',             ''),  # 50% off Pro — WELCOMEBACK
     'checkout_recovery': os.getenv('STRIPE_CHECKOUT_RECOVERY_COUPON_ID',   ''),  # 20% off — WARMINTRO
+    'referral_reward':   os.getenv('STRIPE_REFERRAL_REWARD_COUPON_ID',     ''),  # 100% off one month for paying referrers
 }
+
+# ========================================
+# Referral program
+# ========================================
+REFERRAL_TARGET_COUNT = 5          # signups needed to unlock the reward
+REFERRAL_REWARD_TIER = 'elite'     # tier granted by the reward
 
 # ========================================
 # Credit slider stops — Higgsfield-style in-tier credit dial
