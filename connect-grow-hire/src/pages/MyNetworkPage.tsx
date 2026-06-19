@@ -1292,7 +1292,7 @@ const CompaniesTable: React.FC<{
                 }}
                 onMouseEnter={(e) => {
                   if (!rowClickable) return;
-                  e.currentTarget.style.background = COMPANY_BLUE_TINT;
+                  if (!row.sharedImport) e.currentTarget.style.background = COMPANY_BLUE_TINT;
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = row.sharedImport
