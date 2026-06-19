@@ -104,24 +104,44 @@ def _scrape_with_retry(fc, url: str, *, formats: list, timeout: int = 30000):
 # ── Core scrape functions ────────────────────────────────────────────────
 
 
+def _is_linkedin_url(url: str) -> bool:
+    """True if the URL points anywhere on linkedin.com.
+
+    Used by the extract_* helpers below to short-circuit Firecrawl and
+    route to Apify instead. Firecrawl reliably 404s on LinkedIn URLs
+    ("WebsiteNotSupportedError"), so calling it is pure noise.
+    """
+    return "linkedin.com" in (url or "").lower()
+
+
 def extract_job_posting(url: str) -> dict:
     """Extract structured job data from a posting URL.
 
-    Works with Greenhouse, Lever, LinkedIn, Workday, Indeed.
+    Works with Greenhouse, Lever, Workday, Indeed via Firecrawl, and
+    LinkedIn via Apify (curious_coder~linkedin-jobs-scraper).
 
     Returns dict with: title, company, location, salary_range, requirements,
     nice_to_have, responsibilities, team_or_department, hiring_manager,
     application_deadline, experience_level, employment_type.
     """
-    fc = _get_client()
-    if not fc:
-        return {}
-
     from app.services.enrichment_cache import get_cached, set_cached
     cache_key = ["job_posting", url]
     cached = get_cached("job_posting", cache_key)
     if cached:
         return cached
+
+    # LinkedIn job postings → Apify. Firecrawl's LinkedIn support was
+    # withdrawn in 2026 and every call raises WebsiteNotSupportedError.
+    if _is_linkedin_url(url):
+        from app.services.apify_client import enrich_linkedin_job_via_apify
+        extracted = enrich_linkedin_job_via_apify(url) or {}
+        if extracted:
+            set_cached("job_posting", cache_key, extracted)
+        return extracted
+
+    fc = _get_client()
+    if not fc:
+        return {}
 
     from app.services.extraction_schemas import JobPostingExtract
 
@@ -151,18 +171,28 @@ def extract_job_posting(url: str) -> dict:
 def extract_company_profile(url: str) -> dict:
     """Extract company info from about/careers pages.
 
+    Works with arbitrary company websites via Firecrawl, and LinkedIn
+    company pages (linkedin.com/company/*) via Apify HarvestAPI.
+
     Returns dict with: name, description, headquarters, employee_count,
     founded, industries, culture_keywords, careers_url, leadership, recent_news.
     """
-    fc = _get_client()
-    if not fc:
-        return {}
-
     from app.services.enrichment_cache import get_cached, set_cached
     cache_key = ["company_profile", url]
     cached = get_cached("company_profile", cache_key)
     if cached:
         return cached
+
+    if _is_linkedin_url(url):
+        from app.services.apify_client import enrich_linkedin_company_via_apify
+        extracted = enrich_linkedin_company_via_apify(url) or {}
+        if extracted:
+            set_cached("company_profile", cache_key, extracted)
+        return extracted
+
+    fc = _get_client()
+    if not fc:
+        return {}
 
     from app.services.extraction_schemas import CompanyProfileExtract
 

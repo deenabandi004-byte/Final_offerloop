@@ -2,7 +2,7 @@
 console.log('[Offerloop Background] Service worker started');
 
 // Configuration
-const API_BASE_URL = 'https://final-offerloop.onrender.com';
+const API_BASE_URL = 'https://offerloop.ai';
 
 // Fetch wrapper with AbortController timeout (default 30s)
 async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
@@ -205,6 +205,9 @@ async function importLinkedInContact(linkedInUrl, authToken, isRetry = false) {
   console.log('[Offerloop Background] Importing LinkedIn contact:', linkedInUrl);
   
   try {
+    // 90s timeout — the import-linkedin pipeline runs PDL + Hunter + resume
+    // extraction + Perplexity + Apify + batch_generate_emails + quality gate +
+    // Gmail draft, which can take 30-60s. 30s default cuts it off.
     const response = await fetchWithTimeout(`${API_BASE_URL}/api/contacts/import-linkedin`, {
       method: 'POST',
       headers: {
@@ -214,7 +217,7 @@ async function importLinkedInContact(linkedInUrl, authToken, isRetry = false) {
       body: JSON.stringify({
         linkedin_url: linkedInUrl,
       }),
-    });
+    }, 90000);
     
     // Auto-refresh on 401 and retry once
     if (response.status === 401 && !isRetry) {
@@ -275,6 +278,7 @@ async function handleGetCredits(request, sendResponse) {
       credits: data.credits,
       maxCredits: data.max_credits,
       tier: data.tier,
+      creditCosts: data.credit_costs || null,
     });
   } catch (error) {
     console.error('[Offerloop Background] Error getting credits:', error);

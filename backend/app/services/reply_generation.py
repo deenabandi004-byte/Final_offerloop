@@ -796,21 +796,10 @@ The sender is exploring broadly and building their network.
 """
         
         is_custom_purpose = email_template_purpose == "custom"
-        include_resume_in_prompt = bool(resume_filename)
-        if resume_filename:
-            # Resume mention: short and confident, never "for your reference"
-            # filler. The attachment speaks for itself.
-            resume_line_section = f"""
-RESUME LINE (Third Paragraph - BEFORE signature):
-- "Resume attached: {resume_filename}."
-
-"""
-        else:
-            resume_line_section = ""
-
-        resume_rule_line = "6. Resume mention comes BEFORE the signature, not after\n7. " if include_resume_in_prompt else "6. "
-        resume_do_not_line = "- Put resume mention after signature\n- " if include_resume_in_prompt else "- "
-        length_rule_num = "8" if include_resume_in_prompt else "7"
+        resume_line_section = ""
+        resume_rule_line = "6. "
+        resume_do_not_line = "- "
+        length_rule_num = "7"
 
         # For custom purpose: no networking-specific rules; user's template_instructions ARE the requirements
         if is_custom_purpose:
@@ -1172,9 +1161,9 @@ Return ONLY valid JSON:
         anthropic_client = get_anthropic_client()
         if anthropic_client:
             try:
-                logger.info("[EMAIL-GEN] Attempting Claude (claude-sonnet-4-20250514) for %d contacts", len(contacts))
+                logger.info("[EMAIL-GEN] Attempting Claude (claude-sonnet-4-6) for %d contacts", len(contacts))
                 claude_response = anthropic_client.messages.create(
-                    model="claude-sonnet-4-20250514",
+                    model="claude-sonnet-4-6",
                     max_tokens=4000,
                     system=system_content,
                     messages=[{"role": "user", "content": prompt}],
@@ -1358,50 +1347,12 @@ Return ONLY valid JSON:
                     if anchor_found:
                         body = '\n'.join(cleaned_lines)
             
-            # Post-processing: Add resume reference line when user has a resume file
-            if resume_filename:
-                has_resume_mention = email_body_mentions_resume(body)
-                
-                if has_resume_mention:
-                    # Replace generic resume mention with one that references the actual filename
-                    for mention in RESUME_MENTIONS:
-                        for line in body.split('\n'):
-                            if mention in line.lower():
-                                body = body.replace(line, f"Resume attached: {resume_filename}.")
-                                break
-                        else:
-                            continue
-                        break
-                else:
-                    sign_off_patterns = ["Best,", "Best regards,", "Thank you,", "Thanks,", "Warm regards,", "Cheers,", "Sincerely,"]
-                    if signoff_config and (signoff_config.get("signoffPhrase") or "").strip():
-                        custom_phrase = (signoff_config.get("signoffPhrase") or "").strip()
-                        if custom_phrase not in sign_off_patterns:
-                            sign_off_patterns.insert(0, custom_phrase)
-                    resume_line = f"Resume attached: {resume_filename}."
-                    
-                    inserted = False
-                    for pattern in sign_off_patterns:
-                        if pattern in body:
-                            body = body.replace(pattern, f"{resume_line}\n\n{pattern}", 1)
-                            inserted = True
-                            break
-                    
-                    if not inserted:
-                        lines = body.split('\n')
-                        if len(lines) > 1:
-                            last_non_empty = len(lines) - 1
-                            while last_non_empty > 0 and not lines[last_non_empty].strip():
-                                last_non_empty -= 1
-                            lines.insert(last_non_empty, resume_line)
-                            body = '\n'.join(lines)
-                        else:
-                            body = f"{body}\n\n{resume_line}"
-            else:
-                # No resume — strip any AI-generated resume mentions so the email doesn't lie
-                lines = body.split('\n')
-                filtered_lines = [line for line in lines if not any(m in line.lower() for m in RESUME_MENTIONS)]
-                body = '\n'.join(filtered_lines)
+            # Strip any AI-generated resume mentions from the body. The resume
+            # PDF still gets attached to the Gmail draft; we just don't want
+            # an explicit "Resume attached: filename.docx" line in the prose.
+            lines = body.split('\n')
+            filtered_lines = [line for line in lines if not any(m in line.lower() for m in RESUME_MENTIONS)]
+            body = '\n'.join(filtered_lines)
                 
             # Strip bare university name lines the AI sometimes outputs in the signoff area
             university_name = (user_info.get('university') or '').strip()

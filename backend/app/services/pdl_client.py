@@ -3755,6 +3755,162 @@ def build_coffee_chat_data(pdl_person: dict, best_email: str) -> dict:
     }
 
 
+def _apify_date_to_str(value) -> str:
+    """Apify profile actors return dates as either ISO strings or {month, year}
+    objects. Normalize to a YYYY-MM (or YYYY) string so the rest of the prep
+    pipeline can treat PDL and Apify-derived dates the same way.
+    """
+    if not value:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        year = value.get("year")
+        month = value.get("month")
+        if year and month:
+            return f"{year}-{int(month):02d}"
+        if year:
+            return str(year)
+    return ""
+
+
+def build_coffee_chat_data_from_apify(apify_item: dict) -> dict:
+    """Convert a `harvestapi/linkedin-profile-scraper` dataset item into the
+    same coffee_chat_data shape produced by build_coffee_chat_data(). Used as
+    a PDL fallback when PDL has no record of the profile (common for student
+    / private accounts).
+
+    Apify field names vary slightly by actor revision, so we try a few common
+    variants per field and let unknowns fall through to empty rather than
+    failing the whole prep.
+    """
+    item = apify_item or {}
+
+    first = item.get("firstName") or ""
+    last = item.get("lastName") or ""
+    if not (first or last) and item.get("name"):
+        parts = str(item["name"]).strip().split(" ", 1)
+        first = parts[0]
+        last = parts[1] if len(parts) > 1 else ""
+
+    location_obj = item.get("location") or {}
+    if isinstance(location_obj, str):
+        city = ""
+        country = ""
+        location_display = location_obj
+    else:
+        city = location_obj.get("city") or location_obj.get("locality") or ""
+        country = location_obj.get("country") or ""
+        location_display = (
+            location_obj.get("full")
+            or location_obj.get("name")
+            or ", ".join(filter(None, [city, location_obj.get("region", ""), country]))
+        )
+
+    current = item.get("currentPosition") or {}
+    current_title = current.get("title") or item.get("headline") or ""
+    current_company = current.get("companyName") or current.get("company") or ""
+
+    experience_array = []
+    for exp in item.get("experience", []) or []:
+        if not isinstance(exp, dict):
+            continue
+        title = exp.get("title") or ""
+        company = (
+            exp.get("companyName")
+            or exp.get("company")
+            or (exp.get("companyObject") or {}).get("name")
+            or ""
+        )
+        start = _apify_date_to_str(exp.get("startDate") or exp.get("start_date"))
+        end = _apify_date_to_str(exp.get("endDate") or exp.get("end_date"))
+        loc = exp.get("location") or ""
+        experience_array.append({
+            "title": title,
+            "company": company,
+            "start_date": start,
+            "end_date": end,
+            "is_current": not end,
+            "location_names": [loc] if loc else [],
+            "summary": exp.get("description") or exp.get("summary") or "",
+        })
+
+    if not current_title and experience_array:
+        current_title = experience_array[0]["title"]
+    if not current_company and experience_array:
+        current_company = experience_array[0]["company"]
+
+    education_array = []
+    for edu in item.get("education", []) or []:
+        if not isinstance(edu, dict):
+            continue
+        education_array.append({
+            "school": edu.get("schoolName") or edu.get("school") or "",
+            "degree": edu.get("degreeName") or edu.get("degree") or "",
+            "major": edu.get("fieldOfStudy") or edu.get("major") or "",
+            "start_date": _apify_date_to_str(edu.get("startDate") or edu.get("start_date")),
+            "end_date": _apify_date_to_str(edu.get("endDate") or edu.get("end_date")),
+            "gpa": edu.get("gpa"),
+        })
+
+    skills_obj = item.get("skills")
+    if isinstance(skills_obj, dict):
+        skills = skills_obj.get("allSkills") or skills_obj.get("topSkills") or []
+    elif isinstance(skills_obj, list):
+        skills = [s if isinstance(s, str) else (s.get("name") if isinstance(s, dict) else "") for s in skills_obj]
+    else:
+        skills = []
+    skills = [s for s in skills if s]
+
+    emails = item.get("emails") or []
+    best_email = emails[0] if emails and isinstance(emails[0], str) else (item.get("email") or "")
+
+    linkedin_url = item.get("profileUrl") or item.get("linkedinUrl") or ""
+
+    return {
+        "firstName": first,
+        "lastName": last,
+        "fullName": (item.get("name") or f"{first} {last}").strip(),
+        "email": best_email,
+        "linkedinUrl": linkedin_url,
+        "githubUrl": "",
+        "twitterUrl": "",
+
+        "jobTitle": current_title,
+        "company": current_company,
+        "industry": item.get("industry") or "",
+        "jobCompanySize": "",
+        "jobCompanyFounded": "",
+        "jobCompanyLinkedinUrl": current.get("companyUrl") or "",
+
+        "city": city,
+        "state": location_obj.get("region", "") if isinstance(location_obj, dict) else "",
+        "country": country,
+        "location": location_display,
+
+        "experienceArray": experience_array,
+        "educationArray": education_array,
+
+        "skills": skills,
+        "interests": [],
+        "certifications": item.get("certifications") or [],
+        "languages": item.get("languages") or [],
+
+        "summary": item.get("summary") or item.get("about") or item.get("headline") or "",
+        "yearsExperience": None,
+        "linkedinConnections": item.get("connectionsCount") or item.get("followersCount"),
+
+        "workExperience": [
+            f"{experience_array[0]['title']} at {experience_array[0]['company']}"
+            if experience_array else ""
+        ],
+        "education": (
+            f"{education_array[0]['degree']} at {education_array[0]['school']}"
+            if education_array else ""
+        ),
+    }
+
+
 @meter_call("pdl", "person_enrich")
 def enrich_by_name(first_name: str, last_name: str, company: str, min_likelihood: int = 4):
     """Look up a single person via /v5/person/enrich by name + company.
@@ -3791,8 +3947,33 @@ def enrich_by_name(first_name: str, last_name: str, company: str, min_likelihood
 
 
 @meter_call("pdl", "person_enrich")
+def _apify_fallback_enrich(linkedin_url: str):
+    """Try the Apify HarvestAPI profile scraper when PDL has no record.
+    Returns a coffee_chat_data dict on success or None on any failure.
+
+    PDL's index lags ~6 months and misses many student / private accounts —
+    Apify scrapes the live LinkedIn page so it catches what PDL can't.
+    """
+    try:
+        from app.services.apify_client import enrich_user_linkedin_profile_via_apify
+        envelope = enrich_user_linkedin_profile_via_apify(linkedin_url)
+        if not envelope or not envelope.get("ok") or not envelope.get("data"):
+            print(f"[Enrichment] Apify fallback returned no data (source={envelope.get('source') if envelope else 'none'})")
+            return None
+        coffee_chat_data = build_coffee_chat_data_from_apify(envelope["data"])
+        print(f"[Enrichment] Apify fallback succeeded for {linkedin_url}")
+        print(f"[CoffeeChat] skills={len(coffee_chat_data['skills'])}, interests={len(coffee_chat_data['interests'])}, industry={coffee_chat_data['industry']}")
+        set_pdl_cache(linkedin_url, coffee_chat_data)
+        return coffee_chat_data
+    except Exception as e:
+        print(f"[Enrichment] Apify fallback raised: {e}")
+        return None
+
+
 def enrich_linkedin_profile(linkedin_url):
-    """Use PDL to enrich LinkedIn profile"""
+    """Use PDL to enrich LinkedIn profile, with Apify as a fallback when PDL
+    has no record of the profile (common for students / smaller accounts).
+    """
     try:
         # Check cache first
         cached = get_cached_pdl_data(linkedin_url)
@@ -3854,28 +4035,30 @@ def enrich_linkedin_profile(linkedin_url):
                 set_pdl_cache(linkedin_url, coffee_chat_data)
                 return coffee_chat_data
             else:
-                print(f"PDL returned status {person_data.get('status')} - no data found")
+                print(f"PDL returned status {person_data.get('status')} - no data found, trying Apify fallback")
                 if person_data.get('error'):
                     print(f"PDL error: {person_data.get('error')}")
-                return None
+                return _apify_fallback_enrich(linkedin_url)
 
         elif response.status_code == 404:
-            print(f"LinkedIn profile not found in PDL database")
-            return None
+            print(f"LinkedIn profile not found in PDL database, trying Apify fallback")
+            return _apify_fallback_enrich(linkedin_url)
         elif response.status_code == 402:
-            print(f"PDL API: Payment required (out of credits)")
-            return None
+            print(f"PDL API: Payment required (out of credits), trying Apify fallback")
+            return _apify_fallback_enrich(linkedin_url)
         elif response.status_code == 401:
+            # Auth misconfiguration is an operator problem, not a coverage gap —
+            # don't burn an Apify call covering for it.
             print(f"PDL API: Invalid API key")
             return None
         else:
-            print(f"PDL enrichment failed with status {response.status_code}")
+            print(f"PDL enrichment failed with status {response.status_code}, trying Apify fallback")
             print(f"Response: {response.text[:500]}")
-            return None
+            return _apify_fallback_enrich(linkedin_url)
 
     except requests.exceptions.Timeout:
-        print(f"PDL API timeout for {linkedin_url}")
-        return None
+        print(f"PDL API timeout for {linkedin_url}, trying Apify fallback")
+        return _apify_fallback_enrich(linkedin_url)
     except Exception as e:
         print(f"LinkedIn enrichment error: {e}")
         import traceback

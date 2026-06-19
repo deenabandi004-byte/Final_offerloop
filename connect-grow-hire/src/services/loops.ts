@@ -136,6 +136,10 @@ export interface Loop {
   // but with no visual cue).
   cycleRunning?: boolean;
   cycleStartedAt?: string | null;
+  // Persisted by loop_jobs when a cycle crashes outside the planner path.
+  // Surfaced as a red "Last cycle failed" banner on LoopDetailPage; cleared
+  // by the next successful cycle.
+  lastCycleError?: string | null;
 }
 
 export interface CycleCostEstimate {
@@ -225,6 +229,22 @@ export interface LoopActivityItem {
    *  Absent on non-draft items and on legacy drafts written before
    *  agent_actions started persisting it. */
   email?: string;
+  /** Contact's display name. Present on draft rows so the editorial
+   *  list can lead with the person, not the email subject. Absent on
+   *  legacy drafts written before this field was added. */
+  contactName?: string;
+  /** Firestore contact doc id. Used to deep-link a draft row into
+   *  /my-network/people?contact=<id>. Absent when the action ran
+   *  before agent_actions started persisting it. */
+  contactId?: string;
+  /** Original email subject for draft rows. Preserved separately now
+   *  that `title` carries the contact's name. */
+  emailSubject?: string;
+  /** Per-row phase for draft items, computed by the backend from the
+   *  live contact doc: "replied" once a reply lands, "sent" after the
+   *  email went out, "drafted" otherwise. Drives the colored dot in the
+   *  drafts list — replaces the hardcoded "SENT" stamp. */
+  state?: "drafted" | "sent" | "replied";
   createdAt: string;
   /** Pairs a job posting with its founder-draft sub-card in the activity
    *  feed. Items that share a groupKey render as a hierarchy (job primary,

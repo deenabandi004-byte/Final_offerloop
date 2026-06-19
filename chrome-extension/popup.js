@@ -2,7 +2,7 @@
 console.log('[Offerloop Popup] Loaded');
 
 // API Configuration
-const API_BASE_URL = 'https://final-offerloop.onrender.com';
+const API_BASE_URL = 'https://offerloop.ai';
 
 // Shared job URL patterns — used by detectMode() and isJobUrl()
 const JOB_URL_PATTERNS = [
@@ -756,6 +756,7 @@ let currentState = {
   linkedInUrl: null,
   isProfilePage: false,
   credits: null,
+  coffeeChatCost: null,
   user: null,
 };
 
@@ -786,22 +787,28 @@ function initElements() {
 // COFFEE CHAT PREP WORKFLOW (aligned with website)
 // ============================================
 
-const COFFEE_CHAT_CREDITS = 15; // Must match backend config
+// Fallback used only until /check-credits returns the live cost from the server.
+const COFFEE_CHAT_CREDITS_FALLBACK = 15;
 let coffeeChatPollInterval = null;
+
+function getCoffeeChatCost() {
+  return currentState.coffeeChatCost || COFFEE_CHAT_CREDITS_FALLBACK;
+}
 
 function updateCoffeeChatButtonState() {
   const btn = document.getElementById('coffeeChatBtn');
   const hint = document.getElementById('coffeeChatHint');
   const credits = currentState.credits;
-  const hasEnough = credits !== null && credits !== undefined && credits >= COFFEE_CHAT_CREDITS;
+  const cost = getCoffeeChatCost();
+  const hasEnough = credits !== null && credits !== undefined && credits >= cost;
   if (btn) {
     btn.disabled = !hasEnough;
-    btn.title = hasEnough ? '' : `Need ${COFFEE_CHAT_CREDITS} credits. Check Account Settings for resume.`;
+    btn.title = hasEnough ? '' : `Need ${cost} credits. Check Account Settings for resume.`;
   }
   if (hint) {
     hint.textContent = hasEnough
-      ? `Uses ${COFFEE_CHAT_CREDITS} credits • PDF saved to Library`
-      : `Need ${COFFEE_CHAT_CREDITS} credits • Upload resume in Account Settings`;
+      ? `Uses ${cost} credits • PDF saved to Library`
+      : `Need ${cost} credits • Upload resume in Account Settings`;
     hint.className = hasEnough ? 'coffee-chat-hint' : 'coffee-chat-hint coffee-chat-hint-disabled';
   }
 }
@@ -829,9 +836,10 @@ async function handleCoffeeChatPrep() {
   
   // Pre-flight: check credits (match website)
   const credits = currentState.credits;
-  if (credits === null || credits === undefined || credits < COFFEE_CHAT_CREDITS) {
+  const cost = getCoffeeChatCost();
+  if (credits === null || credits === undefined || credits < cost) {
     showCoffeeChatError(
-      `You need ${COFFEE_CHAT_CREDITS} credits to generate a coffee chat prep. ` +
+      `You need ${cost} credits to generate a coffee chat prep. ` +
       (credits != null ? `You have ${credits} credits.` : 'Check your balance in Account Settings.')
     );
     return;
@@ -1512,6 +1520,14 @@ async function checkAndShowContent() {
           _creditsCacheTime = now;
           chrome.storage.local.set({ credits: creditsResponse.credits });
         }
+        if (creditsResponse.creditCosts) {
+          const cost = creditsResponse.creditCosts.coffee_chat_prep;
+          if (typeof cost === 'number' && cost > 0) {
+            currentState.coffeeChatCost = cost;
+            chrome.storage.local.set({ coffeeChatCost: cost });
+            updateCoffeeChatButtonState();
+          }
+        }
       } catch (error) {
         console.error('[Offerloop Popup] Error fetching credits:', error);
       }
@@ -1522,10 +1538,11 @@ async function checkAndShowContent() {
 // Load auth state from Chrome storage
 async function loadAuthState() {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['authToken', 'isLoggedIn', 'credits', 'userEmail', 'userName', 'userPhoto'], (result) => {
+    chrome.storage.local.get(['authToken', 'isLoggedIn', 'credits', 'userEmail', 'userName', 'userPhoto', 'coffeeChatCost'], (result) => {
       currentState.authToken = result.authToken || null;
       currentState.isLoggedIn = result.isLoggedIn || false;
       currentState.credits = result.credits || null;
+      currentState.coffeeChatCost = result.coffeeChatCost || null;
       currentState.userEmail = result.userEmail || null;
       currentState.userName = result.userName || null;
       currentState.userPhoto = result.userPhoto || null;
@@ -1578,7 +1595,7 @@ async function init() {
   // Check if already logged in
   if (currentState.isLoggedIn && currentState.authToken) {
     console.log('[Offerloop Popup] Already signed in:', currentState.userEmail);
-    
+
     // Proactively refresh token to avoid expired token errors
     const freshToken = await refreshAuthToken();
     if (!freshToken) {

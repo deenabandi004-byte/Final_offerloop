@@ -21,6 +21,7 @@ import {
   Reply,
   RotateCw,
   Trash2,
+  UserRound,
   Users,
 } from "lucide-react";
 import { AppSidebar } from "@/components/AppSidebar";
@@ -97,6 +98,15 @@ function daysRunning(iso: string | null): number {
   return Math.max(1, days + 1);
 }
 
+// Loop-found contact names land lowercase from the upstream feed
+// ("prashant tatineni"). Title-case at display time — the contact doc
+// itself stays untouched. Word boundary catches spaces, hyphens, and
+// apostrophes so "o'brien" → "O'Brien" and "mary-jane" → "Mary-Jane".
+function titleCaseName(s: string): string {
+  if (!s) return s;
+  return s.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
+}
+
 const TYPE_LABEL: Record<LoopActivityType, string> = {
   contact: "Person",
   draft: "Email draft",
@@ -158,52 +168,6 @@ function CoBadge({ name, size = 30 }: { name: string; size?: number }) {
   );
 }
 
-// ── Quiet editorial status tag — dot + mono small-caps ──────────────────────
-
-type StatusKind = "sent" | "replied" | "meeting";
-const STATUS_META: Record<StatusKind, { label: string; color: string; win: boolean }> = {
-  sent: { label: "Sent", color: "var(--ink-3)", win: false },
-  replied: { label: "Replied", color: "var(--action-fg)", win: true },
-  meeting: { label: "Call booked", color: "var(--action-fg)", win: true },
-};
-
-function StatusTag({ status, align = "left" }: { status: StatusKind; align?: "left" | "right" }) {
-  const s = STATUS_META[status] || STATUS_META.sent;
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 7,
-        flexDirection: align === "right" ? "row-reverse" : "row",
-      }}
-    >
-      <span
-        style={{
-          width: 6,
-          height: 6,
-          borderRadius: 999,
-          background: s.color,
-          flexShrink: 0,
-          boxShadow: s.win ? "0 0 0 3px rgba(224,122,62,0.16)" : "none",
-        }}
-      />
-      <span
-        style={{
-          fontFamily: MONO,
-          fontSize: 10.5,
-          letterSpacing: "0.11em",
-          textTransform: "uppercase",
-          fontWeight: 600,
-          color: s.win ? "var(--ink-2)" : "var(--ink-3)",
-        }}
-      >
-        {s.label}
-      </span>
-    </span>
-  );
-}
-
 // ── Spinner — for the running narration row ─────────────────────────────────
 
 function Spinner({ size = 15 }: { size?: number }) {
@@ -235,6 +199,7 @@ export default function LoopDetailPage() {
   const runNowMut = useRunLoopNow();
   const deleteMut = useDeleteLoop();
   const markReviewedMut = useMarkLoopReviewed();
+  const updateMut = useUpdateLoop();
 
   const loop = query.data;
 
@@ -345,10 +310,82 @@ export default function LoopDetailPage() {
                         border: "1px solid #fde68a",
                       }}
                     >
-                      {loopCopy(loop.loopMode ?? "people", { autoSendMode: loop.autoSendMode })
-                        .pauseReason[loop.pauseReason] ||
-                        loopCopy(loop.loopMode ?? "people", { autoSendMode: loop.autoSendMode })
-                          .pauseReason.paused}
+                      {(loopCopy(loop.loopMode ?? "people", { autoSendMode: loop.autoSendMode })
+                        .pauseReason as Record<string, string>)[loop.pauseReason] ||
+                        `Paused — ${String(loop.pauseReason).replace(/_/g, " ")}.`}
+                    </div>
+                  )}
+
+                  {/* Last-cycle error banner. The cycle crashes in a worker
+                      thread/process after the API has already returned 200,
+                      so the runNow toast never fires for the real failure.
+                      Persistent banner makes the silent state visible and
+                      gives a one-click retry. Cleared automatically on the
+                      next clean cycle (loop_jobs writes DELETE_FIELD), or
+                      manually via Dismiss. */}
+                  {loop.lastCycleError && (
+                    <div
+                      className="mt-5 rounded-lg p-3.5 text-[13px] leading-snug flex items-start gap-3"
+                      style={{
+                        background: "#fef2f2",
+                        color: "#991b1b",
+                        border: "1px solid #fecaca",
+                      }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, marginBottom: 3 }}>
+                          Last cycle failed.
+                        </div>
+                        <div
+                          style={{
+                            fontFamily: MONO,
+                            fontSize: 11.5,
+                            color: "#7f1d1d",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {loop.lastCycleError}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() =>
+                          runNowMut
+                            .mutateAsync(loop.id)
+                            .then(() => toast({ title: "Running it again now." }))
+                            .catch((e) =>
+                              toast({
+                                title: LOOP_COPY.toasts.somethingBroke,
+                                description: (e as Error).message,
+                                variant: "destructive",
+                              })
+                            )
+                        }
+                        disabled={runNowMut.isPending}
+                        className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+                        style={{ background: "#991b1b", color: "white" }}
+                      >
+                        {runNowMut.isPending ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <RotateCw className="h-3 w-3" />
+                        )}
+                        Try again
+                      </button>
+                      <button
+                        onClick={() =>
+                          updateMut.mutateAsync({
+                            loopId: loop.id,
+                            patch: { lastCycleError: null },
+                          })
+                        }
+                        disabled={updateMut.isPending}
+                        className="text-[12px] underline underline-offset-2 transition-opacity hover:opacity-80 disabled:opacity-50"
+                        style={{ color: "#7f1d1d" }}
+                      >
+                        Dismiss
+                      </button>
                     </div>
                   )}
 
@@ -474,9 +511,17 @@ function LoopHero({
   onStart: () => void;
   busy: { start: boolean; pause: boolean; resume: boolean };
 }) {
-  const isRunning = loop.status === "running";
-  const isPaused = loop.status === "paused";
-  const isIdle = loop.status === "idle";
+  const isErrored = !!loop.lastCycleError;
+  // status drives the underlying state machine, but the user-facing phase
+  // also pulls in lastCycleError so a crashed Loop reads as "Errored"
+  // instead of the ambiguous "idle" it ends up in after a generic crash.
+  const isRunning = loop.status === "running" && !isErrored;
+  const isPaused = loop.status === "paused" && !isErrored;
+  // Autopilot loops finish a cycle in "done" — treat them the same as
+  // "idle" for hero-button purposes so the user can re-run from here.
+  // Without this, a completed autopilot Loop shows no Start button at all.
+  const isIdle =
+    !isErrored && (loop.status === "idle" || loop.status === "done");
 
   // Narration cycles through the last few activity items, formatted as
   // short past-tense lines. Falls back to a steady message when nothing
@@ -492,13 +537,15 @@ function LoopHero({
 
   const [line, lineIndex] = useCycle(narrationLines, 2600);
 
-  const statusKicker = isRunning
-    ? `Loop ${loop.shortCode} · live now`
-    : isPaused
-      ? `Loop ${loop.shortCode} · paused`
-      : isIdle
-        ? `Loop ${loop.shortCode} · idle`
-        : `Loop ${loop.shortCode}`;
+  const statusKicker = isErrored
+    ? `Loop ${loop.shortCode} · cycle failed`
+    : isRunning
+      ? `Loop ${loop.shortCode} · live now`
+      : isPaused
+        ? `Loop ${loop.shortCode} · paused`
+        : isIdle
+          ? `Loop ${loop.shortCode} · ready`
+          : `Loop ${loop.shortCode}`;
 
   // Cadence / last-fired / next-fire line. Surfaces data the user previously
   // had no way to see (nextRunAt, lastRunAt, cadence all live in Firestore
@@ -639,11 +686,13 @@ function LoopHero({
               width: 8,
               height: 8,
               borderRadius: 999,
-              background: isRunning
-                ? "var(--action-fg)"
-                : isPaused
-                  ? "var(--signal-wait)"
-                  : "var(--ink-3)",
+              background: isErrored
+                ? "#dc2626"
+                : isRunning
+                  ? "var(--action-fg)"
+                  : isPaused
+                    ? "var(--signal-wait)"
+                    : "var(--ink-3)",
               animation: isRunning ? "rLivePulse 1.8s ease-out infinite" : undefined,
             }}
           />
@@ -673,7 +722,11 @@ function LoopHero({
             color: "var(--heading)",
           }}
         >
-          {isRunning ? (
+          {isErrored ? (
+            <>
+              Stuck — <em style={{ fontStyle: "italic", color: "#dc2626" }}>let's look at it.</em>
+            </>
+          ) : isRunning ? (
             <>
               Out there working <em style={{ fontStyle: "italic", color: "var(--accent)" }}>for you.</em>
             </>
@@ -906,7 +959,7 @@ function EmailsSection({ items, loop }: { items: LoopActivityItem[]; loop: Loop 
   return (
     <div style={{ marginTop: 36 }}>
       <SectionHead
-        kicker="01 · Already out the door"
+        kicker={copy.overview.mailKicker}
         title={copy.overview.mailTitle}
         italic={copy.overview.mailItalic}
         right={
@@ -959,19 +1012,25 @@ function EmailRow({
   index: number;
   last: boolean;
 }) {
-  // Subtitle is typically "Role · Company" or "Subject — Company" — we
-  // surface it as the secondary line. Real per-contact reply status isn't
-  // in the per-Loop feed yet; everything reads as "Sent" until the
-  // backend joins reply state into the activity stream.
-  const linkProps = item.external
-    ? { href: item.linkTo, target: "_blank" as const, rel: "noreferrer" }
-    : null;
-  const inner = (
+  // The row's leading slot is the contact's display name; the email
+  // address sits underneath in monospace. Two explicit action buttons
+  // on the right send the user to either the actual Gmail draft/thread
+  // or to that contact's row in /my-network/people — the whole-row
+  // click target is gone so the two destinations are unambiguous.
+  const name = titleCaseName(item.contactName || item.title);
+  const email = item.email || item.subtitle || "";
+  const draftHref = item.linkTo;
+  const draftExternal = !!item.external;
+  const networkHref = item.contactId
+    ? `/my-network/people?contact=${encodeURIComponent(item.contactId)}`
+    : "/my-network/people";
+
+  return (
     <div
       style={{
         display: "flex",
         gap: 18,
-        alignItems: "flex-start",
+        alignItems: "center",
         padding: "16px 14px",
         margin: "0 -10px",
         borderRadius: 10,
@@ -998,37 +1057,41 @@ function EmailRow({
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 9,
-            flexWrap: "wrap",
-            marginBottom: 4,
+            gap: 8,
+            marginBottom: 3,
+            minWidth: 0,
           }}
         >
+          <StateDot state={item.state} />
           <span
             style={{
-              fontSize: 14.5,
+              fontSize: 15,
               fontWeight: 600,
               color: "var(--ink)",
               letterSpacing: "-0.01em",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              minWidth: 0,
             }}
           >
-            {item.title}
+            {name}
           </span>
         </div>
-        {item.subtitle && (
-          <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 0 }}>
-            <Mail size={13} style={{ color: "var(--ink-3)" }} />
+        {email && (
+          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+            <Mail size={12} style={{ color: "var(--ink-3)", flexShrink: 0 }} />
             <span
               style={{
                 fontFamily: MONO,
-                fontSize: 12.5,
-                color: "var(--accent)",
-                fontWeight: 500,
+                fontSize: 12,
+                color: "var(--ink-3)",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
               }}
             >
-              {item.subtitle}
+              {email}
             </span>
           </div>
         )}
@@ -1036,29 +1099,147 @@ function EmailRow({
       <div
         style={{
           display: "flex",
-          flexDirection: "column",
-          alignItems: "flex-end",
-          gap: 8,
+          alignItems: "center",
+          gap: 6,
           flexShrink: 0,
         }}
       >
-        <StatusTag status="sent" align="right" />
-        <span style={{ fontSize: 11, color: "var(--ink-3)" }}>
+        <EmailRowButton
+          icon={<Mail size={13} />}
+          label={
+            item.state === "sent" || item.state === "replied" ? "Thread" : "Email Draft"
+          }
+          href={draftHref}
+          external={draftExternal}
+          variant="primary"
+        />
+        <EmailRowButton
+          icon={<UserRound size={13} />}
+          label="Contact"
+          href={networkHref}
+          external={false}
+          variant="ghost"
+        />
+        <span
+          style={{
+            fontSize: 11,
+            color: "var(--ink-3)",
+            marginLeft: 4,
+            minWidth: 44,
+            textAlign: "right",
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
           {relativeTime(item.createdAt)}
         </span>
       </div>
     </div>
   );
-  return linkProps ? (
-    <a {...linkProps} style={{ display: "block", textDecoration: "none", color: "inherit" }}>
-      {inner}
-    </a>
-  ) : (
-    <Link
-      to={item.linkTo}
-      style={{ display: "block", textDecoration: "none", color: "inherit" }}
+}
+
+function StateDot({ state }: { state?: "drafted" | "sent" | "replied" }) {
+  // Per-row phase chip on draft list rows. Replaces the old hardcoded "SENT"
+  // stamp — drives off the backend-computed state field, so a row reads as
+  // Drafted / Sent / Replied based on the live contact doc.
+  const meta =
+    state === "replied"
+      ? { dot: "#16a34a", label: "Replied", fg: "#15803d", bg: "rgba(22,163,74,0.10)" }
+      : state === "sent"
+        ? { dot: "var(--ink-3)", label: "Sent", fg: "var(--ink-2)", bg: "rgba(91,119,153,0.08)" }
+        : { dot: "var(--accent)", label: "Drafted", fg: "var(--accent)", bg: "rgba(224,122,62,0.10)" };
+  return (
+    <span
+      title={meta.label}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        padding: "2px 7px 2px 6px",
+        borderRadius: 999,
+        background: meta.bg,
+        flexShrink: 0,
+      }}
     >
-      {inner}
+      <span
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: 999,
+          background: meta.dot,
+          flexShrink: 0,
+        }}
+      />
+      <span
+        style={{
+          fontFamily: MONO,
+          fontSize: 9.5,
+          letterSpacing: "0.1em",
+          textTransform: "uppercase",
+          fontWeight: 600,
+          color: meta.fg,
+        }}
+      >
+        {meta.label}
+      </span>
+    </span>
+  );
+}
+
+function EmailRowButton({
+  icon,
+  label,
+  href,
+  external,
+  variant,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  href: string;
+  external: boolean;
+  variant: "primary" | "ghost";
+}) {
+  const isPrimary = variant === "primary";
+  const style: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    padding: "6px 10px",
+    borderRadius: 8,
+    fontSize: 12,
+    fontWeight: 500,
+    lineHeight: 1,
+    textDecoration: "none",
+    border: "1px solid",
+    borderColor: isPrimary ? "var(--ink)" : "var(--line)",
+    background: isPrimary ? "var(--ink)" : "#fff",
+    color: isPrimary ? "#fff" : "var(--ink-2)",
+    transition: "opacity .15s ease, background-color .15s ease",
+  };
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
+  if (external) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        onClick={stop}
+        style={style}
+        className={isPrimary ? "hover:opacity-90" : "hover:bg-[var(--paper-2)]"}
+      >
+        {icon}
+        {label}
+      </a>
+    );
+  }
+  return (
+    <Link
+      to={href}
+      onClick={stop}
+      style={style}
+      className={isPrimary ? "hover:opacity-90" : "hover:bg-[var(--paper-2)]"}
+    >
+      {icon}
+      {label}
     </Link>
   );
 }
@@ -1071,7 +1252,7 @@ function RepliesSection({ loop }: { loop: Loop }) {
   const total = loop.totalRepliesReceived;
   return (
     <div style={{ marginTop: 38 }}>
-      <SectionHead kicker="02 · Waiting on you" title="Replies" italic="that landed." />
+      <SectionHead kicker="Waiting on you" title="Replies" italic="that landed." />
       {total === 0 ? (
         <div
           style={{

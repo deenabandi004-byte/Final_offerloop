@@ -641,7 +641,7 @@ export const JobBoardPage: React.FC = () => {
                   {([
                     { id: "discover", label: "Discover", count: sections.recent.length + sections.recommended.length, dot: false },
                     { id: "saved", label: "Saved", count: savedJobs.length, dot: false },
-                    { id: "auto-submission", label: "Auto-submission", count: 0, dot: false },
+                    { id: "auto-submission", label: "Submissions", count: 0, dot: false },
                     // Notification dot when there's actually work waiting on the user.
                     { id: "needs-attention", label: "Needs attention", count: needsAttentionCount, dot: needsAttentionCount > 0 },
                     // Finish-in-browser is now rare (the email-code path handles

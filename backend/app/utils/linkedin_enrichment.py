@@ -178,6 +178,9 @@ def _try_pdl(url: str) -> tuple[dict | None, str]:
     return None, ""
 
 
+# DEPRECATED — replaced by _try_apify on 2026-06-18. Kept for one revision
+# so a quick git revert can flip back if Apify has an outage. Will be
+# deleted in the next cleanup pass once Apify proves stable in prod.
 def _try_brightdata(url: str) -> tuple[dict | None, str]:
     try:
         try:
@@ -245,13 +248,17 @@ def get_enrichment_tiers(prefer_scrape: bool = False):
     Exposed so callers can loop through and validate the LLM-structured output
     of each tier, falling through if a tier returns content the LLM can't parse.
 
-    User-LinkedIn onboarding (prefer_scrape=True) uses Apify -> PDL: Firecrawl
-    is policy-blocked from LinkedIn and Bright Data was both expensive and
-    broken. The contact-search path (prefer_scrape=False) is unaffected.
+    Both paths now route through Apify after PDL. Bright Data and Jina are
+    deprecated (see comments on _try_brightdata / _try_jina); Firecrawl is
+    policy-blocked from LinkedIn. Apify is the single scraping vendor for
+    LinkedIn going forward.
+
+    - prefer_scrape=True  (user-LinkedIn onboarding): Apify → PDL
+    - prefer_scrape=False (contact-search enrichment):  PDL  → Apify
     """
     if prefer_scrape:
         return [_try_apify, _try_pdl]
-    return [_try_pdl, _try_brightdata]
+    return [_try_pdl, _try_apify]
 
 
 def enrich_linkedin_with_fallback(
@@ -628,7 +635,12 @@ def llm_enrich_profile(raw_data: dict, source: str) -> dict:
         elif source == "firecrawl":
             system_prompt = LLM_PROMPT_FIRECRAWL
         else:
-            # Covers "brightdata" (legacy) and "apify" (D9 user-onboarding path).
+            # Covers "brightdata" (deprecated 2026-06-18) and "apify" (now
+            # the primary scrape source for both user-onboarding and
+            # contact-search paths). HarvestAPI's LinkedIn JSON shape is
+            # close enough to Bright Data's that the BRIGHTDATA prompt
+            # extracts cleanly; if the actor swaps to a wildly different
+            # shape, add a dedicated LLM_PROMPT_APIFY here.
             system_prompt = LLM_PROMPT_BRIGHTDATA
 
         # Build the source-data payload string

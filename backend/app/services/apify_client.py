@@ -34,15 +34,16 @@ APIFY_MAX_POSTS_PER_PROFILE = 5
 # actor naming shifts. Default stays in the same Apify org as the posts actor
 # we already use, which makes auth / quotas / billing one surface.
 APIFY_USER_PROFILE_ACTOR_ID = os.getenv(
-    "APIFY_USER_PROFILE_ACTOR_ID", "harvestapi~linkedin-profile"
+    "APIFY_USER_PROFILE_ACTOR_ID", "harvestapi~linkedin-profile-scraper"
 )
 APIFY_USER_PROFILE_URL = (
     f"https://api.apify.com/v2/acts/{APIFY_USER_PROFILE_ACTOR_ID}"
     "/run-sync-get-dataset-items"
 )
-# Onboarding gates on this call — long timeouts hurt the funnel, so cap below
-# the contact-posts timeout. Onboarding still falls back to PDL on timeout.
-APIFY_USER_PROFILE_TIMEOUT_S = 60
+# Full mode on harvestapi/linkedin-profile-scraper runs 10-30s typical, up to
+# 60s under load (per Apify docs). 90s gives headroom without parking the
+# coffee-chat thread forever on a single bad profile.
+APIFY_USER_PROFILE_TIMEOUT_S = 90
 
 
 def _canonicalize_linkedin_url(url: str) -> str:
@@ -421,3 +422,196 @@ def enrich_user_linkedin_posts_via_apify(
     except Exception as e:
         logger.error(f"[Apify] User-posts unexpected error: {e}", exc_info=True)
         return []
+
+
+# ── LinkedIn jobs + company actors ───────────────────────────────────────
+#
+# These wrappers exist so firecrawl_client.extract_job_posting and
+# extract_company_profile can transparently delegate to Apify when the URL
+# is on linkedin.com — Firecrawl 404s ("WebsiteNotSupportedError") on
+# every LinkedIn page. Each wrapper returns the same dict shape as its
+# Firecrawl counterpart so call sites don't change.
+#
+# Actor IDs are overridable via env so an operator can swap actors without
+# a code change. Defaults are the best-documented LinkedIn actors as of
+# 2026: curious_coder for jobs, HarvestAPI for company.
+
+APIFY_LINKEDIN_JOB_ACTOR_ID = os.getenv(
+    "APIFY_LINKEDIN_JOB_ACTOR_ID", "curious_coder~linkedin-jobs-scraper"
+)
+APIFY_LINKEDIN_JOB_URL = (
+    f"https://api.apify.com/v2/acts/{APIFY_LINKEDIN_JOB_ACTOR_ID}"
+    "/run-sync-get-dataset-items"
+)
+APIFY_LINKEDIN_JOB_TIMEOUT_S = 60
+
+APIFY_LINKEDIN_COMPANY_ACTOR_ID = os.getenv(
+    "APIFY_LINKEDIN_COMPANY_ACTOR_ID", "harvestapi~linkedin-company"
+)
+APIFY_LINKEDIN_COMPANY_URL = (
+    f"https://api.apify.com/v2/acts/{APIFY_LINKEDIN_COMPANY_ACTOR_ID}"
+    "/run-sync-get-dataset-items"
+)
+APIFY_LINKEDIN_COMPANY_TIMEOUT_S = 60
+
+
+def _first_dict(items) -> dict:
+    """Return the first non-empty dict from a list, or {}."""
+    if not isinstance(items, list):
+        return {}
+    for it in items:
+        if isinstance(it, dict) and it:
+            return it
+    return {}
+
+
+def _pick(d: dict, *keys, default=None):
+    """Return the first present, truthy value among `keys` in d."""
+    for k in keys:
+        v = d.get(k)
+        if v:
+            return v
+    return default
+
+
+@meter_call("apify", "linkedin_job")
+def enrich_linkedin_job_via_apify(url: str) -> dict:
+    """Scrape a single LinkedIn job posting via Apify.
+
+    Returns dict matching firecrawl_client.extract_job_posting's shape:
+    title, company, location, salary_range, requirements, nice_to_have,
+    responsibilities, team_or_department, hiring_manager,
+    application_deadline, experience_level, employment_type.
+
+    Empty dict on any failure — call site already proceeds without
+    enrichment when Firecrawl returns {}.
+    """
+    if not APIFY_API_KEY:
+        logger.warning("[Apify] APIFY_API_KEY not set; cannot scrape LinkedIn job")
+        return {}
+    if not url:
+        return {}
+
+    try:
+        logger.info(
+            f"[Apify] LinkedIn job scrape via {APIFY_LINKEDIN_JOB_ACTOR_ID}: {url}"
+        )
+        response = requests.post(
+            APIFY_LINKEDIN_JOB_URL,
+            params={"token": APIFY_API_KEY},
+            headers={"Content-Type": "application/json"},
+            # Send several common input shapes; actors ignore unknown keys.
+            # `startUrls` is the Apify convention for URL-driven actors;
+            # `urls` and `jobUrls` cover variant schemas we've seen.
+            json={
+                "startUrls": [{"url": url}],
+                "urls": [url],
+                "jobUrls": [url],
+            },
+            timeout=APIFY_LINKEDIN_JOB_TIMEOUT_S,
+        )
+        if response.status_code not in (200, 201):
+            logger.warning(
+                f"[Apify] LinkedIn job HTTP {response.status_code}: "
+                f"{response.text[:300]}"
+            )
+            return {}
+
+        item = _first_dict(response.json())
+        if not item:
+            return {}
+
+        # Adapt to firecrawl_client.extract_job_posting's shape. Field
+        # names vary per actor; coalesce common variants.
+        return {
+            "title": _pick(item, "title", "jobTitle", "job_title", default=""),
+            "company": _pick(item, "company", "companyName", "company_name", default=""),
+            "location": _pick(item, "location", "jobLocation", default=""),
+            "salary_range": _pick(item, "salary_range", "salaryRange", "salary", default=""),
+            "requirements": _pick(item, "requirements", "qualifications", default=[]),
+            "nice_to_have": _pick(item, "nice_to_have", "niceToHave", "preferred", default=[]),
+            "responsibilities": _pick(
+                item, "responsibilities", "duties", "jobDescription", "description", default=[]
+            ),
+            "team_or_department": _pick(item, "team_or_department", "team", "department", default=""),
+            "hiring_manager": _pick(item, "hiring_manager", "hiringManager", "recruiter", default=""),
+            "application_deadline": _pick(item, "application_deadline", "deadline", "expiresAt", default=""),
+            "experience_level": _pick(item, "experience_level", "experienceLevel", "seniorityLevel", default=""),
+            "employment_type": _pick(item, "employment_type", "employmentType", "type", default=""),
+        }
+    except requests.Timeout:
+        logger.warning("[Apify] LinkedIn job request timed out")
+        return {}
+    except requests.RequestException as e:
+        logger.warning(f"[Apify] LinkedIn job request error: {e}")
+        return {}
+    except Exception as e:
+        logger.warning(f"[Apify] LinkedIn job unexpected error: {e}", exc_info=True)
+        return {}
+
+
+@meter_call("apify", "linkedin_company")
+def enrich_linkedin_company_via_apify(url: str) -> dict:
+    """Scrape a single LinkedIn company page via Apify (HarvestAPI).
+
+    Returns dict matching firecrawl_client.extract_company_profile's
+    shape: name, description, headquarters, employee_count, founded,
+    industries, culture_keywords, careers_url, leadership, recent_news.
+
+    Empty dict on any failure.
+    """
+    if not APIFY_API_KEY:
+        logger.warning("[Apify] APIFY_API_KEY not set; cannot scrape LinkedIn company")
+        return {}
+    if not url:
+        return {}
+
+    try:
+        logger.info(
+            f"[Apify] LinkedIn company scrape via {APIFY_LINKEDIN_COMPANY_ACTOR_ID}: {url}"
+        )
+        response = requests.post(
+            APIFY_LINKEDIN_COMPANY_URL,
+            params={"token": APIFY_API_KEY},
+            headers={"Content-Type": "application/json"},
+            json={
+                "startUrls": [{"url": url}],
+                "companyUrls": [url],
+                "urls": [url],
+            },
+            timeout=APIFY_LINKEDIN_COMPANY_TIMEOUT_S,
+        )
+        if response.status_code not in (200, 201):
+            logger.warning(
+                f"[Apify] LinkedIn company HTTP {response.status_code}: "
+                f"{response.text[:300]}"
+            )
+            return {}
+
+        item = _first_dict(response.json())
+        if not item:
+            return {}
+
+        return {
+            "name": _pick(item, "name", "companyName", "company_name", default=""),
+            "description": _pick(item, "description", "about", "summary", default=""),
+            "headquarters": _pick(item, "headquarters", "hq", "location", default=""),
+            "employee_count": _pick(item, "employee_count", "employeeCount", "size", default=""),
+            "founded": _pick(item, "founded", "foundedYear", default=""),
+            "industries": _pick(item, "industries", "industry", default=[]),
+            "culture_keywords": _pick(item, "culture_keywords", "specialties", default=[]),
+            "careers_url": _pick(item, "careers_url", "careersUrl", "websiteUrl", "website", default=""),
+            "leadership": _pick(item, "leadership", "executives", default=[]),
+            # HarvestAPI company actor may not return recent_news; leave
+            # empty rather than fabricate.
+            "recent_news": _pick(item, "recent_news", "recentNews", default=[]),
+        }
+    except requests.Timeout:
+        logger.warning("[Apify] LinkedIn company request timed out")
+        return {}
+    except requests.RequestException as e:
+        logger.warning(f"[Apify] LinkedIn company request error: {e}")
+        return {}
+    except Exception as e:
+        logger.warning(f"[Apify] LinkedIn company unexpected error: {e}", exc_info=True)
+        return {}

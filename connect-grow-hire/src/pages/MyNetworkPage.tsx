@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from "react";
-import { useParams, useNavigate, Navigate } from "react-router-dom";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useParams, useNavigate, useSearchParams, Navigate } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
@@ -397,6 +397,10 @@ interface PeopleTableProps {
   groupedView: "list" | "grid";
   recencyDir: "newest" | "oldest";
   highlightSince: number;
+  // Set when arriving via /my-network/people?contact=<id> from a Loop
+  // draft row. The matching row scrolls into view and gets a one-time
+  // tint so the jump destination is unambiguous.
+  focusContactId?: string | null;
   onDelete?: (id: string) => void;
   onSaveNote?: (id: string, note: string) => void;
   // Selection is controlled by the parent so the bulk-delete pill can live
@@ -422,6 +426,7 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
   groupedView,
   recencyDir,
   highlightSince,
+  focusContactId,
   onDelete,
   onSaveNote,
   selected,
@@ -430,6 +435,13 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
   onCancelAdd,
   onSaveNew,
 }) => {
+  const focusRowRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!focusContactId) return;
+    const el = focusRowRef.current;
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focusContactId, rows]);
   const [sortCol, setSortCol] = useState<SortCol>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   // Track which row's note panel is open + the in-flight draft text. Drafts
@@ -580,6 +592,7 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
   // spot what's new at a glance. The tint replaces the normal alternating
   // background for that row.
   const rowBaseBg = (row: PersonRow, idx: number): string => {
+    if (focusContactId && row.id === focusContactId) return "rgba(224,122,62,0.12)";
     const ts = row.createdAt ? Date.parse(row.createdAt) : 0;
     if (highlightSince && ts > highlightSince) return "rgba(59,130,246,0.08)";
     return idx % 2 === 1 ? "var(--paper-2, #FAFBFF)" : "white";
@@ -589,9 +602,11 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
     const noteOpen = openNoteId === row.id;
     const draftValue = noteDrafts[row.id] ?? row.notes ?? "";
     const hasNote = !!(row.notes && row.notes.trim());
+    const isFocused = !!(focusContactId && row.id === focusContactId);
     return (
       <React.Fragment key={row.id}>
         <div
+      ref={isFocused ? focusRowRef : undefined}
       className={`grid items-center transition-colors ${
         isLast && !noteOpen ? "" : "border-b border-line-2"
       }`}
@@ -1761,9 +1776,15 @@ const FB_GROUP = "flex items-center gap-1.5";                    // a cluster of
 const MyNetworkPage: React.FC = () => {
   const { tab } = useParams<{ tab: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useFirebaseAuth();
 
   const activeTab: TabId = tab === "companies" ? "companies" : tab === "managers" ? "managers" : "people";
+
+  // Deep-link from the Loops activity feed: /my-network/people?contact=<id>
+  // opens this contact row in the People tab — PeopleTable scrolls it into
+  // view and tints it on mount so the user sees what they jumped to.
+  const focusContactId = searchParams.get("contact") || null;
 
   const [people, setPeople] = useState<PersonRow[]>([]);
   const [managers, setManagers] = useState<ManagerRow[]>([]);
@@ -2750,6 +2771,7 @@ const MyNetworkPage: React.FC = () => {
                   groupedView={peopleGroupedView}
                   recencyDir={peopleSortDir}
                   highlightSince={peopleHighlightSince}
+                  focusContactId={focusContactId}
                   selected={peopleSelected}
                   onSelectionChange={setPeopleSelected}
                   addingMode={addingPerson}

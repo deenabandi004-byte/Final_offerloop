@@ -8,7 +8,7 @@ from flask import Blueprint, request, jsonify
 from ..extensions import require_firebase_auth
 from app.services.auth import check_and_reset_credits
 from app.services.stripe_client import create_checkout_session, handle_stripe_webhook, create_portal_session, handle_checkout_completed, update_subscription_tier
-from app.config import TIER_CONFIGS
+from app.config import TIER_CONFIGS, COFFEE_CHAT_CREDITS
 from ..extensions import get_db
 
 billing_bp = Blueprint('billing', __name__, url_prefix='/api')
@@ -105,7 +105,8 @@ def check_credits():
                     'max_credits': max_credits,
                     'searches_remaining': searches_remaining,
                     'tier': tier,
-                    'user_email': user_email
+                    'user_email': user_email,
+                    'credit_costs': {'coffee_chat_prep': COFFEE_CHAT_CREDITS},
                 })
             else:
                 # User doesn't exist yet - return default free tier credits
@@ -114,16 +115,18 @@ def check_credits():
                     'max_credits': 300,
                     'searches_remaining': 20,
                     'tier': 'free',
-                    'user_email': user_email
+                    'user_email': user_email,
+                    'credit_costs': {'coffee_chat_prep': COFFEE_CHAT_CREDITS},
                 })
-        
+
         # If no Firebase, return defaults
         return jsonify({
             'credits': 0,
             'max_credits': 300,
             'searches_remaining': 0,
             'tier': 'free',
-            'user_email': user_email
+            'user_email': user_email,
+            'credit_costs': {'coffee_chat_prep': COFFEE_CHAT_CREDITS},
         })
         
     except Exception as e:

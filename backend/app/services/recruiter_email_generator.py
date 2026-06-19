@@ -141,7 +141,10 @@ def generate_recruiter_emails(
     role_type: str = "recruiter"
 ) -> List[Dict]:
     """
-    Generate personalized outreach emails for each recruiter.
+    Generate personalized outreach emails for each recruiter via the canonical
+    batch_generate_emails engine (resume + enrichment-aware + warmth-tier +
+    quality-gate-eligible). The lighter single-email engine remains available
+    as generate_single_email() for tests and as a fallback.
 
     Args:
         recruiters: List of recruiter contacts from PDL
@@ -158,37 +161,94 @@ def generate_recruiter_emails(
         List of email dictionaries with:
         - recruiter: Original recruiter data
         - to_email: Recruiter's email
+        - to_name: Recruiter's full name
         - subject: Email subject line
         - body: Email body (HTML)
         - plain_body: Email body (plain text)
+        - approach_used: legacy tag — "batch_engine" for the new path
     """
-    emails = []
-    used_approaches = []  # Track which template styles we've used
+    # Pre-filter recipients with no usable email (legacy contract)
+    eligible = []
+    for r in recruiters:
+        addr = r.get("Email") or r.get("WorkEmail")
+        if addr and addr != "Not available":
+            eligible.append(r)
+    if not eligible:
+        return []
 
-    for i, recruiter in enumerate(recruiters):
-        # Skip if no email
-        recruiter_email = recruiter.get("Email") or recruiter.get("WorkEmail")
-        if not recruiter_email or recruiter_email == "Not available":
-            continue
+    # Build user_profile from contact + resume-derived fields
+    user_profile = {
+        "name": user_contact.get("name", ""),
+        "email": user_contact.get("email", ""),
+        "phone": user_contact.get("phone", ""),
+        "linkedin": user_contact.get("linkedin", ""),
+    }
+    if isinstance(user_resume, dict):
+        for k in ("university", "major", "year", "graduationYear", "academics",
+                  "hometown", "skills", "experiences", "career_interests"):
+            if k in user_resume and k not in user_profile:
+                user_profile[k] = user_resume[k]
 
-        # Generate unique email for this recruiter
-        email_data = generate_single_email(
-            recruiter=recruiter,
-            job_title=job_title,
-            company=company,
-            job_description=job_description,
-            user_resume=user_resume,
-            user_contact=user_contact,
-            variation_index=i,
-            used_approaches=used_approaches,
-            resume_text=resume_text,
-            template_instructions=template_instructions,
-            role_type=role_type
+    # Build fit_context — the job is the anchor for a recruiter/HM email.
+    fit_context = {"job_title": job_title or "", "company": company or ""}
+    if job_description and len(job_description.strip()) > 30:
+        fit_context["pitch"] = job_description[:500]
+
+    # Both recruiter and hiring_manager use 'referral' purpose: a job-application
+    # ask is referral-shaped (resume included via PURPOSES_INCLUDE_RESUME).
+    # role_type is left as a docstring signal; the engine doesn't currently
+    # branch on it.
+    from .reply_generation import batch_generate_emails  # lazy import: avoids circular at module load
+    from .email_request_builder import build_email_gen_request
+
+    # Synthesize a minimal user_data dict so build_email_gen_request can fetch
+    # template / resumeParsed / careerInterests. The recruiter caller doesn't
+    # have the full Firestore doc; we pass user_resume in the resumeParsed slot
+    # and the explicit template_instructions in the request body override.
+    user_data_synthetic = {
+        "resumeParsed": user_resume if isinstance(user_resume, dict) else None,
+        "careerInterests": (user_resume or {}).get("career_interests", []) if isinstance(user_resume, dict) else [],
+    }
+    # Pre-resolved instructions from the caller win — pass through as a custom
+    # template override so resolve_email_template uses them verbatim.
+    template_override = {"customInstructions": template_instructions} if template_instructions else None
+
+    try:
+        email_request = build_email_gen_request(
+            contacts=eligible,
+            user_id=None,
+            user_profile=user_profile,
+            user_data=user_data_synthetic,
+            auth_display_name=user_contact.get("name", "") if isinstance(user_contact, dict) else "",
+            fit_context=fit_context,
+            template_override=template_override,
+            forced_purpose="referral",
+            resume_text=resume_text or None,
+            resume_filename=user_contact.get("resumeFileName") if isinstance(user_contact, dict) else None,
         )
+        results = batch_generate_emails(**email_request)
+    except Exception as e:
+        print(f"[RecruiterEmailGen] batch_generate_emails failed, returning []: {e}")
+        return []
 
-        if email_data:
-            emails.append(email_data)
-
+    emails = []
+    for i, recruiter in enumerate(eligible):
+        data = (results or {}).get(i) or (results or {}).get(str(i))
+        if not data:
+            continue
+        plain = data.get("plain_body") or data.get("body") or ""
+        subject = data.get("subject") or ""
+        if not (plain and subject):
+            continue
+        emails.append({
+            "recruiter": recruiter,
+            "to_email": recruiter.get("Email") or recruiter.get("WorkEmail"),
+            "to_name": f"{_normalize_name(recruiter.get('FirstName', ''))} {_normalize_name(recruiter.get('LastName', ''))}".strip(),
+            "subject": subject,
+            "body": plain_to_html(plain),
+            "plain_body": plain,
+            "approach_used": "batch_engine",
+        })
     return emails
 
 

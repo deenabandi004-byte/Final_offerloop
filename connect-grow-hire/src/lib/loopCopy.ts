@@ -116,12 +116,21 @@ export const LOOP_COPY = {
   },
 
   // ── Phase 8 — pause reasons (chip on the card, banner on detail) ────
+  // Every backend pauseReason value (loop_service.LOOP_STATUS + the
+  // jobs/scheduler-written ones in the audit table) needs a full-sentence
+  // entry here. Adding a new reason on the backend without adding copy
+  // here would fall back to a generic "Paused." with no context — the
+  // bug Sid hit with rate_limited and planner_unavailable.
   pauseReason: {
     budget_capped: "Paused — used this week's credits. Resumes Monday.",
     credits_capped: "Paused — out of credits this month.",
     inactivity: "Paused — drafts waiting. Open them so it can keep going.",
     quiet_hours: "Quiet hours — picking back up in the morning.",
     paused: "Paused.",
+    rate_limited:
+      "Paused — upstream API rate-limited 3 cycles in a row. Wait an hour, then Resume.",
+    planner_unavailable:
+      "Paused — the planner couldn't reach its model. Resume to retry, or check Settings if it persists.",
   },
 
   // ── Phase 8 — Account Settings usage breakdown ──────────────────────
@@ -182,15 +191,24 @@ export function cadenceLabel(c: LoopCadenceForCopy | undefined | null): string {
 // Distinct from LOOP_COPY.pauseReason.*, which are full sentences for banners.
 export type LoopPauseReasonForCopy =
   | "credits_capped" | "budget_capped" | "inactivity"
-  | "quiet_hours" | "paused" | null | undefined;
+  | "quiet_hours" | "paused" | "rate_limited" | "planner_unavailable"
+  | string | null | undefined;
 export function pauseReasonLabel(r: LoopPauseReasonForCopy): string {
   switch (r) {
     case "budget_capped": return "weekly budget hit";
     case "credits_capped": return "monthly credits low";
     case "inactivity": return "drafts waiting";
     case "quiet_hours": return "quiet hours";
+    case "rate_limited": return "rate-limited";
+    case "planner_unavailable": return "planner offline";
     case "paused":
-    default: return "paused";
+    case null:
+    case undefined:
+      return "paused";
+    default:
+      // Surface unknown reasons verbatim so a new backend value is at least
+      // diagnosable instead of silently rendering "paused".
+      return String(r).replace(/_/g, " ");
   }
 }
 // Mirror of services/loops.ts LoopAutoSendMode. Duplicated locally to keep
@@ -274,12 +292,14 @@ export function loopCopy(
         : isApprove
           ? "waiting on you"
           : "drafts ready",
-      // Section #1 — "Today's mail / Drafts ready for review."
+      // Section kicker — "Today's mail / Drafts ready for review."
+      // Rows are already numbered (01, 02, …) so the leading "01 ·" on
+      // the kicker doubled up visually with the row index.
       mailKicker: isSend
-        ? "01 · Already out"
+        ? "Already out"
         : isApprove
-          ? "01 · Needs your okay"
-          : "01 · Today's mail",
+          ? "Needs your okay"
+          : "Today's mail",
       mailTitle: isSend ? "Emails" : isApprove ? "Holds" : "Drafts",
       mailItalic: isSend
         ? "out the door."

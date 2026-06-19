@@ -71,6 +71,7 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
     later we'll need a cycle-level guard.
     """
     import uuid as _uuid
+    from firebase_admin import firestore as _fs
     from google.cloud.firestore_v1 import Increment
 
     from app.extensions import get_db
@@ -153,11 +154,17 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
                 loop_ref.update({
                     "status": "paused",
                     "pauseReason": "planner_unavailable",
+                    "lastCycleError": _fs.DELETE_FIELD,
                 })
             else:
+                # Generic crash: surface via the lastCycleError banner, not
+                # via pauseReason — a crashed Loop is "Errored", not "Paused".
+                # Clear any stale pauseReason so the user sees one canonical
+                # phase (Errored) instead of "Paused" + an unrelated reason.
                 loop_ref.update({
                     "status": "idle",
                     "lastCycleError": str(cycle_err)[:300],
+                    "pauseReason": _fs.DELETE_FIELD,
                 })
         except Exception:
             pass
@@ -247,6 +254,11 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
         # the cycle if the final update lands.
         "cycleRunning": False,
         "cycleStartedAt": None,
+        # A clean cycle wipes any prior pause reason / error banner the user
+        # might still see on the detail page. The rate-limit branch below
+        # re-sets pauseReason if we're tripping the 3-strike threshold.
+        "pauseReason": _fs.DELETE_FIELD,
+        "lastCycleError": _fs.DELETE_FIELD,
     }
 
     # Rate-limit 3-strike: if THIS cycle hit a rate limit anywhere, bump the

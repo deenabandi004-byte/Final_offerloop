@@ -417,6 +417,15 @@ const CoffeeChatPrepPage: React.FC = () => {
               return;
             }
 
+            // Backend marks doc status=failed (e.g. PDL enrichment whiffed,
+            // Perplexity timed out). Without this check the poll would keep
+            // running for the full maxPolls window (~10 min) before giving up.
+            if ('status' in statusResult && (statusResult as any).status === 'failed') {
+              stopped = true;
+              reject(new Error((statusResult as any).error || 'Generation failed'));
+              return;
+            }
+
             handleStatusUpdate(statusResult);
             // Reset interval on success
             pollInterval = 3000;

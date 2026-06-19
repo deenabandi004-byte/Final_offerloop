@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime, timezone, timedelta
+from urllib.parse import quote_plus
 
 from app.config import TIER_CONFIGS
 from app.extensions import get_db
@@ -672,6 +673,12 @@ def get_loop_activity(uid: str, loop_id: str, limit: int = 50) -> list[dict]:
         # subject and write the URL back to the contact doc so future
         # clicks land on the exact draft.
         _backfill_draft_urls_for_contacts(uid, contact_map)
+        # Then backfill thread IDs for contacts whose email was sent but
+        # didn't carry a gmailThreadId — happens when the email left via
+        # the tracker's manual send rather than the Loop's auto/approve
+        # paths. Without a thread ID the Draft button falls back to a
+        # compose URL; with one it lands on the exact thread.
+        _backfill_thread_ids_for_contacts(uid, contact_map)
 
         for it in items:
             if it.get("type") not in resolvable_types:
@@ -685,16 +692,49 @@ def get_loop_activity(uid: str, loop_id: str, limit: int = 50) -> list[dict]:
             thread_id = (cdata.get("gmailThreadId") or "").strip()
             draft_url = (cdata.get("gmailDraftUrl") or "").strip()
             email = (cdata.get("email") or "").strip()
+            # For draft rows without a real Gmail draft, rebuild the compose
+            # URL now using the live contact doc's emailBody — `_action_to_items`
+            # had to build it from the agent_actions snapshot, which only
+            # carries a 200-char preview. Without this the compose opens with
+            # an empty body even though we have the full text on file.
+            if (
+                it.get("type") == "draft"
+                and not thread_id
+                and not draft_url
+                and email
+            ):
+                fallback_link = _gmail_compose_url(
+                    to=email,
+                    subject=(cdata.get("emailSubject") or it.get("emailSubject") or ""),
+                    body=(cdata.get("emailBody") or ""),
+                )
+                fallback_external = True
+            else:
+                fallback_link = it.get("linkTo") or "/tracker"
+                fallback_external = bool(it.get("external"))
             link, external = _gmail_link_for_contact(
                 thread_id=thread_id,
                 draft_url=draft_url,
-                fallback=it.get("linkTo") or "/tracker",
+                fallback=fallback_link,
+                fallback_external=fallback_external,
             )
             it["linkTo"] = link
             it["external"] = external
             if email and it.get("type") == "draft":
                 it["subtitle"] = email
                 it["email"] = email
+                # Per-row state for the drafts list. Replaces the old
+                # hardcoded "SENT" badge with the contact's actual phase so
+                # the user can scan replied / sent / drafted at a glance.
+                # replyReceivedAt and emailSentAt may be strings or
+                # Firestore timestamps depending on writer — truthy check
+                # handles both shapes.
+                if cdata.get("replyReceivedAt"):
+                    it["state"] = "replied"
+                elif thread_id or cdata.get("emailSentAt"):
+                    it["state"] = "sent"
+                else:
+                    it["state"] = "drafted"
     else:
         for it in items:
             it.pop("_contactId", None)
@@ -769,6 +809,74 @@ def _backfill_draft_urls_for_contacts(uid: str, contact_map: dict) -> None:
             logger.warning("Draft URL backfill write failed for %s: %s", cid, e)
 
 
+def _backfill_thread_ids_for_contacts(uid: str, contact_map: dict) -> None:
+    """Look up gmailThreadId in Gmail for contacts missing it.
+
+    Contacts sent through the Loop's auto-send or approve-send paths
+    already carry gmailThreadId. Contacts sent manually from the tracker
+    (or via older code paths) may not — clicking the Draft button then
+    falls back to the compose URL instead of the actual conversation.
+
+    Mutates contact_map in place so the caller resolves linkTo to the
+    real thread without a re-read; also writes the thread id back to
+    Firestore so subsequent polls skip the lookup. Idempotent via the
+    gmailThreadBackfilled flag.
+    """
+    needs_backfill = []
+    for cid, cdata in contact_map.items():
+        if not cdata:
+            continue
+        if cdata.get("gmailThreadBackfilled"):
+            continue
+        if (cdata.get("gmailThreadId") or "").strip():
+            continue
+        if not (cdata.get("email") or "").strip():
+            continue
+        # Only chase a thread when the email looks like it actually sent.
+        # emailSentAt is the strongest signal; pipelineStage="email_sent"
+        # and inOutbox=True also indicate a send. Without either we don't
+        # waste a Gmail call on a contact that never went out.
+        if not (
+            cdata.get("emailSentAt")
+            or cdata.get("pipelineStage") == "email_sent"
+            or cdata.get("inOutbox")
+        ):
+            continue
+        needs_backfill.append((cid, cdata))
+
+    if not needs_backfill:
+        return
+
+    db = get_db()
+    user_snap = db.collection("users").document(uid).get()
+    user_data = (user_snap.to_dict() or {}) if user_snap.exists else {}
+    user_email = (user_data.get("email") or "").strip()
+    if not user_email:
+        return
+
+    from app.services.gmail_client import find_sent_thread_for_recipient
+
+    contacts_ref = db.collection("users").document(uid).collection("contacts")
+    for cid, cdata in needs_backfill:
+        match = find_sent_thread_for_recipient(
+            user_email=user_email,
+            user_id=uid,
+            recipient_email=cdata.get("email"),
+            subject=cdata.get("emailSubject"),
+        )
+        update = {"gmailThreadBackfilled": True}
+        if match and match.get("thread_id"):
+            update["gmailThreadId"] = match["thread_id"]
+            if match.get("message_id"):
+                update["gmailMessageId"] = match["message_id"]
+            cdata["gmailThreadId"] = update["gmailThreadId"]
+        cdata["gmailThreadBackfilled"] = True
+        try:
+            contacts_ref.document(cid).update(update)
+        except Exception as e:
+            logger.warning("Thread id backfill write failed for %s: %s", cid, e)
+
+
 # Names that almost certainly came from a scraper hitting a broken page.
 # Filtered at the feed layer so users never see "404 – Page Not Found" as
 # a company. The upstream discover_companies action should also be cleaned
@@ -799,19 +907,41 @@ def _gmail_link_for_contact(
     thread_id: str,
     draft_url: str,
     fallback: str,
+    fallback_external: bool = False,
 ) -> tuple[str, bool]:
     """Best Gmail destination for a Loop-found contact.
 
     Priority: live thread → captured draft URL (the exact compose URL we
     stamped on the contact at draft-creation time, same one the Find People
-    spreadsheet links to). Falls back to the passed-in internal route when
-    we have neither — better to land on the tracker than guess at Gmail.
+    spreadsheet links to). Falls back to the passed-in route when we have
+    neither — its `fallback_external` flag is preserved so callers can pass
+    a Gmail compose link (external=True) without `get_loop_activity`'s
+    re-resolve flipping it back to an internal route.
     """
     if thread_id:
         return f"https://mail.google.com/mail/u/0/#inbox/{thread_id}", True
     if draft_url:
         return draft_url, True
-    return fallback, False
+    return fallback, fallback_external
+
+
+def _gmail_compose_url(*, to: str, subject: str, body: str = "") -> str:
+    """Gmail compose URL with `to`, `subject`, and `body` prefilled.
+
+    Used when a Loop drafted an email but no actual Gmail draft was created
+    (Gmail not connected, low-confidence email source, draft creation
+    failed). The Draft button always landing in Gmail beats falling back to
+    the tracker — the student opens a compose with everything already
+    filled in so all that's left is one click to send.
+    """
+    parts = [
+        "https://mail.google.com/mail/u/0/?view=cm&fs=1",
+        f"&to={quote_plus(to)}",
+        f"&su={quote_plus(subject or '')}",
+    ]
+    if body:
+        parts.append(f"&body={quote_plus(body)}")
+    return "".join(parts)
 
 
 def _action_to_items(
@@ -889,14 +1019,36 @@ def _action_to_items(
             out.append(contact_item)
             # If a draft was generated alongside, surface it as its own row.
             if c.get("emailSubject") or c.get("emailBodyPreview"):
+                # Draft rows need to land in Gmail, not the tracker. Reuse
+                # the contact's thread/draft URL when we have one, otherwise
+                # fall back to a Gmail compose URL with to+subject prefilled
+                # so the student can finish the message manually. The contact
+                # row above keeps its tracker fallback (different intent —
+                # "see this person in my network").
+                if contact_email:
+                    draft_compose_fallback = _gmail_compose_url(
+                        to=contact_email,
+                        subject=c.get("emailSubject") or "",
+                    )
+                    draft_link, draft_external = _gmail_link_for_contact(
+                        thread_id=thread_id,
+                        draft_url=draft_url,
+                        fallback=draft_compose_fallback,
+                        fallback_external=True,
+                    )
+                else:
+                    draft_link, draft_external = link, external
                 draft_item = {
                     "id": f"{action_id}-d{i}",
                     "type": "draft",
-                    "title": c.get("emailSubject") or f"Draft to {name}",
+                    "title": name,
                     "subtitle": contact_email or (c.get("emailBodyPreview") or "")[:120],
+                    "contactName": name,
+                    "contactId": contact_id,
+                    "emailSubject": c.get("emailSubject") or "",
                     "email": contact_email,
-                    "linkTo": link,
-                    "external": external,
+                    "linkTo": draft_link,
+                    "external": draft_external,
                     "createdAt": created_at,
                     # Same re-resolution hook as the contact row above.
                     "_contactId": contact_id,
