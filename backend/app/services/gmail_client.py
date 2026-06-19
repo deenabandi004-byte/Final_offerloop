@@ -1710,3 +1710,129 @@ def create_drafts_batch(contacts_with_emails, gmail_service, resume_bytes=None, 
     
     # Return results in order
     return [results.get(str(i), {'error': 'Missing result', 'draft_id': None}) for i in range(len(contacts_with_emails))]
+
+
+# ============================================================================
+# Auto-apply verification code lookup
+# ============================================================================
+# Greenhouse (and a few other ATSes) gate submit behind a per-tenant email
+# verification step: after the form POSTs, they email an N-character code
+# the candidate has to paste back into the form to actually complete the
+# submission. This helper polls the candidate's Gmail for that code so the
+# auto-apply runner can paste it programmatically.
+#
+# Verified against Temelio Greenhouse (2026-06-18 dogfood): sender is
+# no-reply@greenhouse.io, body contains the code on its own line as an
+# 8-char alphanumeric string, code is single-use + time-limited.
+
+def search_for_verification_code(
+    uid: str,
+    *,
+    sender_pattern: str = "from:greenhouse.io",
+    code_regex: str = r"\b[A-Za-z0-9]{8}\b",
+    since_epoch_seconds: int = 0,
+    max_wait_seconds: int = 60,
+    poll_interval_seconds: int = 5,
+):
+    """Poll the user's Gmail for an ATS verification code.
+
+    Args:
+        uid: Offerloop user id; their Gmail OAuth creds must be on file.
+        sender_pattern: Gmail search operator narrowing the inbox (e.g.
+            "from:greenhouse.io" or "from:no-reply@greenhouse.io").
+        code_regex: Regex with at least one capturing group OR a whole match
+            that yields the code. The first non-empty match is returned.
+        since_epoch_seconds: Filter to messages received after this Unix
+            timestamp. Use the submit-click timestamp so old codes don't
+            get picked up. Gmail's after: operator is day-granular, so we
+            also filter strict-inequality on internalDate after the fetch.
+        max_wait_seconds: Total poll budget.
+        poll_interval_seconds: Sleep between polls.
+
+    Returns:
+        The extracted code string, or None if no matching email arrived in
+        the poll window or the user has no Gmail creds.
+
+    Failure modes:
+        - User never connected Gmail -> returns None immediately
+        - Token expired and refresh failed -> returns None
+        - Email arrives but the body doesn't match the regex -> returns None
+          (the caller falls back to user-facing needs_verification UX)
+    """
+    import re
+    import time as _time
+
+    creds = _load_user_gmail_creds(uid)
+    if not creds:
+        return None
+    try:
+        service = _gmail_service(creds)
+    except Exception:
+        return None
+
+    # Gmail's after: takes a Unix timestamp (seconds). Use the day-bucket
+    # of since_epoch_seconds as the query filter; then strict-greater-than
+    # on internalDate afterward.
+    # Don't use `after:` operator — Gmail's API search index lags 30-60s
+    # behind inbox delivery, and `after:` is day-granular anyway. Pull the
+    # most recent N messages from the sender and post-filter by
+    # internalDate (which IS millisecond-precise and updated synchronously
+    # with delivery).
+    q = sender_pattern
+
+    pattern = re.compile(code_regex)
+    deadline = _time.time() + max_wait_seconds
+    poll_n = 0
+
+    while _time.time() < deadline:
+        poll_n += 1
+        try:
+            resp = service.users().messages().list(
+                userId="me", q=q, maxResults=10,
+            ).execute()
+        except Exception as exc:
+            print(f"[gmail.code] poll {poll_n} list failed: {exc}", flush=True)
+            _time.sleep(poll_interval_seconds)
+            continue
+
+        messages = resp.get("messages") or []
+        print(f"[gmail.code] poll {poll_n}: {len(messages)} candidate messages "
+              f"(filter: internalDate > {since_epoch_seconds * 1000})", flush=True)
+
+        for i, msg_ref in enumerate(messages):
+            try:
+                msg = service.users().messages().get(
+                    userId="me", id=msg_ref["id"], format="full",
+                ).execute()
+            except Exception as exc:
+                print(f"[gmail.code]   msg {i} fetch failed: {exc}", flush=True)
+                continue
+
+            try:
+                internal_ms = int(msg.get("internalDate") or 0)
+            except (TypeError, ValueError):
+                internal_ms = 0
+            internal_age_sec = (since_epoch_seconds * 1000 - internal_ms) / 1000.0
+            if since_epoch_seconds and internal_ms <= since_epoch_seconds * 1000:
+                print(f"[gmail.code]   msg {i} skipped — too old (Δ={internal_age_sec:.0f}s before submit)",
+                      flush=True)
+                continue
+
+            body = extract_message_body(msg, max_length=4000) or ""
+            matches = list(pattern.finditer(body))
+            print(f"[gmail.code]   msg {i} fresh (Δ={-internal_age_sec:.0f}s after submit), "
+                  f"body {len(body)} chars, {len(matches)} regex match(es)", flush=True)
+            if not matches:
+                # Surface the body once so we can see what the parser produced;
+                # caller will iterate on the regex.
+                print(f"[gmail.code]   msg {i} body preview: {body[:300]!r}", flush=True)
+            for match in matches:
+                code = match.group(1) if match.groups() else match.group(0)
+                if code:
+                    print(f"[gmail.code] CODE FOUND on poll {poll_n}: {code!r}", flush=True)
+                    return code
+
+        _time.sleep(poll_interval_seconds)
+
+    print(f"[gmail.code] no code found after {poll_n} polls", flush=True)
+    return None
