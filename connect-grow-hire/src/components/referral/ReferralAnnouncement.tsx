@@ -123,7 +123,7 @@ export function ReferralAnnouncement() {
         <CardContent className="flex items-center gap-4 px-5 py-4">
           {/* Icon */}
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent)]/10">
-            <Gift className="h-4.5 w-4.5 h-[18px] w-[18px] text-[var(--accent)]" />
+            <Gift className="h-[18px] w-[18px] text-[var(--accent)]" />
           </div>
 
           {/* Text */}
