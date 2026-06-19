@@ -39,6 +39,7 @@ import {
 } from "@/hooks/useAgent";
 import { apiService, type Nudge } from "@/services/api";
 import { firebaseApi } from "@/services/firebaseApi";
+import { ReferralAnnouncement } from "@/components/referral/ReferralAnnouncement";
 
 /* ============================================================
    Helpers
@@ -808,6 +809,9 @@ export default function DashboardPage() {
                   </div>
                 </div>
               </section>
+
+              {/* ── Referral announcement: launch modal (one-time) then banner */}
+              <ReferralAnnouncement />
 
               {/* ── 1b. Personalization prose widget — editorial voice, not chips.
                   Reads like a sentence the system has written about the user
