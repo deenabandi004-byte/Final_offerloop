@@ -1,4 +1,5 @@
-import { ArrowLeft, Upload, Trash2, LogOut, CreditCard, FileText, User, GraduationCap, Briefcase, Rocket, Settings, AlertTriangle, Lock, Eye, RefreshCw, X, CheckCircle, Mail, Target, Star, Gift, Copy } from "lucide-react";
+import { ArrowLeft, Upload, Trash2, LogOut, CreditCard, FileText, User, GraduationCap, Briefcase, Rocket, Settings, AlertTriangle, Lock, Eye, RefreshCw, X, CheckCircle, Mail, Target, Star, Gift, Copy, Send } from "lucide-react";
+import { ApplicationProfileModal } from "@/components/jobs/ApplicationProfileModal";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -106,6 +107,7 @@ const sections = [
   { id: 'career', label: 'Career Interests', icon: Rocket },
   { id: 'goals', label: 'Career Goals', icon: Target },
   { id: 'referrals', label: 'Refer & Earn', icon: Gift },
+  { id: 'app_profile', label: 'Application Profile', icon: Send },
   { id: 'gmail', label: 'Gmail Integration', icon: Mail },
   { id: 'account', label: 'Account Management', icon: Settings },
   { id: 'danger', label: 'Danger Zone', icon: AlertTriangle },
@@ -270,6 +272,9 @@ export default function AccountSettings() {
   const [resumeFile, setResumeFile] = useState<string | null>(null);
   const [resumeData, setResumeData] = useState<any>(null);
   const [resumeUrl, setResumeUrl] = useState<string | null>(null);
+
+  // Application Profile (ATS screening answers reused across auto-applies)
+  const [showApplicationProfile, setShowApplicationProfile] = useState(false);
 
   // Gmail integration state
   const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
@@ -2362,6 +2367,67 @@ export default function AccountSettings() {
                     )}
                   </SettingsSection>
 
+                  {/* Application Profile Section — used by job-board auto-apply */}
+                  <SettingsSection
+                    id="app_profile"
+                    icon={Send}
+                    title="Application Profile"
+                    description="Saved answers we use whenever you click Auto-apply on a job. Work authorization is required; demographic questions default to 'Decline to answer.'"
+                  >
+                    <div
+                      className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
+                      style={{
+                        padding: '20px',
+                        borderRadius: '12px',
+                        background: '#FAFBFF',
+                        border: '1px solid rgba(59, 130, 246, 0.06)',
+                      }}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div
+                          style={{
+                            width: 48,
+                            height: 48,
+                            borderRadius: '12px',
+                            background: 'rgba(59, 130, 246, 0.08)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Send className="w-6 h-6" style={{ color: '#3B82F6' }} />
+                        </div>
+                        <div>
+                          <h4
+                            style={{
+                              fontSize: '15px',
+                              fontWeight: 600,
+                              color: '#0F172A',
+                              marginBottom: '2px',
+                            }}
+                          >
+                            Edit your auto-apply answers
+                          </h4>
+                          <p
+                            style={{
+                              fontSize: '13px',
+                              color: '#64748B',
+                              margin: 0,
+                            }}
+                          >
+                            Work authorization, EEO, veteran &amp; disability status, scheduling preferences.
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        onClick={() => setShowApplicationProfile(true)}
+                        variant="outline"
+                      >
+                        Edit profile
+                      </Button>
+                    </div>
+                  </SettingsSection>
+
                   {/* Gmail Integration Section */}
                   <SettingsSection
                     id="gmail"
@@ -2852,6 +2918,11 @@ export default function AccountSettings() {
           </div>
         </div>
       )}
+
+      <ApplicationProfileModal
+        open={showApplicationProfile}
+        onOpenChange={setShowApplicationProfile}
+      />
     </SidebarProvider>
   );
 }

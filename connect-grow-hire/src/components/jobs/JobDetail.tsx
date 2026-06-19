@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-
+import { Loader2 } from "lucide-react";
 import type { ProtoJob } from "@/pages/jobBoardAdapter";
 import { CompanyLogo } from "./CompanyLogo";
 import {
@@ -35,11 +35,13 @@ interface JobDetailProps {
   onRetryDescription?: () => void;
   isSaved: boolean;
   onApply: () => void;
+  onAutoApply?: () => void;
+  autoApplyLoading?: boolean;
   onSave: () => void;
   onShare?: () => void;
   onFindPeople: () => void;
   onFindEmployees?: (count: number) => void;
-  userPlan?: "free" | "pro" | "elite";
+  userPlan?: "free" | "pro" | "elite" | "premium";
   currentCredits?: number;
 }
 
@@ -111,6 +113,8 @@ export function JobDetail({
   onRetryDescription,
   isSaved,
   onApply,
+  onAutoApply,
+  autoApplyLoading = false,
   onSave,
   onShare,
   onFindPeople,
@@ -172,7 +176,34 @@ export function JobDetail({
             <IconShare />
             Share
           </button>
-          <button className="jb-action primary" type="button" onClick={onApply}>
+          {job.autoApplyEligible && onAutoApply && (
+            <button
+              className="jb-action primary"
+              type="button"
+              onClick={onAutoApply}
+              disabled={autoApplyLoading}
+              aria-busy={autoApplyLoading}
+              style={autoApplyLoading ? { opacity: 0.7, cursor: "wait" } : undefined}
+              title="We fill the application for you using your saved profile"
+            >
+              {autoApplyLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" style={{ marginRight: 6 }} />
+                  Applying…
+                </>
+              ) : (
+                <>
+                  Auto-apply
+                  <IconArrowRight />
+                </>
+              )}
+            </button>
+          )}
+          <button
+            className={`jb-action ${job.autoApplyEligible && onAutoApply ? "" : "primary"}`}
+            type="button"
+            onClick={onApply}
+          >
             Apply
             <IconArrowRight />
           </button>
