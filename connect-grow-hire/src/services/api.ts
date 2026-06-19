@@ -1238,6 +1238,48 @@ class ApiService {
     return this.makeRequest<EmailTemplate>('/email-template', { method: 'GET', headers });
   }
 
+  async getReferralStatus(): Promise<{
+    referralCode: string;
+    referralLink: string;
+    signupCount: number;
+    signupTarget: number;
+    eligible: boolean;
+    rewardClaimed: boolean;
+    rewardClaimedAt: string | null;
+    bannerDismissed: boolean;
+    launchModalSeen: boolean;
+  }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest('/referrals/me', { method: 'GET', headers });
+  }
+
+  async ackReferral(surface: 'banner' | 'launch_modal'): Promise<{ ok: boolean; reason?: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest('/referrals/ack', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ surface }),
+    });
+  }
+
+  async attributeReferral(code: string): Promise<{ recorded: boolean; reason: string | null }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest('/referrals/attribute', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ code }),
+    });
+  }
+
+  async claimReferralReward(): Promise<{ ok: boolean; mode?: string; url?: string; reason?: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest('/referrals/claim', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({}),
+    });
+  }
+
   async saveEmailTemplate(template: EmailTemplate): Promise<{ success: boolean }> {
     const headers = await this.getAuthHeaders();
     return this.makeRequest<{ success: boolean }>('/email-template', {

@@ -93,3 +93,6 @@ connect-grow-hire/dist/
 # Local zip archives at repo root
 /*.zip
 design-reference/
+
+# Claude Code worktrees
+.claude/worktrees/

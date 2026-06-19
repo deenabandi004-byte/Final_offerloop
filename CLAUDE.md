@@ -281,6 +281,10 @@ Credits reset at calendar month boundary (not billing cycle). Atomic Firestore d
 - `coffee-chat-preps/` -- generated coffee chat prep documents
 - `scoutChats/`, `messages/` -- Scout assistant chat persistence (TTL on `expires_at`)
 - `notifications/`, `activity/`, `searchHistory/`, `firmSearches/`, `exports/`, `goals/`
+- `referrals/` -- per-referred-user dedupe docs for the referral program (one doc per person who signed up via this user's code)
+
+Top-level collection (not under `users/`):
+- `referralCodes/{code}` -- referral code → owner uid lookup (backend admin SDK only; clients denied by rules)
 
 Note: `interview-preps/`, `resume_library/`, `resume_scores/`, `cover_letter_library/`, `application_lab/` (or similar) Firestore subcollections may still hold legacy data for users who used those features before the 2026-05-26 cleanup. No live code reads/writes them now — safe to leave the data in production.
 
@@ -456,6 +460,7 @@ Path alias: `@` maps to `./src`.
 - `PEOPLE_DATA_LABS_API_KEY` -- Contact search (2.2B contacts)
 - `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` -- Payments
 - `STRIPE_PRO_PRICE_ID`, `STRIPE_ELITE_PRICE_ID` -- Stripe price overrides (defaults hardcoded)
+- `STRIPE_REFERRAL_REWARD_COUPON_ID` -- 100%-off-once coupon applied when an already-paying user claims the referral reward (free users get a 30-day Elite trial checkout instead)
 - `PERPLEXITY_API_KEY` -- Live search (jobs, companies, news, market context) — primary search provider
 - `FIRECRAWL_API_KEY` -- Structured web extraction (job postings, company profiles, LinkedIn scrapes) — primary scraping provider
 - `BRIGHTDATA_API_KEY` -- LinkedIn profile enrichment (Bright Data dataset API)

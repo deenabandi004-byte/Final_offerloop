@@ -45,6 +45,7 @@ from .app.routes.agent import agent_bp
 from .app.routes.loop_notifications import loop_notifications_bp
 from .app.routes.loops import loops_bp
 from .app.routes.metrics import metrics_bp
+from .app.routes.referrals import referrals_bp
 from .app.routes.interview_prep_public import interview_prep_public_bp
 from .app.routes.cover_letter_public import cover_letter_public_bp
 from .app.routes.resume_workshop_public import resume_workshop_public_bp
@@ -245,6 +246,7 @@ def create_app() -> Flask:
     app.register_blueprint(loops_bp)
     app.register_blueprint(loop_notifications_bp)
     app.register_blueprint(metrics_bp)
+    app.register_blueprint(referrals_bp)
     app.register_blueprint(interview_prep_public_bp)
     app.register_blueprint(cover_letter_public_bp)
     app.register_blueprint(resume_workshop_public_bp)
