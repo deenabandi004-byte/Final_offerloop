@@ -1482,7 +1482,7 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
 
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 <button
-                  onClick={() => { setSearchComplete(false); setActiveTab('firm-library'); }}
+                  onClick={() => { setSearchComplete(false); navigate('/my-network/companies'); }}
                   className="px-6 py-3 text-white font-semibold transition-all"
                   style={{ background: '#3B82F6', borderRadius: 3 }}
                 >
