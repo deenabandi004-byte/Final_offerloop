@@ -125,3 +125,13 @@ def test_list_pending_returns_only_my_pending(client, db):
     assert len(shares) == 1
     assert shares[0]["count"] == 3
     assert shares[0]["fromName"] == "Pat"
+    assert shares[0]["id"] == "s1"
+    assert "createdAt" in shares[0]
+
+    # Assert the route applied both Firestore filters (toUid and status==pending).
+    # The route chains: collection("pendingShares").where("toUid", ...).where("status", "==", "pending")
+    # so toUid appears in the first .where() call_args and pending in the second .where() call_args.
+    first_where_calls = db.collection.return_value.where.call_args_list
+    assert any("toUid" in str(c) for c in first_where_calls), "Route must filter by toUid"
+    second_where_calls = db.collection.return_value.where.return_value.where.call_args_list
+    assert any("pending" in str(c) for c in second_where_calls), "Route must filter by status=pending"
