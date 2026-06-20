@@ -107,6 +107,20 @@ def _map_notification_item(item: dict) -> dict:
     ts = item.get('timestamp') or ''
     read = bool(item.get('read'))
 
+    if item.get('kind') == 'auto_apply_attention':
+        company = item.get('company') or 'A job'
+        count = int(item.get('count') or 0)
+        qword = 'question' if count == 1 else 'questions'
+        aid = item.get('autoApplyId') or ''
+        return {
+            'id': f'aa:{aid}',
+            'kind': 'auto_apply_attention',
+            'text': f'{company} needs your input — {count} {qword} to finish applying',
+            'timeLabel': _relative_label(ts),
+            'read': read,
+            'autoApplyId': aid,
+        }
+
     if is_loop:
         name = item.get('loopName') or item.get('contactName') or 'Your Loop'
         text = f'{name}: {snippet}' if snippet else f'{name} ran'

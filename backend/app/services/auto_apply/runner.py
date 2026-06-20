@@ -223,6 +223,15 @@ def run_auto_apply_job(
             patch["attempt_log"] = result["attempt_log"]
         update_status(uid, auto_apply_id, **patch)
 
+        # Ping the user (bell + push) when we stop for input, so they don't have
+        # to watch the Applied tab. Deduped + best-effort inside the helper.
+        if status == "needs_attention":
+            try:
+                from app.services.auto_apply.notify import notify_needs_attention
+                notify_needs_attention(uid, auto_apply_id, db=db)
+            except Exception:
+                logger.exception("needs_attention notify failed for %s", auto_apply_id)
+
         if result.get("status") == "submitted":
             try:
                 db.collection("users").document(uid).collection(
