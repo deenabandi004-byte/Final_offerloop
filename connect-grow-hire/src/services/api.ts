@@ -2876,6 +2876,10 @@ export interface AutoApplyStatusResponse {
   status: AutoApplyStatus;
   stage?: string;
   screenshot_b64?: string;
+  // Set when the post-submit PNG was too big for Firestore's 1MB cap and
+  // was uploaded to Cloud Storage instead. Render via <img src={url}>;
+  // mutually exclusive with screenshot_b64 in practice.
+  screenshot_url?: string;
   filled_summary?: Record<string, string>;
   unmapped?: AutoApplyUnmappedField[];
   pending_questions?: AutoApplyPendingQuestion[];
