@@ -186,19 +186,20 @@ def handle(
 def _run_pdl_search(parsed: FindContactsInput, count: int) -> list[dict]:
     """Synthesize a parsed_prompt and invoke pdl_client.search_contacts_from_prompt.
 
-    We skip the LLM-based prompt parser (parse_search_prompt_structured) and
-    build the structured dict directly from typed MCP inputs.
+    Routes through the same LLM-based prompt parser the website uses
+    (parse_search_prompt_structured) so PDL gets the rich, company-aware
+    title_variations list — not just the single literal role string the
+    MCP caller typed. Without this step, the MCP query landed only people
+    whose title contained the exact phrase the user used; with it, we get
+    the full role-family expansion the website's natural-language search
+    already enjoys.
+
+    Falls back to a manual parsed_prompt construction if the LLM parser
+    is unavailable (no OPENAI_API_KEY, network error, low-confidence parse).
     """
     from app.services.pdl_client import search_contacts_from_prompt
 
-    parsed_prompt = {
-        "companies": [{"name": parsed.company}],
-        "schools": [parsed.school] if parsed.school else [],
-        "title_variations": _build_title_variations(parsed.role, parsed.career_track),
-        "locations": [],
-        "industries": [],
-    }
-
+    parsed_prompt = _build_parsed_prompt(parsed)
     user_profile = _synthesize_user_profile(parsed)
 
     contacts, _retry_level, _already_saved, _adjacency = search_contacts_from_prompt(
@@ -208,6 +209,92 @@ def _run_pdl_search(parsed: FindContactsInput, count: int) -> list[dict]:
         user_profile=user_profile,
     )
     return contacts or []
+
+
+def _build_parsed_prompt(parsed: FindContactsInput) -> dict:
+    """LLM-expand structured MCP inputs into the parsed_prompt shape the
+    website builds, so PDL gets a rich title list at retry_level=0."""
+    try:
+        from app.services.prompt_parser import parse_search_prompt_structured
+    except Exception as e:
+        logger.warning("[MCP find_contacts] prompt_parser import failed: %s", e)
+        return _build_parsed_prompt_manual(parsed)
+
+    synthetic_prompt = _synthesize_prompt(parsed)
+    try:
+        llm_parsed = parse_search_prompt_structured(synthetic_prompt) or {}
+    except Exception as e:
+        logger.warning("[MCP find_contacts] LLM parser raised, falling back: %s", e)
+        return _build_parsed_prompt_manual(parsed)
+
+    if llm_parsed.get("error") or llm_parsed.get("confidence") == "low":
+        logger.info(
+            "[MCP find_contacts] LLM parser unusable (error=%s, confidence=%s) — "
+            "falling back to manual prompt",
+            llm_parsed.get("error"),
+            llm_parsed.get("confidence"),
+        )
+        return _build_parsed_prompt_manual(parsed)
+
+    # Hard-pin the MCP caller's typed inputs back onto the parsed dict.
+    # The LLM is good at expanding titles but can drop or rewrite the
+    # structured fields (e.g., normalize "UC Berkeley" to "Berkeley" in
+    # ways the school_aliases path doesn't expect). We trust the caller's
+    # company/school strings as ground truth; we only need the LLM for
+    # title_variations + company_context.
+    llm_parsed["companies"] = [{
+        "name": parsed.company,
+        "matched_titles": (llm_parsed.get("companies") or [{}])[0].get("matched_titles", []),
+    }]
+    if parsed.school:
+        llm_parsed["schools"] = [parsed.school]
+    elif "schools" not in llm_parsed:
+        llm_parsed["schools"] = []
+
+    # Guarantee title_variations is non-empty — fall back to the manual
+    # builder if the LLM somehow returned an empty list.
+    if not llm_parsed.get("title_variations"):
+        llm_parsed["title_variations"] = _build_title_variations(
+            parsed.role, parsed.career_track,
+        )
+
+    return llm_parsed
+
+
+def _synthesize_prompt(parsed: FindContactsInput) -> str:
+    """Build a natural-language prompt that captures all of MCP's structured
+    inputs in a form the LLM parser handles well. The phrasing mirrors how
+    users actually search on the website's natural-language bar."""
+    company = parsed.company
+    role = (parsed.role or "").strip()
+    school = (parsed.school or "").strip()
+    track = (parsed.career_track or "").strip()
+
+    if role and school:
+        head = f"{role}s from {school} at {company}"
+    elif role:
+        head = f"{role}s at {company}"
+    elif school:
+        head = f"{school} alumni at {company}"
+    else:
+        head = f"people at {company}"
+
+    if track and track.lower() not in role.lower():
+        head = f"{head} in {track}"
+    return head
+
+
+def _build_parsed_prompt_manual(parsed: FindContactsInput) -> dict:
+    """Original (pre-LLM-routing) parsed_prompt construction. Used as the
+    fallback when the LLM parser is unavailable. Title list stays narrow
+    so the retry ladder is the only broadening mechanism in that case."""
+    return {
+        "companies": [{"name": parsed.company}],
+        "schools": [parsed.school] if parsed.school else [],
+        "title_variations": _build_title_variations(parsed.role, parsed.career_track),
+        "locations": [],
+        "industries": [],
+    }
 
 
 def _build_title_variations(role: Optional[str], career_track: Optional[str]) -> list[str]:

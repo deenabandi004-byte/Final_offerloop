@@ -219,11 +219,46 @@ class APICallCounter:
         self.perplexity_market = 0
         self.school_affinity = 0
         self.llm = 0
+        self.prompt_parser = 0
 
 
 @pytest.fixture
 def call_counter():
     return APICallCounter()
+
+
+@pytest.fixture(autouse=True)
+def mock_prompt_parser(monkeypatch, call_counter):
+    """The MCP find_contacts handler now routes through the LLM-backed
+    parse_search_prompt_structured to expand title_variations (so the MCP
+    matches the website's search behavior). Without a mock, every test
+    that exercises find_contacts would hit OpenAI.
+
+    This default mock returns a richer parsed_prompt than the manual
+    fallback used to build, so tests verify the new code path. Tests that
+    need to exercise the manual-fallback path (LLM down, low confidence)
+    can override this fixture in their own monkeypatch.setattr call.
+    """
+    def fake_parse(prompt: str) -> dict:
+        call_counter.prompt_parser += 1
+        # Cheap heuristic — pull a company-ish noun out of the prompt and
+        # generate the same shape parse_search_prompt_structured returns.
+        # The real LLM produces richer titles; for tests we just need the
+        # field to be present and non-empty.
+        return {
+            "original_prompt": prompt,
+            "company_context": "",
+            "companies": [{"name": "", "matched_titles": ["Software Engineer", "Engineer"]}],
+            "locations": [],
+            "schools": [],
+            "industries": [],
+            "confidence": "high",
+            "title_variations": ["Software Engineer", "Software Engineer II", "Engineer", "SWE"],
+        }
+
+    import app.services.prompt_parser as parser_mod
+    monkeypatch.setattr(parser_mod, "parse_search_prompt_structured", fake_parse)
+    return fake_parse
 
 
 @pytest.fixture
