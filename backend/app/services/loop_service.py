@@ -664,8 +664,15 @@ def _contact_to_draft_item(contact_id: str, c: dict) -> dict:
     return {
         "id": f"contact-{contact_id}",
         "type": "draft",
-        "title": c.get("emailSubject") or f"Draft to {name}",
+        # Mirror _action_to_items: the card's primary line is the contact's
+        # name; emailSubject rides along on a separate field for any caller
+        # that wants it. Putting the subject in `title` here caused new
+        # drafts to flicker subject-then-name as the agent_actions row
+        # caught up with the live contact doc.
+        "title": name,
         "subtitle": email or (c.get("emailBody") or "")[:120] or "—",
+        "contactName": name,
+        "emailSubject": c.get("emailSubject") or "",
         "email": email,
         "linkTo": link,
         "external": external,
