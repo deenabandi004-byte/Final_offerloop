@@ -262,8 +262,14 @@ interface PersonRow {
   isAlumni?: boolean;
   notes?: string;
   createdAt?: string;
-  // Provenance — "agent" for Loop-discovered contacts, "" for manual.
+  // Provenance — "agent" for Loop-discovered contacts, "mcp" for
+  // contacts saved via the Claude/MCP integration, "" for manual.
   source?: string;
+  // True for MCP-sourced contacts the user hasn't seen yet. We render
+  // a one-time faint orange highlight on the row and POST to
+  // /api/contacts/clear-mcp-unseen after the page loads so the highlight
+  // doesn't persist across reloads.
+  mcpUnseen?: boolean;
   sharedImport?: boolean;
 }
 
@@ -706,8 +712,14 @@ const PeopleTable: React.FC<PeopleTableProps> = ({
   // Rows created after the last visit get a faint blue tint so the user can
   // spot what's new at a glance. The tint replaces the normal alternating
   // background for that row.
+  //
+  // MCP-sourced contacts that the user hasn't seen yet get a one-time
+  // faint orange highlight (the same accent the focus tint uses, dimmer).
+  // After the page loads we POST to /api/contacts/clear-mcp-unseen so the
+  // highlight only shows on this one visit.
   const rowBaseBg = (row: PersonRow, idx: number): string => {
     if (focusContactId && row.id === focusContactId) return "rgba(224,122,62,0.12)";
+    if (row.mcpUnseen) return "rgba(224,122,62,0.08)";
     if (row.sharedImport) return "rgba(34,197,94,0.10)";
     const ts = row.createdAt ? Date.parse(row.createdAt) : 0;
     if (highlightSince && ts > highlightSince) return "rgba(59,130,246,0.08)";
@@ -2515,29 +2527,37 @@ const MyNetworkPage: React.FC = () => {
     // row collapsed to "Unknown" / blanks.
     firebaseApi.getContacts(user.uid).then((contacts) => {
       if (cancelled) return;
-      setPeople(
-        contacts.map((c: any) => {
-          const fullName = `${c.firstName || ""} ${c.lastName || ""}`.trim();
-          return {
-            id: c.id || c.contactId || Math.random().toString(),
-            name: fullName || c.name || "Unknown",
-            email: c.email || undefined,
-            linkedinUrl: c.linkedinUrl || c.linkedin_url || c.LinkedIn || undefined,
-            role: c.jobTitle || c.title || c.Title || undefined,
-            company: c.company || c.Company || undefined,
-            location: c.location || undefined,
-            school: c.college || c.College || undefined,
-            schoolYear: c.schoolYear || undefined,
-            status: c.status || undefined,
-            warmthTier: c.warmthTier || undefined,
-            isAlumni: !!c.isAlumni,
-            notes: c.notes || undefined,
-            createdAt: c.createdAt || c.firstContactDate || undefined,
-            source: c.source || undefined,
-            sharedImport: !!c.sharedImport,
-          };
-        })
-      );
+      const rows = contacts.map((c: any) => {
+        const fullName = `${c.firstName || ""} ${c.lastName || ""}`.trim();
+        return {
+          id: c.id || c.contactId || Math.random().toString(),
+          name: fullName || c.name || "Unknown",
+          email: c.email || undefined,
+          linkedinUrl: c.linkedinUrl || c.linkedin_url || c.LinkedIn || undefined,
+          role: c.jobTitle || c.title || c.Title || undefined,
+          company: c.company || c.Company || undefined,
+          location: c.location || undefined,
+          school: c.college || c.College || undefined,
+          schoolYear: c.schoolYear || undefined,
+          status: c.status || undefined,
+          warmthTier: c.warmthTier || undefined,
+          isAlumni: !!c.isAlumni,
+          notes: c.notes || undefined,
+          createdAt: c.createdAt || c.firstContactDate || undefined,
+          source: c.source || undefined,
+          mcpUnseen: !!c.mcpUnseen,
+          sharedImport: !!c.sharedImport,
+        };
+      });
+      setPeople(rows);
+
+      // Fire-and-forget: clear mcpUnseen=true server-side so the orange
+      // highlight only shows on this first visit. The local rows keep
+      // mcpUnseen=true for this render; subsequent loads see the cleared
+      // value from Firestore.
+      if (rows.some((r) => r.mcpUnseen)) {
+        apiService.clearMcpUnseen().catch(() => {});
+      }
     }).catch(() => {});
 
     // Companies - auto-derived from saved People. The "company tracker" is a

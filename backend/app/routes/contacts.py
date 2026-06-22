@@ -926,3 +926,25 @@ def get_auto_prep(contact_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+@contacts_bp.route('/clear-mcp-unseen', methods=['POST'])
+@require_firebase_auth
+def clear_mcp_unseen():
+    """Clear `mcpUnseen=true` on every contact for the current user.
+
+    The frontend calls this once after rendering My Network — the MCP
+    persistence layer (app/mcp_server/persist.py) writes new contacts
+    with mcpUnseen=true so the UI can show a one-time orange highlight,
+    and this endpoint flips them all to false so the highlight doesn't
+    persist across reloads.
+    """
+    try:
+        uid = request.firebase_user['uid']
+        db = get_db()
+        if not db:
+            return jsonify({"error": "Database not initialized"}), 500
+        from app.mcp_server.persist import clear_mcp_unseen_for_user
+        cleared = clear_mcp_unseen_for_user(uid, db)
+        return jsonify({"cleared": cleared})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500

@@ -2618,6 +2618,18 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
     const headers = await this.getAuthHeaders();
     return this.makeRequest<{ ok: true } | { error: string }>(`/shares/${id}/decline`, { method: 'POST', headers });
   }
+
+  // Clear the one-time `mcpUnseen` flag on every contact. The MCP server
+  // (Claude.ai integration) writes new contacts with mcpUnseen=true so My
+  // Network can render a faint orange highlight; this endpoint flips them
+  // all back to false after the first page render.
+  async clearMcpUnseen(): Promise<{ cleared: number } | { error: string }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<{ cleared: number } | { error: string }>(
+      "/contacts/clear-mcp-unseen",
+      { method: "POST", headers },
+    );
+  }
 }
 
 export const apiService = new ApiService();

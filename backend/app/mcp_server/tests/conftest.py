@@ -40,6 +40,10 @@ class _DocRef:
         self._coll = coll
         self._doc_id = doc_id
 
+    @property
+    def id(self) -> str:
+        return self._doc_id
+
     def _bucket(self) -> dict:
         return self._store.setdefault(self._coll, {})
 
@@ -82,6 +86,49 @@ class _Collection:
     def stream(self):
         for doc_id, data in list(self._store.get(self._name, {}).items()):
             yield _StreamDoc(self._store, self._name, doc_id, data)
+
+    def add(self, data: dict) -> _DocRef:
+        """Auto-generated doc id, then set the data. Returns just the
+        DocumentReference (the real Firestore client returns a tuple of
+        (timestamp, ref); the persist.py code handles both shapes)."""
+        import uuid as _uuid
+        doc_id = _uuid.uuid4().hex
+        ref = _DocRef(self._store, self._name, doc_id)
+        ref.set(data)
+        return ref
+
+    def where(self, field: str, op: str, value: Any) -> "_FilteredCollection":
+        """Tiny .where() implementation supporting only the operators the
+        persist layer uses (`==` for clear_mcp_unseen_for_user). Returns a
+        filtered view that supports stream()."""
+        return _FilteredCollection(self._store, self._name, [(field, op, value)])
+
+
+class _FilteredCollection:
+    """In-memory filtered view of a collection, supporting `where().stream()`
+    and chained `.where().where().stream()`. Only the `==` operator is
+    implemented — that's all the MCP persist layer uses."""
+
+    def __init__(self, store: dict, name: str, filters: list):
+        self._store = store
+        self._name = name
+        self._filters = filters
+
+    def where(self, field: str, op: str, value: Any) -> "_FilteredCollection":
+        return _FilteredCollection(self._store, self._name, [*self._filters, (field, op, value)])
+
+    def stream(self):
+        for doc_id, data in list(self._store.get(self._name, {}).items()):
+            match = True
+            for field, op, value in self._filters:
+                if op == "==":
+                    if data.get(field) != value:
+                        match = False
+                        break
+                else:
+                    raise NotImplementedError(f"FakeFirestore .where() op {op!r}")
+            if match:
+                yield _StreamDoc(self._store, self._name, doc_id, data)
 
 
 class _StreamDoc:
