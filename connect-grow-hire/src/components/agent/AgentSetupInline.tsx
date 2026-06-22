@@ -1048,7 +1048,7 @@ export function AgentSetupInline({
     approvalMode: "review_first",
     // Every Loop pursues both networking + job-search against one budget.
     // The picker is gone from the wizard; loopMode stays on the doc for
-    // AgentSettingsModal's Advanced escape valve.
+    // backend planner branching and any future advanced editor.
     loopMode: "both",
   });
   const set = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }));
