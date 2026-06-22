@@ -34,7 +34,6 @@ def _running_loop(**overrides) -> dict:
     """Minimum loop dict for can_run_now to pass everything else."""
     return {
         "status": "running",
-        "automationEnabled": True,
         "creditBudgetPerWeek": 200,
         "weekCreditsSpent": 0,
         **overrides,

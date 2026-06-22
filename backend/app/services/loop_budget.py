@@ -218,10 +218,8 @@ def can_run_now(
     """
     now = now or datetime.now(timezone.utc)
 
-    # 1. Status / automation flag
+    # 1. Status
     if loop.get("status") not in ("running",):
-        return False, "paused"
-    if loop.get("automationEnabled") is False:
         return False, "paused"
 
     # 2. Quiet hours

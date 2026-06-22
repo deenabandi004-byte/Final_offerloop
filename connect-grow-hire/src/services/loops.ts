@@ -79,9 +79,8 @@ export interface BriefVersionEntry {
 
 // Phase 9 — Loop auto-send mode. Three points on the autonomy spectrum:
 //   "approve_each" — cycles auto-run; every action queues for approval
-//                    before any credits spend. Replaces today's confusing
-//                    reviewBeforeSend=true / automationEnabled=false combo
-//                    (which silently broke auto-cycling).
+//                    before any credits spend. Replaces the older
+//                    reviewBeforeSend=true semantics.
 //   "draft_only"   — cycles auto-run; AI drafts to the student's Gmail
 //                    drafts folder; student sends manually. This is what
 //                    today's "Autopilot" actually does.
@@ -115,7 +114,6 @@ export interface Loop {
   // Phase 8 — automation + budget
   cadence: LoopCadence;
   creditBudgetPerWeek: number;
-  automationEnabled: boolean;
   lastReviewedAt: string | null;
   weekCreditsSpent: number;
   // Contacts this Loop found during the current ISO week (server-computed,
@@ -320,7 +318,6 @@ export async function createLoop(input: {
   weeklyTarget?: number;
   cadence?: LoopCadence;
   creditBudgetPerWeek?: number;
-  automationEnabled?: boolean;
   loopMode?: LoopMode;
   // Phase 9 — auto-send. autoSendApprovedCount is intentionally absent
   // (server-managed, rejected by the route validator). hardDailySendCap

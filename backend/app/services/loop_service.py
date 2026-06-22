@@ -56,7 +56,6 @@ MUTABLE_LOOP_FIELDS = {
     # Phase 8 — automation + budget
     "cadence",
     "creditBudgetPerWeek",
-    "automationEnabled",
     # Phase 9 — auto-send. autoSendApprovedCount is server-managed (bumped
     # by the approve-send endpoint), so it's NOT in this set.
     "autoSendMode",
@@ -139,7 +138,6 @@ def _loop_defaults() -> dict:
         # creditBudgetPerWeek at create_loop time.
         "cadence": "every_other_day",
         "creditBudgetPerWeek": 200,
-        "automationEnabled": True,
         "lastReviewedAt": None,
         "weekCreditsSpent": 0,
         "weekStartedAt": None,

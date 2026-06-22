@@ -1443,7 +1443,6 @@ export function AgentSetupInline({
         reviewBeforeSend: form.approvalMode === "review_first",
         weeklyTarget,
         cadence,
-        automationEnabled: form.approvalMode === "autopilot",
         loopMode: "both",
       });
 
