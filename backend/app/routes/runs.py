@@ -235,6 +235,9 @@ def prompt_search():
         data = request.get_json(silent=True) or {}
         prompt = (data.get("prompt") or "").strip()
         batch_size = data.get("batchSize")
+        # Mobile swipe opts into a durable "draft ready" bell item + push (the
+        # web app has its own UI and doesn't set this, so it's a no-op there).
+        notify_draft_ready = bool(data.get("notify_draft_ready"))
 
         # Validate prompt length
         if not prompt:
@@ -928,6 +931,10 @@ def prompt_search():
                 today = datetime.now().strftime("%m/%d/%Y")
                 saved_count = 0
                 skipped_count = 0
+                # Accumulate draft-ready bell items (mobile swipe only) keyed to
+                # the real saved contact id, so the notification deep-links to the
+                # conversation the same way replies do.
+                draft_ready_items = []
                 for contact in contacts:
                     if _contact_already_exists(contact, existing_emails_set, existing_name_company_set, existing_linkedins_set):
                         skipped_count += 1
@@ -1021,8 +1028,17 @@ def prompt_search():
                         contact_doc["draftToEmail"] = contact.get("_sentRecipientEmail") or contact_doc["draftToEmail"]
                         if contact.get("gmailThreadId"):
                             contact_doc["gmailThreadId"] = contact["gmailThreadId"]
-                    contacts_ref.add(contact_doc)
+                    _add_res = contacts_ref.add(contact_doc)
+                    # firebase-admin .add() returns (update_time, DocumentReference)
+                    new_contact_id = _add_res[1].id if isinstance(_add_res, (tuple, list)) and len(_add_res) > 1 else None
                     saved_count += 1
+                    if notify_draft_ready and new_contact_id:
+                        draft_ready_items.append({
+                            "contactId": new_contact_id,
+                            "contactName": f"{first_name} {last_name}".strip() or "a contact",
+                            "company": company,
+                            "sent": bool(contact.get("emailSent")),
+                        })
                     # Avoid duplicates within same batch
                     if email:
                         existing_emails_set.add(email)
@@ -1032,6 +1048,13 @@ def prompt_search():
                         existing_name_company_set.add(f"{first_name}_{last_name}_{company}".lower().strip())
                 print(f"✅ Prompt-search: saved {saved_count} new contacts to Firestore, skipped {skipped_count} duplicates")
                 _invalidate_exclusion_cache(user_id)
+                if notify_draft_ready and draft_ready_items:
+                    try:
+                        from app.services.draft_ready_notify import notify_drafts_ready
+                        notify_drafts_ready(user_id, draft_ready_items, db=db)
+                    except Exception:
+                        print("[Runs] draft_ready notify failed (non-fatal)")
+                        traceback.print_exc()
             except Exception as save_error:
                 print(f"⚠️ Error saving contacts (prompt-search): {save_error}")
                 traceback.print_exc()

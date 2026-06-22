@@ -121,6 +121,26 @@ def _map_notification_item(item: dict) -> dict:
             'autoApplyId': aid,
         }
 
+    if item.get('kind') == 'draft_ready':
+        who = item.get('contactName') or 'a contact'
+        company = item.get('company') or ''
+        sent = bool(item.get('sent'))
+        contact_id = item.get('contactId') or ''
+        at = f' at {company}' if company else ''
+        text = (
+            f'Sent to {who}{at}'
+            if sent
+            else f'Outreach to {who}{at} is ready to review'
+        )
+        return {
+            'id': f'draft:{contact_id}:{ts}' if contact_id else f'draft:{ts}',
+            'kind': 'draft_ready',
+            'text': text,
+            'timeLabel': _relative_label(ts),
+            'read': read,
+            'outreachId': contact_id,
+        }
+
     if is_loop:
         name = item.get('loopName') or item.get('contactName') or 'Your Loop'
         text = f'{name}: {snippet}' if snippet else f'{name} ran'
