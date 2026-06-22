@@ -112,6 +112,75 @@ def _append_reply_notification(db, notif_ref, new_item, now_iso):
     return _run(transaction)
 
 
+def _apply_bounce(
+    *,
+    uid,
+    db,
+    contact_doc,
+    from_email,
+    subject_header,
+    snippet,
+    now_iso,
+):
+    """Full bounce treatment for a single contact match.
+
+    Called from both bounce gates in _process_gmail_notification: the early
+    gate (before reply detection, prevents notification false positives) and
+    the per-contact gate inside the reply branch. Shared so both paths
+    stamp the contact, push to the suppression list, fire the metric, and
+    dismiss pending nudges identically. Pre-extraction, the early gate did a
+    bare-minimum update and skipped suppression+metrics, which meant bounces
+    detected there silently leaked back through future send paths.
+    """
+    contact_data = contact_doc.to_dict() or {}
+    contact_id = contact_doc.id
+    bounced_email = (
+        contact_data.get("email")
+        or contact_data.get("draftToEmail")
+        or ""
+    ).strip().lower()
+
+    contact_ref = db.collection("users").document(uid).collection("contacts").document(contact_id)
+    bounce_updates = {
+        "pipelineStage": "bounced",
+        "inOutbox": False,
+        "hasUnreadReply": False,
+        "threadStatus": "bounced",
+        "emailVerificationStatus": "bounced",
+        "bouncedAt": now_iso,
+        "lastActivityAt": now_iso,
+        "lastMessageSnippet": (snippet or "")[:200],
+        "updatedAt": now_iso,
+    }
+    logger.info(
+        f"[gmail_webhook] uid={uid} BOUNCE for contact_id={contact_id} "
+        f"email={bounced_email} from={from_email} subject={subject_header!r}"
+    )
+    contact_ref.update(bounce_updates)
+
+    try:
+        from app.services.suppression import record_bounce
+        record_bounce(uid, bounced_email, contact_id=contact_id, reason="dsn")
+    except Exception as supp_err:
+        logger.warning(f"[gmail_webhook] suppression record failed: {supp_err}")
+
+    try:
+        from app.utils.metrics_events import log_event
+        log_event(uid, "email_bounced", {
+            "contact_id": contact_id,
+            "email": bounced_email,
+            "from": from_email,
+        })
+    except Exception:
+        pass
+
+    try:
+        from app.services.nudge_service import dismiss_pending_nudges_for_contact
+        dismiss_pending_nudges_for_contact(db, uid, contact_id)
+    except Exception:
+        pass
+
+
 def _build_reply_updates(contact_data, message_snippet, now_iso):
     """Build the Firestore update dict for an inbound reply matched to a contact.
 
@@ -496,19 +565,10 @@ def _process_gmail_notification(email_address, history_id):
                 try:
                     bounce_matches = contacts_ref.where("gmailThreadId", "==", thread_id).limit(1).get()
                     if bounce_matches:
-                        bounced_doc = bounce_matches[0]
-                        bounced_doc.reference.update({
-                            "pipelineStage": "bounced",
-                            "inOutbox": False,
-                            "hasUnreadReply": False,
-                            "threadStatus": "bounced",
-                            "bouncedAt": now_iso,
-                            "lastActivityAt": now_iso,
-                            "updatedAt": now_iso,
-                        })
-                        logger.info(
-                            f"[gmail_webhook] uid={uid} contact={bounced_doc.id} "
-                            f"marked bounced and removed from outbox"
+                        _apply_bounce(
+                            uid=uid, db=db, contact_doc=bounce_matches[0],
+                            from_email=from_email, subject_header=subject_header,
+                            snippet=raw_snippet, now_iso=now_iso,
                         )
                     else:
                         logger.info(
@@ -586,54 +646,12 @@ def _process_gmail_notification(email_address, history_id):
                 (h.get("value", "") for h in headers if h.get("name", "").lower() == "subject"),
                 "",
             )
-            from app.utils.bounce_detection import is_bounce_message
             if is_bounce_message(from_email, subject_header, full_snippet):
-                bounced_email = (
-                    contact_data.get("email")
-                    or contact_data.get("draftToEmail")
-                    or ""
-                ).strip().lower()
-                contact_ref = contacts_ref.document(contact_id)
-                bounce_updates = {
-                    "pipelineStage": "bounced",
-                    "inOutbox": False,
-                    "hasUnreadReply": False,
-                    "threadStatus": "bounced",
-                    "emailVerificationStatus": "bounced",
-                    "bouncedAt": now_iso,
-                    "lastActivityAt": now_iso,
-                    "lastMessageSnippet": full_snippet[:200],
-                    "updatedAt": now_iso,
-                }
-                logger.info(
-                    f"[gmail_webhook] uid={uid} BOUNCE for contact_id={contact_id} "
-                    f"email={bounced_email} from={from_email} subject={subject_header!r}"
+                _apply_bounce(
+                    uid=uid, db=db, contact_doc=contact_doc,
+                    from_email=from_email, subject_header=subject_header,
+                    snippet=full_snippet, now_iso=now_iso,
                 )
-                contact_ref.update(bounce_updates)
-
-                try:
-                    from app.services.suppression import record_bounce
-                    record_bounce(uid, bounced_email, contact_id=contact_id, reason="dsn")
-                except Exception as supp_err:
-                    logger.warning(f"[gmail_webhook] suppression record failed: {supp_err}")
-
-                try:
-                    from app.utils.metrics_events import log_event
-                    log_event(uid, "email_bounced", {
-                        "contact_id": contact_id,
-                        "email": bounced_email,
-                        "from": from_email,
-                    })
-                except Exception:
-                    pass
-
-                # Dismiss any pending nudges so we don't follow up on a dead address.
-                try:
-                    from app.services.nudge_service import dismiss_pending_nudges_for_contact
-                    dismiss_pending_nudges_for_contact(db, uid, contact_id)
-                except Exception:
-                    pass
-
                 continue
 
             contact_ref = contacts_ref.document(contact_id)
