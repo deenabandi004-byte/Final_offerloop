@@ -72,7 +72,6 @@ const RecruitingTimelinePage = React.lazy(() => import("./pages/RecruitingTimeli
 // (see DashboardPrefetch), making the post-redirect Suspense fallback instant.
 const importDashboardPage = () => import("./pages/DashboardPage");
 const DashboardPage = React.lazy(importDashboardPage);
-const AgentPage = React.lazy(() => import("./pages/AgentPage"));
 const AgentSetup = React.lazy(() => import("./pages/AgentSetup"));
 const LoopsPage = React.lazy(() => import("./pages/LoopsPage"));
 const LoopDetailPage = React.lazy(() => import("./pages/LoopDetailPage"));
