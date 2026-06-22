@@ -3075,16 +3075,6 @@ def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0,
     # P0 FIX: Only return contacts that have email addresses
     must.append({"exists": {"field": "emails"}})
 
-    # Phase 3b: bias level 0 toward records PDL has identified a top-level
-    # work_email for. Those records are more likely to T1-hit the email
-    # waterfall (PDL email at target domain → verified) than records that
-    # only have an emails[] array. We only apply this at the tightest rung —
-    # broader retry levels need to surface ANY reachable candidate, and the
-    # lazy-topup loop will broaden automatically if the work_email filter
-    # returns too few hits at level 0.
-    if retry_level == 0:
-        must.append({"exists": {"field": "work_email"}})
-
     bool_clause = {"must": must}
 
     # Lazy-topup support: exclude PDL ids already returned by an earlier (stricter)
