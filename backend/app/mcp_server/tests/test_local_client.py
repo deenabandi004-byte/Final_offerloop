@@ -143,10 +143,68 @@ def test_find_contacts_returns_personalization_hooks(
         assert c["name"]
         assert "personalization_hook" in c
         assert "warmth" in c
+        # email is part of the schema even when null — needed so Claude can
+        # chain find_contacts → draft_outreach without prompting the user
+        # for an email it could have just passed through.
+        assert "email" in c
     # Alumni signal should fire for USC-tagged contacts
     rel_types = [c.get("relationship_type") for c in result["contacts"]]
     assert "alumni" in rel_types
     assert call_counter.pdl == 1
+
+
+def test_find_contacts_surfaces_pdl_email_with_workemail_preference(
+    client, monkeypatch, mock_warmth, call_counter,
+):
+    """When PDL has emails, find_contacts must include them in the output so
+    Claude can pass them through to draft_outreach.contact.email. Preference:
+    WorkEmail > Email > PersonalEmail. Matches gmail_client._select_recipient_email
+    so anything we surface here can actually drive a Gmail draft downstream."""
+    import app.services.pdl_client as pdl_mod
+
+    def fake_search(parsed_prompt, max_contacts, exclude_keys=None, user_profile=None):
+        call_counter.pdl += 1
+        contacts = [
+            {
+                "FirstName": "Has", "LastName": "WorkEmail", "Title": "Engineer",
+                "Company": "Goldman Sachs", "College": "USC",
+                "WorkEmail": "has.workemail@gs.com",
+                "Email": "fallback@gs.com",
+                "PersonalEmail": "personal@gmail.com",
+            },
+            {
+                "FirstName": "Only", "LastName": "Primary", "Title": "Analyst",
+                "Company": "Goldman Sachs", "College": "USC",
+                "WorkEmail": "Not available",
+                "Email": "only.primary@gs.com",
+            },
+            {
+                "FirstName": "Personal", "LastName": "Only", "Title": "Associate",
+                "Company": "Goldman Sachs", "College": "USC",
+                "WorkEmail": "",
+                "Email": "placeholder@domain.com",  # blocked by gmail_client guard
+                "PersonalEmail": "personal.only@gmail.com",
+            },
+            {
+                "FirstName": "No", "LastName": "Email", "Title": "VP",
+                "Company": "Goldman Sachs", "College": "USC",
+            },
+        ]
+        return contacts, 0, [], {"provider": "pdl"}
+
+    monkeypatch.setattr(pdl_mod, "search_contacts_from_prompt", fake_search)
+
+    env = _call_tool(client, "find_contacts", {
+        "company": "Goldman Sachs",
+        "school": "USC",
+        "count": 4,
+    })
+    result = _structured(env)
+    by_name = {c["name"]: c for c in result["contacts"]}
+    assert by_name["Has WorkEmail"]["email"] == "has.workemail@gs.com"
+    assert by_name["Only Primary"]["email"] == "only.primary@gs.com"
+    assert by_name["Personal Only"]["email"] == "personal.only@gmail.com"
+    assert by_name["No Email"]["email"] is None
 
 
 # ── 3. Cache hit on repeat ───────────────────────────────────────────────────
