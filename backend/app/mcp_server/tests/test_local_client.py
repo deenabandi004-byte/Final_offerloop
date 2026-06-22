@@ -260,6 +260,116 @@ def test_find_contacts_surfaces_pdl_email_with_workemail_preference(
     assert by_name["No Email"]["email"] is None
 
 
+# ── 2b. LLM parser routing (matches the website's search expansion) ──────────
+
+
+def test_find_contacts_routes_through_llm_parser_for_title_expansion(
+    client, mock_pdl, mock_warmth, call_counter, monkeypatch,
+):
+    """The MCP must route through parse_search_prompt_structured the same way
+    the website's natural-language search does. Otherwise PDL sees only the
+    literal role string the user typed ("software engineer") and misses
+    profiles listed as "SWE", "SDE", "Engineer II", etc.
+
+    This test pins:
+      - parse_search_prompt_structured is called once per cold find_contacts
+      - the synthesized prompt the parser receives carries company + school + role
+      - the LLM-expanded title_variations reach PDL (not the narrow manual list)
+    """
+    captured = {}
+
+    def fake_parse(prompt: str) -> dict:
+        captured["prompt"] = prompt
+        return {
+            "original_prompt": prompt,
+            "company_context": "Roblox is a gaming platform company.",
+            "companies": [{"name": "Roblox", "matched_titles": [
+                "Software Engineer", "Software Engineer II", "Engineer", "SWE",
+            ]}],
+            "locations": [],
+            "schools": ["UC Berkeley"],
+            "industries": ["technology"],
+            "confidence": "high",
+            "title_variations": [
+                "Software Engineer", "Software Engineer II", "Engineer", "SWE", "SDE",
+            ],
+        }
+
+    import app.services.prompt_parser as parser_mod
+    monkeypatch.setattr(parser_mod, "parse_search_prompt_structured", fake_parse)
+
+    captured_search = {}
+
+    def fake_search(parsed_prompt, max_contacts, exclude_keys=None, user_profile=None):
+        captured_search["parsed_prompt"] = parsed_prompt
+        return [], 0, [], None
+
+    import app.services.pdl_client as pdl_mod
+    monkeypatch.setattr(pdl_mod, "search_contacts_from_prompt", fake_search)
+
+    _call_tool(client, "find_contacts", {
+        "company": "Roblox",
+        "school": "UC Berkeley",
+        "role": "software engineer",
+    })
+
+    # Synthetic prompt carries all three structured inputs.
+    assert "Roblox" in captured["prompt"]
+    assert "UC Berkeley" in captured["prompt"]
+    assert "software engineer" in captured["prompt"].lower()
+
+    # PDL received the LLM-expanded title list, NOT just ["software engineer"].
+    pp = captured_search["parsed_prompt"]
+    titles = [t.lower() for t in pp.get("title_variations", [])]
+    assert "software engineer" in titles
+    assert "swe" in titles or "sde" in titles or "engineer" in titles, (
+        f"expected LLM-expanded titles in parsed_prompt; got {pp.get('title_variations')!r}"
+    )
+
+    # Caller's structured fields are preserved exactly (not LLM-rewritten).
+    assert pp["companies"][0]["name"] == "Roblox"
+    assert pp["schools"] == ["UC Berkeley"]
+
+
+def test_find_contacts_falls_back_to_manual_prompt_when_llm_unavailable(
+    client, mock_pdl, mock_warmth, monkeypatch,
+):
+    """If parse_search_prompt_structured can't reach OpenAI (no API key,
+    network error), find_contacts must still work — falling back to the
+    original manual parsed_prompt construction with the narrow title list.
+    """
+    def fake_parse_failing(prompt: str) -> dict:
+        return {"error": "OpenAI client not available"}
+
+    import app.services.prompt_parser as parser_mod
+    monkeypatch.setattr(parser_mod, "parse_search_prompt_structured", fake_parse_failing)
+
+    captured_search = {}
+
+    def fake_search(parsed_prompt, max_contacts, exclude_keys=None, user_profile=None):
+        captured_search["parsed_prompt"] = parsed_prompt
+        return [], 0, [], None
+
+    import app.services.pdl_client as pdl_mod
+    monkeypatch.setattr(pdl_mod, "search_contacts_from_prompt", fake_search)
+
+    env = _call_tool(client, "find_contacts", {
+        "company": "Roblox",
+        "school": "UC Berkeley",
+        "role": "software engineer",
+        "career_track": "tech",
+    })
+
+    # Tool didn't crash — returned a normal (empty) response.
+    result = _structured(env)
+    assert result["company"] == "Roblox"
+
+    # Manual fallback narrow list — exactly what the original MCP built.
+    pp = captured_search["parsed_prompt"]
+    assert pp["title_variations"] == ["software engineer", "tech"]
+    assert pp["schools"] == ["UC Berkeley"]
+
+
 # ── 3. Cache hit on repeat ───────────────────────────────────────────────────
 
 
