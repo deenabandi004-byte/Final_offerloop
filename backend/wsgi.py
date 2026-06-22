@@ -43,7 +43,6 @@ from .app.routes.extension_logs import extension_logs_bp
 from .app.routes.search_suggestions import search_suggestions_bp
 from .app.routes.briefing import briefing_bp
 from .app.routes.agent import agent_bp
-from .app.routes.loop_notifications import loop_notifications_bp
 from .app.routes.loops import loops_bp
 from .app.routes.metrics import metrics_bp
 from .app.routes.referrals import referrals_bp
@@ -246,7 +245,6 @@ def create_app() -> Flask:
     app.register_blueprint(briefing_bp)
     app.register_blueprint(agent_bp)
     app.register_blueprint(loops_bp)
-    app.register_blueprint(loop_notifications_bp)
     app.register_blueprint(metrics_bp)
     app.register_blueprint(referrals_bp)
     app.register_blueprint(interview_prep_public_bp)

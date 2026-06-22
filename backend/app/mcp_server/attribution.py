@@ -6,7 +6,6 @@ offerloop.com/claim?token=xyz. The token encodes (tool_name, ip_hash,
 issued_at) so when the user signs up at /claim, we can attribute the
 signup back to a specific MCP tool call.
 
-Implementation mirrors loop_notifications.build_unsubscribe_token —
 HMAC-SHA256 over FLASK_SECRET, base64-urlsafe encoded, 30-day TTL.
 """
 from __future__ import annotations
