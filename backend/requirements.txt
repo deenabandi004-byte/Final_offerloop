@@ -30,6 +30,9 @@ pydantic==2.12.5
 pydantic-settings==2.12.0
 # MCP server (anonymous tools exposed to AI assistants)
 mcp==1.27.2
+# OAuth 2.1 authorization server for MCP (RFC 8414 / 9728 / 7591 / 8707).
+# Flask-native, supports DCR, JWT issuance, PKCE S256, resource indicators.
+Authlib>=1.3.0,<2
 # Optional: Error tracking (install with: pip install sentry-sdk[flask])
 # sentry-sdk[flask]==1.38.0
 
