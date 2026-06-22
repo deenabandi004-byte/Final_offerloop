@@ -342,6 +342,60 @@ def test_find_contacts_surfaces_pdl_email_with_workemail_preference(
     assert by_name["No Email"]["email"] is None
 
 
+# ── 2c. My Network persist fires on both cache-hit and cold path ────────────
+
+
+def test_find_contacts_persists_to_my_network_on_cache_hit(
+    mcp_app, fake_db, mock_pdl, mock_warmth, call_counter, monkeypatch,
+):
+    """The mcp_cache isn't bucketed by uid, so the same args from a SECOND
+    user must serve from cache AND still write that user's My Network.
+
+    Regression test for the bug where the cold path called persist_contacts
+    but the cache-hit branch returned early — meaning users who hit a
+    warmed cache got search results back but their My Network stayed empty.
+    """
+    from app.mcp_server import flask_mount
+
+    def _client_for(uid: str):
+        # Override verify_access_token for THIS uid; rebuild client so the
+        # next post() reads the new stub.
+        flask_mount.verify_access_token = lambda _t: {
+            "sub": uid, "tier": "elite", "scope": "mcp:read mcp:write",
+        }
+        tc = mcp_app.test_client()
+        tc.environ_base["HTTP_AUTHORIZATION"] = "Bearer test"
+        return tc
+
+    args = {"company": "Goldman Sachs", "school": "USC", "role": "Investment Banking Analyst"}
+
+    # User A: cold path → contacts go to A's My Network + cache warms.
+    _call_tool(_client_for("user-a"), "find_contacts", args, request_id=1)
+    a_contacts = fake_db.store.get("users/user-a/contacts", {})
+    assert a_contacts, "cold path should have persisted to user-a's My Network"
+    a_count = len(a_contacts)
+
+    # User B (later): same args → cache hit. Mock PDL is reset so if the
+    # cache hit triggered another PDL call, this test would fail with
+    # call_counter.pdl == 2 (but cache hit means no second call).
+    pdl_calls_before = call_counter.pdl
+    _call_tool(_client_for("user-b"), "find_contacts", args, request_id=2)
+    assert call_counter.pdl == pdl_calls_before, (
+        "second call should have hit cache; PDL was called again"
+    )
+
+    # The real assertion: user-b's My Network ALSO gets the contacts.
+    b_contacts = fake_db.store.get("users/user-b/contacts", {})
+    assert b_contacts, (
+        "cache-hit path failed to persist to user-b's My Network — "
+        "they got contacts in the response but nothing landed in Firestore"
+    )
+    assert len(b_contacts) == a_count, (
+        f"user-b should have the same {a_count} contacts user-a got; "
+        f"got {len(b_contacts)}"
+    )
+
+
 # ── 2b. LLM parser routing (matches the website's search expansion) ──────────
 
 

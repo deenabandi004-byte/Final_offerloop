@@ -102,6 +102,12 @@ def handle(
         if requested > effective_count:
             out.truncated_to = effective_count
             out.note = cap_message(user_ctx, effective_count)
+        # Persist to My Network on cache hits too. The mcp_cache is shared
+        # across users (no uid bucket), so a cache hit means we owe THIS
+        # user's My Network the same write the cold-path user got. Dedup
+        # in persist_contacts handles the case where the contact already
+        # exists for this user.
+        _maybe_persist_to_my_network(user_ctx, db, out.contacts)
         events.log(
             tool=TOOL_NAME, ip_hash=ip_hash, args_hash=args_hash,
             cache_hit=True,
@@ -172,15 +178,10 @@ def handle(
     # 7. Persist to My Network for authed callers. Mirrors the website's
     # Find People flow so contacts discovered in Claude show up on
     # offerloop.ai with an mcpUnseen=true flag the UI uses to render
-    # the first-time orange highlight.
-    uid = (user_ctx or {}).get("uid") if user_ctx else None
-    if uid:
-        try:
-            from app.mcp_server.persist import persist_contacts
-            persist_contacts(uid=uid, db=db, contacts=contacts, source="mcp")
-        except Exception as e:
-            # Persistence failure must never break the user-facing response.
-            logger.warning("[MCP find_contacts] persist failed (non-fatal): %s", e)
+    # the first-time orange highlight. Same call as the cache-hit
+    # branch above so persistence behavior is identical regardless of
+    # whether PDL was hit or the cache served.
+    _maybe_persist_to_my_network(user_ctx, db, contacts)
 
     out = FindContactsOutput(
         contacts=out_contacts,
@@ -577,3 +578,52 @@ def _token_from_url(url: str) -> Optional[str]:
     if not url or "token=" not in url:
         return None
     return url.split("token=", 1)[1].split("&", 1)[0]
+
+
+# ── My Network persist (shared by cold-path + cache-hit branches) ───────────
+
+
+def _maybe_persist_to_my_network(user_ctx, db, contacts) -> None:
+    """Write the search's contacts to users/{uid}/contacts/ for authed
+    callers. Idempotent via persist_contacts' dedup. Accepts EITHER raw
+    PDL contact dicts (cold path) OR the MCP Contact shape from cached
+    payloads (cache-hit path); _to_persist_dict normalizes."""
+    uid = (user_ctx or {}).get("uid") if user_ctx else None
+    if not uid or db is None or not contacts:
+        return
+    try:
+        from app.mcp_server.persist import persist_contacts
+        normalized = [_to_persist_dict(c) for c in contacts]
+        persist_contacts(uid=uid, db=db, contacts=normalized, source="mcp")
+    except Exception as e:
+        # Persistence failure must never break the user-facing response.
+        logger.warning("[MCP find_contacts] persist failed (non-fatal): %s", e)
+
+
+def _to_persist_dict(c) -> dict:
+    """Convert either a raw PDL contact dict OR an MCP Contact pydantic
+    model OR an MCP Contact dict (from cache payload) into the PDL-shape
+    dict persist_contacts expects."""
+    # Pydantic Contact instance → dict.
+    if hasattr(c, "model_dump") and not isinstance(c, dict):
+        c = c.model_dump()
+
+    # PDL shape detected — pass through; persist_contacts already handles
+    # the FirstName/firstName / Email/WorkEmail/email lookup order.
+    if c.get("FirstName") or c.get("firstName"):
+        return c
+
+    # MCP Contact shape: single `name` field, lowercase keys.
+    name = (c.get("name") or "").strip()
+    parts = name.split()
+    first = parts[0] if parts else ""
+    last = " ".join(parts[1:]) if len(parts) > 1 else ""
+    return {
+        "FirstName": first,
+        "LastName": last,
+        "Email": c.get("email") or "",
+        "LinkedIn": c.get("linkedin_url") or "",
+        "Company": c.get("company") or "",
+        "Title": c.get("title") or "",
+        "College": c.get("education") or "",
+    }
