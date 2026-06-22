@@ -338,6 +338,12 @@ THE FORM QUESTIONS:
 CORE PHILOSOPHY:
 The user clicked Auto-apply because they want the application submitted, not because they want a survey. Returning NEEDS_USER means we bug them. Only do that when there is GENUINELY no defensible answer — like a custom challenge code, a Warp-specific shared-block link, or an essay prompt that requires their authentic voice. For everything else, PICK the most reasonable option from the dropdown / write a sensible value.
 
+OPTIONS CONSTRAINT (overrides every other rule below, including the auto-agree rule):
+- If a question lists `Options:`, your "answer" value MUST be one of those options, copied VERBATIM (same wording, same punctuation). Never paraphrase. Never invent a label.
+- Picking an option that is not in the list — even a plausible one — bounces the form and routes the question right back to the user. Worse than NEEDS_USER.
+- If NONE of the listed options fits the candidate's profile or context, return "NEEDS_USER" for that field. Do not type an unlisted answer.
+- This rule applies to "Citizenship Status", "Are you legally authorized to work…", gender / race / veteran / disability selects, and every other field with an `Options:` line — including ones whose label sounds like a yes/no acknowledgment. The auto-agree rule below NEVER applies to a field with `Options:`; pick the option that semantically matches "yes" / "I agree" from that list instead.
+
 TRUTHFULNESS BOUNDARY (the only hard rule):
 - NEVER claim a specific credential, license, certification, or experience the context doesn't support. Don't say "I have a CDL" when there's no driving experience. Don't claim a security clearance you don't have. Don't inflate years of experience.
 - Don't fabricate specific facts (driver's license number, SAT/GRE scores you didn't take, etc.).
@@ -459,6 +465,17 @@ _NEGATIVE_SYNONYMS = (
     "no", "i do not", "i don't", "none", "not a", "i am not",
 )
 
+# Bidirectional gender pairs. Greenhouse tenants use either side
+# (Robinhood = "Man"/"Woman", others = "Male"/"Female"); profile values
+# come in as whichever the user picked. Each tuple is matched in both
+# directions so `Male` finds `Man` and `Man` finds `Male`.
+_GENDER_SYNONYMS = (
+    ("male", "man"),
+    ("female", "woman"),
+    ("non-binary", "nonbinary"),
+    ("non-binary", "non binary"),
+)
+
 
 def _match_option(needle: str, options: Optional[list]) -> Optional[str]:
     """Find the option in `options` that best matches `needle` (e.g. translate
@@ -488,6 +505,17 @@ def _match_option(needle: str, options: Optional[list]) -> Optional[str]:
         for o, ol in zip(options, opts_lower):
             if any(s in ol for s in _NEGATIVE_SYNONYMS):
                 return o
+    # 5. Gender-synonym match: profile "Male" matches options labeled
+    # "Man" (Robinhood) and vice versa. Bidirectional.
+    for a, b in _GENDER_SYNONYMS:
+        if needle_lower == a:
+            for o, ol in zip(options, opts_lower):
+                if ol == b or b in ol:
+                    return o
+        if needle_lower == b:
+            for o, ol in zip(options, opts_lower):
+                if ol == a or a in ol:
+                    return o
     return None
 
 
