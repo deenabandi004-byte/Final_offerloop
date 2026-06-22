@@ -63,8 +63,13 @@ _DRAFT_OUTREACH_DESCRIPTION = (
     "person, grounded in their real career history and the user's "
     "relationship to them (alumni, dream company, shared employer, career "
     "path). Returns a complete draft email with subject line and body. "
-    "Use this when the user has identified someone they want to reach "
-    "out to and needs a specific email written."
+    "If the caller is signed into offerloop.ai and has connected Gmail, "
+    "and the contact has an email address, this tool ALSO creates a real "
+    "Gmail draft in their account with the user's resume attached and a "
+    "proper signature. When that happens, tell the user the draft is "
+    "waiting in their Gmail drafts folder and surface gmail_draft.draft_url "
+    "so they can open it. Use this when the user has identified someone "
+    "they want to reach out to and needs a specific email written."
 )
 
 
@@ -173,7 +178,9 @@ def _initialize_result(params: dict) -> dict:
             "Three tools: find_contacts (who to reach out to at a target "
             "company), get_company_intel (firm overview + alumni density at "
             "the user's school), draft_outreach (personalized cold email "
-            "draft). Anonymous use is free with daily limits."
+            "draft). Anonymous use is free with daily limits. Users who "
+            "sign in via OAuth and connect Gmail get drafts written straight "
+            "into their Gmail account, with resume attached."
         ),
     }
 

@@ -137,11 +137,26 @@ class ContactRef(BaseModel):
     linkedin_url: Optional[str] = None
     education: Optional[str] = None
     recent_career_move: Optional[str] = None
+    email: Optional[str] = Field(
+        None,
+        description=(
+            "Recipient email address. When provided AND the caller is "
+            "authenticated AND has connected Gmail at offerloop.ai, the "
+            "tool will also create a real Gmail draft in their account."
+        ),
+    )
 
 
 class DraftOutreachInput(BaseModel):
     contact: ContactRef
-    user_school: str = Field(..., description="Your school. Required.")
+    user_school: Optional[str] = Field(
+        None,
+        description=(
+            "Your school. Recommended for anonymous callers — drives the "
+            "alumni hook. Authenticated callers can omit it; the tool uses "
+            "the school from their offerloop.ai profile."
+        ),
+    )
     user_major: Optional[str] = None
     user_year: Optional[str] = None
     user_career_track: Optional[str] = None
@@ -156,9 +171,33 @@ class DraftOutreachInput(BaseModel):
     )
 
 
+class GmailDraftRef(BaseModel):
+    draft_id: str
+    draft_url: str
+    recipient_email: str
+
+
 class DraftOutreachOutput(BaseModel):
     subject: str
     body: str
     contact_name: str
     cached: bool = False
     paywall: Optional[PaywallCTA] = None
+    gmail_draft: Optional[GmailDraftRef] = Field(
+        None,
+        description=(
+            "Set when a Gmail draft was created in the caller's connected "
+            "Gmail account. Absent for anonymous callers, callers without "
+            "Gmail connected, or contacts without an email address."
+        ),
+    )
+    gmail_draft_status: Optional[str] = Field(
+        None,
+        description=(
+            "When a Gmail draft was NOT created despite the caller being "
+            "authenticated, explains why: 'no_recipient_email', "
+            "'gmail_not_connected', 'create_failed', or 'scope_missing'. "
+            "Lets clients show the user a 'connect Gmail' or 'add an email' "
+            "nudge."
+        ),
+    )

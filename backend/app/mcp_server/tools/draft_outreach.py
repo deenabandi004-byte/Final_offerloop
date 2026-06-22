@@ -1,15 +1,29 @@
 """
 draft_outreach MCP tool.
 
-Wraps reply_generation.batch_generate_emails for a single contact, using
-a synthesized anonymous user_profile (no resume, no Firestore lookup).
-The existing personalization engine handles lead-type detection,
-anti-hallucination phrasing, and signoff formatting internally.
+Two surfaces:
+
+  Anonymous callers (no OAuth)
+    Wraps reply_generation.batch_generate_emails for a single contact
+    using a synthesized user_profile from the request fields (no resume,
+    no Firestore lookup). Cached + rate-limited per IP.
+
+  Authenticated callers (OAuth bearer)
+    Mirrors the website's Find People draft flow: pulls the user's
+    Firestore profile + resume, generates the email with the same
+    batch_generate_emails call signature runs.py uses, then creates a
+    real Gmail draft in the caller's connected Gmail account via
+    create_gmail_draft_for_user — the same helper that powers
+    Find People drafts.
+
+The Gmail draft is a side effect, never cached. Subject + body are
+cached, bucketed by uid so authed/anon outputs do not collide.
 """
 from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from app.mcp_server.cache import MCPCache
@@ -20,6 +34,7 @@ from app.mcp_server.schemas import (
     ContactRef,
     DraftOutreachInput,
     DraftOutreachOutput,
+    GmailDraftRef,
 )
 
 logger = logging.getLogger(__name__)
@@ -27,6 +42,11 @@ logger = logging.getLogger(__name__)
 
 TOOL_NAME = "draft_outreach"
 CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days; drafts can be reused per (contact, user, intent)
+
+# Cached payload only carries the stable LLM output. Per-user side
+# effects (gmail_draft, gmail_draft_status) are recomputed on every
+# call so the draft_id reflects the current request, not a stale one.
+_CACHED_FIELDS = ("subject", "body", "contact_name")
 
 
 def handle(
@@ -51,7 +71,11 @@ def handle(
         )
         return {"error": "invalid input", "details": str(e)}
 
-    cache_args = parsed.model_dump()
+    uid = (user_ctx or {}).get("uid") or None
+
+    # Bucket cache by identity so an anonymous caller never sees an
+    # authed user's resume-personalized draft (or vice versa).
+    cache_args = {**parsed.model_dump(), "_uid_bucket": uid or "_anon"}
     args_hash = cache.key(TOOL_NAME, cache_args)
 
     rl = limiter.check_and_increment(ip_hash, TOOL_NAME)
@@ -87,20 +111,35 @@ def handle(
         )
         return out.model_dump()
 
+    # For authed callers, load profile + resume bytes ONCE. The same
+    # context feeds both LLM generation (needs resume text) and the
+    # Gmail draft helper (needs resume bytes for the attachment), so
+    # downloading twice would be a wasted round-trip to Cloud Storage.
+    authed_ctx: Optional[_AuthedContext] = None
+    if uid:
+        authed_ctx = _load_authed_context(uid, db)
+
     cached_payload = cache.get(TOOL_NAME, cache_args)
     if cached_payload is not None:
         out = DraftOutreachOutput.model_validate({**cached_payload, "cached": True})
+        if authed_ctx is not None:
+            _attach_gmail_draft(out, parsed.contact, user_ctx, authed_ctx)
         events.log(
             tool=TOOL_NAME, ip_hash=ip_hash, args_hash=args_hash,
             cache_hit=True,
             duration_ms=int((time.monotonic() - started) * 1000),
+            extra=_gmail_event_extras(out) if authed_ctx is not None else None,
         )
         return out.model_dump()
 
-    # Cold path: synthesize the user_profile + contact dict shapes that
-    # batch_generate_emails expects, then unwrap the single result.
+    # Cold path. Authenticated callers use their Firestore profile +
+    # resume (same shape as the website); anonymous callers fall back
+    # to the request fields. Both invoke batch_generate_emails.
     try:
-        result = _generate_one(parsed)
+        if authed_ctx is not None:
+            result = _generate_authenticated(parsed, uid, authed_ctx)
+        else:
+            result = _generate_anonymous(parsed)
     except Exception as e:
         logger.warning("[MCP draft_outreach] generation failed: %s", e, exc_info=True)
         events.log(
@@ -123,32 +162,47 @@ def handle(
         cached=False,
     )
 
-    cache.set(TOOL_NAME, cache_args, out.model_dump(), CACHE_TTL_SECONDS)
+    # Cache the stable LLM output only. Side-effect fields are recomputed
+    # per call so cache hits don't return stale Gmail draft IDs.
+    cache_payload = {k: getattr(out, k) for k in _CACHED_FIELDS}
+    cache.set(TOOL_NAME, cache_args, cache_payload, CACHE_TTL_SECONDS)
+
+    if authed_ctx is not None:
+        _attach_gmail_draft(out, parsed.contact, user_ctx, authed_ctx)
 
     events.log(
         tool=TOOL_NAME, ip_hash=ip_hash, args_hash=args_hash,
         cache_hit=False,
         result_count=1 if out.body else 0,
         duration_ms=int((time.monotonic() - started) * 1000),
+        extra=_gmail_event_extras(out) if authed_ctx is not None else None,
     )
     return out.model_dump()
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+def _gmail_event_extras(out: DraftOutreachOutput) -> dict:
+    return {
+        "authed": True,
+        "gmail_draft_created": out.gmail_draft is not None,
+        "gmail_draft_status": out.gmail_draft_status,
+    }
 
 
-def _generate_one(parsed: DraftOutreachInput) -> dict:
-    """Call batch_generate_emails with a single contact and return its draft."""
+# ── LLM generation ───────────────────────────────────────────────────────────
+
+
+def _generate_anonymous(parsed: DraftOutreachInput) -> dict:
+    """Anonymous path: synthesize a thin user_profile from request fields."""
     from app.services.reply_generation import batch_generate_emails
 
     contact_dict = _build_contact_dict(parsed.contact)
-    user_profile = _build_user_profile(parsed)
-    pre_parsed = _build_pre_parsed(parsed)
+    user_profile = _build_user_profile_anon(parsed)
+    pre_parsed = _build_pre_parsed_anon(parsed)
     template_instructions = _build_template_instructions(parsed.intent)
 
     drafts = batch_generate_emails(
         contacts=[contact_dict],
-        resume_text="",  # anonymous: no resume
+        resume_text="",
         user_profile=user_profile,
         career_interests=parsed.user_career_track or "",
         pre_parsed_user_info=pre_parsed,
@@ -157,13 +211,325 @@ def _generate_one(parsed: DraftOutreachInput) -> dict:
         dream_companies=parsed.user_target_companies or [],
         uid=None,
     )
-    if not drafts or not drafts.get(0):
+    return _unwrap_single_draft(drafts)
+
+
+def _generate_authenticated(
+    parsed: DraftOutreachInput, uid: str, ctx: "_AuthedContext",
+) -> dict:
+    """Authed path: same call signature as runs.py's batch_generate_emails."""
+    from app.services.reply_generation import batch_generate_emails
+
+    contact_dict = _build_contact_dict(parsed.contact)
+    pre_parsed = ctx.user_data.get("resumeParsed") or _build_pre_parsed_anon(parsed)
+    template_instructions = _build_template_instructions(parsed.intent)
+    career_interests = (
+        ctx.user_data.get("careerInterests")
+        or parsed.user_career_track
+        or ctx.user_profile.get("careerTrack")
+        or ""
+    )
+    dream_companies = (
+        parsed.user_target_companies
+        or ctx.user_data.get("dreamCompanies")
+        or []
+    )
+
+    drafts = batch_generate_emails(
+        contacts=[contact_dict],
+        resume_text=ctx.resume_text or "",
+        user_profile=ctx.user_profile,
+        career_interests=career_interests,
+        pre_parsed_user_info=pre_parsed,
+        template_instructions=template_instructions,
+        personal_note=parsed.personal_note or "",
+        dream_companies=dream_companies,
+        uid=uid,
+    )
+    return _unwrap_single_draft(drafts)
+
+
+def _unwrap_single_draft(drafts: dict | None) -> dict:
+    if not drafts:
         return {"subject": "", "body": ""}
-    d = drafts[0]
+    d = drafts.get(0) or drafts.get("0")
+    if not d:
+        return {"subject": "", "body": ""}
     return {
         "subject": d.get("subject", ""),
-        "body": d.get("body", ""),
+        "body": d.get("plain_body") or d.get("body", ""),
     }
+
+
+# ── Gmail draft side effect ──────────────────────────────────────────────────
+
+
+def _attach_gmail_draft(
+    out: DraftOutreachOutput,
+    contact: ContactRef,
+    user_ctx: dict,
+    ctx: "_AuthedContext",
+) -> None:
+    """Mutate `out` to set gmail_draft + gmail_draft_status.
+
+    Best effort: any failure leaves subject/body intact and surfaces a
+    status string the client can render as a 'connect Gmail' nudge.
+    """
+    scope = (user_ctx or {}).get("scope") or ""
+    if "mcp:write" not in scope.split():
+        out.gmail_draft_status = "scope_missing"
+        return
+
+    if not (contact.email or "").strip() or "@" not in (contact.email or ""):
+        out.gmail_draft_status = "no_recipient_email"
+        return
+
+    if not ctx.has_gmail_integration:
+        out.gmail_draft_status = "gmail_not_connected"
+        return
+
+    tier = (user_ctx or {}).get("tier") or "free"
+    try:
+        draft = _create_gmail_draft(
+            tier=tier,
+            contact=contact,
+            subject=out.subject,
+            body=out.body,
+            ctx=ctx,
+        )
+    except Exception as e:
+        logger.warning("[MCP draft_outreach] Gmail draft create raised: %s", e, exc_info=True)
+        out.gmail_draft_status = "create_failed"
+        return
+
+    if draft is None:
+        out.gmail_draft_status = "create_failed"
+        return
+
+    out.gmail_draft = draft
+
+
+def _create_gmail_draft(
+    *,
+    tier: str,
+    contact: ContactRef,
+    subject: str,
+    body: str,
+    ctx: "_AuthedContext",
+) -> Optional[GmailDraftRef]:
+    """Call into the same helper the website uses for Find People drafts."""
+    from app.services.gmail_client import create_gmail_draft_for_user
+
+    contact_dict = _build_recipient_dict(contact)
+    result = create_gmail_draft_for_user(
+        contact_dict,
+        email_subject=subject,
+        email_body=body,
+        tier=tier,
+        user_email=ctx.user_email,
+        resume_url=ctx.resume_url,
+        resume_content=ctx.resume_content,
+        resume_filename=ctx.resume_filename,
+        user_info=ctx.user_info,
+        user_id=ctx.uid,
+    )
+
+    if not isinstance(result, dict):
+        return None
+    draft_id = result.get("draft_id") or ""
+    if not draft_id or str(draft_id).startswith(("mock_", "suppressed_", "low_confidence_")):
+        return None
+    return GmailDraftRef(
+        draft_id=draft_id,
+        draft_url=result.get("draft_url") or "",
+        recipient_email=result.get("recipient_email") or contact.email or "",
+    )
+
+
+def _build_recipient_dict(c: ContactRef) -> dict:
+    """Shape the contact for create_gmail_draft_for_user.
+
+    The website passes contacts from PDL which have WorkEmail/Email/PersonalEmail
+    slots. MCP gets a single email per contact; route it through WorkEmail since
+    that's the highest-priority slot in _select_recipient_email and it bypasses
+    the @domain.com placeholder check applied to Email.
+    """
+    first, last = _split_name(c.name)
+    return {
+        "FirstName": first,
+        "LastName": last,
+        "Title": c.title or "",
+        "Company": c.company or "",
+        "LinkedIn": c.linkedin_url or "",
+        "College": c.education or "",
+        "WorkEmail": c.email or "",
+        "Email": "",
+        "PersonalEmail": "",
+        "experience": [],
+    }
+
+
+# ── Authenticated-call context (loaded once, used by both LLM + Gmail) ──────
+
+
+@dataclass
+class _AuthedContext:
+    """Everything we need from Firestore + Cloud Storage for one authed call.
+
+    Loaded once at the top of handle() so the LLM-generation path and the
+    Gmail-draft side-effect path share user_profile/user_info and never
+    re-download the resume.
+    """
+    uid: str
+    user_data: dict = field(default_factory=dict)
+    user_email: str = ""
+    user_profile: dict = field(default_factory=dict)
+    user_info: dict = field(default_factory=dict)
+    resume_url: Optional[str] = None
+    resume_filename: Optional[str] = None
+    resume_content: Optional[bytes] = None
+    resume_text: Optional[str] = None
+    has_gmail_integration: bool = False
+
+
+def _load_authed_context(uid: str, db: Any) -> _AuthedContext:
+    ctx = _AuthedContext(uid=uid)
+    if db is None:
+        return ctx
+
+    ctx.user_data = _read_doc(db, "users", uid) or {}
+    ctx.user_email = _outreach_email(ctx.user_data)
+
+    prof_info = _read_subdoc(db, "users", uid, "professionalInfo", "info") or {}
+    ctx.user_profile = _build_user_profile(ctx.user_data, prof_info, ctx.user_email)
+    ctx.user_info = _build_user_info(ctx.user_data, prof_info, ctx.user_email)
+
+    gmail_int = _read_subdoc(db, "users", uid, "integrations", "gmail") or {}
+    # Must have at minimum a refresh_token to mint new access tokens.
+    ctx.has_gmail_integration = bool(
+        gmail_int.get("refresh_token") or gmail_int.get("token")
+    )
+
+    ctx.resume_url = ctx.user_data.get("resumeUrl") or ctx.user_data.get("resumeURL")
+    ctx.resume_filename = ctx.user_data.get("resumeFileName")
+    if ctx.resume_url:
+        ctx.resume_content, ctx.resume_text, fetched = _download_resume(ctx.resume_url)
+        if ctx.resume_content and not ctx.resume_filename:
+            ctx.resume_filename = fetched
+
+    return ctx
+
+
+def _read_doc(db: Any, coll: str, doc_id: str) -> Optional[dict]:
+    try:
+        snap = db.collection(coll).document(doc_id).get()
+    except Exception as e:
+        logger.warning("[MCP draft_outreach] %s/%s read failed: %s", coll, doc_id, e)
+        return None
+    if not snap.exists:
+        return None
+    return snap.to_dict() or {}
+
+
+def _read_subdoc(db: Any, coll: str, doc_id: str, sub_coll: str, sub_id: str) -> Optional[dict]:
+    try:
+        snap = (
+            db.collection(coll).document(doc_id)
+            .collection(sub_coll).document(sub_id).get()
+        )
+    except Exception as e:
+        logger.warning(
+            "[MCP draft_outreach] %s/%s/%s/%s read failed: %s",
+            coll, doc_id, sub_coll, sub_id, e,
+        )
+        return None
+    if not snap.exists:
+        return None
+    return snap.to_dict() or {}
+
+
+def _outreach_email(user_data: dict) -> str:
+    """Inline copy of utils.users.get_outreach_email — prefer verified .edu."""
+    if not user_data:
+        return ""
+    edu = (user_data.get("eduEmail") or "").strip()
+    if "@" in edu and edu.lower().endswith(".edu"):
+        return edu
+    return (user_data.get("email") or "").strip()
+
+
+def _build_user_profile(user_data: dict, prof_info: dict, user_email: str) -> dict:
+    """Mirror of runs.py's user_profile assembly (root doc + professionalInfo)."""
+    user_profile = user_data.get("userProfile")
+    if not user_profile and prof_info:
+        user_profile = {
+            "name": f"{prof_info.get('firstName', '')} {prof_info.get('lastName', '')}".strip()
+            or user_email or "",
+            "email": user_email,
+            "university": prof_info.get("university", ""),
+            "major": prof_info.get("fieldOfStudy", ""),
+            "year": prof_info.get("graduationYear", ""),
+            "graduationYear": prof_info.get("graduationYear", ""),
+            "degree": prof_info.get("currentDegree", ""),
+        }
+    if not user_profile:
+        user_profile = {"name": "", "email": user_email or ""}
+
+    for key in (
+        "resumeParsed", "academics", "goals", "careerTrack",
+        "dreamCompanies", "hometown", "location", "pastCompanies",
+    ):
+        if key in user_data and key not in user_profile:
+            user_profile[key] = user_data[key]
+
+    if user_email and not user_profile.get("email"):
+        user_profile["email"] = user_email
+    return user_profile
+
+
+def _build_user_info(user_data: dict, prof_info: dict, user_email: str) -> dict:
+    """Signature block consumed by _build_outreach_mime in gmail_client."""
+    name = f"{prof_info.get('firstName', '')} {prof_info.get('lastName', '')}".strip()
+    if not name:
+        name = (user_data.get("displayName") or user_data.get("name") or "").strip()
+    return {
+        "name": name,
+        "email": user_email or "",
+        "phone": "",
+        "linkedin": "",
+    }
+
+
+def _download_resume(resume_url: str) -> tuple[Optional[bytes], Optional[str], Optional[str]]:
+    """Download resume bytes, extract text, return (content, text, fetched_name).
+
+    One Cloud Storage GET per authed call. Text extraction is best-effort:
+    a too-short extract returns None for text but still keeps the bytes so
+    the Gmail attachment still works.
+    """
+    try:
+        from app.services.gmail_client import download_resume_from_url
+        content, fetched_name = download_resume_from_url(resume_url)
+    except Exception as e:
+        logger.warning("[MCP draft_outreach] resume download failed: %s", e)
+        return None, None, None
+
+    if not content:
+        return None, None, fetched_name
+
+    text: Optional[str] = None
+    try:
+        from app.services.resume_parser import extract_text_from_pdf_bytes
+        extracted = extract_text_from_pdf_bytes(content) or ""
+        if len(extracted.strip()) > 50:
+            text = extracted
+    except Exception as e:
+        logger.warning("[MCP draft_outreach] resume text extract failed: %s", e)
+
+    return content, text, fetched_name
+
+
+# ── Anonymous helpers (legacy shape) ─────────────────────────────────────────
 
 
 def _build_contact_dict(c: ContactRef) -> dict:
@@ -188,17 +554,17 @@ def _split_name(full: str) -> tuple[str, str]:
     return parts[0], " ".join(parts[1:])
 
 
-def _build_user_profile(parsed: DraftOutreachInput) -> dict:
-    """Anonymous user_profile shape that batch_generate_emails accepts."""
-    profile: dict = {
+def _build_user_profile_anon(parsed: DraftOutreachInput) -> dict:
+    school = parsed.user_school or ""
+    return {
         "name": "",
         "academics": {
-            "university": parsed.user_school,
+            "university": school,
             "major": parsed.user_major or "",
             "graduationYear": parsed.user_year or "",
         },
         "professionalInfo": {
-            "university": parsed.user_school,
+            "university": school,
             "careerTrack": parsed.user_career_track or "",
         },
         "goals": {
@@ -206,17 +572,16 @@ def _build_user_profile(parsed: DraftOutreachInput) -> dict:
             "dreamCompanies": parsed.user_target_companies or [],
         },
     }
-    return profile
 
 
-def _build_pre_parsed(parsed: DraftOutreachInput) -> dict:
-    """Mimic the resumeParsed shape so personalization has school + major to hook on."""
+def _build_pre_parsed_anon(parsed: DraftOutreachInput) -> dict:
+    school = parsed.user_school or ""
     return {
-        "university": parsed.user_school,
+        "university": school,
         "major": parsed.user_major or "",
         "year": parsed.user_year or "",
         "education": {
-            "university": parsed.user_school,
+            "university": school,
             "major": parsed.user_major or "",
             "graduation": parsed.user_year or "",
         },
