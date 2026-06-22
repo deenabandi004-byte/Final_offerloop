@@ -367,42 +367,32 @@ def create_loop(uid: str, tier: str, payload: dict) -> dict:
         raw_mode_for_budget if raw_mode_for_budget in BUNDLED_COST_PER_PERSON else "people"
     )
 
-    if "creditBudgetPerWeek" in payload_clean:
-        # Client supplied an explicit cap (Settings → "Hard weekly credit cap").
-        # Trust it, but still clamp to tier max + 25-credit floor.
-        budget = int(payload_clean["creditBudgetPerWeek"])
-    else:
-        # Wizard V2 hides cadence from the user — when weeklyTarget is missing
-        # we derive it, in priority order:
-        #   1. An explicit count in the brief ("10 analysts at jpmorgan" → 10).
-        #      The brief parser already extracts this as targetCount; without
-        #      this branch it was parsed then ignored, so every Loop silently
-        #      paced at the tier default no matter what number the user wrote.
-        #   2. The tier default (free 2 / pro 5 / elite 10).
-        # A brief-supplied count is capped to what the tier's weekly budget can
-        # actually fund, so the displayed pace never promises more than the
-        # Loop can pay for — and free/paid tiering still holds via that cap.
-        if not payload_clean.get("weeklyTarget"):
-            bundled_cost = BUNDLED_COST_PER_PERSON[loop_mode_for_budget]
-            brief_count = ((payload or {}).get("briefParsed") or {}).get("targetCount")
-            if isinstance(brief_count, int) and brief_count > 0:
-                target = brief_count
-                if max_budget is not None:
-                    affordable = max(
-                        1, int(max_budget // (bundled_cost * BUNDLED_BUDGET_BUFFER))
-                    )
-                    target = min(target, affordable)
-                payload_clean["weeklyTarget"] = target
-            else:
-                payload_clean["weeklyTarget"] = weekly_target_for_tier(tier)
-        weekly = int(payload_clean["weeklyTarget"])
-        bundled = BUNDLED_COST_PER_PERSON[loop_mode_for_budget]
-        budget = int(weekly * bundled * BUNDLED_BUDGET_BUFFER)
-        # Phase 9 — if the Loop is opting into auto-send, the per-person
-        # cost gains a +1 credit overhead (Hunter verify). Add this on
-        # top so the wizard's derived budget covers the new line item.
-        if payload_clean.get("autoSendMode") == "send_for_me":
-            budget += int(weekly * AUTO_SEND_CREDIT_COST * BUNDLED_BUDGET_BUFFER)
+    # Always derive weekly budget from the user's weeklyTarget. Any
+    # client-supplied creditBudgetPerWeek is ignored on create — the
+    # Settings PATCH path is the surface for power-user overrides.
+    # When weeklyTarget is missing, derive from a brief-supplied count
+    # ("10 analysts at jpmorgan") then fall back to the tier default.
+    if not payload_clean.get("weeklyTarget"):
+        bundled_cost = BUNDLED_COST_PER_PERSON[loop_mode_for_budget]
+        brief_count = ((payload or {}).get("briefParsed") or {}).get("targetCount")
+        if isinstance(brief_count, int) and brief_count > 0:
+            target = brief_count
+            if max_budget is not None:
+                affordable = max(
+                    1, int(max_budget // (bundled_cost * BUNDLED_BUDGET_BUFFER))
+                )
+                target = min(target, affordable)
+            payload_clean["weeklyTarget"] = target
+        else:
+            payload_clean["weeklyTarget"] = weekly_target_for_tier(tier)
+    weekly = int(payload_clean["weeklyTarget"])
+    bundled = BUNDLED_COST_PER_PERSON[loop_mode_for_budget]
+    budget = int(weekly * bundled * BUNDLED_BUDGET_BUFFER)
+    # Phase 9 — if the Loop is opting into auto-send, the per-person
+    # cost gains a +1 credit overhead (Hunter verify). Add this on
+    # top so the derived budget covers the new line item.
+    if payload_clean.get("autoSendMode") == "send_for_me":
+        budget += int(weekly * AUTO_SEND_CREDIT_COST * BUNDLED_BUDGET_BUFFER)
 
     if max_budget is not None:
         budget = min(budget, max_budget)
