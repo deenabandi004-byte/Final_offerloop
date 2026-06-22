@@ -351,6 +351,63 @@ class TestSchoolMatching:
 
 
 # ============================================================
+# UC SYSTEM ALIASES (regression for the Roblox/Berkeley zero-result dogfood)
+# ============================================================
+
+class TestUcSystemAliases:
+    """The UC system has many ways a single campus gets written across PDL
+    profiles, website dropdowns, and free-text MCP inputs. Every campus
+    must produce the same full alias set regardless of which form the
+    caller types — otherwise PDL match_phrase only matches the literal
+    string and we lose most alumni.
+    """
+
+    # (input, expected_aliases_that_must_be_present)
+    _CASES = [
+        ("UC Berkeley",  {"berkeley", "uc berkeley", "university of california berkeley", "cal"}),
+        ("Berkeley",     {"berkeley", "uc berkeley", "university of california berkeley", "cal"}),
+        ("University of California, Berkeley",
+                         {"berkeley", "uc berkeley", "university of california berkeley", "cal"}),
+        ("UC Los Angeles", {"ucla", "uc los angeles", "university of california los angeles"}),
+        ("UCLA",           {"ucla", "uc los angeles", "university of california los angeles"}),
+        ("University of California, Los Angeles",
+                           {"ucla", "uc los angeles", "university of california los angeles"}),
+        ("UC San Diego",   {"ucsd", "uc san diego", "university of california san diego"}),
+        ("UC Santa Barbara", {"ucsb", "uc santa barbara", "university of california santa barbara"}),
+        ("UC Irvine",      {"uci", "uc irvine", "university of california irvine"}),
+        ("UCI",            {"uci", "uc irvine", "university of california irvine"}),
+        ("UC Davis",       {"ucd", "uc davis", "university of california davis"}),
+        ("UC Santa Cruz",  {"ucsc", "uc santa cruz", "university of california santa cruz"}),
+        ("UC Riverside",   {"ucr", "uc riverside", "university of california riverside"}),
+        ("UC Merced",      {"ucm", "uc merced", "university of california merced"}),
+        ("UC San Francisco", {"ucsf", "uc san francisco", "university of california san francisco"}),
+    ]
+
+    def test_uc_inputs_all_produce_full_alias_set(self):
+        """Each input form must produce every expected alias, so PDL
+        match_phrase fans out to all the variants in profile data."""
+        for raw, must_contain in self._CASES:
+            aliases = _school_aliases(raw)
+            alias_set = {a.lower() for a in aliases}
+            missing = must_contain - alias_set
+            assert not missing, (
+                f"_school_aliases({raw!r}) missing {missing}; got {sorted(alias_set)}"
+            )
+
+    def test_comma_stripped_input_does_not_lose_aliases(self):
+        """Website dropdowns send 'University of California, Berkeley' with
+        a comma. Pre-fix, the comma blocked the school_map exact-key lookup
+        AND the substring scan (since 'berkeley' is not literally inside
+        'university of california, berkeley' due to the comma sitting next
+        to it in some scan logic). After comma stripping, both succeed.
+        """
+        aliases = _school_aliases("University of California, Berkeley")
+        alias_set = {a.lower() for a in aliases}
+        assert "cal" in alias_set
+        assert "berkeley" in alias_set
+
+
+# ============================================================
 # CONTACT DEDUP
 # ============================================================
 

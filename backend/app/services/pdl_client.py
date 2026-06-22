@@ -97,9 +97,12 @@ def _school_aliases(raw: str) -> list[str]:
     """
     if not raw:
         return []
-    
-    # Clean and normalize input
-    s = " ".join(str(raw).lower().split())
+
+    # Clean and normalize input. Strip commas because PDL listings often
+    # write "University of California, Berkeley" but the school_map keys
+    # are stored without commas — without this normalization, both the
+    # exact-key lookup and the substring check below miss.
+    s = " ".join(str(raw).lower().replace(",", " ").split())
     aliases = {s}
     
     # Remove common words to get core name
@@ -128,15 +131,54 @@ def _school_aliases(raw: str) -> list[str]:
         "university of southern california": ["usc", "usc viterbi", "viterbi school of engineering", "southern california"],
         "southern california": ["usc", "university of southern california", "usc viterbi"],
         
-        "ucla": ["university of california los angeles", "university of california, los angeles", "uc los angeles"],
+        # UC system. Every campus has both a "uc <campus>" key AND a
+        # "university of california <campus>" key so a free-typed input
+        # like "UC Davis" or a website-dropdown selection like "University
+        # of California, Davis" both hit a school_map entry directly (not
+        # just via substring fallback). Without these, the alias set
+        # collapses to the literal input + the generic "the X" / "university
+        # of X" expansions, missing variants like "UC Davis" → "Cal", which
+        # leaves most PDL profiles unmatched.
+        "ucla": ["university of california los angeles", "uc los angeles", "cal los angeles"],
+        "uc los angeles": ["ucla", "university of california los angeles", "cal los angeles"],
         "university of california los angeles": ["ucla", "uc los angeles", "cal los angeles"],
-        
+
         "berkeley": ["uc berkeley", "university of california berkeley", "cal", "california berkeley"],
-        "university of california berkeley": ["berkeley", "uc berkeley", "cal"],
-        
+        "uc berkeley": ["berkeley", "university of california berkeley", "cal", "california berkeley"],
+        "university of california berkeley": ["berkeley", "uc berkeley", "cal", "california berkeley"],
+
         "ucsd": ["uc san diego", "university of california san diego", "california san diego"],
-        "ucsi": ["uc irvine", "university of california irvine", "california irvine"],
+        "uc san diego": ["ucsd", "university of california san diego", "california san diego"],
+        "university of california san diego": ["ucsd", "uc san diego", "california san diego"],
+
+        "uci": ["uc irvine", "university of california irvine", "california irvine"],
+        "uc irvine": ["uci", "university of california irvine", "california irvine"],
+        "university of california irvine": ["uci", "uc irvine", "california irvine"],
+
         "ucsb": ["uc santa barbara", "university of california santa barbara", "california santa barbara"],
+        "uc santa barbara": ["ucsb", "university of california santa barbara", "california santa barbara"],
+        "university of california santa barbara": ["ucsb", "uc santa barbara", "california santa barbara"],
+
+        "ucd": ["uc davis", "university of california davis", "california davis"],
+        "uc davis": ["ucd", "university of california davis", "california davis"],
+        "university of california davis": ["ucd", "uc davis", "california davis"],
+        "davis": ["uc davis", "university of california davis", "ucd"],
+
+        "ucsc": ["uc santa cruz", "university of california santa cruz", "california santa cruz"],
+        "uc santa cruz": ["ucsc", "university of california santa cruz", "california santa cruz"],
+        "university of california santa cruz": ["ucsc", "uc santa cruz", "california santa cruz"],
+
+        "ucr": ["uc riverside", "university of california riverside", "california riverside"],
+        "uc riverside": ["ucr", "university of california riverside", "california riverside"],
+        "university of california riverside": ["ucr", "uc riverside", "california riverside"],
+
+        "ucm": ["uc merced", "university of california merced", "california merced"],
+        "uc merced": ["ucm", "university of california merced", "california merced"],
+        "university of california merced": ["ucm", "uc merced", "california merced"],
+
+        "ucsf": ["uc san francisco", "university of california san francisco"],
+        "uc san francisco": ["ucsf", "university of california san francisco"],
+        "university of california san francisco": ["ucsf", "uc san francisco"],
         
         "stanford": ["stanford university", "leland stanford junior university"],
         "stanford university": ["stanford", "leland stanford junior university"],
