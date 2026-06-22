@@ -102,6 +102,59 @@ def test_valid_bearer_passes_through_to_handler(client):
     assert resp.status_code == 200
 
 
+# ── 0b. Discovery metadata at path-aware URLs ────────────────────────────────
+
+
+def _is_as_metadata(payload: dict) -> bool:
+    """A minimal RFC 8414 metadata shape — what Claude.ai needs to parse."""
+    return (
+        isinstance(payload, dict)
+        and "issuer" in payload
+        and "authorization_endpoint" in payload
+        and "token_endpoint" in payload
+        and "registration_endpoint" in payload
+    )
+
+
+def test_as_metadata_at_bare_well_known_path(unauthed_client):
+    resp = unauthed_client.get("/.well-known/oauth-authorization-server")
+    assert resp.status_code == 200
+    assert _is_as_metadata(resp.get_json())
+
+
+def test_as_metadata_at_path_aware_well_known(unauthed_client):
+    """RFC 8414 §3.1: with issuer = https://www.offerloop.ai/oauth, the
+    metadata URL is /.well-known/oauth-authorization-server/oauth. Claude.ai
+    hits this first; the bare path is only its fallback. Without this route
+    the SPA 404 handler caught it and returned index.html, breaking DCR."""
+    resp = unauthed_client.get("/.well-known/oauth-authorization-server/oauth")
+    assert resp.status_code == 200
+    assert _is_as_metadata(resp.get_json())
+
+
+def test_as_metadata_at_oidc_discovery_paths(unauthed_client):
+    """Claude.ai's connector falls back to OIDC discovery URLs when RFC 8414
+    paths return non-JSON. Serve OAuth metadata at the OIDC paths to keep
+    that fallback chain happy."""
+    for path in (
+        "/.well-known/openid-configuration",
+        "/.well-known/openid-configuration/oauth",
+        "/oauth/.well-known/openid-configuration",
+    ):
+        resp = unauthed_client.get(path)
+        assert resp.status_code == 200, f"path {path} returned {resp.status_code}"
+        assert _is_as_metadata(resp.get_json()), f"path {path} returned non-AS metadata"
+
+
+def test_prm_metadata_at_path_aware_well_known(unauthed_client):
+    """RFC 9728 path-aware variant. Bare path also still works."""
+    resp = unauthed_client.get("/.well-known/oauth-protected-resource/mcp")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert "authorization_servers" in body
+    assert "resource" in body
+
+
 # ── 1. Tool discovery ────────────────────────────────────────────────────────
 
 
