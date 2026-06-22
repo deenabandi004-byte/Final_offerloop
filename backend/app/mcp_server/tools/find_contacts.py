@@ -140,6 +140,15 @@ def handle(
     try:
         contacts = _run_pdl_search(parsed, effective_count)
         warmth = _score_warmth(parsed, contacts)
+        # Stamp warmth metadata onto the raw PDL dicts so when we persist
+        # to My Network the warmth fields land on the Firestore doc.
+        for i, c in enumerate(contacts):
+            w = warmth.get(i) or {}
+            if w.get("score") is not None:
+                c["warmth_score"] = w.get("score")
+                c["warmth_tier"] = w.get("tier") or ""
+                c["warmth_label"] = w.get("label") or ""
+                c["warmth_signals"] = w.get("signals") or []
         out_contacts = _build_contacts(contacts, warmth)
     except Exception as e:
         logger.warning("[MCP find_contacts] cold path failed: %s", e, exc_info=True)
@@ -156,6 +165,19 @@ def handle(
         }
 
     budget.spend(PDL_CREDITS_PER_QUERY)
+
+    # 7. Persist to My Network for authed callers. Mirrors the website's
+    # Find People flow so contacts discovered in Claude show up on
+    # offerloop.ai with an mcpUnseen=true flag the UI uses to render
+    # the first-time orange highlight.
+    uid = (user_ctx or {}).get("uid") if user_ctx else None
+    if uid:
+        try:
+            from app.mcp_server.persist import persist_contacts
+            persist_contacts(uid=uid, db=db, contacts=contacts, source="mcp")
+        except Exception as e:
+            # Persistence failure must never break the user-facing response.
+            logger.warning("[MCP find_contacts] persist failed (non-fatal): %s", e)
 
     out = FindContactsOutput(
         contacts=out_contacts,

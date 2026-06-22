@@ -123,7 +123,7 @@ def handle(
     if cached_payload is not None:
         out = DraftOutreachOutput.model_validate({**cached_payload, "cached": True})
         if authed_ctx is not None:
-            _attach_gmail_draft(out, parsed.contact, user_ctx, authed_ctx)
+            _attach_gmail_draft(out, parsed.contact, user_ctx, authed_ctx, db)
         events.log(
             tool=TOOL_NAME, ip_hash=ip_hash, args_hash=args_hash,
             cache_hit=True,
@@ -168,7 +168,7 @@ def handle(
     cache.set(TOOL_NAME, cache_args, cache_payload, CACHE_TTL_SECONDS)
 
     if authed_ctx is not None:
-        _attach_gmail_draft(out, parsed.contact, user_ctx, authed_ctx)
+        _attach_gmail_draft(out, parsed.contact, user_ctx, authed_ctx, db)
 
     events.log(
         tool=TOOL_NAME, ip_hash=ip_hash, args_hash=args_hash,
@@ -269,11 +269,16 @@ def _attach_gmail_draft(
     contact: ContactRef,
     user_ctx: dict,
     ctx: "_AuthedContext",
+    db: Any,
 ) -> None:
     """Mutate `out` to set gmail_draft + gmail_draft_status.
 
     Best effort: any failure leaves subject/body intact and surfaces a
     status string the client can render as a 'connect Gmail' nudge.
+
+    On success, also persist the contact to My Network and attach the
+    Gmail draft fields so the website's Tracker / Inbox pages show the
+    conversation under the user's account.
     """
     scope = (user_ctx or {}).get("scope") or ""
     if "mcp:write" not in scope.split():
@@ -307,6 +312,57 @@ def _attach_gmail_draft(
         return
 
     out.gmail_draft = draft
+    _persist_drafted_contact(out, contact, ctx.uid, db, draft)
+
+
+def _persist_drafted_contact(
+    out: DraftOutreachOutput,
+    contact: ContactRef,
+    uid: str,
+    db: Any,
+    draft: GmailDraftRef,
+) -> None:
+    """Write the contact into My Network and attach Gmail draft fields so
+    the website's Tracker / Inbox UIs pick it up under the user's account.
+    Best-effort — persistence failures don't break the tool's response."""
+    if not uid or db is None:
+        return
+    try:
+        from app.mcp_server.persist import (
+            attach_gmail_draft_to_contact,
+            persist_contacts,
+        )
+        first, last = _split_name(contact.name)
+        contact_dict = {
+            "FirstName": first,
+            "LastName": last,
+            "Title": contact.title or "",
+            "Company": contact.company or "",
+            "LinkedIn": contact.linkedin_url or "",
+            "College": contact.education or "",
+            "Email": draft.recipient_email or contact.email or "",
+        }
+        written = persist_contacts(
+            uid=uid, db=db, contacts=[contact_dict], source="mcp",
+        )
+        doc_id = (
+            written.get((draft.recipient_email or "").lower())
+            or written.get((contact.email or "").lower())
+            or written.get((contact.linkedin_url or "").strip())
+        )
+        if doc_id:
+            attach_gmail_draft_to_contact(
+                uid=uid, db=db,
+                contact_doc_id=doc_id,
+                draft_id=draft.draft_id,
+                draft_url=draft.draft_url,
+                thread_id=None,  # Gmail returns draft_id; thread_id lands via webhook
+                recipient_email=draft.recipient_email,
+                subject=out.subject,
+                body=out.body,
+            )
+    except Exception as e:
+        logger.warning("[MCP draft_outreach] My Network persist failed: %s", e)
 
 
 def _create_gmail_draft(
