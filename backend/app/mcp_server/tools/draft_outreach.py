@@ -43,6 +43,13 @@ logger = logging.getLogger(__name__)
 TOOL_NAME = "draft_outreach"
 CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days; drafts can be reused per (contact, user, intent)
 
+
+# Offerloop credits charged per draft generated for signed-in callers.
+# Same rate as find_contacts (5 per contact). MCP find + draft for one
+# person costs 10 total credits — find_contacts (5) + draft_outreach (5).
+# Anonymous callers pay nothing — rate limits + cache gate them.
+CREDITS_PER_DRAFT = 5
+
 # Cached payload only carries the stable LLM output. Per-user side
 # effects (gmail_draft, gmail_draft_status) are recomputed on every
 # call so the draft_id reflects the current request, not a stale one.
@@ -135,6 +142,29 @@ def handle(
         )
         return out.model_dump()
 
+    # Credit pre-check for signed-in callers. One draft costs
+    # CREDITS_PER_DRAFT (5). Cache hits above don't deduct — mirrors the
+    # find_contacts pattern and the website's pdl_cache 0-credit
+    # behavior. Anonymous callers (uid=None) skip the gate and rely on
+    # rate limits + cache for abuse control.
+    credit_paywall = _credit_pre_check_draft(user_ctx, ip_hash)
+    if credit_paywall is not None:
+        out = DraftOutreachOutput(
+            subject="",
+            body="",
+            contact_name=parsed.contact.name,
+            cached=False,
+            paywall=credit_paywall,
+        )
+        events.log(
+            tool=TOOL_NAME, ip_hash=ip_hash, args_hash=args_hash,
+            paywall_shown=True,
+            claim_token=_token_from_url(credit_paywall.claim_url),
+            duration_ms=int((time.monotonic() - started) * 1000),
+            error="insufficient_credits",
+        )
+        return out.model_dump()
+
     # Cold path. Authenticated callers use their Firestore profile +
     # resume (same shape as the website); anonymous callers fall back
     # to the request fields. Both invoke batch_generate_emails.
@@ -172,6 +202,13 @@ def handle(
     if out.body and out.subject:
         cache_payload = {k: getattr(out, k) for k in _CACHED_FIELDS}
         cache.set(TOOL_NAME, cache_args, cache_payload, CACHE_TTL_SECONDS)
+
+    # Deduct credits for signed-in callers, but only on a successful
+    # generation. Same gate as the cache.set above (body+subject both
+    # populated) — a failed LLM call surfaces an empty draft and costs
+    # the user nothing. Anonymous callers skip this branch internally.
+    if out.body and out.subject:
+        _deduct_credits_for_draft(user_ctx)
 
     if authed_ctx is not None:
         _attach_gmail_draft(out, parsed.contact, user_ctx, authed_ctx, db)
@@ -677,3 +714,87 @@ def _token_from_url(url: str) -> Optional[str]:
     if not url or "token=" not in url:
         return None
     return url.split("token=", 1)[1].split("&", 1)[0]
+
+
+# ── Credit gating + deduction (signed-in callers only) ─────────────────────
+
+
+def _signed_in_uid(user_ctx) -> Optional[str]:
+    """Return the Firestore uid for signed-in callers, else None.
+
+    user_ctx['uid'] comes from the OAuth access token's `sub` claim
+    (flask_mount.py:143). Anonymous bearer tokens carry sub=None — those
+    skip credit logic and rely on rate limits + cache for abuse control.
+    """
+    uid = (user_ctx or {}).get("uid") if user_ctx else None
+    return uid if uid else None
+
+
+def _credit_pre_check_draft(user_ctx, ip_hash: str):
+    """Return a paywall CTA if the signed-in caller can't afford one
+    draft at CREDITS_PER_DRAFT; None otherwise.
+
+    Defensive Firestore-unreachable / no-user-doc paths return None (no
+    gate) so a transient infra issue can't lock signed-in users out —
+    the deduction step is the fallback. Same fail-open philosophy as
+    find_contacts._credit_pre_check.
+    """
+    uid = _signed_in_uid(user_ctx)
+    if not uid:
+        return None
+
+    cost = CREDITS_PER_DRAFT
+    try:
+        from app.extensions import get_db
+        from app.services.auth import check_and_reset_credits
+        db = get_db()
+        if db is None:
+            return None
+        user_ref = db.collection("users").document(uid)
+        snap = user_ref.get()
+        if not snap.exists:
+            return None
+        credits_available = check_and_reset_credits(user_ref, snap.to_dict() or {})
+        if credits_available >= cost:
+            return None
+    except Exception as e:
+        logger.warning("[MCP draft_outreach] credit pre-check error: %s", e)
+        return None
+
+    return build_paywall(
+        TOOL_NAME, ip_hash,
+        hit_cap_type="credits",
+        retry_after_seconds=0,
+        message=(
+            f"Not enough Offerloop credits to draft this email "
+            f"(need {cost}). Top up at offerloop.ai or wait for your "
+            "monthly reset."
+        ),
+    )
+
+
+def _deduct_credits_for_draft(user_ctx) -> None:
+    """Charge CREDITS_PER_DRAFT to a signed-in caller. No-op for
+    anonymous. Logs but never raises on failure — same fail-soft pattern
+    as the website's prompt_search route (routes/runs.py:824-833) and
+    find_contacts._deduct_credits_for_search.
+    """
+    uid = _signed_in_uid(user_ctx)
+    if not uid:
+        return
+    try:
+        from app.services.auth import deduct_credits_atomic
+        success, remaining = deduct_credits_atomic(
+            uid, CREDITS_PER_DRAFT, "mcp_draft_outreach",
+        )
+        if not success:
+            logger.warning(
+                "[MCP draft_outreach] credit deduction underpaid for "
+                "uid=%s: had %d, needed %d (draft surfaced anyway)",
+                uid, remaining, CREDITS_PER_DRAFT,
+            )
+    except Exception as e:
+        logger.warning(
+            "[MCP draft_outreach] credit deduction error for uid=%s: %s",
+            uid, e,
+        )
