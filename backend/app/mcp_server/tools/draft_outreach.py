@@ -166,9 +166,12 @@ def handle(
     )
 
     # Cache the stable LLM output only. Side-effect fields are recomputed
-    # per call so cache hits don't return stale Gmail draft IDs.
-    cache_payload = {k: getattr(out, k) for k in _CACHED_FIELDS}
-    cache.set(TOOL_NAME, cache_args, cache_payload, CACHE_TTL_SECONDS)
+    # per call so cache hits don't return stale Gmail draft IDs. Gate on
+    # non-empty body so a failed LLM generation (subject="" body="")
+    # doesn't poison the cache for 7 days.
+    if out.body and out.subject:
+        cache_payload = {k: getattr(out, k) for k in _CACHED_FIELDS}
+        cache.set(TOOL_NAME, cache_args, cache_payload, CACHE_TTL_SECONDS)
 
     if authed_ctx is not None:
         _attach_gmail_draft(out, parsed.contact, user_ctx, authed_ctx)

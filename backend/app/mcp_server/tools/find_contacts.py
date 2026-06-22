@@ -169,7 +169,15 @@ def handle(
         out.truncated_to = effective_count
         out.note = cap_message(user_ctx, effective_count)
 
-    cache.set(TOOL_NAME, cache_args, out.model_dump(), CACHE_TTL_SECONDS)
+    # Only cache when the cold path actually produced contacts. Caching an
+    # empty list poisons the bucket for CACHE_TTL_SECONDS — every subsequent
+    # call with the same args (other users included; the find_contacts
+    # cache key isn't uid-bucketed) hits the stale 0 until expiry. The
+    # cofounder's pre-LLM-parser 0-result for Roblox + UC Berkeley sat in
+    # mcp_cache for 7 days and made the deployed fix look broken.
+    # pdl_client's own cache already follows this pattern.
+    if out.contacts:
+        cache.set(TOOL_NAME, cache_args, out.model_dump(), CACHE_TTL_SECONDS)
 
     events.log(
         tool=TOOL_NAME, ip_hash=ip_hash, args_hash=args_hash,

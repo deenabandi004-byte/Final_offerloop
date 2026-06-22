@@ -118,13 +118,18 @@ def handle(
 
     fully_cached = stable is not None and fresh is not None
 
-    # Compute or refresh whichever bucket is missing.
+    # Compute or refresh whichever bucket is missing. Gate cache writes on
+    # the bucket actually containing data so a Perplexity blip or unknown
+    # company doesn't lock a useless empty stable+fresh pair into the
+    # cache for 30 days.
     if stable is None:
         stable = _build_stable(parsed, db)
-        cache.set(_STABLE_KEY, cache_args, stable, STABLE_CACHE_TTL)
+        if _stable_has_content(stable):
+            cache.set(_STABLE_KEY, cache_args, stable, STABLE_CACHE_TTL)
     if fresh is None:
         fresh = _build_fresh(parsed)
-        cache.set(_FRESH_KEY, cache_args, fresh, FRESH_CACHE_TTL)
+        if _fresh_has_content(fresh):
+            cache.set(_FRESH_KEY, cache_args, fresh, FRESH_CACHE_TTL)
 
     out = _merge_to_output(parsed, stable, fresh, cached=fully_cached)
     events.log(
@@ -314,3 +319,35 @@ def _token_from_url(url: str) -> Optional[str]:
     if not url or "token=" not in url:
         return None
     return url.split("token=", 1)[1].split("&", 1)[0]
+
+
+def _stable_has_content(stable: dict) -> bool:
+    """The stable bucket is worth caching when we have an overview blurb
+    OR an alumni density count OR divisions. A bucket with all of those
+    null/empty is a failed Perplexity/PDL fetch — caching it would lock
+    out the next 30 days of attempts."""
+    if not isinstance(stable, dict):
+        return False
+    overview = stable.get("overview") or {}
+    if overview.get("description") or overview.get("headquarters"):
+        return True
+    if stable.get("divisions"):
+        return True
+    if stable.get("alumni_at_your_school"):
+        return True
+    if stable.get("discovery_score") is not None:
+        return True
+    return False
+
+
+def _fresh_has_content(fresh: dict) -> bool:
+    """The fresh bucket is worth caching when we have news items OR a
+    hiring momentum signal."""
+    if not isinstance(fresh, dict):
+        return False
+    if fresh.get("recent_news"):
+        return True
+    signals = fresh.get("recruiting_signals") or {}
+    if signals.get("hiring_momentum") or signals.get("cycle_intel"):
+        return True
+    return False
