@@ -6,7 +6,6 @@
 // stay editable so the parser is a starting point, not a black box.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
 import { parseBrief, type ParsedBrief } from "@/services/agent";
@@ -28,13 +27,6 @@ import ScoutYetiFull from "@/assets/scouts/scout-yeti-full.png";
 import { analyzeQuery, findCompletion, harmonizedSuggestions } from "@/lib/specificity";
 
 // ── Constants ──────────────────────────────────────────────────────────
-
-const STEPS = [
-  { id: "goals", num: "01", label: "Goals", sub: "Who and where" },
-  { id: "launch", num: "02", label: "Review & launch", sub: "Pick approval and start" },
-] as const;
-
-type StepDescriptor = (typeof STEPS)[number];
 
 // Soft cap on the textarea. Backend MAX_BRIEF_CHARS is 2000; we soft-warn
 // at the same number so users see the cap before the parser truncates.
@@ -164,79 +156,6 @@ function ModeCard({
         {desc}
       </div>
     </button>
-  );
-}
-
-// ── Step rail ──────────────────────────────────────────────────────────
-
-function StepRail({
-  index,
-  onJump,
-  steps,
-}: {
-  index: number;
-  onJump: (i: number) => void;
-  steps: ReadonlyArray<StepDescriptor>;
-}) {
-  return (
-    <div
-      className="grid"
-      style={{
-        gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))`,
-        background: "var(--paper-2)",
-        border: "1px solid var(--line)",
-        borderRadius: 3,
-        overflow: "hidden",
-        fontFamily: "'Inter', sans-serif",
-      }}
-    >
-      {steps.map((s, i) => {
-        const active = i === index;
-        const done = i < index;
-        return (
-          <button
-            key={s.id}
-            onClick={() => onJump(i)}
-            className="relative text-left py-3.5 px-4 cursor-pointer border-0"
-            style={{
-              background: active ? "#FFFFFF" : "transparent",
-              borderRight: i < steps.length - 1 ? "1px solid var(--line)" : "none",
-            }}
-          >
-            {active && (
-              <span className="absolute left-0 top-0 bottom-0 w-[2px]" style={{ background: "#4A60A8" }} />
-            )}
-            <div className="flex items-center gap-2.5">
-              <span
-                style={{
-                  fontSize: 12,
-                  fontWeight: 600,
-                  letterSpacing: "0.04em",
-                  color: done ? "var(--signal-pos)" : active ? "#4A60A8" : "var(--ink-3)",
-                  minWidth: 18,
-                }}
-              >
-                {done ? "✓" : s.num}
-              </span>
-              <div>
-                <div
-                  style={{
-                    fontSize: 13,
-                    fontWeight: active ? 600 : 500,
-                    color: active ? "var(--ink)" : done ? "var(--ink-2)" : "var(--ink-3)",
-                  }}
-                >
-                  {s.label}
-                </div>
-                <div style={{ fontSize: 11, marginTop: 2, color: "var(--ink-3)" }}>
-                  {s.sub}
-                </div>
-              </div>
-            </div>
-          </button>
-        );
-      })}
-    </div>
   );
 }
 
@@ -955,22 +874,6 @@ function StepReview({
   maxPace: number;
   lowBalance: boolean;
 }) {
-  const summary: Array<{ k: string; v: string }> = [
-    { k: "Companies", v: form.companies.length ? form.companies.join(", ") : "—" },
-    { k: "Roles", v: form.roles.length ? form.roles.join(", ") : "—" },
-    {
-      k: "Industries",
-      v: form.industries.length ? form.industries.join(", ") : "—",
-    },
-    // Alumni priority is now always on — the toggle was removed. We
-    // still surface it in the review so the student sees what's
-    // happening on their behalf.
-    {
-      k: "Alumni priority",
-      v: university ? `On — ${university}` : "On (set your university in Account Settings to activate)",
-    },
-  ];
-
   // Honest framing: pace is a TARGET, not a promise. We reach out to everyone
   // we can verify an email for, so the actual sent count trends a bit under the
   // target (no usable address → no email). Never say "we WILL find N".
@@ -981,34 +884,26 @@ function StepReview({
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif" }}>
-      {/* Compact summary */}
-      <div
-        className="overflow-hidden mb-5"
-        style={{
-          border: "1px solid var(--line)",
-          borderRadius: 3,
-          background: "#FFFFFF",
-        }}
-      >
-        {summary.map((r, i) => (
-          <div
-            key={r.k}
-            className="grid grid-cols-[150px_1fr]"
-            style={{
-              padding: "12px 18px",
-              fontSize: 13,
-              borderBottom: i < summary.length - 1 ? "1px solid var(--line-2)" : "none",
-            }}
-          >
-            <span style={{ color: "var(--ink-3)" }}>{r.k}</span>
-            <span style={{ color: "var(--ink)", fontWeight: 500 }}>{r.v}</span>
-          </div>
-        ))}
-      </div>
+      {/* Alumni status — the only personalization signal that isn't already
+          visible in the chips above. Drops when the student has no school
+          on file (Account Settings prompt lives elsewhere). */}
+      {university && (
+        <div
+          style={{
+            fontFamily: "'Inter', sans-serif",
+            fontSize: 13,
+            color: "var(--ink-2)",
+            marginBottom: 18,
+            fontStyle: "italic",
+          }}
+        >
+          Boosting alumni from {university}.
+        </div>
+      )}
 
       {/* Pace — a slider bounded to what the tier can comfortably deliver, so
           the wizard never lets a user pick a pace we can't hit. */}
-      <div className="mb-5">
+      <div className="mb-5" id="loop-pace-section">
         <div
           className="flex items-baseline justify-between"
           style={{ marginBottom: 8 }}
@@ -1039,7 +934,7 @@ function StepReview({
       </div>
 
       {/* Approval mode picker — the focus of V2 step 2 */}
-      <div className="mb-5">
+      <div className="mb-5" id="loop-approval-section">
         <div
           style={{
             fontSize: 14,
@@ -1119,7 +1014,6 @@ export function AgentSetupInline({
   onDeployed,
   initialBrief,
   initialBriefParsed,
-  onBackToEntry,
 }: {
   onDeployed: () => void;
   // Optional seed brief — passed in when the user already wrote/edited
@@ -1128,32 +1022,20 @@ export function AgentSetupInline({
   // don't clobber the user's words.
   initialBrief?: string;
   // Optional seed chips that arrive alongside initialBrief. Used so the
-  // wizard's Step 02 review can show real roles / industries even when
-  // the brief text doesn't explicitly name them — the parser would
-  // otherwise return empty for those fields and Step 02 would render
-  // Roles=— even when the resume implied them.
+  // chip groups render with real roles / industries even when the brief
+  // text doesn't explicitly name them — the parser would otherwise return
+  // empty and the wizard would show Roles=— even when the resume implied
+  // them.
   initialBriefParsed?: {
     companies?: string[];
     industries?: string[];
     roles?: string[];
     locations?: string[];
   };
-  // Where to send the user when they hit Back from the step they
-  // entered on. When the empty-state card brought them straight to
-  // Step 02, Back should return them to the empty state, not to the
-  // wizard's Step 01 they never saw.
-  onBackToEntry?: () => void;
 }) {
   const { toast } = useToast();
   const { user } = useFirebaseAuth();
   const createLoopMut = useCreateLoop();
-  // When the empty-state already collected the brief (initialBrief is
-  // present), Step 01 (Goals) would just re-show the same Scout greeter
-  // and textarea the student already used — pure redundancy. Jump
-  // directly to Step 02 (Review & launch). The server still re-parses
-  // the brief on POST when briefParsed is empty (loops.py:165-171), so a
-  // 1-2s parse round-trip in the background doesn't block the deploy.
-  const [stepIdx, setStepIdx] = useState(initialBrief ? 1 : 0);
   const [deploying, setDeploying] = useState(false);
   // null = still loading, "" = onboarded but no school, "USC" = set.
   const [university, setUniversity] = useState<string | null>(null);
@@ -1253,10 +1135,9 @@ export function AgentSetupInline({
     const credits = subscription?.credits ?? 0;
     return credits > 0 && credits < estimatedWeeklyCreditsPeople(weeklyTarget);
   })();
-  const steps: ReadonlyArray<StepDescriptor> = STEPS;
 
   // ── Prompt-first brief state ─────────────────────────────────────────
-  // The textarea is the only input on Step 01. Its value debounces into a
+  // The textarea is the primary input. Its value debounces into a
   // parser call (parseBrief) that populates the four extracted-entity
   // lists on the form. No chip rows means no manual-edit sticky tracking —
   // the parser always wins.
@@ -1374,8 +1255,6 @@ export function AgentSetupInline({
     form.locations.length,
   ]);
 
-  const step = steps[stepIdx];
-  const isLast = stepIdx === steps.length - 1;
   // Mode-aware copy for the Goals headline (and subtitle). school is the
   // user's actual university when known so the alumni toggle shows
   // concrete language.
@@ -1385,10 +1264,6 @@ export function AgentSetupInline({
   const hasBrief = briefText.trim().length >= MIN_BRIEF_CHARS_TO_PARSE;
   const hasChipTargets = form.companies.length > 0 || form.industries.length > 0;
   const canDeploy = hasBrief || hasChipTargets;
-  // Gate the Continue button while the parser is actively reading the
-  // brief. Without this, a fast click after typing lands the user on
-  // Step 02 with empty extraction fields and a stale preview.
-  const parseInFlight = stepIdx === 0 && parsePhase === "parsing";
 
   const handleDeploy = async () => {
     if (!hasBrief && !hasChipTargets) {
@@ -1478,13 +1353,71 @@ export function AgentSetupInline({
   };
 
   return (
-    <div className="flex min-h-0">
+    <div className="flex min-h-0 flex-col">
       {/* Main form column */}
       <div className="flex-1 min-w-0">
-        <div className="max-w-[640px] mx-auto px-4 sm:px-8 py-8 pb-20">
-          {/* Hero — mirrors the Find page's serif headline treatment:
-              parallel phrases, italic emphasis, navy ink. */}
-          <div className="mb-8" style={{ paddingTop: 32 }}>
+        <div className="max-w-[640px] mx-auto px-4 sm:px-8 py-8 pb-32">
+          {/* Hero — tightened so the "Review and launch" divider stays
+              visible from viewport 1, even at 110-125% browser zoom. */}
+          <div className="mb-6" style={{ paddingTop: 20 }}>
+            <h1
+              style={{
+                fontFamily: "'Lora', 'Instrument Serif', Georgia, serif",
+                fontSize: 36,
+                fontWeight: 500,
+                lineHeight: 1.1,
+                letterSpacing: "-0.02em",
+                color: "#0f2545",
+                marginBottom: 8,
+              }}
+            >
+              Tell your Loop{" "}
+              <span style={{ fontStyle: "italic", color: "#4A60A8" }}>
+                {goalsCopy.goalsTitleAccent}
+              </span>{" "}
+              to chase.
+            </h1>
+            <p
+              style={{
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 15,
+                lineHeight: 1.5,
+                color: "#475569",
+                maxWidth: 560,
+              }}
+            >
+              {goalsCopy.goalsSubtitle}
+            </p>
+          </div>
+
+          {/* Goals body — textarea + chips */}
+          <div>
+            <StepGoals
+              form={form}
+              briefText={briefText}
+              setBriefText={(v) => {
+                if (aiDraftActive && v !== briefText) setAiDraftActive(false);
+                setBriefText(v);
+              }}
+              parsePhase={parsePhase}
+              hasUniversity={hasUniversity}
+              university={university || ""}
+              profileFacts={profileFacts}
+              proposedBrief={proposedBrief}
+              showAiDraftLabel={aiDraftActive}
+              ghostCompletion={ghostCompletion}
+            />
+          </div>
+
+          {/* Section divider — visual breakpoint between Goals and Launch */}
+          <div
+            style={{
+              marginTop: 36,
+              marginBottom: 24,
+              paddingTop: 24,
+              borderTop: "1px solid var(--line-2)",
+            }}
+          >
             <div
               style={{
                 fontFamily: "'Inter', sans-serif",
@@ -1493,226 +1426,151 @@ export function AgentSetupInline({
                 letterSpacing: "0.10em",
                 textTransform: "uppercase",
                 color: "#4A60A8",
-                marginBottom: 16,
+                marginBottom: 6,
               }}
             >
-              Step {step.num} · {step.label}
+              Review and launch
             </div>
-            <h1
-              style={{
-                // Match the Loops redesign display font (Lora) — the same stack
-                // the empty-state / detail headings use — so the italic "what"
-                // accent reads in Lora italic, not Instrument Serif's.
-                fontFamily: "'Lora', 'Instrument Serif', Georgia, serif",
-                fontSize: 48,
-                fontWeight: 500,
-                lineHeight: 1.05,
-                letterSpacing: "-0.02em",
-                color: "#0f2545",
-                marginBottom: 16,
-              }}
-            >
-              {stepIdx === 0 && (
-                <>
-                  Tell your Loop{" "}
-                  <span style={{ fontStyle: "italic", color: "#4A60A8" }}>
-                    {goalsCopy.goalsTitleAccent}
-                  </span>{" "}
-                  to chase.
-                </>
-              )}
-              {stepIdx === 1 && (
-                <>
-                  Review and{" "}
-                  <span style={{ fontStyle: "italic", color: "#4A60A8" }}>launch.</span>
-                </>
-              )}
-            </h1>
             <p
               style={{
                 fontFamily: "'Inter', sans-serif",
-                fontSize: 17,
-                lineHeight: 1.55,
+                fontSize: 14,
                 color: "#475569",
-                maxWidth: 560,
               }}
             >
-              {stepIdx === 0 && goalsCopy.goalsSubtitle}
-              {stepIdx === 1 &&
-                "Pick how drafts go out, then start the Loop. First batch lands within 24 hours."}
+              Pick how drafts go out, then start the Loop. First batch lands within 24 hours.
             </p>
           </div>
 
-          {/* Step rail */}
-          <StepRail index={stepIdx} onJump={setStepIdx} steps={steps} />
-
-          {/* Step body */}
-          <div className="pt-7">
-            {stepIdx === 0 && (
-              <StepGoals
-                form={form}
-                briefText={briefText}
-                setBriefText={(v) => {
-                  if (aiDraftActive && v !== briefText) setAiDraftActive(false);
-                  setBriefText(v);
-                }}
-                parsePhase={parsePhase}
-                hasUniversity={hasUniversity}
-                university={university || ""}
-                profileFacts={profileFacts}
-                proposedBrief={proposedBrief}
-                showAiDraftLabel={aiDraftActive}
-                ghostCompletion={ghostCompletion}
-              />
-            )}
-            {stepIdx === 1 && (
-              <StepReview
-                form={form}
-                set={set}
-                university={university || ""}
-                weeklyTarget={weeklyTarget}
-                setWeeklyTarget={setWeeklyTarget}
-                minPace={MIN_PACE}
-                maxPace={maxPace}
-                lowBalance={lowBalance}
-              />
-            )}
+          {/* Review body — pace slider + approval mode + summary */}
+          <div>
+            <StepReview
+              form={form}
+              set={set}
+              university={university || ""}
+              weeklyTarget={weeklyTarget}
+              setWeeklyTarget={setWeeklyTarget}
+              minPace={MIN_PACE}
+              maxPace={maxPace}
+              lowBalance={lowBalance}
+            />
           </div>
 
-          {/* Navigation */}
-          <div
-            className="flex justify-between items-center mt-7 pt-5"
-            style={{ borderTop: "1px solid var(--line-2)" }}
-          >
-            {/* Back behavior is "step back when possible, otherwise exit
-                to the surface that brought us here". For users who came
-                from the empty-state card and skipped Step 01, exit means
-                returning to /agent — going to Step 01 they never saw
-                would be a worse experience. */}
-            {(() => {
-              const entryStep = initialBrief ? 1 : 0;
-              const canStepBack = stepIdx > entryStep;
-              const canExitToEntry = stepIdx === entryStep && !!onBackToEntry;
-              const enabled = canStepBack || canExitToEntry;
-              const onBackClick = () => {
-                if (canStepBack) {
-                  setStepIdx(stepIdx - 1);
-                } else if (canExitToEntry) {
-                  onBackToEntry!();
-                }
-              };
-              return (
-                <button
-                  type="button"
-                  onClick={onBackClick}
-                  disabled={!enabled}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "10px 16px",
-                    fontFamily: "'Inter', sans-serif",
-                    fontSize: 14,
-                    fontWeight: 500,
-                    color: enabled ? "var(--ink-2)" : "var(--ink-3)",
-                    background: "#FFFFFF",
-                    border: "1px solid var(--line)",
-                    borderRadius: 3,
-                    cursor: enabled ? "pointer" : "not-allowed",
-                    opacity: enabled ? 1 : 0.6,
-                  }}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                  Back
-                </button>
-              );
-            })()}
-
-            <div className="flex items-center gap-3">
-              <span
-                style={{
-                  fontFamily: "'Inter', sans-serif",
-                  fontSize: 12,
-                  fontWeight: 500,
-                  color: "var(--ink-3)",
-                }}
-              >
-                {stepIdx + 1} / {steps.length}
-              </span>
-              {isLast ? (
-                <button
-                  type="button"
-                  onClick={handleDeploy}
-                  disabled={!canDeploy || deploying}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 8,
-                    padding: "10px 20px",
-                    fontFamily: "'Inter', sans-serif",
-                    fontSize: 14,
-                    fontWeight: 600,
-                    color: "#FFFFFF",
-                    background: (!canDeploy || deploying) ? "var(--ink-3)" : "#4A60A8",
-                    border: "none",
-                    borderRadius: 3,
-                    cursor: (!canDeploy || deploying) ? "not-allowed" : "pointer",
-                    transition: "background 0.15s ease",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (canDeploy && !deploying) e.currentTarget.style.background = "#3A4F8E";
-                  }}
-                  onMouseLeave={(e) => {
-                    if (canDeploy && !deploying) e.currentTarget.style.background = "#4A60A8";
-                  }}
-                >
-                  {deploying ? (
-                    <>
-                      <span
-                        className="w-1.5 h-1.5 rounded-full bg-white"
-                        style={{ animation: "om-blink 1s ease-in-out infinite" }}
-                      />
-                      Starting your Loop…
-                    </>
-                  ) : (
-                    <>Start Loop</>
-                  )}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => !parseInFlight && setStepIdx(stepIdx + 1)}
-                  disabled={parseInFlight}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 8,
-                    padding: "10px 20px",
-                    fontFamily: "'Inter', sans-serif",
-                    fontSize: 14,
-                    fontWeight: 600,
-                    color: "#FFFFFF",
-                    background: parseInFlight ? "var(--ink-3)" : "#4A60A8",
-                    border: "none",
-                    borderRadius: 3,
-                    cursor: parseInFlight ? "not-allowed" : "pointer",
-                    transition: "background 0.15s ease",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!parseInFlight) e.currentTarget.style.background = "#3A4F8E";
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!parseInFlight) e.currentTarget.style.background = "#4A60A8";
-                  }}
-                >
-                  {parseInFlight ? "Reading…" : "Continue →"}
-                </button>
-              )}
-            </div>
-          </div>
         </div>
       </div>
 
+      {/* Fixed launch bar — anchors to the viewport bottom so the Start
+          Loop action is always reachable from any scroll position. Status
+          line on the left mirrors the current pace + approval mode so the
+          user always knows what they're about to commit to. */}
+      <div
+        style={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          background: "rgba(255, 255, 255, 0.95)",
+          backdropFilter: "blur(8px)",
+          WebkitBackdropFilter: "blur(8px)",
+          borderTop: "1px solid var(--line-2)",
+          padding: "14px 0",
+          zIndex: 20,
+        }}
+      >
+        <div className="max-w-[640px] mx-auto px-4 sm:px-8 flex items-center justify-between gap-4">
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
+            {/* Current state as plain text + one attention-grabbing
+                Customize button. The button is outline-blue so it reads as
+                clickable without competing with the solid Start Loop CTA. */}
+            <span
+              style={{
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 12,
+                fontWeight: 500,
+                color: "var(--ink-2)",
+              }}
+            >
+              {weeklyTarget} {weeklyTarget === 1 ? "person" : "people"} / week ·{" "}
+              {form.approvalMode === "autopilot" ? "Autopilot" : "Review first"}
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                document
+                  .getElementById("loop-pace-section")
+                  ?.scrollIntoView({ behavior: "smooth", block: "center" })
+              }
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "#EEF2FB";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "#FFFFFF";
+              }}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 12,
+                fontWeight: 600,
+                color: "#4A60A8",
+                background: "#FFFFFF",
+                border: "1px solid #4A60A8",
+                borderRadius: 3,
+                padding: "6px 12px",
+                cursor: "pointer",
+                transition: "background 0.15s ease",
+              }}
+            >
+              Customize ↓
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={handleDeploy}
+            disabled={!canDeploy || deploying}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "10px 20px",
+              fontFamily: "'Inter', sans-serif",
+              fontSize: 14,
+              fontWeight: 600,
+              color: "#FFFFFF",
+              background: (!canDeploy || deploying) ? "var(--ink-3)" : "#4A60A8",
+              border: "none",
+              borderRadius: 3,
+              cursor: (!canDeploy || deploying) ? "not-allowed" : "pointer",
+              transition: "background 0.15s ease",
+            }}
+            onMouseEnter={(e) => {
+              if (canDeploy && !deploying) e.currentTarget.style.background = "#3A4F8E";
+            }}
+            onMouseLeave={(e) => {
+              if (canDeploy && !deploying) e.currentTarget.style.background = "#4A60A8";
+            }}
+          >
+            {deploying ? (
+              <>
+                <span
+                  className="w-1.5 h-1.5 rounded-full bg-white"
+                  style={{ animation: "om-blink 1s ease-in-out infinite" }}
+                />
+                Starting your Loop…
+              </>
+            ) : (
+              <>Start Loop</>
+            )}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
