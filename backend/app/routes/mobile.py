@@ -525,3 +525,44 @@ def company(name: str):
             pass
 
     return jsonify(profile), 200
+
+
+@mobile_bp.route('/meeting-prep/preview', methods=['POST'])
+@require_firebase_auth
+def meeting_prep_preview():
+    """Free, read-only LinkedIn lookup so the app can confirm WHO a meeting prep
+    is about before spending 15 credits on the full research job. Reuses the same
+    `enrich_linkedin_profile` the prep itself runs (coffee_chat_prep.py:105) — no
+    credit charge, no research, no PDF. Returns just enough for a confirm card."""
+    data = request.get_json() or {}
+    url = (data.get('linkedinUrl') or '').strip().rstrip('/')
+    url = url.split('?')[0].split('#')[0]
+    if 'linkedin.com/in/' not in url.lower():
+        return jsonify({'ok': False, 'error': 'Enter a LinkedIn profile URL (linkedin.com/in/…)'}), 400
+
+    try:
+        from app.services.pdl_client import enrich_linkedin_profile
+        c = enrich_linkedin_profile(url) or {}
+    except Exception:
+        c = {}
+
+    if not c or not (c.get('fullName') or c.get('firstName')):
+        # Not an error — the URL may just be too new/sparse for PDL. The app
+        # falls back to letting the user prep anyway with a typed name.
+        return jsonify({'ok': True, 'found': False}), 200
+
+    edu = c.get('educationArray') or []
+    school = ''
+    if edu and isinstance(edu[0], dict):
+        school = edu[0].get('school') or edu[0].get('name') or ''
+
+    name = c.get('fullName') or f"{c.get('firstName', '')} {c.get('lastName', '')}".strip()
+    return jsonify({
+        'ok': True,
+        'found': True,
+        'name': name,
+        'title': c.get('jobTitle') or '',
+        'company': c.get('company') or '',
+        'location': c.get('location') or '',
+        'school': school,
+    }), 200
