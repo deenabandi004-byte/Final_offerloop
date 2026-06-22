@@ -32,6 +32,13 @@ CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days
 PDL_CREDITS_PER_QUERY = 6
 
 
+# Offerloop credits charged to the signed-in caller per contact returned.
+# Mirrors the website's prompt_search rate (routes/runs.py:824 deducts
+# 5 * len(contacts)). Anonymous callers (uid=None) pay nothing — rate
+# limits + the service-wide MCPBudget are their abuse-control surfaces.
+CREDITS_PER_CONTACT = 5
+
+
 def handle(
     *,
     args: dict,
@@ -116,6 +123,30 @@ def handle(
         )
         return out.model_dump()
 
+    # 4.5. Credit pre-check for signed-in callers. Charged at
+    # CREDITS_PER_CONTACT (5) per result, matching the website's
+    # prompt_search rate. Cache hits above don't deduct — mirrors the
+    # website's pdl_cache 0-credit behavior. Anonymous callers (uid=None)
+    # are gated by rate limits + MCPBudget only and skip this branch.
+    credit_paywall = _credit_pre_check(user_ctx, effective_count, ip_hash)
+    if credit_paywall is not None:
+        out = FindContactsOutput(
+            contacts=[],
+            company=parsed.company,
+            cached=False,
+            note=credit_paywall.message,
+            paywall=credit_paywall,
+        )
+        events.log(
+            tool=TOOL_NAME, ip_hash=ip_hash, args_hash=args_hash,
+            paywall_shown=True,
+            claim_token=_token_from_url(credit_paywall.claim_url),
+            result_count=0,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            error="insufficient_credits",
+        )
+        return out.model_dump()
+
     # 5. Budget gate. If over-budget, return cached-only (we already
     # missed the cache above, so this becomes an empty result + CTA).
     if not budget.can_spend(PDL_CREDITS_PER_QUERY):
@@ -174,6 +205,12 @@ def handle(
         }
 
     budget.spend(PDL_CREDITS_PER_QUERY)
+
+    # 6.5. Deduct Offerloop credits for signed-in callers. Anonymous
+    # stays free. Charged on actual contact count returned (not on the
+    # requested or effective_count cap), so a search that returns 3 of
+    # the requested 5 costs 15 credits, not 25.
+    _deduct_credits_for_search(user_ctx, len(out_contacts))
 
     # 7. Persist to My Network for authed callers. Mirrors the website's
     # Find People flow so contacts discovered in Claude show up on
@@ -578,6 +615,90 @@ def _token_from_url(url: str) -> Optional[str]:
     if not url or "token=" not in url:
         return None
     return url.split("token=", 1)[1].split("&", 1)[0]
+
+
+# ── Credit gating + deduction (signed-in callers only) ─────────────────────
+
+
+def _signed_in_uid(user_ctx) -> Optional[str]:
+    """Return the Firestore uid for signed-in callers, else None.
+
+    user_ctx['uid'] comes from the OAuth access token's `sub` claim
+    (flask_mount.py:143). Anonymous bearer tokens carry sub=None — those
+    skip credit logic and rely on rate limits + the service-wide
+    MCPBudget for abuse control.
+    """
+    uid = (user_ctx or {}).get("uid") if user_ctx else None
+    return uid if uid else None
+
+
+def _credit_pre_check(user_ctx, count: int, ip_hash: str):
+    """Return a paywall CTA if the signed-in caller can't afford this
+    search at CREDITS_PER_CONTACT per result; None otherwise.
+
+    Anonymous callers (no uid) skip this gate entirely. Defensive
+    Firestore-unreachable / no-user-doc paths return None (no gate) so a
+    transient infra issue can't lock signed-in users out — they'd still
+    hit the deduction step which is fail-soft and logs.
+    """
+    uid = _signed_in_uid(user_ctx)
+    if not uid or count <= 0:
+        return None
+
+    cost = count * CREDITS_PER_CONTACT
+    try:
+        from app.extensions import get_db
+        from app.services.auth import check_and_reset_credits
+        db = get_db()
+        if db is None:
+            return None
+        user_ref = db.collection("users").document(uid)
+        snap = user_ref.get()
+        if not snap.exists:
+            return None
+        credits_available = check_and_reset_credits(user_ref, snap.to_dict() or {})
+        if credits_available >= cost:
+            return None
+    except Exception as e:
+        logger.warning("[MCP find_contacts] credit pre-check error: %s", e)
+        return None
+
+    return build_paywall(
+        TOOL_NAME, ip_hash,
+        hit_cap_type="credits",
+        retry_after_seconds=0,
+        message=(
+            f"Not enough Offerloop credits for this search "
+            f"(need {cost}, {CREDITS_PER_CONTACT} per contact x {count}). "
+            "Top up at offerloop.ai or wait for your monthly reset."
+        ),
+    )
+
+
+def _deduct_credits_for_search(user_ctx, contact_count: int) -> None:
+    """Deduct CREDITS_PER_CONTACT per contact returned, for signed-in
+    callers. No-op for anonymous or empty results. Logs but never raises
+    on failure — the website's prompt_search route uses the same
+    fail-soft pattern (routes/runs.py:824-833).
+    """
+    uid = _signed_in_uid(user_ctx)
+    if not uid or contact_count <= 0:
+        return
+    amount = contact_count * CREDITS_PER_CONTACT
+    try:
+        from app.services.auth import deduct_credits_atomic
+        success, remaining = deduct_credits_atomic(uid, amount, "mcp_find_contacts")
+        if not success:
+            logger.warning(
+                "[MCP find_contacts] credit deduction underpaid for uid=%s: "
+                "had %d, needed %d (contacts surfaced anyway)",
+                uid, remaining, amount,
+            )
+    except Exception as e:
+        logger.warning(
+            "[MCP find_contacts] credit deduction error for uid=%s: %s",
+            uid, e,
+        )
 
 
 # ── My Network persist (shared by cold-path + cache-hit branches) ───────────
