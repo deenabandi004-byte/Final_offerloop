@@ -40,7 +40,18 @@ def _enforce_prod_firestore_guard() -> None:
     decrementing the daily PDL budget for real users. This raises so the
     whole app refuses to boot in that combination, surfacing the intent
     explicitly rather than silently writing to prod.
+
+    Set MCP_LOCAL_DEV_OK=1 to bypass the guard when intentionally dogfooding
+    locally against prod data. The bypass logs a warning so it is visible in
+    startup logs; the guard still fires by default so a teammate's laptop
+    without that env var trips the refusal.
     """
+    if os.getenv("MCP_LOCAL_DEV_OK") == "1":
+        logger.warning(
+            "[MCP] Bypassing prod-firestore guard via MCP_LOCAL_DEV_OK=1. "
+            "MCP routes will write to prod Firestore from this process."
+        )
+        return
     try:
         project_id = firebase_admin.get_app().project_id
     except Exception:
@@ -49,9 +60,9 @@ def _enforce_prod_firestore_guard() -> None:
         raise RuntimeError(
             "Refusing to mount MCP server: active Firebase project is "
             f"'{_PROD_PROJECT_ID}' (prod) but FLASK_ENV is "
-            f"'{os.getenv('FLASK_ENV')}'. Set FLASK_ENV=production, switch "
-            "to a separate dev Firebase project, or remove the MCP mount "
-            "for local dev."
+            f"'{os.getenv('FLASK_ENV')}'. Set FLASK_ENV=production, "
+            "set MCP_LOCAL_DEV_OK=1 to bypass, switch to a separate dev "
+            "Firebase project, or remove the MCP mount for local dev."
         )
 
 
