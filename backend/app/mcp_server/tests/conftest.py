@@ -159,7 +159,15 @@ def fake_db(monkeypatch):
 @pytest.fixture
 def mcp_app(fake_db, monkeypatch):
     """Flask app with the MCP blueprint mounted and Firestore replaced
-    with the in-memory fake."""
+    with the in-memory fake.
+
+    Also stubs verify_access_token so tests can use a placeholder Bearer
+    token without minting a real RS256 JWT. Returns:
+      - valid claims for any token EXCEPT "invalid" and "expired"
+      - None (→ 401) for tokens named "invalid" or "expired"
+    Tests that need richer claims (specific uid, tier, scope) can override
+    the patch in their own monkeypatch.setattr call.
+    """
     from flask import Flask
     from app.mcp_server import flask_mount
     import app.mcp_server.cache as cache_mod
@@ -170,6 +178,13 @@ def mcp_app(fake_db, monkeypatch):
     # Patch get_db everywhere it's imported so the modules use the fake.
     monkeypatch.setattr(flask_mount, "get_db", lambda: fake_db)
 
+    def fake_verify(token: str):
+        if token in ("invalid", "expired"):
+            return None
+        return {"sub": None, "tier": "free", "scope": "mcp:read mcp:write"}
+
+    monkeypatch.setattr(flask_mount, "verify_access_token", fake_verify)
+
     app = Flask(__name__)
     flask_mount.register_mcp_blueprint(app)
     return app
@@ -177,6 +192,19 @@ def mcp_app(fake_db, monkeypatch):
 
 @pytest.fixture
 def client(mcp_app):
+    """Authed test client. Default Authorization header verifies as a
+    sub=None ("anonymous-but-bearer") user — the post-401-cutover replacement
+    for the old anonymous tier. Tests that need to assert the no-auth 401
+    behavior use the `unauthed_client` fixture instead."""
+    test_client = mcp_app.test_client()
+    test_client.environ_base["HTTP_AUTHORIZATION"] = "Bearer test"
+    return test_client
+
+
+@pytest.fixture
+def unauthed_client(mcp_app):
+    """Test client with NO Authorization header. Used to verify that
+    /mcp 401s correctly with WWW-Authenticate per RFC 9728."""
     return mcp_app.test_client()
 
 

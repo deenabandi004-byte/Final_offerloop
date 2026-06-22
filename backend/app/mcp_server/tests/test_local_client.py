@@ -40,6 +40,68 @@ def _structured(envelope: dict) -> dict:
     return envelope["result"].get("structuredContent") or {}
 
 
+# ── 0. OAuth challenge surface ───────────────────────────────────────────────
+
+
+def _oauth_challenge_asserts(resp):
+    """Common assertions for an RFC 9728 challenge response. Claude.ai's
+    MCP connector + Smithery's scanner both rely on this exact shape."""
+    assert resp.status_code == 401
+    challenge = resp.headers.get("WWW-Authenticate", "")
+    assert challenge.startswith("Bearer "), f"got: {challenge!r}"
+    assert 'resource_metadata="' in challenge
+    assert ".well-known/oauth-protected-resource" in challenge
+
+
+def test_missing_bearer_returns_401_with_www_authenticate(unauthed_client):
+    """RFC 9728 §5.3 + MCP authorization spec: servers MUST return 401 with
+    a WWW-Authenticate header pointing at the PRM URL so MCP clients can
+    discover the AS. Returning 200 to unauthenticated requests is what
+    caused Claude.ai's connector UI to skip the Sign In flow."""
+    resp = unauthed_client.post(
+        "/mcp",
+        data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize"}),
+        content_type="application/json",
+    )
+    _oauth_challenge_asserts(resp)
+
+
+def test_invalid_bearer_returns_401_with_www_authenticate(unauthed_client):
+    """Same challenge for an invalid/expired token — lets the client know
+    to refresh or re-run the OAuth handshake instead of treating tool calls
+    as broken."""
+    resp = unauthed_client.post(
+        "/mcp",
+        headers={"Authorization": "Bearer invalid"},
+        data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize"}),
+        content_type="application/json",
+    )
+    _oauth_challenge_asserts(resp)
+
+
+def test_non_bearer_authorization_header_returns_401(unauthed_client):
+    """A Basic / Digest / random Authorization header should still 401 —
+    only `Bearer <token>` is acceptable per the AS metadata."""
+    resp = unauthed_client.post(
+        "/mcp",
+        headers={"Authorization": "Basic dXNlcjpwYXNz"},
+        data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize"}),
+        content_type="application/json",
+    )
+    _oauth_challenge_asserts(resp)
+
+
+def test_valid_bearer_passes_through_to_handler(client):
+    """Sanity: the authed client fixture verifies as a real user_ctx and
+    can reach initialize. (All downstream tool tests rely on this.)"""
+    resp = client.post(
+        "/mcp",
+        data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize"}),
+        content_type="application/json",
+    )
+    assert resp.status_code == 200
+
+
 # ── 1. Tool discovery ────────────────────────────────────────────────────────
 
 
