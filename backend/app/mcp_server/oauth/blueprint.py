@@ -123,13 +123,44 @@ def register_oauth_blueprint(app):
     # ── Discovery metadata ────────────────────────────────────────────────
 
     @bp.route("/.well-known/oauth-authorization-server", methods=["GET", "OPTIONS"])
-    def well_known_as():
+    @bp.route("/.well-known/oauth-authorization-server/<path:_suffix>", methods=["GET", "OPTIONS"])
+    def well_known_as(_suffix: str = ""):
+        # RFC 8414 §3.1: when the issuer has a path component (ours is
+        # https://www.offerloop.ai/oauth), the AS metadata location is
+        # /.well-known/oauth-authorization-server/<issuer-path>. Claude.ai's
+        # connector + Smithery's scanner hit the path-aware variant first and
+        # only fall back to the bare path if that 404s. Without this route,
+        # the path-aware variant hit the SPA index.html fallback, Claude.ai
+        # parsed HTML as JSON, and DCR silently broke. Accept any suffix and
+        # serve the same metadata — the issuer URL inside the JSON is the
+        # canonical identifier; the request path is just discovery routing.
+        if request.method == "OPTIONS":
+            return _cors(jsonify({})), 204
+        return _cors(jsonify(metadata.authorization_server_metadata()))
+
+    # OpenID Connect Discovery fallback. Pure-OAuth clients shouldn't hit
+    # this path, but Claude.ai's connector falls back to OIDC discovery
+    # URLs when the RFC 8414 path returns a 404 or non-JSON. Serve the
+    # same OAuth metadata at the OIDC paths to short-circuit that fallback.
+    # An OIDC-strict client would reject this for missing OIDC-specific
+    # fields (subject_types_supported, id_token_signing_alg_values_supported);
+    # the MCP clients in the wild are permissive.
+    @bp.route("/.well-known/openid-configuration", methods=["GET", "OPTIONS"])
+    @bp.route("/.well-known/openid-configuration/<path:_suffix>", methods=["GET", "OPTIONS"])
+    @bp.route("/oauth/.well-known/openid-configuration", methods=["GET", "OPTIONS"])
+    def well_known_oidc(_suffix: str = ""):
         if request.method == "OPTIONS":
             return _cors(jsonify({})), 204
         return _cors(jsonify(metadata.authorization_server_metadata()))
 
     @bp.route("/.well-known/oauth-protected-resource", methods=["GET", "OPTIONS"])
-    def well_known_prm():
+    @bp.route("/.well-known/oauth-protected-resource/<path:_suffix>", methods=["GET", "OPTIONS"])
+    def well_known_prm(_suffix: str = ""):
+        # RFC 9728 §3.1: PRM URL inserts /.well-known/oauth-protected-resource
+        # between host and path. Resource = https://www.offerloop.ai/mcp, so
+        # the spec-compliant PRM URL is /.well-known/oauth-protected-resource/mcp.
+        # Claude.ai today hits the bare path and it works, but accept the
+        # path-aware variant too so spec-strict clients don't trip.
         if request.method == "OPTIONS":
             return _cors(jsonify({})), 204
         return _cors(jsonify(metadata.protected_resource_metadata()))
