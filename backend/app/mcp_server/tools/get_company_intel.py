@@ -80,8 +80,11 @@ def handle(
     cache_args = parsed.model_dump()
     args_hash = cache.key(TOOL_NAME, cache_args)
 
-    # Per-IP hour cap (anti-scraper only; this tool is otherwise unlimited).
-    rl = limiter.check_and_increment(ip_hash, TOOL_NAME)
+    # Per-identity hour cap (anti-scraper only; this tool is otherwise unlimited).
+    from app.mcp_server.tier_caps import rate_limit_identity
+    rl = limiter.check_and_increment(
+        rate_limit_identity(user_ctx, ip_hash), TOOL_NAME, user_ctx=user_ctx,
+    )
     if not rl.ok:
         merged = _read_merged_cache(cache, cache_args)
         paywall = build_paywall(

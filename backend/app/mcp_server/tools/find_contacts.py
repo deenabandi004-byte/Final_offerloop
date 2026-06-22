@@ -72,7 +72,10 @@ def handle(
     args_hash = cache.key(TOOL_NAME, cache_args)
 
     # 3. Rate limit check.
-    rl = limiter.check_and_increment(ip_hash, TOOL_NAME)
+    from app.mcp_server.tier_caps import rate_limit_identity
+    rl = limiter.check_and_increment(
+        rate_limit_identity(user_ctx, ip_hash), TOOL_NAME, user_ctx=user_ctx,
+    )
     if not rl.ok:
         # Try cached fallback before paywall lands.
         cached_payload = cache.get(TOOL_NAME, cache_args)

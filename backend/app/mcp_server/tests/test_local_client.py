@@ -102,6 +102,88 @@ def test_valid_bearer_passes_through_to_handler(client):
     assert resp.status_code == 200
 
 
+# ── 0a. Tier-aware rate limiting ─────────────────────────────────────────────
+
+
+def _make_tiered_client(mcp_app, *, tier: str, uid: str = "user-x"):
+    """Build a test client whose Bearer verifies as a specific (uid, tier)."""
+    from app.mcp_server import flask_mount
+
+    def fake_verify(_token):
+        return {"sub": uid, "tier": tier, "scope": "mcp:read mcp:write"}
+
+    # Re-stub for this test only — monkeypatch.setattr above doesn't compose
+    # with our caller-supplied tier, so do it directly here.
+    flask_mount.verify_access_token = fake_verify  # type: ignore[assignment]
+    tc = mcp_app.test_client()
+    tc.environ_base["HTTP_AUTHORIZATION"] = "Bearer test"
+    return tc
+
+
+def test_elite_tier_does_not_hit_find_contacts_day_cap(
+    mcp_app, mock_pdl, mock_warmth, call_counter,
+):
+    """Elite has unlimited daily calls (day_cap = None). 15 calls in a row
+    should all succeed — no paywall, no rate-limit short-circuit. This is
+    the regression test for the dogfood incident where an Elite user was
+    seeing free-tier paywalls because the limiter ignored their JWT tier."""
+    tc = _make_tiered_client(mcp_app, tier="elite", uid="elite-user")
+    for i in range(15):
+        env = _rpc(tc, "tools/call", {
+            "name": "find_contacts",
+            "arguments": {"company": f"Elite Firm {i}", "school": "USC"},
+        }, request_id=i)
+        result = env["result"]["structuredContent"]
+        assert result.get("paywall") is None, (
+            f"call {i+1} was unexpectedly paywalled: {result.get('paywall')!r}"
+        )
+
+
+def test_uid_buckets_separate_so_two_users_dont_share_quota(
+    mcp_app, mock_pdl, mock_warmth, call_counter,
+):
+    """User A burning their entire free-tier daily quota must not block
+    User B from making any calls — they're separate rate-limit buckets."""
+    tc_a = _make_tiered_client(mcp_app, tier="free", uid="user-a")
+    tc_b = _make_tiered_client(mcp_app, tier="free", uid="user-b")
+
+    # Recreate tc_a's client with the user-a verify stub. Switching the
+    # global verify_access_token mid-test means both clients now resolve
+    # to user-b's stub; rebuild both at the right moments.
+    from app.mcp_server import flask_mount
+
+    flask_mount.verify_access_token = lambda _t: {
+        "sub": "user-a", "tier": "free", "scope": "mcp:read mcp:write"
+    }
+    tc_a = mcp_app.test_client()
+    tc_a.environ_base["HTTP_AUTHORIZATION"] = "Bearer test"
+
+    # Burn user-a's 10/day quota (11th call paywalled).
+    for i in range(11):
+        env = _rpc(tc_a, "tools/call", {
+            "name": "find_contacts",
+            "arguments": {"company": f"A Firm {i}", "school": "USC"},
+        }, request_id=i)
+        if env["result"]["structuredContent"].get("paywall") is not None:
+            break
+
+    flask_mount.verify_access_token = lambda _t: {
+        "sub": "user-b", "tier": "free", "scope": "mcp:read mcp:write"
+    }
+    tc_b = mcp_app.test_client()
+    tc_b.environ_base["HTTP_AUTHORIZATION"] = "Bearer test"
+
+    # user-b's first call must NOT be paywalled despite user-a being capped.
+    env = _rpc(tc_b, "tools/call", {
+        "name": "find_contacts",
+        "arguments": {"company": "B Firm", "school": "USC"},
+    })
+    result = env["result"]["structuredContent"]
+    assert result.get("paywall") is None, (
+        "user-b inherited user-a's quota — buckets are still shared"
+    )
+
+
 # ── 0b. Discovery metadata at path-aware URLs ────────────────────────────────
 
 
@@ -313,8 +395,10 @@ def test_find_contacts_hour_cap_returns_paywall(
 def test_find_contacts_day_cap_blocks_after_three(
     client, mock_pdl, mock_warmth, call_counter
 ):
+    # Free-tier day cap is 10 (see tier_caps._CALL_LIMITS). Call 11 times
+    # so the 11th trips the cap and surfaces a paywall.
     paywalled = None
-    for i in range(4):
+    for i in range(11):
         args = {"company": f"Daily Firm {i}", "school": "USC"}
         out = _structured(_call_tool(client, "find_contacts", args, request_id=i))
         if out.get("paywall") is not None:
@@ -322,7 +406,7 @@ def test_find_contacts_day_cap_blocks_after_three(
             break
     assert paywalled is not None
     assert paywalled["paywall"]["hit_cap_type"] in ("day", "hour")
-    assert call_counter.pdl == 3  # PDL hit only for the 3 allowed queries
+    assert call_counter.pdl == 10  # PDL hit only for the 10 allowed queries
 
 
 # ── 6. get_company_intel golden path ─────────────────────────────────────────
@@ -439,8 +523,9 @@ def test_draft_outreach_day_cap_kicks_in(client, mock_llm, call_counter):
         "contact": {"name": f"Person {i}", "title": "Analyst", "company": "Firm"},
         "user_school": "USC",
     }
+    # Free-tier day cap for draft_outreach is 10. Call 11 times.
     paywalled = None
-    for i in range(3):
+    for i in range(11):
         out = _structured(_call_tool(client, "draft_outreach", payload(i), request_id=i))
         if out.get("paywall") is not None:
             paywalled = out
@@ -477,9 +562,9 @@ def test_find_contacts_budget_exhaustion_returns_cta(
 def test_paywall_token_decodes_to_origin_tool_and_ip(
     client, mock_pdl, mock_warmth
 ):
-    # Burn the daily quota to trigger a paywall.
+    # Burn the daily quota to trigger a paywall (free tier = 10/day).
     paywalled = None
-    for i in range(4):
+    for i in range(11):
         out = _structured(_call_tool(client, "find_contacts", {
             "company": f"Token Firm {i}", "school": "USC",
         }, request_id=i))
