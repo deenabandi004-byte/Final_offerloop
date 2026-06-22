@@ -73,9 +73,13 @@ def main() -> int:
 
     # Import inside main so the script can also be run as a module from
     # the repo root: python -m backend.scripts.bust_empty_mcp_cache
-    from app.extensions import get_db
+    from app.extensions import get_db, init_firebase
     from app.mcp_server.cache import COLLECTION
 
+    # Standalone CLI — there's no Flask app boot that would call
+    # init_firebase() for us. The `app` arg is unused inside init_firebase
+    # (it's a Flask-init convention), so None is safe.
+    init_firebase(None)
     db = get_db()
     if db is None:
         logger.error("get_db() returned None — Firestore not initialized.")
