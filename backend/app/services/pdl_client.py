@@ -261,7 +261,24 @@ def _school_aliases(raw: str) -> list[str]:
         if key in s or any(key in alias for alias in list(aliases)):
             aliases.update(expansions)
             aliases.add(key)  # Also add the short form
-    
+
+    # PDL stores most UC campuses as "University of California, <Campus>"
+    # WITH a comma. Empirical counts from PDL person/search:
+    #   "university of california, berkeley" -> 576,014 records
+    #   "university of california berkeley"  -> 0 records
+    #   "university of california, davis"    -> 294,670 records
+    # Our normalization above strips commas so the school_map lookup hits;
+    # here we re-emit the comma variant so PDL's exact-match school filter
+    # actually finds the records. Without this, Berkeley + Google returned
+    # 0 across the entire retry ladder while Stanford + Google worked fine.
+    extra_comma_forms = set()
+    uc_prefix = "university of california "
+    for a in aliases:
+        if a.startswith(uc_prefix) and len(a) > len(uc_prefix):
+            campus = a[len(uc_prefix):]
+            extra_comma_forms.add(f"university of california, {campus}")
+    aliases.update(extra_comma_forms)
+
     # Clean up and return sorted
     cleaned = {" ".join(a.split()).strip() for a in aliases if a and len(a.strip()) > 1}
     return sorted(cleaned)
