@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { parseBrief, type ParsedBrief } from "@/services/agent";
 import { firebaseApi } from "@/services/firebaseApi";
@@ -92,72 +93,6 @@ function PulseDot({ color = "#22c55e" }: { color?: string }) {
 }
 
 
-
-// ── Approval-mode card ─────────────────────────────────────────────────
-
-function ModeCard({
-  active,
-  title,
-  desc,
-  tag,
-  onClick,
-}: {
-  active: boolean;
-  title: string;
-  desc: string;
-  tag?: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="text-left transition-all cursor-pointer"
-      style={{
-        padding: 14,
-        borderRadius: 3,
-        border: `1px solid ${active ? "#4A60A8" : "var(--line)"}`,
-        background: active ? "rgba(74, 96, 168, 0.06)" : "#FFFFFF",
-        boxShadow: active ? "0 0 0 3px rgba(74, 96, 168, 0.10)" : "none",
-        fontFamily: "'Inter', sans-serif",
-      }}
-    >
-      <div className="flex items-center gap-2 mb-1">
-        <span
-          className="w-2.5 h-2.5 rounded-full"
-          style={{
-            border: `${active ? 3 : 1.5}px solid ${active ? "#4A60A8" : "var(--ink-3)"}`,
-            background: active ? "#FFFFFF" : "transparent",
-          }}
-        />
-        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--ink)" }}>
-          {title}
-        </span>
-        {tag && (
-          <span className="ml-auto">
-            <span
-              style={{
-                fontFamily: "'Inter', sans-serif",
-                fontSize: 10.5,
-                fontWeight: 600,
-                letterSpacing: "0.04em",
-                textTransform: "uppercase",
-                color: "#4A60A8",
-                background: "rgba(74, 96, 168, 0.10)",
-                padding: "2px 8px",
-                borderRadius: 100,
-              }}
-            >
-              {tag}
-            </span>
-          </span>
-        )}
-      </div>
-      <div className="text-xs leading-relaxed pl-[18px]" style={{ color: "var(--ink-2)" }}>
-        {desc}
-      </div>
-    </button>
-  );
-}
 
 // ── Step bodies ────────────────────────────────────────────────────────
 
@@ -924,55 +859,72 @@ function StepReview({
           aria-label="People per week"
           style={{ width: "100%", accentColor: "var(--accent)", cursor: "pointer" }}
         />
+        {/* Three named anchor labels. Standard sits at the midpoint of the
+            tier-locked range so the named anchors line up with where the
+            slider's notable positions would be. */}
         <div
           className="flex justify-between"
-          style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 4 }}
+          style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 6 }}
         >
-          <span>Steady · {minPace}</span>
-          <span>Aggressive · {maxPace}</span>
+          <span>
+            <strong style={{ fontWeight: 600, color: "var(--ink-2)" }}>Light</strong> · {minPace}
+          </span>
+          <span style={{ textAlign: "center" }}>
+            <strong style={{ fontWeight: 600, color: "var(--ink-2)" }}>Standard</strong> ·{" "}
+            {Math.round((minPace + maxPace) / 2)}
+          </span>
+          <span style={{ textAlign: "right" }}>
+            <strong style={{ fontWeight: 600, color: "var(--ink-2)" }}>Aggressive</strong> · {maxPace}
+          </span>
         </div>
       </div>
 
-      {/* Approval mode picker — the focus of V2 step 2 */}
+      {/* Auto-send toggle — single binary instead of two cards. Off (the
+          recommended default) drafts every email and waits for the user
+          to send. On lets approved templates send automatically. */}
       <div className="mb-5" id="loop-approval-section">
-        <div
+        <label
+          className="flex items-center justify-between gap-4 cursor-pointer"
           style={{
-            fontSize: 14,
-            fontWeight: 600,
-            color: "var(--ink)",
-            marginBottom: 4,
+            border: "1px solid var(--line)",
+            borderRadius: 3,
+            padding: "14px 16px",
+            background: "#FFFFFF",
           }}
         >
-          Should we send drafts automatically once you approve a template?
-        </div>
-        <div
-          style={{
-            fontSize: 12.5,
-            color: "var(--ink-3)",
-            marginBottom: 12,
-          }}
-        >
-          The most important decision in setup — you can change it later in Settings.
-        </div>
-        <div
-          role="radiogroup"
-          aria-label="Approval mode"
-          className="grid grid-cols-1 md:grid-cols-2 gap-2.5"
-        >
-          <ModeCard
-            active={form.approvalMode === "review_first"}
-            title="Review first"
-            tag="recommended"
-            desc="We draft every email — nothing sends until you approve it."
-            onClick={() => set({ approvalMode: "review_first" })}
+          <div style={{ flex: 1 }}>
+            <div
+              style={{
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 14,
+                fontWeight: 600,
+                color: "var(--ink)",
+              }}
+            >
+              Auto-send drafts
+            </div>
+            <div
+              style={{
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 12.5,
+                color: "var(--ink-3)",
+                marginTop: 2,
+                lineHeight: 1.4,
+              }}
+            >
+              {form.approvalMode === "autopilot"
+                ? "On: approved templates send automatically. Change anytime in Settings."
+                : "Off (recommended): we draft every email; nothing sends until you approve it."}
+            </div>
+          </div>
+          <Switch
+            checked={form.approvalMode === "autopilot"}
+            onCheckedChange={(checked) =>
+              set({ approvalMode: checked ? "autopilot" : "review_first" })
+            }
+            aria-label="Auto-send drafts"
           />
-          <ModeCard
-            active={form.approvalMode === "autopilot"}
-            title="Autopilot"
-            desc="We send your approved templates automatically."
-            onClick={() => set({ approvalMode: "autopilot" })}
-          />
-        </div>
+        </label>
       </div>
 
       {/* Low-balance warning — only when the user actually is low */}
