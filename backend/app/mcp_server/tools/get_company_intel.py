@@ -60,6 +60,7 @@ def handle(
     args: dict,
     ip_hash: str,
     db: Any,
+    user_ctx: dict | None = None,
 ) -> dict:
     started = time.monotonic()
     cache = MCPCache(db)

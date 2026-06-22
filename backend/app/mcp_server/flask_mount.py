@@ -21,6 +21,7 @@ from flask import Blueprint, current_app, jsonify, request
 from app.extensions import get_db
 from app.mcp_server.budget import MCPBudget
 from app.mcp_server.ip_utils import extract_client_ip, hash_ip
+from app.mcp_server.oauth.tokens import resource_url, verify_access_token
 from app.mcp_server.rate_limit import LIMITS
 from app.mcp_server.server import handle_jsonrpc
 
@@ -40,7 +41,18 @@ def _enforce_prod_firestore_guard() -> None:
     decrementing the daily PDL budget for real users. This raises so the
     whole app refuses to boot in that combination, surfacing the intent
     explicitly rather than silently writing to prod.
+
+    Set MCP_LOCAL_DEV_OK=1 to bypass the guard when intentionally dogfooding
+    locally against prod data. The bypass logs a warning so it is visible in
+    startup logs; the guard still fires by default so a teammate's laptop
+    without that env var trips the refusal.
     """
+    if os.getenv("MCP_LOCAL_DEV_OK") == "1":
+        logger.warning(
+            "[MCP] Bypassing prod-firestore guard via MCP_LOCAL_DEV_OK=1. "
+            "MCP routes will write to prod Firestore from this process."
+        )
+        return
     try:
         project_id = firebase_admin.get_app().project_id
     except Exception:
@@ -49,14 +61,21 @@ def _enforce_prod_firestore_guard() -> None:
         raise RuntimeError(
             "Refusing to mount MCP server: active Firebase project is "
             f"'{_PROD_PROJECT_ID}' (prod) but FLASK_ENV is "
-            f"'{os.getenv('FLASK_ENV')}'. Set FLASK_ENV=production, switch "
-            "to a separate dev Firebase project, or remove the MCP mount "
-            "for local dev."
+            f"'{os.getenv('FLASK_ENV')}'. Set FLASK_ENV=production, "
+            "set MCP_LOCAL_DEV_OK=1 to bypass, switch to a separate dev "
+            "Firebase project, or remove the MCP mount for local dev."
         )
 
 
 def register_mcp_blueprint(app):
     _enforce_prod_firestore_guard()
+
+    # OAuth AS + RS metadata blueprint. Registered first so well-known routes
+    # are established before the /mcp endpoint that refers to them via
+    # WWW-Authenticate.
+    from app.mcp_server.oauth.blueprint import register_oauth_blueprint
+    register_oauth_blueprint(app)
+
     bp = Blueprint("mcp", __name__)
 
     @bp.route("/mcp", methods=["POST"])
@@ -103,7 +122,25 @@ def _handle_mcp_post():
             "error": {"code": -32700, "message": "Parse error: empty body"},
         }), 400
 
-    # Anonymous, IP-based identity.
+    # Bearer-token path (authenticated MCP). On invalid token we 401 with
+    # WWW-Authenticate so MCP clients can re-run their discovery handshake.
+    # Missing header falls through to anonymous IP-hash identity, preserving
+    # the free anonymous tier.
+    user_ctx = None
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header.split(" ", 1)[1].strip()
+        claims = verify_access_token(token)
+        if claims is None:
+            return _unauthorized("invalid_token", "Access token invalid or expired")
+        user_ctx = {
+            "uid": claims.get("sub"),
+            "tier": claims.get("tier") or "free",
+            "scope": claims.get("scope") or "",
+        }
+
+    # Anonymous, IP-based identity (always computed; even authed calls log it
+    # for rate-limit attribution + abuse detection).
     client_ip = extract_client_ip(request)
     ip_hash_val = hash_ip(client_ip)
 
@@ -115,5 +152,22 @@ def _handle_mcp_post():
 
     # Dispatch. handle_jsonrpc never raises; it returns either a
     # success-shaped or error-shaped JSON-RPC envelope.
-    response = handle_jsonrpc(body, ip_hash=ip_hash_val, db=db)
+    response = handle_jsonrpc(body, ip_hash=ip_hash_val, db=db, user_ctx=user_ctx)
     return jsonify(response)
+
+
+def _unauthorized(error: str, description: str):
+    """401 with RFC 9728 / RFC 6750 WWW-Authenticate pointing at the PRM URL."""
+    prm_base = (os.getenv("MCP_PRM_BASE_URL") or "https://offerloop.ai").rstrip("/")
+    prm_url = f"{prm_base}/.well-known/oauth-protected-resource"
+    challenge = (
+        f'Bearer resource_metadata="{prm_url}", '
+        f'error="{error}", error_description="{description}"'
+    )
+    resp = jsonify({
+        "jsonrpc": "2.0", "id": None,
+        "error": {"code": -32001, "message": description},
+    })
+    resp.status_code = 401
+    resp.headers["WWW-Authenticate"] = challenge
+    return resp

@@ -112,11 +112,15 @@ def handle_jsonrpc(
     *,
     ip_hash: str,
     db: Any,
+    user_ctx: dict | None = None,
 ) -> dict:
     """Dispatch a single JSON-RPC 2.0 request and return its response dict.
 
     `body` is the already-parsed JSON request. Caller (flask_mount) is
     responsible for the HTTP envelope and for catching JSON parse errors.
+
+    `user_ctx` is None for anonymous callers; otherwise a dict with
+    `uid`, `tier`, and `scope` keys (set by flask_mount after JWT verify).
     """
     if not isinstance(body, dict):
         return _error(None, -32600, "Invalid Request: not a JSON object")
@@ -143,7 +147,9 @@ def handle_jsonrpc(
         })
 
     if method == "tools/call":
-        return _handle_tools_call(request_id, params, ip_hash=ip_hash, db=db)
+        return _handle_tools_call(
+            request_id, params, ip_hash=ip_hash, db=db, user_ctx=user_ctx,
+        )
 
     if method in ("notifications/initialized", "ping"):
         # No-op notifications. Return empty success.
@@ -178,6 +184,7 @@ def _handle_tools_call(
     *,
     ip_hash: str,
     db: Any,
+    user_ctx: dict | None = None,
 ) -> dict:
     name = (params or {}).get("name") or ""
     args = (params or {}).get("arguments") or {}
@@ -187,7 +194,9 @@ def _handle_tools_call(
         return _error(request_id, -32602, f"Unknown tool: {name}")
 
     try:
-        result = tool["handler"](args=args, ip_hash=ip_hash, db=db)
+        result = tool["handler"](
+            args=args, ip_hash=ip_hash, db=db, user_ctx=user_ctx,
+        )
     except Exception as e:
         logger.exception("[MCP] tool '%s' raised: %s", name, e)
         return _error(request_id, -32000, f"Tool error: {e}")

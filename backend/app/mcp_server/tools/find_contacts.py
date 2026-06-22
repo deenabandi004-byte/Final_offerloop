@@ -1,9 +1,10 @@
 """
 find_contacts MCP tool.
 
-Wraps pdl_client.search_contacts_from_prompt + warmth_scoring. Anonymous
-v1 caps to 5 results regardless of the requested count (the schema
-permits up to 25 to avoid a migration when v2 OAuth raises this).
+Wraps pdl_client.search_contacts_from_prompt + warmth_scoring. Result count
+is clamped per tier in tier_caps.find_contacts_cap (anonymous + free signed-in
+= 5, pro = 8, elite = 15). The schema permits up to 25 to avoid a migration
+when caps are raised.
 """
 from __future__ import annotations
 
@@ -17,12 +18,12 @@ from app.mcp_server.events import MCPEvents
 from app.mcp_server.rate_limit import MCPRateLimit
 from app.mcp_server.responses import build_paywall
 from app.mcp_server.schemas import Contact, FindContactsInput, FindContactsOutput
+from app.mcp_server.tier_caps import cap_message, find_contacts_cap
 
 logger = logging.getLogger(__name__)
 
 
 TOOL_NAME = "find_contacts"
-ANONYMOUS_MAX_RESULTS = 5
 CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days
 
 
@@ -36,6 +37,7 @@ def handle(
     args: dict,
     ip_hash: str,
     db: Any,
+    user_ctx: dict | None = None,
 ) -> dict:
     """Run the find_contacts pipeline. Always returns a dict, never raises.
 
@@ -58,9 +60,12 @@ def handle(
         )
         return {"error": "invalid input", "details": str(e)}
 
-    # 2. Handler-enforced tier cap (schema permits up to 25; v1 anonymous = 5).
+    # 2. Handler-enforced tier cap (schema permits up to 25; handler clamps
+    # per tier_caps.find_contacts_cap so we can raise tier caps without a
+    # schema migration).
     requested = parsed.count
-    effective_count = min(requested, ANONYMOUS_MAX_RESULTS)
+    tier_cap = find_contacts_cap(user_ctx)
+    effective_count = min(requested, tier_cap)
 
     cache_args = parsed.model_dump()
     cache_args["count"] = effective_count  # cache by effective, not requested
@@ -93,10 +98,7 @@ def handle(
         out = FindContactsOutput.model_validate({**cached_payload, "cached": True})
         if requested > effective_count:
             out.truncated_to = effective_count
-            out.note = (
-                f"Free tier returns up to {ANONYMOUS_MAX_RESULTS} contacts. "
-                "Sign up free to lift the cap."
-            )
+            out.note = cap_message(user_ctx, effective_count)
         events.log(
             tool=TOOL_NAME, ip_hash=ip_hash, args_hash=args_hash,
             cache_hit=True,
@@ -162,10 +164,7 @@ def handle(
     )
     if requested > effective_count:
         out.truncated_to = effective_count
-        out.note = (
-            f"Free tier returns up to {ANONYMOUS_MAX_RESULTS} contacts. "
-            "Sign up free to lift the cap."
-        )
+        out.note = cap_message(user_ctx, effective_count)
 
     cache.set(TOOL_NAME, cache_args, out.model_dump(), CACHE_TTL_SECONDS)
 
