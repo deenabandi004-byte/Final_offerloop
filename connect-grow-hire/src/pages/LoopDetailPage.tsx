@@ -571,14 +571,14 @@ function LoopHero({
   const [line, lineIndex] = useCycle(narrationLines, 2600);
 
   const statusKicker = isErrored
-    ? `Loop ${loop.shortCode} · cycle failed`
+    ? "Cycle failed"
     : isRunning
-      ? `Loop ${loop.shortCode} · live now`
+      ? "Live now"
       : isPaused
-        ? `Loop ${loop.shortCode} · paused`
+        ? "Paused"
         : isIdle
-          ? `Loop ${loop.shortCode} · ready`
-          : `Loop ${loop.shortCode}`;
+          ? "Ready"
+          : "";
 
   // Cadence / last-fired / next-fire line. Surfaces data the user previously
   // had no way to see (nextRunAt, lastRunAt, cadence all live in Firestore

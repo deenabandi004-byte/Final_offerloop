@@ -96,13 +96,10 @@ export interface Loop {
   briefParsed: ParsedBrief | null;
   reviewBeforeSend: boolean;
   weeklyTarget: number;
-  smsEnabled: boolean;
   status: LoopStatus;
-  shortCode: string;
   createdAt: string | null;
   lastRunAt: string | null;
   nextRunAt: string | null;
-  lastSmsAt: string | null;
   totalContactsFound: number;
   totalEmailsDrafted: number;
   totalRepliesReceived: number;

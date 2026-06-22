@@ -5,12 +5,13 @@ in lib/loopCopy.ts but no component renders it). To flip an existing
 Loop's cadence, edit the field directly.
 
 Usage:
-    python -m backend.scripts.flip_loop_cadence CFCQSH daily
-    python -m backend.scripts.flip_loop_cadence CFCQSH daily --fire-now
+    python -m backend.scripts.flip_loop_cadence <loopId> daily
+    python -m backend.scripts.flip_loop_cadence <loopId> daily --fire-now
 
---fire-now also nudges nextRunAt to 1 minute in the past so the next
-hourly scheduler tick picks the Loop up immediately, instead of waiting
-out the old (weekly) interval.
+The loopId is the UUID in the URL when viewing the Loop in the app
+(/agent/:loopId). --fire-now also nudges nextRunAt to 1 minute in the
+past so the next hourly scheduler tick picks the Loop up immediately,
+instead of waiting out the old (weekly) interval.
 """
 import argparse
 import os
@@ -38,25 +39,25 @@ def get_db():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("short_code", help="Loop shortCode (e.g. CFCQSH)")
+    ap.add_argument("loop_id", help="Loop UUID (from /agent/:loopId URL)")
     ap.add_argument("cadence", choices=sorted(VALID_CADENCES))
     ap.add_argument("--fire-now", action="store_true",
                     help="Also set nextRunAt to ~now so it fires next tick")
     args = ap.parse_args()
 
     db = get_db()
-    code = args.short_code.upper()
 
     # collection_group hits every users/{uid}/loops/* — same pattern the
-    # scheduler uses.
-    matches = list(
-        db.collection_group("loops").where("shortCode", "==", code).stream()
-    )
+    # scheduler uses. Match on doc id since loopId is the Firestore doc id.
+    matches = [
+        d for d in db.collection_group("loops").stream()
+        if d.id == args.loop_id
+    ]
     if not matches:
-        print(f"No Loop found with shortCode={code}")
+        print(f"No Loop found with loopId={args.loop_id}")
         sys.exit(1)
     if len(matches) > 1:
-        print(f"Ambiguous: {len(matches)} Loops match shortCode={code}")
+        print(f"Ambiguous: {len(matches)} Loops match loopId={args.loop_id}")
         for m in matches:
             print(f"  {m.reference.path}")
         sys.exit(1)

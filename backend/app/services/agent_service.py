@@ -10,20 +10,11 @@ Responsibilities:
 from __future__ import annotations
 
 import logging
-import secrets
 import uuid
 from datetime import datetime, timezone, timedelta
 
 from app.extensions import get_db
 
-
-def _generate_short_code() -> str:
-    """6-char base32 code for SMS reply targeting (e.g. 'K7M2P9').
-
-    Crockford-style alphabet: no 0/O/1/I to avoid SMS typos.
-    """
-    alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
-    return "".join(secrets.choice(alphabet) for _ in range(6))
 
 logger = logging.getLogger(__name__)
 
@@ -966,15 +957,11 @@ def _run_cycle(uid: str, config: dict, cycle_id: str | None = None) -> dict:
     # block below and silently no-ops every cycle (found=0/drafted=0).
     is_review_first = config.get("approvalMode") == "review_first"
 
-    # Create cycle doc. shortCode is what users will text back to send drafts
-    # ("SEND K7M2P9") — too short to collide meaningfully within one user's
-    # history of ~hundreds of cycles, and the SMS handler scopes by uid first.
     cycle_ref = (
         db.collection("users").document(uid)
           .collection("agent_cycles").document(cycle_id)
     )
     cycle_ref.set({
-        "shortCode": _generate_short_code(),
         "startedAt": now.isoformat(),
         "completedAt": None,
         "status": "running",

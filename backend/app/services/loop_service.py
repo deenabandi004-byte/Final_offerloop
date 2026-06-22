@@ -9,7 +9,7 @@ its own SMS notification.
 Data model:
     users/{uid}/loops/{loopId}
         id, name, briefText, briefParsed,
-        reviewBeforeSend, weeklyTarget, smsEnabled,
+        reviewBeforeSend, weeklyTarget,
         status (idle | running | paused | done),
         createdAt, lastRunAt, nextRunAt,
         totalContactsFound, totalEmailsDrafted, totalJobsFound, ...
@@ -31,10 +31,7 @@ from urllib.parse import quote_plus
 
 from app.config import TIER_CONFIGS
 from app.extensions import get_db
-from app.services.agent_service import (
-    DEFAULT_AGENT_CONFIG,
-    _generate_short_code,
-)
+from app.services.agent_service import DEFAULT_AGENT_CONFIG
 from app.services.loop_budget import (
     AUTO_SEND_CREDIT_COST,
     BUNDLED_BUDGET_BUFFER,
@@ -52,7 +49,6 @@ MUTABLE_LOOP_FIELDS = {
     "briefParsed",
     "reviewBeforeSend",
     "weeklyTarget",
-    "smsEnabled",
     # Phase 8 — automation + budget
     "cadence",
     "creditBudgetPerWeek",
@@ -119,13 +115,10 @@ def _loop_defaults() -> dict:
         "briefVersionHistory": [],
         "reviewBeforeSend": True,
         "weeklyTarget": 5,
-        "smsEnabled": False,
         "status": "idle",
-        "shortCode": _generate_short_code(),
         "createdAt": None,
         "lastRunAt": None,
         "nextRunAt": None,
-        "lastSmsAt": None,
         "totalContactsFound": 0,
         "totalEmailsDrafted": 0,
         "totalRepliesReceived": 0,
