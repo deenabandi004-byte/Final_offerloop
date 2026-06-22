@@ -39,8 +39,13 @@ class MCPEvents:
         result_count: int = 0,
         duration_ms: int = 0,
         error: Optional[str] = None,
+        extra: Optional[dict] = None,
     ) -> Optional[str]:
         """Write one event. Synchronous.
+
+        `extra` is a small dict of tool-specific telemetry (e.g.
+        gmail_draft_status). Merged into the top-level payload so it's
+        queryable directly without unpacking a sub-doc.
 
         Returns the new doc ID on success, None on any failure. Failure
         is silent so a Firestore blip never breaks an MCP response.
@@ -60,6 +65,11 @@ class MCPEvents:
             "error": error,
             "ts": time.time(),
         }
+        if extra:
+            for k, v in extra.items():
+                # Don't let extras clobber the canonical fields.
+                if k not in payload:
+                    payload[k] = v
         try:
             self.db.collection(COLLECTION).document(doc_id).set(payload)
             return doc_id

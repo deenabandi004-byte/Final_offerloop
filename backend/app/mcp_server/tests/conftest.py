@@ -47,8 +47,13 @@ class _DocRef:
         data = self._bucket().get(self._doc_id)
         return _Snap(None if data is None else dict(data))
 
-    def set(self, data: dict) -> None:
-        self._bucket()[self._doc_id] = dict(data)
+    def set(self, data: dict, merge: bool = False) -> None:
+        if merge:
+            cur = self._bucket().get(self._doc_id, {})
+            cur.update(data)
+            self._bucket()[self._doc_id] = cur
+        else:
+            self._bucket()[self._doc_id] = dict(data)
 
     def update(self, data: dict) -> None:
         cur = self._bucket().get(self._doc_id, {})
@@ -57,6 +62,13 @@ class _DocRef:
 
     def delete(self) -> None:
         self._bucket().pop(self._doc_id, None)
+
+    def collection(self, name: str) -> "_Collection":
+        """Subcollection support. Subcollections are namespaced under a
+        synthetic top-level key 'parent/doc_id/subname' so reads/writes
+        through subref.{get,set} hit a distinct bucket."""
+        sub_name = f"{self._coll}/{self._doc_id}/{name}"
+        return _Collection(self._store, sub_name)
 
 
 class _Collection:
