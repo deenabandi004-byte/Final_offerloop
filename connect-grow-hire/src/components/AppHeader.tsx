@@ -1,3 +1,8 @@
+import { useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
+import { useNotifications } from '@/hooks/useNotifications';
+import { useToast } from '@/hooks/use-toast';
+
 interface AppHeaderProps {
   title?: string;
   titleIcon?: React.ReactNode;

@@ -203,18 +203,23 @@ def run_auto_apply_job(
         if result.get("screenshot_b64"):
             # Firestore caps a single property value at 1,048,487 bytes.
             # Full-page Greenhouse screenshots routinely exceed that (long
-            # forms scroll past 1MB of PNG base64). Drop the screenshot
-            # when it would blow the limit so the rest of the patch lands.
-            # TODO: write oversized screenshots to Cloud Storage and store
-            # the URL here instead.
+            # forms scroll past 1MB of PNG base64). Inline fast-path
+            # under the cap; Cloud Storage URL above it. Without the URL
+            # fallback, every long-form failure ships with zero visual
+            # evidence and is undebuggable.
             shot = result["screenshot_b64"]
             if isinstance(shot, str) and len(shot) <= 1_000_000:
                 patch["screenshot_b64"] = shot
-            else:
-                logger.warning(
-                    "auto_apply screenshot too large for Firestore (%d bytes); dropping",
-                    len(shot) if isinstance(shot, str) else -1,
-                )
+            elif isinstance(shot, str):
+                url = _upload_screenshot_to_storage(uid, auto_apply_id, shot)
+                if url:
+                    patch["screenshot_url"] = url
+                else:
+                    logger.warning(
+                        "auto_apply screenshot too large for Firestore (%d bytes); "
+                        "Cloud Storage upload also failed; dropping",
+                        len(shot),
+                    )
         if result.get("failure_reason"):
             patch["failure_reason"] = result["failure_reason"]
         if result.get("attempted_urls"):
@@ -387,3 +392,32 @@ def _download_resume_to_temp(url: str, filename: str) -> str:
         except Exception:
             pass
         raise
+
+
+def _upload_screenshot_to_storage(
+    uid: str, auto_apply_id: str, b64: str
+) -> Optional[str]:
+    """Upload a base64-encoded PNG screenshot to Firebase Cloud Storage and
+    return its public URL. Returns None on any failure so the caller can
+    fall back to dropping the screenshot.
+
+    Used when the screenshot is too large for Firestore's per-property 1MB
+    cap. Same upload pattern as resume.py:upload_resume_to_firebase_storage.
+    """
+    try:
+        import base64 as _base64
+        from firebase_admin import storage
+
+        png_bytes = _base64.b64decode(b64)
+        bucket = storage.bucket()
+        blob = bucket.blob(
+            f"auto_apply_screenshots/{uid}/{auto_apply_id}.png"
+        )
+        blob.upload_from_string(png_bytes, content_type="image/png")
+        blob.make_public()
+        return blob.public_url
+    except Exception as exc:
+        logger.warning(
+            "auto_apply screenshot Cloud Storage upload failed: %s", exc
+        )
+        return None

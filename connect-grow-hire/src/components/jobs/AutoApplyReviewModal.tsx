@@ -426,12 +426,12 @@ function DoneBody({ doc }: { doc: AutoApplyStatusResponse }) {
             </ul>
           </div>
         )}
-        {doc.screenshot_b64 && (
+        {(doc.screenshot_b64 || doc.screenshot_url) && (
           <div className="space-y-1">
             <div className="text-xs text-slate-500">
               Screenshot of the page after Submit (shows validation state):
             </div>
-            <Screenshot b64={doc.screenshot_b64} />
+            <Screenshot b64={doc.screenshot_b64} url={doc.screenshot_url} />
           </div>
         )}
       </div>
@@ -463,16 +463,24 @@ function DoneBody({ doc }: { doc: AutoApplyStatusResponse }) {
           </ul>
         </div>
       )}
-      {doc.screenshot_b64 && <Screenshot b64={doc.screenshot_b64} />}
+      {(doc.screenshot_b64 || doc.screenshot_url) && (
+        <Screenshot b64={doc.screenshot_b64} url={doc.screenshot_url} />
+      )}
     </div>
   );
 }
 
-function Screenshot({ b64 }: { b64: string }) {
+function Screenshot({ b64, url }: { b64?: string; url?: string }) {
+  // Backend stores small screenshots inline as base64 in Firestore and
+  // large ones (> 1MB) in Cloud Storage with a public URL. Render whichever
+  // is present; prefer the inline b64 since it doesn't trigger an extra
+  // HTTP request when both are unexpectedly set.
+  const src = b64 ? `data:image/png;base64,${b64}` : url;
+  if (!src) return null;
   return (
     <div className="rounded border border-slate-200 overflow-hidden">
       <img
-        src={`data:image/png;base64,${b64}`}
+        src={src}
         alt="Filled application form screenshot"
         className="w-full h-auto block"
       />

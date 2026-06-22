@@ -2402,7 +2402,7 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
   async reportFrontendError(error: { message: string; stack?: string; componentStack?: string; url?: string }): Promise<void> {
     try {
       const headers = await this.getAuthHeaders().catch(() => ({ 'Content-Type': 'application/json' }));
-      await fetch(`${API_BASE_URL}/api/admin/client-error`, {
+      await fetch(`${API_BASE_URL}/admin/client-error`, {
         method: 'POST',
         headers: headers as Record<string, string>,
         body: JSON.stringify({
@@ -2876,6 +2876,10 @@ export interface AutoApplyStatusResponse {
   status: AutoApplyStatus;
   stage?: string;
   screenshot_b64?: string;
+  // Set when the post-submit PNG was too big for Firestore's 1MB cap and
+  // was uploaded to Cloud Storage instead. Render via <img src={url}>;
+  // mutually exclusive with screenshot_b64 in practice.
+  screenshot_url?: string;
   filled_summary?: Record<string, string>;
   unmapped?: AutoApplyUnmappedField[];
   pending_questions?: AutoApplyPendingQuestion[];
