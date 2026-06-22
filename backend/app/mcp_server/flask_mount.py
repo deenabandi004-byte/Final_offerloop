@@ -122,22 +122,28 @@ def _handle_mcp_post():
             "error": {"code": -32700, "message": "Parse error: empty body"},
         }), 400
 
-    # Bearer-token path (authenticated MCP). On invalid token we 401 with
-    # WWW-Authenticate so MCP clients can re-run their discovery handshake.
-    # Missing header falls through to anonymous IP-hash identity, preserving
-    # the free anonymous tier.
-    user_ctx = None
+    # Bearer-token path (authenticated MCP). We 401 with WWW-Authenticate on
+    # both missing AND invalid bearers — RFC 9728 §5.3 + the MCP authorization
+    # spec require the 401 challenge for clients to discover the AS. Returning
+    # 200 to unauthenticated requests means Claude.ai's connector + Smithery's
+    # scanner never escalate to OAuth, so the user never sees a Sign In prompt
+    # and every tool call hits the anonymous path with no user context.
     auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
-        token = auth_header.split(" ", 1)[1].strip()
-        claims = verify_access_token(token)
-        if claims is None:
-            return _unauthorized("invalid_token", "Access token invalid or expired")
-        user_ctx = {
-            "uid": claims.get("sub"),
-            "tier": claims.get("tier") or "free",
-            "scope": claims.get("scope") or "",
-        }
+    if not auth_header.startswith("Bearer "):
+        return _unauthorized(
+            "missing_token",
+            "Authorization required. Discover OAuth via WWW-Authenticate.",
+        )
+
+    token = auth_header.split(" ", 1)[1].strip()
+    claims = verify_access_token(token)
+    if claims is None:
+        return _unauthorized("invalid_token", "Access token invalid or expired")
+    user_ctx = {
+        "uid": claims.get("sub"),
+        "tier": claims.get("tier") or "free",
+        "scope": claims.get("scope") or "",
+    }
 
     # Anonymous, IP-based identity (always computed; even authed calls log it
     # for rate-limit attribution + abuse detection).
