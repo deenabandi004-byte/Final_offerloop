@@ -8,9 +8,11 @@ from app.services import gmail_client
 
 # ------------------------------------------------------------------ 3b
 class TestPhase3bWorkEmailFilter:
-    """build_query_from_prompt should require exists:work_email at retry_level=0
-    only. Broader rungs (1+) must drop the filter so lazy-topup can find any
-    reachable candidate."""
+    """build_query_from_prompt must NOT include exists:work_email at any retry
+    level. Phase 3b's level-0 filter was removed after it caused empty results
+    for queries with rich PDL coverage but sparse top-level work_email field
+    (Berkeley + Google SWE). Hunter waterfall fills the email gap, and Phase 3c's
+    draft-time gate is the real deliverability protection."""
 
     def _has_work_email_exists_clause(self, query: dict) -> bool:
         must = (query.get("bool") or {}).get("must") or []
@@ -29,10 +31,11 @@ class TestPhase3bWorkEmailFilter:
             "locations": [],
         }
 
-    def test_level_0_requires_work_email_exists(self):
+    def test_level_0_does_not_require_work_email(self):
         q = pdl_client.build_query_from_prompt(self._parsed_prompt(), retry_level=0)
-        assert self._has_work_email_exists_clause(q), (
-            f"level 0 query must require exists:work_email, got {q!r}"
+        assert not self._has_work_email_exists_clause(q), (
+            f"level 0 must NOT require exists:work_email — Hunter resolves "
+            f"emails for records that only have emails[]. Got {q!r}"
         )
 
     def test_level_1_does_not_require_work_email(self):
