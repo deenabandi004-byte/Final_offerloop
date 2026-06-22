@@ -2402,7 +2402,7 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
   async reportFrontendError(error: { message: string; stack?: string; componentStack?: string; url?: string }): Promise<void> {
     try {
       const headers = await this.getAuthHeaders().catch(() => ({ 'Content-Type': 'application/json' }));
-      await fetch(`${API_BASE_URL}/api/admin/client-error`, {
+      await fetch(`${API_BASE_URL}/admin/client-error`, {
         method: 'POST',
         headers: headers as Record<string, string>,
         body: JSON.stringify({
