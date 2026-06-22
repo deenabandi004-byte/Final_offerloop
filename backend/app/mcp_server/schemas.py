@@ -57,6 +57,14 @@ class Contact(BaseModel):
     personalization_hook: Optional[str] = None
     relationship_type: Optional[str] = None
     warmth: Optional[str] = None  # cold | neutral | warm
+    email: Optional[str] = Field(
+        None,
+        description=(
+            "Best-available recipient email when PDL has one for this "
+            "contact. Pass it back to draft_outreach.contact.email to "
+            "create a real Gmail draft in the user's account."
+        ),
+    )
 
 
 class PaywallCTA(BaseModel):

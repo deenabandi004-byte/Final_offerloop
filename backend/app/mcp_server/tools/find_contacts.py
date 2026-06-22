@@ -259,8 +259,32 @@ def _build_contacts(raw_contacts: list[dict], warmth: dict) -> list[Contact]:
             personalization_hook=w.get("label") or _fallback_hook(c, w),
             relationship_type=_relationship_type_from_signals(signals),
             warmth=w.get("tier"),
+            email=_pick_recipient_email(c),
         ))
     return out
+
+
+def _pick_recipient_email(c: dict) -> Optional[str]:
+    """Best-available email for this contact, mirroring gmail_client.
+    _select_recipient_email's WorkEmail > Email > PersonalEmail preference.
+
+    Low-confidence emails (PDL `EmailSource` in {pattern, domain_generated,
+    pdl_fallback, hunter_finder_risky, neverbounce_acceptall}) are NOT
+    filtered here — gmail_client.create_gmail_draft_for_user has its own
+    guard that skips low-confidence drafts. Surfacing the email anyway
+    lets Claude tell the user "I have an email but it's a guess" instead
+    of silently omitting it.
+    """
+    work = (c.get("WorkEmail") or "").strip()
+    if work and work != "Not available" and "@" in work:
+        return work
+    primary = (c.get("Email") or "").strip()
+    if primary and "@" in primary and not primary.endswith("@domain.com"):
+        return primary
+    personal = (c.get("PersonalEmail") or "").strip()
+    if personal and personal != "Not available" and "@" in personal:
+        return personal
+    return None
 
 
 def _compose_name(c: dict) -> str:

@@ -42,10 +42,14 @@ SERVER_VERSION = "0.1.0"
 _FIND_CONTACTS_DESCRIPTION = (
     "Find real, verified professionals at a target company who match the "
     "user's school, role interests, or career goals. Returns names, titles, "
-    "LinkedIn URLs, recent career moves, and personalization hooks (alumni "
-    "connection, shared employer, dream company). Use this when the user "
-    "wants to know who to reach out to for networking, informational "
-    "interviews, coffee chats, or job referrals."
+    "LinkedIn URLs, recent career moves, personalization hooks (alumni "
+    "connection, shared employer, dream company), and — when available — "
+    "the contact's email address. When you follow up with draft_outreach "
+    "for one of these contacts, pass the email from this result through as "
+    "draft_outreach.contact.email so the draft can be created in the user's "
+    "Gmail with their resume attached. Use this when the user wants to know "
+    "who to reach out to for networking, informational interviews, coffee "
+    "chats, or job referrals."
 )
 
 _GET_COMPANY_INTEL_DESCRIPTION = (
