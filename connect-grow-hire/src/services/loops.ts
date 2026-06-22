@@ -218,17 +218,6 @@ export interface FleetFeedItem {
   createdAt: string;
 }
 
-// Quickstart Loop template surfaced in the NewLoopTile's two one-tap chips.
-// `brief` is the pre-seeded text the /agent/setup composer reads from
-// location.state when the user lands on the setup page.
-export interface SuggestedLoop {
-  id: string;
-  title: string;
-  tag: string;
-  brief: string;
-  loopMode: LoopMode;
-}
-
 export interface LoopActivityItem {
   id: string;
   type: LoopActivityType;
@@ -506,6 +495,3 @@ export async function getFleetFeed(
   return loopFetch(`/feed?limit=${limit}`);
 }
 
-export async function getSuggestedLoops(): Promise<{ items: SuggestedLoop[] }> {
-  return loopFetch("/suggested");
-}

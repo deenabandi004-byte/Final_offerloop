@@ -18,7 +18,6 @@ import {
   getFleetWeeklySummary,
   getLoop,
   getLoopActivity,
-  getSuggestedLoops,
   getUsageBreakdown,
   listLoops,
   markLoopReviewed,
@@ -34,7 +33,6 @@ import {
   type LoopActivityItem,
   type LoopCadence,
   type LoopLimits,
-  type SuggestedLoop,
   type UsageBreakdown,
 } from "@/services/loops";
 import type { ParsedBrief } from "@/services/agent";
@@ -225,11 +223,3 @@ export function useFleetFeed(limit: number = 20) {
   });
 }
 
-// Quickstart Loop templates shown inside the NewLoopTile.
-export function useSuggestedLoops() {
-  return useQuery<{ items: SuggestedLoop[] }>({
-    queryKey: ["loops", "fleet", "suggested"],
-    queryFn: getSuggestedLoops,
-    staleTime: 5 * 60_000, // curated set; doesn't change often
-  });
-}
