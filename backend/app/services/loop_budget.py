@@ -248,17 +248,6 @@ def can_run_now(
     if strikes >= RATE_LIMIT_STRIKE_THRESHOLD:
         return False, "rate_limited"
 
-    # 5. Inactivity — only pause if there's pending work the user is ignoring
-    last_reviewed = loop.get("lastReviewedAt")
-    pending = int(loop.get("pendingDrafts", 0) or 0)
-    if pending > 0 and last_reviewed:
-        try:
-            last_dt = datetime.fromisoformat(str(last_reviewed).replace("Z", "+00:00"))
-            if (now - last_dt) > timedelta(days=INACTIVITY_DAYS):
-                return False, "inactivity"
-        except (TypeError, ValueError):
-            pass
-
     return True, None
 
 

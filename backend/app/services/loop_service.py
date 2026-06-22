@@ -125,8 +125,6 @@ def _loop_defaults() -> dict:
         "totalJobsFound": 0,
         "totalHmsContacted": 0,
         "totalCompaniesDiscovered": 0,
-        "pendingDrafts": 0,
-        "unreadReplies": 0,
         # Phase 8 — automation + budget. Tier defaults override
         # creditBudgetPerWeek at create_loop time.
         "cadence": "every_other_day",

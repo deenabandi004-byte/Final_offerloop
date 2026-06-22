@@ -20,12 +20,10 @@ import { ScoutGuide } from "./ScoutGuide";
 const VISIBLE_LIMIT = 4;
 
 function sortKey(loop: Loop): number {
-  const hasUnread = loop.pendingDrafts > 0 || loop.unreadReplies > 0;
-  if (loop.status === "done" && hasUnread) return 0;
   if (loop.status === "running") return 1;
   if (loop.status === "paused") return 2;
   if (loop.status === "idle") return 3;
-  return 4; // done with no unreads
+  return 4; // done
 }
 
 function sortLoops(loops: Loop[]): Loop[] {

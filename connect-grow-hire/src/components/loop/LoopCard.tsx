@@ -256,8 +256,7 @@ function deriveCompanies(loop: Loop): { names: string[]; label: string } {
   return { names: [], label: "" };
 }
 
-function ctaFor(loop: Loop, copy: ReturnType<typeof loopCopy>): string {
-  if (loop.status === "done" && loop.pendingDrafts > 0) return copy.card.readEmailsCta;
+function ctaFor(loop: Loop): string {
   if (loop.status === "paused") return LOOP_COPY.card.wakeCta;
   if (loop.status === "idle") return LOOP_COPY.card.startCta;
   return LOOP_COPY.card.openCta;
@@ -301,7 +300,7 @@ export function LoopCard({ loop }: { loop: Loop }) {
       : 0;
 
   const copy = loopCopy(loop.loopMode ?? "people", { autoSendMode: loop.autoSendMode });
-  const cta = ctaFor(loop, copy);
+  const cta = ctaFor(loop);
 
   const { lead, accent } = splitTitle(loop.name);
   const { names: coNames, label: coLabel } = deriveCompanies(loop);

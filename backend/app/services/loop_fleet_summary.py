@@ -3,7 +3,8 @@ Fleet-level rollups for the Loops fleet view (LoopsCommandBar).
 
 The fleet view's command bar shows three things in one card:
   1. "Found this week" — total contacts surfaced across every Loop, ISO week.
-  2. "Drafts waiting on you" — sum of pendingDrafts across every Loop.
+  2. "Drafts waiting on you" — count of draft_created pipeline-stage
+     contacts across every Loop (real, from the contacts subcollection).
   3. Weekly-goal ring — foundThisWeek over the sum of per-Loop weeklyTargets.
 
 Plus a live activity ticker at the bottom rotating through the most recent

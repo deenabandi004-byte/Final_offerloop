@@ -106,8 +106,6 @@ export interface Loop {
   totalJobsFound: number;
   totalHmsContacted: number;
   totalCompaniesDiscovered: number;
-  pendingDrafts: number;
-  unreadReplies: number;
   // Phase 8 — automation + budget
   cadence: LoopCadence;
   creditBudgetPerWeek: number;

@@ -1392,7 +1392,6 @@ function EmailRowButton({
 //    headline card here that mirrors the design's quiet treatment. ─────────
 
 function RepliesSection({ loop }: { loop: Loop }) {
-  const unread = loop.unreadReplies;
   const total = loop.totalRepliesReceived;
   return (
     <div style={{ marginTop: 38 }}>
@@ -1438,10 +1437,10 @@ function RepliesSection({ loop }: { loop: Loop }) {
                 fontVariantNumeric: "tabular-nums",
               }}
             >
-              {unread}
+              {total}
             </span>
             <span style={{ fontSize: 13, color: "var(--ink-2)" }}>
-              unread {unread === 1 ? "reply" : "replies"} · {total} total
+              {total === 1 ? "reply" : "replies"} · open in tracker
             </span>
           </div>
           <div
