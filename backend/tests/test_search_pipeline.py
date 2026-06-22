@@ -363,24 +363,27 @@ class TestUcSystemAliases:
     """
 
     # (input, expected_aliases_that_must_be_present)
+    # Every case must include the "university of california, <campus>"
+    # comma form — that's the canonical PDL stored form for most UC
+    # campuses (576k records for Berkeley vs 0 without comma).
     _CASES = [
-        ("UC Berkeley",  {"berkeley", "uc berkeley", "university of california berkeley", "cal"}),
-        ("Berkeley",     {"berkeley", "uc berkeley", "university of california berkeley", "cal"}),
+        ("UC Berkeley",  {"berkeley", "uc berkeley", "university of california berkeley", "university of california, berkeley", "cal"}),
+        ("Berkeley",     {"berkeley", "uc berkeley", "university of california berkeley", "university of california, berkeley", "cal"}),
         ("University of California, Berkeley",
-                         {"berkeley", "uc berkeley", "university of california berkeley", "cal"}),
-        ("UC Los Angeles", {"ucla", "uc los angeles", "university of california los angeles"}),
-        ("UCLA",           {"ucla", "uc los angeles", "university of california los angeles"}),
+                         {"berkeley", "uc berkeley", "university of california berkeley", "university of california, berkeley", "cal"}),
+        ("UC Los Angeles", {"ucla", "uc los angeles", "university of california los angeles", "university of california, los angeles"}),
+        ("UCLA",           {"ucla", "uc los angeles", "university of california los angeles", "university of california, los angeles"}),
         ("University of California, Los Angeles",
-                           {"ucla", "uc los angeles", "university of california los angeles"}),
-        ("UC San Diego",   {"ucsd", "uc san diego", "university of california san diego"}),
-        ("UC Santa Barbara", {"ucsb", "uc santa barbara", "university of california santa barbara"}),
-        ("UC Irvine",      {"uci", "uc irvine", "university of california irvine"}),
-        ("UCI",            {"uci", "uc irvine", "university of california irvine"}),
-        ("UC Davis",       {"ucd", "uc davis", "university of california davis"}),
-        ("UC Santa Cruz",  {"ucsc", "uc santa cruz", "university of california santa cruz"}),
-        ("UC Riverside",   {"ucr", "uc riverside", "university of california riverside"}),
-        ("UC Merced",      {"ucm", "uc merced", "university of california merced"}),
-        ("UC San Francisco", {"ucsf", "uc san francisco", "university of california san francisco"}),
+                           {"ucla", "uc los angeles", "university of california los angeles", "university of california, los angeles"}),
+        ("UC San Diego",   {"ucsd", "uc san diego", "university of california san diego", "university of california, san diego"}),
+        ("UC Santa Barbara", {"ucsb", "uc santa barbara", "university of california santa barbara", "university of california, santa barbara"}),
+        ("UC Irvine",      {"uci", "uc irvine", "university of california irvine", "university of california, irvine"}),
+        ("UCI",            {"uci", "uc irvine", "university of california irvine", "university of california, irvine"}),
+        ("UC Davis",       {"ucd", "uc davis", "university of california davis", "university of california, davis"}),
+        ("UC Santa Cruz",  {"ucsc", "uc santa cruz", "university of california santa cruz", "university of california, santa cruz"}),
+        ("UC Riverside",   {"ucr", "uc riverside", "university of california riverside", "university of california, riverside"}),
+        ("UC Merced",      {"ucm", "uc merced", "university of california merced", "university of california, merced"}),
+        ("UC San Francisco", {"ucsf", "uc san francisco", "university of california san francisco", "university of california, san francisco"}),
     ]
 
     def test_uc_inputs_all_produce_full_alias_set(self):
@@ -405,6 +408,30 @@ class TestUcSystemAliases:
         alias_set = {a.lower() for a in aliases}
         assert "cal" in alias_set
         assert "berkeley" in alias_set
+
+    def test_uc_inputs_emit_comma_form_for_pdl(self):
+        """Regression: PDL's education.school.name is keyword-indexed, and
+        most UC campuses are stored canonically WITH a comma between
+        'California' and the campus name. Direct probes:
+            'university of california, berkeley' -> 576,014 records
+            'university of california berkeley'  -> 0 records
+        Pre-fix, _school_aliases stripped commas during normalization but
+        never re-emitted them on output, so the PDL school filter returned
+        0 records for every UC query. The query body included multiple
+        no-comma forms (berkeley / uc berkeley / university of california
+        berkeley) and none of them matched PDL's stored data.
+
+        Every UC input — whether typed as 'UC Berkeley', 'Berkeley', or the
+        comma form from the website dropdown — must produce the
+        comma-canonical alias so PDL's match_phrase actually hits.
+        """
+        for raw in ("UC Berkeley", "Berkeley", "University of California, Berkeley"):
+            aliases = _school_aliases(raw)
+            alias_set = {a.lower() for a in aliases}
+            assert "university of california, berkeley" in alias_set, (
+                f"_school_aliases({raw!r}) must emit the PDL-canonical comma form; "
+                f"got {sorted(alias_set)}"
+            )
 
 
 # ============================================================
