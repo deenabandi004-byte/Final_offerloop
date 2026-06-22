@@ -45,3 +45,48 @@ def cap_message(user_ctx: Optional[dict], cap: int) -> str:
     if tier == "pro":
         return f"Pro plan returns up to {cap} contacts. Upgrade to Elite for 15."
     return f"Elite plan returns up to {cap} contacts."
+
+
+# ── Per-day / per-hour CALL caps (separate from per-search contact caps) ────
+
+
+# tool -> tier -> (day_cap, hour_cap). None = unlimited.
+# Numbers chosen so a real recruiting workflow doesn't trip the limiter:
+# elite = effectively unlimited, pro = comfortable daily session, free =
+# enough to evaluate the product without enabling abuse.
+_CALL_LIMITS: dict[str, dict[str, tuple[Optional[int], Optional[int]]]] = {
+    "find_contacts": {
+        "anonymous": (3, 10),
+        "free": (10, 20),
+        "pro": (50, 30),
+        "elite": (None, 100),
+    },
+    "draft_outreach": {
+        "anonymous": (2, 5),
+        "free": (10, 10),
+        "pro": (30, 20),
+        "elite": (None, 60),
+    },
+    "get_company_intel": {
+        "anonymous": (None, 30),
+        "free": (None, 50),
+        "pro": (None, 100),
+        "elite": (None, 200),
+    },
+}
+
+
+def call_limits_for(tool: str, user_ctx: Optional[dict]) -> tuple[Optional[int], Optional[int]]:
+    """Return (day_cap, hour_cap) for this tool + tier. Unknown tier → free."""
+    tier = _tier(user_ctx)
+    by_tier = _CALL_LIMITS.get(tool) or {}
+    return by_tier.get(tier) or by_tier.get("free") or (None, None)
+
+
+def rate_limit_identity(user_ctx: Optional[dict], ip_hash: str) -> str:
+    """Per-uid for authed callers, per-IP for the (now-unreachable from MCP
+    clients) anonymous path. Bucketing by uid means a user behind a corporate
+    NAT isn't sharing a quota with strangers, and limits scale with tier."""
+    if user_ctx and user_ctx.get("uid"):
+        return f"uid:{user_ctx['uid']}"
+    return f"ip:{ip_hash}"

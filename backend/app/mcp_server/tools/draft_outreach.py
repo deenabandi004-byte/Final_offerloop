@@ -78,7 +78,10 @@ def handle(
     cache_args = {**parsed.model_dump(), "_uid_bucket": uid or "_anon"}
     args_hash = cache.key(TOOL_NAME, cache_args)
 
-    rl = limiter.check_and_increment(ip_hash, TOOL_NAME)
+    from app.mcp_server.tier_caps import rate_limit_identity
+    rl = limiter.check_and_increment(
+        rate_limit_identity(user_ctx, ip_hash), TOOL_NAME, user_ctx=user_ctx,
+    )
     if not rl.ok:
         cached_payload = cache.get(TOOL_NAME, cache_args)
         paywall = build_paywall(
