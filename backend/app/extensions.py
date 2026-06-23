@@ -314,6 +314,16 @@ def require_tier(allowed_tiers):
                 # Check if user's tier is allowed
                 if tier not in allowed_tiers:
                     tier_names = ', '.join([t.capitalize() for t in allowed_tiers])
+                    try:
+                        from app.utils.posthog_client import track_event
+                        track_event(user_id, 'feature_gated', {
+                            'feature': request.endpoint,
+                            'path': request.path,
+                            'required_tier': allowed_tiers,
+                            'current_tier': tier,
+                        })
+                    except Exception:
+                        pass
                     return jsonify({
                         'error': 'Upgrade required',
                         'message': f'This feature requires {tier_names} subscription',
