@@ -2,7 +2,7 @@
 console.log('[Offerloop Popup] Loaded');
 
 // API Configuration
-const API_BASE_URL = 'https://offerloop.ai';
+const API_BASE_URL = 'https://www.offerloop.ai';
 
 // Shared job URL patterns — used by detectMode() and isJobUrl()
 const JOB_URL_PATTERNS = [
@@ -1207,15 +1207,15 @@ function showResults(contact) {
   hideLoading();
   elements.errorSection?.classList.add('hidden');
   elements.resultsSection?.classList.remove('hidden');
-  
+
   // Parse name
   const fullName = contact.full_name || `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Unknown';
   elements.resultName.textContent = fullName;
-  
+
   // Email
   const email = contact.email || 'Not found';
   elements.resultEmail.textContent = email;
-  
+
   // Status badge
   if (contact.email) {
     elements.resultStatus.textContent = 'Found';
@@ -1224,9 +1224,13 @@ function showResults(contact) {
     elements.resultStatus.textContent = 'No Email';
     elements.resultStatus.classList.add('no-email');
   }
-  
+
   // Show success links section
   elements.successLinksSection?.classList.remove('hidden');
+
+  // Capture source for the "Find similar" disclosure and reset its state on
+  // every new result so an old company's rows never bleed across contacts.
+  primeSimilarSection(contact);
 }
 
 // Update credits display
@@ -1610,13 +1614,307 @@ async function init() {
       showSection('login');
       return;
     }
-    
+
     await checkAndShowContent();
   } else {
     console.log('[Offerloop Popup] Not logged in');
     showSection('login');
   }
 }
+
+// ============================================================
+// Find Similar Contacts — disclosure inside the email-found card
+// ============================================================
+//
+// State machine: closed → opened → loading → (results | empty | error).
+// Fetch fires once on first open; subsequent toggles just show/hide the
+// already-rendered rows. A new found contact (showResults() → primeSimilarSection)
+// resets state so stale rows don't bleed across LinkedIn profiles.
+
+const similarState = {
+  source: null,        // { firstName, lastName, company, title, location, linkedinUrl }
+  fetched: false,      // have we already called /find-similar for this source?
+  rows: [],            // raw contact dicts from the backend
+};
+
+function _getSimilarEl(id) {
+  return document.getElementById(id);
+}
+
+function primeSimilarSection(contact) {
+  const section = _getSimilarEl('similarToggleBtn');
+  if (!section) return;
+
+  const company = (contact.company || '').trim();
+  const linkedInUrl = currentState.linkedInUrl || contact.linkedinUrl || '';
+
+  similarState.source = {
+    firstName: contact.firstName || (contact.full_name || '').split(' ')[0] || '',
+    lastName: contact.lastName || (contact.full_name || '').split(' ').slice(1).join(' ') || '',
+    company: company,
+    title: contact.jobTitle || contact.title || '',
+    location: contact.location || '',
+    linkedinUrl: linkedInUrl,
+  };
+  similarState.fetched = false;
+  similarState.rows = [];
+
+  // Reset DOM
+  const toggle = _getSimilarEl('similarToggleBtn');
+  const body = _getSimilarEl('similarBody');
+  const results = _getSimilarEl('similarResults');
+  const loading = _getSimilarEl('similarLoading');
+  const empty = _getSimilarEl('similarEmpty');
+  const error = _getSimilarEl('similarError');
+  if (toggle) toggle.setAttribute('aria-expanded', 'false');
+  body?.classList.add('hidden');
+  results?.classList.add('hidden');
+  loading?.classList.add('hidden');
+  empty?.classList.add('hidden');
+  error?.classList.add('hidden');
+  if (results) results.innerHTML = '';
+
+  // Update labels + footer deep-link with the source company
+  const companyLabel = company || 'this company';
+  const toggleCompanyEl = _getSimilarEl('similarToggleCompany');
+  if (toggleCompanyEl) toggleCompanyEl.textContent = companyLabel;
+  const emptyCompanyEl = empty?.querySelector('span');
+  if (emptyCompanyEl) emptyCompanyEl.textContent = companyLabel;
+  const footerLink = _getSimilarEl('similarFooterLink');
+  if (footerLink) {
+    const companyParam = encodeURIComponent(company);
+    const roleParam = encodeURIComponent(similarState.source.title || '');
+    footerLink.href = company
+      ? `https://www.offerloop.ai/find?tab=people&company=${companyParam}${roleParam ? `&role=${roleParam}` : ''}`
+      : 'https://www.offerloop.ai/find?tab=people';
+    const footerCompanyEl = footerLink.querySelector('.similar-footer-link__company');
+    if (footerCompanyEl) footerCompanyEl.textContent = companyLabel;
+  }
+
+  // Hide toggle entirely if there's no company to search against — the
+  // backend would reject the request anyway.
+  toggle.style.display = company ? '' : 'none';
+}
+
+async function toggleSimilarSection() {
+  const toggle = _getSimilarEl('similarToggleBtn');
+  const body = _getSimilarEl('similarBody');
+  if (!toggle || !body) return;
+
+  const isOpen = toggle.getAttribute('aria-expanded') === 'true';
+  if (isOpen) {
+    toggle.setAttribute('aria-expanded', 'false');
+    body.classList.add('hidden');
+    return;
+  }
+
+  toggle.setAttribute('aria-expanded', 'true');
+  body.classList.remove('hidden');
+
+  if (!similarState.fetched) {
+    await fetchSimilarContacts();
+  }
+}
+
+async function fetchSimilarContacts() {
+  const loading = _getSimilarEl('similarLoading');
+  const results = _getSimilarEl('similarResults');
+  const empty = _getSimilarEl('similarEmpty');
+  const error = _getSimilarEl('similarError');
+
+  if (!similarState.source || !similarState.source.company) {
+    error.textContent = 'Need a company to find similar contacts.';
+    error.classList.remove('hidden');
+    return;
+  }
+
+  loading?.classList.remove('hidden');
+  results?.classList.add('hidden');
+  empty?.classList.add('hidden');
+  error?.classList.add('hidden');
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      action: 'findSimilarContacts',
+      authToken: currentState.authToken,
+      source: similarState.source,
+    });
+
+    similarState.fetched = true;
+    loading?.classList.add('hidden');
+
+    if (!response || response.error) {
+      error.textContent = (response && response.error) || 'Couldn’t fetch similar contacts. Try again.';
+      error.classList.remove('hidden');
+      return;
+    }
+
+    if (typeof response.credits_remaining === 'number') {
+      updateCredits(response.credits_remaining);
+      currentState.credits = response.credits_remaining;
+      chrome.storage.local.set({ credits: response.credits_remaining });
+    }
+
+    similarState.rows = response.contacts || [];
+    if (similarState.rows.length === 0) {
+      empty?.classList.remove('hidden');
+      return;
+    }
+
+    renderSimilarRows(similarState.rows);
+    results?.classList.remove('hidden');
+  } catch (e) {
+    console.error('[Offerloop Popup] find-similar error:', e);
+    similarState.fetched = true;
+    loading?.classList.add('hidden');
+    error.textContent = e.message || 'Couldn’t fetch similar contacts. Try again.';
+    error.classList.remove('hidden');
+  }
+}
+
+function renderSimilarRows(rows) {
+  const results = _getSimilarEl('similarResults');
+  if (!results) return;
+  results.innerHTML = '';
+  rows.forEach((row) => results.appendChild(buildSimilarRowEl(row)));
+}
+
+function _categoryCaption(category, sourceCompany, sourceTitle) {
+  // Human caption from the backend's bucket category.
+  const co = sourceCompany || 'this company';
+  const t = sourceTitle || 'this role';
+  switch (category) {
+    case 'same_role_same_co':   return `Same role at ${co}`;
+    case 'any_role_same_co':    return `Also at ${co}`;
+    case 'same_role_other_co':  return `${t} at other firms`;
+    default:                    return '';
+  }
+}
+
+function buildSimilarRowEl(row) {
+  const el = document.createElement('div');
+  el.className = 'similar-row';
+  el.setAttribute('role', 'listitem');
+
+  const initials = `${(row.firstName || ' ')[0]}${(row.lastName || ' ')[0]}`.toUpperCase().trim() || '?';
+  const fullName = `${row.firstName || ''} ${row.lastName || ''}`.trim() || 'Unknown';
+
+  // Meta line: for same-company buckets (A/B) we show school since the
+  // company is implicit; for cross-company (C) we show the contact's
+  // actual company so the user knows where they work.
+  const metaParts = [];
+  if (row.title) metaParts.push(row.title);
+  if (row.category === 'same_role_other_co') {
+    if (row.company) metaParts.push(row.company);
+  } else {
+    if (row.school) metaParts.push(row.school);
+  }
+  const meta = metaParts.join(' · ');
+
+  const avatar = document.createElement('span');
+  avatar.className = 'similar-row__avatar';
+  avatar.textContent = initials;
+
+  const who = document.createElement('div');
+  who.className = 'similar-row__who';
+  const nameEl = document.createElement('span');
+  nameEl.className = 'similar-row__name';
+  nameEl.textContent = fullName.toLowerCase();  // CSS capitalize handles display
+  const metaEl = document.createElement('span');
+  metaEl.className = 'similar-row__meta';
+  metaEl.textContent = meta || (row.company || '');
+  who.append(nameEl, metaEl);
+
+  // Bucket caption explains *why* this row was suggested.
+  const captionText = _categoryCaption(
+    row.category,
+    similarState.source && similarState.source.company,
+    similarState.source && similarState.source.title,
+  );
+  if (captionText) {
+    const captionEl = document.createElement('span');
+    captionEl.className = 'similar-row__category';
+    captionEl.textContent = captionText;
+    who.append(captionEl);
+  }
+
+  el.append(avatar, who);
+
+  // Action: existing email → pill link; otherwise lazy "Find email" button
+  if (row.email) {
+    el.appendChild(buildEmailPill(row.email));
+  } else {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'similar-row__action';
+    btn.textContent = 'Find email';
+    btn.addEventListener('click', () => findEmailForRow(row, btn, el));
+    el.appendChild(btn);
+  }
+
+  return el;
+}
+
+function buildEmailPill(email) {
+  const pill = document.createElement('a');
+  pill.className = 'similar-row__email-pill';
+  pill.href = 'https://mail.google.com/mail/u/0/#drafts';
+  pill.target = '_blank';
+  pill.title = email;
+  pill.textContent = email;
+  return pill;
+}
+
+async function findEmailForRow(row, btn, rowEl) {
+  if (!row.linkedinUrl) {
+    rowEl.classList.add('similar-row--no-email');
+    btn.textContent = 'No URL';
+    btn.disabled = true;
+    return;
+  }
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Finding…';
+  try {
+    const response = await chrome.runtime.sendMessage({
+      action: 'importLinkedIn',
+      linkedInUrl: row.linkedinUrl,
+      authToken: currentState.authToken,
+    });
+
+    if (!response || response.error) {
+      throw new Error((response && response.error) || 'Find-email failed');
+    }
+
+    // Credit refresh from the import-linkedin response
+    if (response.credits_remaining !== undefined) {
+      updateCredits(response.credits_remaining);
+      currentState.credits = response.credits_remaining;
+      chrome.storage.local.set({ credits: response.credits_remaining });
+    }
+
+    const found = response.contact || response;
+    const email = (found.email || '').trim();
+    if (email) {
+      btn.replaceWith(buildEmailPill(email));
+    } else {
+      rowEl.classList.add('similar-row--no-email');
+      btn.textContent = 'No email';
+      btn.disabled = true;
+    }
+  } catch (e) {
+    console.error('[Offerloop Popup] per-row find-email error:', e);
+    btn.disabled = false;
+    btn.textContent = original;
+    rowEl.classList.add('similar-row--no-email');
+  }
+}
+
+// Wire up the toggle once on DOMContentLoaded
+document.addEventListener('DOMContentLoaded', () => {
+  const toggle = _getSimilarEl('similarToggleBtn');
+  toggle?.addEventListener('click', toggleSimilarSection);
+});
 
 // Start initialization when DOM is ready
 document.addEventListener('DOMContentLoaded', init);

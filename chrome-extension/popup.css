@@ -38,6 +38,14 @@
   --card-edge: #E8E1D5;
   --card-edge-strong: #D4CEC7;
 
+  /* Navy "popup chrome" — the dark deck the white cards float on */
+  --chrome: #1E2D4D;
+  --chrome-strong: #16223D;
+  --chrome-soft: #2B3A6B;
+  --chrome-edge: rgba(255, 255, 255, 0.10);
+  --chrome-ink: rgba(255, 255, 255, 0.94);
+  --chrome-ink-muted: rgba(255, 255, 255, 0.62);
+
   /* Ink */
   --ink: #16181F;
   --ink-muted: #4F5A6E;
@@ -55,11 +63,11 @@
   --indigo-700: #34457A;
   --indigo-800: #2B3A6B;
 
-  /* Action accent — slate-blue (matches the "Open Offerloop" footer button) */
-  --action: #4A60A8;
-  --action-light: #5C72BD;
-  --action-dark: #3C4F8E;
-  --action-100: #E4E9F5;
+  /* Action accent — warm orange (the highest-intent CTA, e.g. "Find Email & Draft") */
+  --action: #E07A3E;
+  --action-light: #F08F55;
+  --action-dark: #C5612A;
+  --action-100: #FBE5D4;
 
   /* Jade (success) */
   --jade-50: #F1FAF4;
@@ -90,8 +98,8 @@
   --shadow-rise: 0 6px 18px rgba(40, 34, 22, 0.06), 0 1px 3px rgba(40, 34, 22, 0.04);
   --shadow-hero: 0 6px 18px rgba(74, 96, 168, 0.26), 0 2px 6px rgba(74, 96, 168, 0.16);
   --shadow-hero-hover: 0 14px 30px rgba(74, 96, 168, 0.32), 0 3px 10px rgba(74, 96, 168, 0.20);
-  --shadow-action: 0 6px 18px rgba(74, 96, 168, 0.30), 0 2px 6px rgba(74, 96, 168, 0.18);
-  --shadow-action-hover: 0 14px 30px rgba(74, 96, 168, 0.38), 0 3px 10px rgba(74, 96, 168, 0.22);
+  --shadow-action: 0 6px 18px rgba(224, 122, 62, 0.32), 0 2px 6px rgba(224, 122, 62, 0.20);
+  --shadow-action-hover: 0 14px 30px rgba(224, 122, 62, 0.40), 0 3px 10px rgba(224, 122, 62, 0.24);
   --shadow-jade: 0 6px 18px rgba(46, 154, 92, 0.24), 0 2px 6px rgba(46, 154, 92, 0.14);
   --shadow-jade-hover: 0 12px 26px rgba(46, 154, 92, 0.32), 0 3px 8px rgba(46, 154, 92, 0.18);
 
@@ -123,7 +131,7 @@ html, body {
 body {
   min-height: 440px;
   font-family: var(--font-body);
-  background: var(--paper);
+  background: var(--chrome);
   color: var(--ink);
   font-size: 14px;
   line-height: 1.45;
@@ -138,7 +146,7 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 440px;
-  background: var(--paper);
+  background: var(--chrome);
 }
 
 .hidden { display: none !important; }
@@ -203,8 +211,8 @@ body {
 
 .tab-switcher {
   display: flex;
-  background: var(--paper);
-  border-bottom: 1px solid var(--card-edge);
+  background: var(--chrome);
+  border-bottom: 1px solid var(--chrome-edge);
   padding: 0 12px;
   position: relative;
 }
@@ -222,7 +230,7 @@ body {
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.005em;
-  color: var(--ink-soft);
+  color: var(--chrome-ink-muted);
   cursor: pointer;
   position: relative;
   transition: color 180ms var(--ease-out);
@@ -235,10 +243,10 @@ body {
   transition: opacity 180ms var(--ease-out);
 }
 
-.tab:hover { color: var(--ink-muted); }
-.tab:hover .tab__icon { opacity: 0.9; }
+.tab:hover { color: var(--chrome-ink); }
+.tab:hover .tab__icon { opacity: 0.95; }
 
-.tab.active { color: var(--indigo-700); }
+.tab.active { color: var(--chrome-ink); }
 .tab.active .tab__icon { opacity: 1; }
 
 .tab.active::after {
@@ -248,7 +256,7 @@ body {
   right: 14px;
   bottom: -1px;
   height: 2px;
-  background: linear-gradient(90deg, var(--indigo-500), var(--indigo-700));
+  background: #FFFFFF;
   border-radius: 2px 2px 0 0;
   animation: tab-slide 240ms var(--ease-spring);
 }
@@ -267,6 +275,7 @@ body {
   padding: 18px 18px 22px;
   display: flex;
   flex-direction: column;
+  background: var(--chrome);
 }
 
 .tab-content { display: block; }
@@ -341,6 +350,30 @@ body {
 
 .state-card__halo--blue {
   background: radial-gradient(circle, #DBE9FF 0%, transparent 70%);
+}
+
+/* State 2 — LinkedIn "in" tile, sits where Scout lives in state 1 */
+.state-card__visual--linkedin {
+  align-items: center;
+}
+
+.linkedin-tile {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #0A66C2 0%, #0959A8 100%);
+  color: #FFFFFF;
+  box-shadow: 0 8px 20px rgba(10, 102, 194, 0.30), 0 2px 6px rgba(10, 102, 194, 0.18);
+  animation: scout-in 520ms var(--ease-spring) both;
+}
+
+.linkedin-tile svg {
+  width: 44px;
+  height: 44px;
 }
 
 .state-card__icon {
@@ -687,8 +720,8 @@ body {
 }
 
 .result-card--success {
-  background: linear-gradient(180deg, var(--jade-50) 0%, var(--card) 42%);
-  border-color: var(--jade-200);
+  background: var(--card);
+  border-color: var(--card-edge);
 }
 
 .result-card__header {
@@ -912,10 +945,10 @@ body {
 /* Primary CTA inside a result card — the hero "Open Email Draft" */
 .result-action--primary {
   position: relative;
-  background: linear-gradient(135deg, var(--jade-500) 0%, var(--jade-600) 100%);
+  background: linear-gradient(135deg, var(--chrome-soft) 0%, var(--chrome) 100%);
   color: white;
   border-color: transparent;
-  box-shadow: var(--shadow-jade);
+  box-shadow: 0 6px 18px rgba(30, 45, 77, 0.30), 0 2px 6px rgba(30, 45, 77, 0.18);
   overflow: hidden;
 }
 
@@ -923,7 +956,7 @@ body {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(115deg, transparent 28%, rgba(255, 255, 255, 0.30) 48%, transparent 68%);
+  background: linear-gradient(115deg, transparent 28%, rgba(255, 255, 255, 0.20) 48%, transparent 68%);
   transform: translateX(-130%);
   transition: transform 640ms var(--ease-out);
   pointer-events: none;
@@ -939,9 +972,9 @@ body {
 }
 
 .result-action--primary:hover {
-  background: linear-gradient(135deg, var(--jade-600) 0%, var(--jade-700) 100%);
+  background: linear-gradient(135deg, var(--chrome) 0%, var(--chrome-strong) 100%);
   transform: translateY(-1px);
-  box-shadow: var(--shadow-jade-hover);
+  box-shadow: 0 12px 26px rgba(30, 45, 77, 0.36), 0 3px 8px rgba(30, 45, 77, 0.22);
   border-color: transparent;
 }
 
@@ -952,6 +985,265 @@ body {
 .result-action--ghost {
   background: rgba(255, 255, 255, 0.6);
 }
+
+/* ============================================================
+   Similar contacts disclosure — lives inside the email-found card
+   ============================================================ */
+
+.similar-section {
+  border-top: 1px solid var(--card-edge);
+  padding-top: 12px;
+  margin-top: 4px;
+}
+
+.similar-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  letter-spacing: -0.005em;
+  text-align: left;
+  transition: color 160ms var(--ease-out);
+}
+
+.similar-toggle__label strong {
+  font-weight: 700;
+  color: var(--heading);
+  text-transform: capitalize;
+}
+
+.similar-footer-link__company {
+  text-transform: capitalize;
+}
+
+.similar-toggle:hover { color: var(--heading); }
+
+.similar-toggle__chevron {
+  width: 16px;
+  height: 16px;
+  color: var(--ink-soft);
+  transition: transform 220ms var(--ease-out), color 160ms var(--ease-out);
+  flex-shrink: 0;
+}
+
+.similar-toggle[aria-expanded="true"] .similar-toggle__chevron {
+  transform: rotate(180deg);
+  color: var(--heading);
+}
+
+.similar-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 8px;
+}
+
+.similar-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 0;
+}
+
+.similar-loading p {
+  font-family: var(--font-display);
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin: 0;
+}
+
+.similar-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.similar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--silver-50);
+  border: 1px solid var(--card-edge);
+  border-radius: var(--radius-md);
+  animation: rise 280ms var(--ease-out);
+}
+
+.similar-row__avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--indigo-100), var(--indigo-200));
+  color: var(--indigo-700);
+  font-family: var(--font-body);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.similar-row__who {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.similar-row__name {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--heading);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: capitalize;
+}
+
+.similar-row__meta {
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.005em;
+}
+
+/* Bucket caption — explains *why* this row was suggested. Italic, small,
+   muted, with the company portion capitalized for proper-noun presentation. */
+.similar-row__category {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 11px;
+  color: var(--indigo-600);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: capitalize;
+  letter-spacing: 0.005em;
+}
+
+.similar-row__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  background: var(--card);
+  border: 1px solid var(--card-edge);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--heading);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 160ms var(--ease-out), border-color 160ms var(--ease-out),
+              transform 160ms var(--ease-out);
+}
+
+.similar-row__action:hover {
+  background: var(--indigo-foam);
+  border-color: var(--indigo-200);
+}
+
+.similar-row__action[disabled] {
+  opacity: 0.6;
+  cursor: wait;
+  pointer-events: none;
+}
+
+.similar-row__email-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--jade-50);
+  border: 1px solid var(--jade-200);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--jade-700);
+  white-space: nowrap;
+  flex-shrink: 0;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.similar-row__email-pill::after {
+  content: '';
+  width: 10px;
+  height: 10px;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  flex-shrink: 0;
+  opacity: 0.85;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23136036' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>");
+}
+
+.similar-row--no-email .similar-row__action {
+  color: var(--terra-700);
+  border-color: var(--terra-100);
+}
+
+.similar-empty,
+.similar-error {
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  text-align: center;
+  margin: 0;
+  padding: 10px 8px;
+}
+
+.similar-error {
+  color: var(--terra-700);
+  background: var(--terra-50);
+  border: 1px solid var(--terra-100);
+  border-radius: var(--radius-sm);
+}
+
+.similar-footer-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--indigo-600);
+  text-decoration: none;
+  text-align: center;
+  transition: color 160ms var(--ease-out);
+}
+
+.similar-footer-link svg {
+  width: 12px;
+  height: 12px;
+  transition: transform 160ms var(--ease-out);
+}
+
+.similar-footer-link:hover { color: var(--indigo-700); }
+.similar-footer-link:hover svg { transform: translateX(2px); }
 
 /* ============================================================
    Loading card
@@ -1162,9 +1454,9 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  background: linear-gradient(180deg, var(--paper) 0%, var(--paper-fold) 100%);
-  border-top: 1px solid var(--card-edge);
+  padding: 14px 16px 16px;
+  background: var(--chrome);
+  border-top: 1px solid var(--chrome-edge);
   gap: 10px;
 }
 
@@ -1173,10 +1465,10 @@ body {
   align-items: baseline;
   gap: 7px;
   padding: 5px 12px;
-  background: var(--card);
-  border: 1px solid var(--card-edge);
+  background: #FFFFFF;
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: var(--radius-pill);
-  box-shadow: var(--shadow-rest);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
   white-space: nowrap;
 }
 
@@ -1233,16 +1525,18 @@ body {
 }
 
 .footer-btn--primary {
-  background: linear-gradient(135deg, var(--indigo-500) 0%, var(--indigo-700) 100%);
+  background: var(--chrome-soft);
   color: white;
   padding: 7px 14px;
   font-size: 12.5px;
-  box-shadow: 0 2px 8px rgba(39, 52, 208, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.10);
 }
 
 .footer-btn--primary:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(39, 52, 208, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  background: #3A4D7E;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
 
 .footer-btn__logo {
@@ -1255,13 +1549,13 @@ body {
 
 .footer-btn--ghost {
   background: transparent;
-  color: var(--ink-muted);
+  color: var(--chrome-ink-muted);
   padding: 6px 10px;
 }
 
 .footer-btn--ghost:hover {
-  background: var(--silver-100);
-  color: var(--ink);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--chrome-ink);
 }
 
 /* ============================================================

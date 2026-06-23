@@ -2,7 +2,7 @@
 console.log('[Offerloop Background] Service worker started');
 
 // Configuration
-const API_BASE_URL = 'https://offerloop.ai';
+const API_BASE_URL = 'https://www.offerloop.ai';
 
 // Fetch wrapper with AbortController timeout (default 30s)
 async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
@@ -110,6 +110,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       
     case 'importLinkedIn':
       handleImportLinkedIn(request, sendResponse);
+      return true;
+
+    case 'findSimilarContacts':
+      handleFindSimilarContacts(request, sendResponse);
       return true;
       
     case 'getCredits':
@@ -246,6 +250,62 @@ async function importLinkedInContact(linkedInUrl, authToken, isRetry = false) {
     };
   } catch (error) {
     console.error('[Offerloop Background] API Error:', error);
+    throw error;
+  }
+}
+
+// Handle find similar contacts from popup
+async function handleFindSimilarContacts(request, sendResponse) {
+  const { authToken, source } = request;
+  try {
+    if (!authToken) {
+      sendResponse({ error: 'Not authenticated' });
+      return;
+    }
+    if (!source || !source.company) {
+      sendResponse({ error: 'Missing source company' });
+      return;
+    }
+    const result = await findSimilarContacts(source, authToken);
+    sendResponse(result);
+  } catch (error) {
+    console.error('[Offerloop Background] Error in handleFindSimilarContacts:', error);
+    sendResponse({ error: error.message || 'Failed to find similar contacts' });
+  }
+}
+
+// Call /api/contacts/find-similar (with automatic token refresh on 401)
+async function findSimilarContacts(source, authToken, isRetry = false) {
+  console.log('[Offerloop Background] Finding similar contacts for:', source);
+  try {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/api/contacts/find-similar`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({ source }),
+    }, 45000);
+
+    if (response.status === 401 && !isRetry) {
+      console.log('[Offerloop Background] find-similar 401, refreshing token...');
+      const newToken = await refreshAuthToken();
+      if (newToken) return findSimilarContacts(source, newToken, true);
+    }
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || data.error || `API error: ${response.status}`);
+    }
+    return {
+      success: true,
+      contacts: data.contacts || [],
+      cap: data.cap,
+      credits_used: data.credits_used,
+      credits_remaining: data.credits_remaining,
+    };
+  } catch (error) {
+    console.error('[Offerloop Background] find-similar API error:', error);
     throw error;
   }
 }

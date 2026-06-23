@@ -14,6 +14,7 @@ from .app.routes.gmail_oauth import gmail_oauth_bp
 from .app.routes.emails import emails_bp
 from .app.routes.contacts import contacts_bp
 from .app.routes.runs import runs_bp
+from .app.routes.runs_similar import runs_similar_bp
 from .app.routes.enrichment import enrichment_bp
 from .app.routes.resume import resume_bp
 from .app.routes.coffee_chat_prep import coffee_chat_bp
@@ -216,6 +217,7 @@ def create_app() -> Flask:
     app.register_blueprint(contacts_bp)
     app.register_blueprint(shares_bp)
     app.register_blueprint(runs_bp)
+    app.register_blueprint(runs_similar_bp)
     app.register_blueprint(enrichment_bp)
     app.register_blueprint(resume_bp)
     app.register_blueprint(coffee_chat_bp)
