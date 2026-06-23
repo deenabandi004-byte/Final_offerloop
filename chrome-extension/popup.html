@@ -65,8 +65,13 @@
         <!-- Not on a LinkedIn profile -->
         <section id="noProfileSection" class="section hidden">
           <div class="state-card">
-            <div class="state-card__visual">
-              <img class="state-card__scout" src="images/scout-noprofile.png" alt="Scout">
+            <div class="state-card__visual state-card__visual--linkedin" aria-hidden="true">
+              <span class="state-card__halo state-card__halo--blue"></span>
+              <span class="linkedin-tile">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"></path>
+                </svg>
+              </span>
             </div>
             <h2 class="state-card__title">Open a <em>LinkedIn</em> profile</h2>
             <p class="state-card__body">Navigate to anyone's profile to find their email and draft a personalized outreach in seconds.</p>
@@ -173,7 +178,7 @@
           </div>
 
           <!-- Find Email results -->
-          <div id="resultsSection" class="result-card result-card--success">
+          <div id="resultsSection" class="result-card result-card--success hidden">
             <div class="result-card__header">
               <div class="result-card__heading">
                 <span class="result-card__scout-avatar" aria-hidden="true">
@@ -220,6 +225,31 @@
                   <polyline points="9 18 15 12 9 6"></polyline>
                 </svg>
               </a>
+            </div>
+
+            <!-- Find similar contacts disclosure -->
+            <div class="similar-section">
+              <button id="similarToggleBtn" class="similar-toggle" aria-expanded="false" aria-controls="similarBody" type="button">
+                <span class="similar-toggle__label">Find similar at <strong id="similarToggleCompany">this company</strong></span>
+                <svg class="similar-toggle__chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </button>
+              <div id="similarBody" class="similar-body hidden">
+                <div id="similarLoading" class="similar-loading hidden">
+                  <div class="pulse-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+                  <p>Finding similar contacts…</p>
+                </div>
+                <div id="similarResults" class="similar-results hidden" role="list"></div>
+                <p id="similarEmpty" class="similar-empty hidden">No similar contacts found at <span></span>.</p>
+                <p id="similarError" class="similar-error hidden"></p>
+                <a id="similarFooterLink" class="similar-footer-link" href="#" target="_blank">
+                  <span>See all alumni at <span class="similar-footer-link__company">this company</span></span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="9 18 15 12 9 6"></polyline>
+                  </svg>
+                </a>
+              </div>
             </div>
           </div>
 
