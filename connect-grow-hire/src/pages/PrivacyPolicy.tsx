@@ -57,7 +57,7 @@ const PrivacyPolicy = () => {
                 Privacy Policy
               </h1>
               <p className="text-gray-500 text-sm mb-8">
-                <strong>Last Updated:</strong> 06.22.26
+                <strong>Last Updated:</strong> 06.23.26
               </p>
 
               {/* Content */}
@@ -137,6 +137,11 @@ const PrivacyPolicy = () => {
                   from third-party data providers and publicly available sources. This may include a person's name,
                   job title, employer, work and personal email addresses, phone number, city and state, LinkedIn URL,
                   and education and employment history.
+                </p>
+                <p className="text-gray-600">
+                  We also generate derived signals about a contact for ranking and personalization, including a
+                  relationship type (such as alumni or shared employer), a warmth indicator, a personalization
+                  summary, and the contact's most recent notable career move.
                 </p>
                 <p className="text-gray-600">
                   <strong>Where this data comes from.</strong> Our sources include People Data Labs, Hunter.io,
@@ -222,6 +227,34 @@ const PrivacyPolicy = () => {
                   where retention is legally required.
                 </p>
 
+                <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">6A. AI assistant connectors (MCP)</h2>
+                <p className="text-gray-600">
+                  Offerloop runs a Model Context Protocol (MCP) server at offerloop.ai/mcp that lets you connect
+                  Offerloop as a tool inside third-party AI assistants such as Anthropic's Claude.ai and OpenAI's
+                  ChatGPT. Connecting is optional and always requires you to sign in through OAuth and explicitly
+                  approve the connection.
+                </p>
+                <p className="text-gray-600">
+                  When you use Offerloop through one of these assistants, the assistant provider receives the
+                  responses our tools return. That includes:
+                </p>
+                <ul className="text-gray-600 list-disc pl-6 space-y-1">
+                  <li>Contact information surfaced by find_contacts (name, title, employer, LinkedIn URL, education, recent career move, personalization context, and email address when available).</li>
+                  <li>Company information returned by get_company_intel (overview, recent news, recruiting signals, divisions, and alumni density at your school).</li>
+                  <li>Draft email subject and body produced by draft_outreach, and the identifier and URL of any Gmail draft we create on your behalf.</li>
+                </ul>
+                <p className="text-gray-600">
+                  The assistant provider processes this data to display results back to you in their chat interface
+                  and is bound by their own privacy policy and terms. You can revoke an assistant's access to
+                  Offerloop at any time from inside that assistant's settings or by signing into offerloop.ai and
+                  revoking the connection.
+                </p>
+                <p className="text-gray-600">
+                  We do not share Gmail message contents through MCP. Gmail drafts created through draft_outreach
+                  live in your Gmail account; the MCP response only returns the draft's identifier and a link so
+                  you can open it.
+                </p>
+
                 <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">7. Who we share information with</h2>
                 <p className="text-gray-600">
                   We do not sell your personal information for money. We share information with service providers who
@@ -239,6 +272,7 @@ const PrivacyPolicy = () => {
                   <li><strong>PostHog</strong> — product analytics (keyed to an anonymous user ID; we do not send your name or email).</li>
                   <li><strong>beehiiv</strong> — our newsletter and related attribution.</li>
                   <li><strong>Render</strong> — application hosting.</li>
+                  <li><strong>Anthropic, OpenAI, and other AI assistant providers</strong> — when you connect Offerloop to their assistants through our MCP server, they receive the tool responses described in Section 6A.</li>
                 </ul>
                 <p className="text-gray-600">
                   We may also disclose information to comply with law or legal process, to protect our rights, users,
@@ -328,7 +362,7 @@ const PrivacyPolicy = () => {
 
                 <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">14. Children and minors</h2>
                 <p className="text-gray-600">
-                  The Services are intended for users who are 18 or older. We do not knowingly collect personal
+                  The Services are intended for users who are 13 or older. We do not knowingly collect personal
                   information from anyone under 13, and we do not knowingly sell or share the personal information of
                   anyone under 16. If you believe a minor has provided us personal information, contact{" "}
                   <a href="mailto:privacy@offerloop.ai" className="text-[#3B82F6] hover:underline">privacy@offerloop.ai</a> and we
