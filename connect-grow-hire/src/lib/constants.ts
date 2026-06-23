@@ -1,12 +1,15 @@
-// Frontend mirror of backend/app/config.py — kept in sync. Credit costs and
-// tier sizes doubled 2026-06-10 (marketing-optics inflation, same $/email).
+// Frontend mirror of backend/app/config.py — kept in sync.
+// 2026-06-22: find_contact reverted to 5 (matches actual deduction site
+// at routes/runs.py:824). The 2026-06-10 double-to-10 was never picked
+// up by the deduction, so the UI was advertising 50 credits per
+// 5-contact search while users were only charged 25.
 // See backend CREDIT_COSTS dict for the single source of truth.
 export const COFFEE_CHAT_CREDITS = 30;
 export const TIMELINE_CREDITS = 20;
 
 // Per-action credit costs — mirror of backend CREDIT_COSTS.
 export const CREDIT_COSTS = {
-  find_contact: 10,
+  find_contact: 5,
   find_hiring_manager: 10,
   find_recruiter: 6,
   find_employee: 4,
