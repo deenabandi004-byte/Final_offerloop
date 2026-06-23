@@ -86,6 +86,8 @@ TOOLS = [
         "annotations": {
             "title": "Find Contacts",
             "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
         },
         "handler": find_contacts_tool.handle,
     },
@@ -97,6 +99,8 @@ TOOLS = [
         "annotations": {
             "title": "Get Company Intel",
             "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
         },
         "handler": get_company_intel_tool.handle,
     },
@@ -107,7 +111,9 @@ TOOLS = [
         "inputSchema": DraftOutreachInput.model_json_schema(),
         "annotations": {
             "title": "Draft Outreach",
-            "readOnlyHint": True,
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "openWorldHint": False,
         },
         "handler": draft_outreach_tool.handle,
     },
