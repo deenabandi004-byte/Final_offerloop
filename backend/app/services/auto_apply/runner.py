@@ -24,7 +24,7 @@ import logging
 import os
 import tempfile
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 import requests
@@ -396,3 +396,57 @@ def _download_resume_to_temp(url: str, filename: str) -> str:
         except Exception:
             pass
         raise
+
+
+def _upload_screenshot_to_storage(
+    uid: str, auto_apply_id: str, b64: str
+) -> Optional[str]:
+    """Upload a base64-encoded PNG screenshot to Firebase Cloud Storage and
+    return a URL. Returns None on any failure so the caller can fall back
+    to dropping the screenshot.
+
+    Used when the screenshot is too large for Firestore's per-property 1MB
+    cap. Tries `make_public()` first (matches resume.py upload pattern); if
+    that raises — typically a missing `roles/storage.legacyObjectReader`
+    grant on the Render service account — falls back to a 7-day signed URL,
+    which doesn't require legacy ACL permissions. Without this fallback,
+    every long-form failure shipped with zero visual evidence."""
+    try:
+        import base64 as _base64
+        from firebase_admin import storage
+
+        png_bytes = _base64.b64decode(b64)
+        bucket = storage.bucket()
+        blob = bucket.blob(
+            f"auto_apply_screenshots/{uid}/{auto_apply_id}.png"
+        )
+        blob.upload_from_string(png_bytes, content_type="image/png")
+    except Exception as exc:
+        logger.warning(
+            "auto_apply screenshot Cloud Storage upload failed for %s/%s: %r",
+            uid, auto_apply_id, exc,
+        )
+        return None
+
+    try:
+        blob.make_public()
+        return blob.public_url
+    except Exception as exc:
+        logger.info(
+            "auto_apply screenshot make_public failed for %s/%s (%r); "
+            "falling back to signed URL",
+            uid, auto_apply_id, exc,
+        )
+
+    try:
+        return blob.generate_signed_url(
+            expiration=timedelta(days=7),
+            method="GET",
+            version="v4",
+        )
+    except Exception as exc:
+        logger.warning(
+            "auto_apply screenshot signed URL fallback failed for %s/%s: %r",
+            uid, auto_apply_id, exc,
+        )
+        return None

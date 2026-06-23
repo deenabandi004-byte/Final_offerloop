@@ -1663,65 +1663,11 @@ def _harvest_combobox_options(page, selector: str) -> Optional[List[str]]:
     """Open a react-select widget, read its listbox options, close it.
     Returns None if no options surface.
 
-    Greenhouse puts aria-invalid on the hidden internal input — clicking it
-    doesn't trigger react-select's open handler. The reliable way to open
-    is focus + ArrowDown (react-select's documented keyboard shortcut).
-    If that fails, fall back to clicking the visible .select__control
-    ancestor.
-
-    Cost: ~400ms per combobox. Only called on the aria-invalid extraction
-    path after a failed submit — never during the normal fill loop."""
-    el = page.query_selector(selector)
-    if not el:
-        return None
-
-    opened = False
-
-    # Strategy 1: focus + ArrowDown (react-select keyboard shortcut to open)
-    try:
-        el.focus()
-        page.keyboard.press("ArrowDown")
-        page.wait_for_timeout(300)
-        opened = _listbox_visible(page, selector)
-    except Exception as exc:
-        logger.debug("focus+ArrowDown failed: %s", exc)
-
-    # Strategy 2: click the visible .select__control ancestor
-    if not opened:
-        try:
-            page.evaluate(
-                """(sel) => {
-                    const el = document.querySelector(sel);
-                    if (!el) return false;
-                    // Walk up looking for the clickable control wrapper.
-                    // react-select uses class names like "select__control"
-                    // or "css-...-control". Match anything ending in
-                    // "control" or with role=combobox / role=button.
-                    let node = el.parentElement;
-                    for (let i = 0; i < 6 && node; i++) {
-                        const cls = (node.className || '').toString();
-                        const role = node.getAttribute && node.getAttribute('role');
-                        if (
-                            /control$/.test(cls) ||
-                            /select__control/.test(cls) ||
-                            role === 'combobox' ||
-                            role === 'button'
-                        ) {
-                            node.click();
-                            return true;
-                        }
-                        node = node.parentElement;
-                    }
-                    return false;
-                }""",
-                selector,
-            )
-            page.wait_for_timeout(300)
-            opened = _listbox_visible(page, selector)
-        except Exception as exc:
-            logger.debug("control-click fallback failed: %s", exc)
-
-    if not opened:
+    All open strategies live in `_open_combobox_menu` (shared with the
+    fill path). Cost: ~400ms per combobox. Only called on the aria-invalid
+    extraction path after a failed submit — never during the normal fill
+    loop."""
+    if not _open_combobox_menu(page, selector):
         try:
             page.keyboard.press("Escape")
         except Exception:
@@ -1779,6 +1725,110 @@ def _listbox_visible(page, selector: str) -> bool:
         ))
     except Exception:
         return False
+
+
+def _open_combobox_menu(page, selector: str) -> bool:
+    """Open a react-select widget's listbox and return True once visible.
+
+    react-select's open trigger varies across Greenhouse tenants: the
+    visible input usually opens on click, but EEO / work-auth selects with
+    a hidden input need focus+ArrowDown, and a few tenants
+    (Robinhood gender, work-auth Yes/No) only react to a real mousedown on
+    the .select__control wrapper — react-select binds its open handler to
+    mousedown, not click. Tries each strategy in turn; returns False if
+    the listbox is still hidden after all four. Callers should treat the
+    False case as "menu never opened" (distinct from "no option matched")
+    so the retry/drawer path can surface the right reason."""
+    el = page.query_selector(selector)
+    if not el:
+        return False
+
+    # Strategy 1: click the element itself (works for inputs that ARE the
+    # combobox trigger — most custom-question Greenhouse selects).
+    try:
+        el.click()
+        page.wait_for_timeout(150)
+        if _listbox_visible(page, selector):
+            return True
+    except Exception as exc:
+        logger.debug("combobox open: el.click failed: %s", exc)
+
+    # Strategy 2: walk up to the visible .select__control / value-container
+    # and click that. Covers EEO-style hidden inputs whose parent is the
+    # actual trigger.
+    try:
+        page.evaluate(
+            """(sel) => {
+                const input = document.querySelector(sel);
+                if (!input) return false;
+                let node = input.parentElement;
+                for (let i = 0; i < 6 && node; i++) {
+                    const cls = (node.className || '').toString();
+                    const role = node.getAttribute && node.getAttribute('role');
+                    if (
+                        /control$/.test(cls) ||
+                        /select__control/.test(cls) ||
+                        /value-container/.test(cls) ||
+                        role === 'combobox' ||
+                        role === 'button'
+                    ) {
+                        node.click();
+                        return true;
+                    }
+                    node = node.parentElement;
+                }
+                return false;
+            }""",
+            selector,
+        )
+        page.wait_for_timeout(200)
+        if _listbox_visible(page, selector):
+            return True
+    except Exception as exc:
+        logger.debug("combobox open: control-click fallback failed: %s", exc)
+
+    # Strategy 3: focus + ArrowDown — react-select's documented keyboard
+    # shortcut. Works on hidden-input selects when click doesn't.
+    try:
+        el.focus()
+        page.keyboard.press("ArrowDown")
+        page.wait_for_timeout(300)
+        if _listbox_visible(page, selector):
+            return True
+    except Exception as exc:
+        logger.debug("combobox open: focus+ArrowDown failed: %s", exc)
+
+    # Strategy 4: dispatch a real mousedown event on the .select__control
+    # ancestor. react-select binds its open handler to mousedown, NOT
+    # click; some tenants only open via this path.
+    try:
+        page.evaluate(
+            """(sel) => {
+                const input = document.querySelector(sel);
+                if (!input) return false;
+                let node = input.parentElement;
+                for (let i = 0; i < 6 && node; i++) {
+                    const cls = (node.className || '').toString();
+                    if (/control$/.test(cls) || /select__control/.test(cls)) {
+                        const ev = new MouseEvent('mousedown', {
+                            bubbles: true, cancelable: true, button: 0,
+                        });
+                        node.dispatchEvent(ev);
+                        return true;
+                    }
+                    node = node.parentElement;
+                }
+                return false;
+            }""",
+            selector,
+        )
+        page.wait_for_timeout(300)
+        if _listbox_visible(page, selector):
+            return True
+    except Exception as exc:
+        logger.debug("combobox open: mousedown dispatch failed: %s", exc)
+
+    return False
 
 
 def _detect_required(page, selector: str) -> bool:
@@ -2015,55 +2065,23 @@ def _truthy(value: Any) -> bool:
 def _fill_combobox(
     page, selector: str, option_text: str, filled: Dict[str, str], unmapped: List
 ) -> None:
-    """Greenhouse uses react-select. Click to open the listbox, type, click
-    the option that matches. Falls back to keyboard Enter on the first
-    matching option.
+    """Greenhouse uses react-select. Open the listbox, type, navigate to
+    the matching option with ArrowDown+Enter so react-select's event chain
+    fires correctly.
 
-    The naive `el.click()` on the input found by `[id=...]` opens the
-    listbox for most Greenhouse custom-question selects (which render with
-    role=combobox on the input itself), but FAILS for the standard EEO
-    react-selects (Sex, Race, etc.) where the input is hidden inside a
-    wrapper div and only the parent `.select__control` is interactable.
-    To cover both shapes we first try clicking the input; if no listbox
-    opens, we walk up looking for the visible trigger element."""
-    el = page.query_selector(selector)
-    if not el:
+    All open strategies live in `_open_combobox_menu` (shared with the
+    options harvester). If that helper returns False the menu never
+    opened — we emit `[menu-never-opened]` rather than typing into a
+    closed dropdown, since the scorer would otherwise see zero options
+    and emit `[no-match]`, conflating two different failure modes."""
+    if not _open_combobox_menu(page, selector):
+        unmapped.append({
+            "field_id": selector, "label": option_text,
+            "reason": "combobox menu did not open",
+        })
+        filled[selector] = f"combo:{option_text}[menu-never-opened]"
         return
     try:
-        el.click()
-        page.wait_for_timeout(150)
-        # If clicking the hidden input didn't open a listbox, walk up to
-        # the visible react-select control (`.select__control` / etc.) and
-        # click that instead. Start from the input's PARENT — the input
-        # itself often carries role=combobox but clicking it is what got
-        # us into this fallback branch in the first place; we need the
-        # wrapper that owns the visual trigger.
-        if not _listbox_visible(page, selector):
-            try:
-                opened = page.evaluate(
-                    """(sel) => {
-                        const input = document.querySelector(sel);
-                        if (!input) return false;
-                        let node = input.parentElement;
-                        for (let i = 0; i < 6 && node; i++) {
-                            if (node.classList && (
-                                node.classList.contains('select__control') ||
-                                node.classList.contains('react-select__control') ||
-                                node.classList.contains('select__value-container')
-                            )) {
-                                node.click();
-                                return true;
-                            }
-                            node = node.parentElement;
-                        }
-                        return false;
-                    }""",
-                    selector,
-                )
-                if opened:
-                    page.wait_for_timeout(200)
-            except Exception:
-                pass
         # Greenhouse autocomplete-backed selects (Verkada/Warp country,
         # candidate-location) filter the listbox in real time as we type.
         # Strategy: try progressively shorter prefixes of the answer until
