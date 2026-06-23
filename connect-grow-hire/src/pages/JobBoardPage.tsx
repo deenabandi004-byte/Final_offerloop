@@ -13,6 +13,7 @@ import {
 import { JobBoardSkeleton } from "@/components/JobBoardSkeleton";
 import { FindHumansModal, type FindHumansJob } from "@/components/jobs/FindHumansModal";
 import { toast } from "@/hooks/use-toast";
+import { trackFeatureActionCompleted } from "@/lib/analytics";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import "./JobBoardEditorial.css";
@@ -440,6 +441,9 @@ export const JobBoardPage: React.FC = () => {
       setFeedLoading(true);
       const data = await apiService.getJobFeed({ refresh, ungated: opts?.ungated });
       setFeed(data);
+      trackFeatureActionCompleted('job_board', 'search', true, {
+        results_count: (data?.new_matches?.length ?? 0) + (data?.top_jobs?.length ?? 0),
+      });
     } catch (err) {
       console.error("getJobFeed failed", err);
       toast({ title: "Couldn't load jobs", description: "Try again in a moment.", variant: "destructive" });

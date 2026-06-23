@@ -15,6 +15,7 @@ import { auth } from "@/lib/firebase";
 import { careerTrackByLabel } from "@/utils/careerTrackMapping";
 import { EMPTY_PREFILL } from "@/utils/onboardingPrefill";
 import OfferloopLogo from "@/assets/offerloop_logo2.png";
+import { trackFeatureActionCompleted } from "@/lib/analytics";
 
 // Mirrors Pricing.tsx; checkout adds the trial server-side (audience-aware length).
 const STRIPE_PUBLISHABLE_KEY =
@@ -193,6 +194,7 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
     sessionStorage.setItem("onboarding_just_completed", "true");
     await new Promise((r) => setTimeout(r, 300));
     await refreshUser();
+    trackFeatureActionCompleted('onboarding', 'complete', true);
     try {
       onComplete(finalData);
     } catch (e) {

@@ -1373,6 +1373,12 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
           title: "Contact Imported!",
           description: toastDescription,
         });
+
+        if (draftCreated) {
+          trackFeatureActionCompleted('email_generation', 'draft_created', true, {
+            results_count: 1,
+          });
+        }
       } else {
         setLinkedInError(data.message || 'Failed to import contact');
       }
