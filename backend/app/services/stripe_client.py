@@ -529,7 +529,18 @@ def handle_checkout_completed(session):
             update_payload['referralRewardClaimedAt'] = datetime.now().isoformat()
             update_payload['referralRewardPendingAt'] = None  # clear the claim-in-progress lock
         user_ref.update(update_payload)
-        
+
+        try:
+            from app.utils.posthog_client import track_event
+            track_event(user_id, 'subscription_started', {
+                'tier': tier,
+                'subscription_status': sub_status,
+                'price_id': price_id,
+                'referral_reward': _meta.get('referral_reward') == 'true',
+            }, sync=True)
+        except Exception:
+            pass
+
     except Exception as e:
         print(f"Error handling checkout: {e}")
         import traceback
@@ -569,6 +580,14 @@ def handle_subscription_deleted(subscription):
                 'canceledAt': datetime.utcnow(),
             })
             print(f"✅ User {doc.id} downgraded to free")
+            try:
+                from app.utils.posthog_client import track_event
+                track_event(doc.id, 'subscription_canceled', {
+                    'previous_tier': doc.to_dict().get('subscriptionTier') or doc.to_dict().get('tier'),
+                    'stripe_customer_id': customer_id,
+                }, sync=True)
+            except Exception:
+                pass
             break
         
     except Exception as e:
@@ -701,6 +720,16 @@ def handle_subscription_updated(subscription):
             })
             price_id = subscription.items.data[0].price.id if subscription.items.data else None
             print(f"✅ User {doc.id} subscription updated to {tier} (price_id={price_id})")
+            try:
+                from app.utils.posthog_client import track_event
+                track_event(doc.id, 'subscription_changed', {
+                    'tier': tier,
+                    'price_id': price_id,
+                    'subscription_status': subscription.status,
+                    'previous_tier': user_data.get('subscriptionTier') or user_data.get('tier'),
+                }, sync=True)
+            except Exception:
+                pass
             break
         
     except Exception as e:

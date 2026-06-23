@@ -19,6 +19,7 @@ requests==2.32.0
 dateparser==1.2.0
 python-dotenv==1.0.0
 stripe==8.0.0
+posthog==3.7.0
 email-validator==2.1.0
 youtube-transcript-api==1.2.4
 pdfplumber==0.11.9
