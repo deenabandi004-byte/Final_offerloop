@@ -319,18 +319,20 @@ body {
 
 .state-card__visual {
   position: relative;
-  width: 96px;
-  height: 96px;
+  width: 150px;
+  height: 100px;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
   margin-bottom: 12px;
 }
 
 .state-card__scout {
   position: relative;
-  height: 96px;
+  max-width: 100%;
+  max-height: 100%;
   width: auto;
+  height: auto;
   object-fit: contain;
   filter: drop-shadow(0 6px 10px rgba(40, 34, 22, 0.14));
   animation: scout-in 520ms var(--ease-spring) both;

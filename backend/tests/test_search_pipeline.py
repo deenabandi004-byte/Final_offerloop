@@ -75,9 +75,9 @@ class TestQueryBuilding:
         """No roles but with company — no job_title exists fallback needed."""
         q = _build_query(self._filters(company=["Google"]), self.STRICT)
         s = qs(q)
-        assert "google" in s
-        # Should have company clause, emails exists, and job_company_is_current
-        assert "job_company_is_current" in s
+        # Google is in COMPANY_DOMAIN_MAP → query uses job_company_website
+        assert "google.com" in s
+        assert "job_company_website" in s
 
     def test_05_loose_title_tokenizes(self):
         """Loose title strategy tokenizes the primary title."""
@@ -125,18 +125,19 @@ class TestQueryBuilding:
 
     # --- 11-15: Company queries ---
 
-    def test_11_single_company(self):
-        """Single company generates match_phrase and is_current filter."""
+    def test_11_single_company_mapped_uses_website(self):
+        """Mapped firms generate match_phrase on job_company_website (not name)."""
         q = _build_query(self._filters(company=["Goldman Sachs"]), self.STRICT)
         s = qs(q)
-        assert "job_company_name" in s
-        assert "job_company_is_current" in s
+        assert "job_company_website" in s
+        assert "goldmansachs.com" in s
 
     def test_12_company_with_role(self):
         """Company + role both present in query."""
         q = _build_query(self._filters(roles=["Analyst"], company=["McKinsey"]), self.STRICT)
         s = qs(q)
-        assert "job_company_name" in s
+        # McKinsey is mapped → website-based clause
+        assert "mckinsey.com" in s
         assert "analyst" in s
 
     def test_13_no_company_strategy(self):
@@ -146,12 +147,13 @@ class TestQueryBuilding:
         assert "google" not in s  # Company should be dropped
         assert "swe" in s  # Role should remain
 
-    def test_14_company_is_current_only_with_company(self):
-        """job_company_is_current only appears when company is specified."""
+    def test_14_company_clause_only_with_company(self):
+        """Company clause only appears when company is specified."""
         q_with = _build_query(self._filters(company=["Meta"]), self.STRICT)
         q_without = _build_query(self._filters(roles=["SWE"]), self.STRICT)
-        assert "job_company_is_current" in qs(q_with)
-        assert "job_company_is_current" not in qs(q_without)
+        # Meta is mapped → uses website
+        assert "meta.com" in qs(q_with)
+        assert "meta.com" not in qs(q_without)
 
     def test_15_industry_filter(self):
         """Industry filter generates match clause."""
@@ -186,6 +188,48 @@ class TestQueryBuilding:
         """Max results capped at 50."""
         q = _build_query(self._filters(roles=["PM"], max_results=200), self.STRICT)
         assert q["size"] <= 50
+
+
+class TestCompanyDomainMap:
+    """
+    Verifies the empirically-derived fix: PDL stores job_company_name under
+    unguessable canonicals (e.g. BCG is "boston consulting group (bcg)"),
+    so we route mapped firms through job_company_website instead. The map
+    itself lives in pdl_client (single source of truth).
+    """
+
+    def test_bcg_routes_to_website(self):
+        """The original failing case: USC alumni at BCG → bcg.com domain filter."""
+        clause = _build_company_clause(["BCG"])
+        assert clause == {"match_phrase": {"job_company_website": "bcg.com"}}
+
+    def test_acronym_resolves_case_insensitively(self):
+        """User-typed casing doesn't matter."""
+        assert _build_company_clause(["bcg"]) == {"match_phrase": {"job_company_website": "bcg.com"}}
+        assert _build_company_clause(["BCG"]) == {"match_phrase": {"job_company_website": "bcg.com"}}
+        assert _build_company_clause(["Bcg"]) == {"match_phrase": {"job_company_website": "bcg.com"}}
+
+    def test_full_name_resolves_to_same_domain(self):
+        """'Boston Consulting Group' and 'BCG' route to the same domain."""
+        a = _build_company_clause(["BCG"])
+        b = _build_company_clause(["Boston Consulting Group"])
+        assert a == b
+
+    def test_finance_acronyms_route_correctly(self):
+        """JPM, GS, MS resolve to the expected bank domains."""
+        assert _build_company_clause(["JPM"]) == {"match_phrase": {"job_company_website": "jpmorgan.com"}}
+        assert _build_company_clause(["GS"]) == {"match_phrase": {"job_company_website": "goldmansachs.com"}}
+        assert _build_company_clause(["MS"]) == {"match_phrase": {"job_company_website": "morganstanley.com"}}
+
+    def test_unmapped_firm_falls_back_to_name_match(self):
+        """A firm not in the map gets a job_company_name match_phrase (lowercased)."""
+        clause = _build_company_clause(["Acme Holdings"])
+        assert clause == {"match_phrase": {"job_company_name": "acme holdings"}}
+
+    def test_empty_input_returns_empty_clause(self):
+        assert _build_company_clause([]) == {}
+        assert _build_company_clause([""]) == {}
+        assert _build_company_clause(["   "]) == {}
 
 
 # ============================================================

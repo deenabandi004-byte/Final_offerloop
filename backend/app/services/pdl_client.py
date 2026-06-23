@@ -822,6 +822,138 @@ def cached_clean_location(location):
 _clean_company_cache: dict[str, str] = {}
 _clean_company_cache_lock = Lock()
 
+# Curated map of user-supplied company short-names/acronyms → primary domain.
+# PRIMARY hook for PDL Person Search: match_phrase on job_company_website is
+# orders of magnitude more reliable than match_phrase on job_company_name,
+# because PDL stores job_company_name under unguessable canonicals
+# (e.g. BCG is "boston consulting group (bcg)" — parens and all — and the
+# plain string "bcg" matches 776 unrelated low-quality records).
+#
+# Probed empirically 2026-06-23. PDL's Company Cleaner / Enrichment can NOT
+# be trusted for acronym resolution: /v5/company/enrich?name=BCG returns an
+# unrelated 35-person NZ IT consultancy. /v5/company/clean?name=BCG returns
+# name=None.
+#
+# Keys are lowercased; only unambiguous keys included. "MS" is intentionally
+# Morgan Stanley (Microsoft users type "microsoft" or "msft"). Ambiguous keys
+# like "CS" and "DB" are deliberately omitted — better to miss than wrong.
+COMPANY_DOMAIN_MAP = {
+    # Consulting
+    "bcg": "bcg.com",
+    "boston consulting group": "bcg.com",
+    "mckinsey": "mckinsey.com",
+    "mckinsey & company": "mckinsey.com",
+    "bain": "bain.com",
+    "bain & company": "bain.com",
+    "bain and company": "bain.com",
+    "deloitte": "deloitte.com",
+    "pwc": "pwc.com",
+    "ey": "ey.com",
+    "ernst & young": "ey.com",
+    "kpmg": "kpmg.com",
+    "accenture": "accenture.com",
+    "oliver wyman": "oliverwyman.com",
+    "l.e.k.": "lek.com",
+    "lek": "lek.com",
+    "alvarez & marsal": "alvarezandmarsal.com",
+    # Banking — bulge bracket + boutiques
+    "jpm": "jpmorgan.com",
+    "jp morgan": "jpmorgan.com",
+    "jpmorgan": "jpmorgan.com",
+    "jpmorgan chase": "jpmorgan.com",
+    "gs": "goldmansachs.com",
+    "goldman": "goldmansachs.com",
+    "goldman sachs": "goldmansachs.com",
+    "ms": "morganstanley.com",
+    "morgan stanley": "morganstanley.com",
+    "bofa": "bofa.com",
+    "baml": "bofa.com",
+    "bank of america": "bofa.com",
+    "citi": "citi.com",
+    "citigroup": "citi.com",
+    "barclays": "barclays.com",
+    "ubs": "ubs.com",
+    "deutsche bank": "db.com",
+    "jefferies": "jefferies.com",
+    "houlihan lokey": "hl.com",
+    "lazard": "lazard.com",
+    "evercore": "evercore.com",
+    "moelis": "moelis.com",
+    "rothschild": "rothschild.com",
+    "guggenheim": "guggenheimpartners.com",
+    "centerview": "centerview.com",
+    "piper sandler": "psc.com",
+    "raymond james": "raymondjames.com",
+    "pjt": "pjtpartners.com",
+    "pjt partners": "pjtpartners.com",
+    "perella weinberg": "pwpartners.com",
+    "wells fargo": "wellsfargo.com",
+    "rbc": "rbc.com",
+    "nomura": "nomura.com",
+    # Private equity / hedge funds
+    "kkr": "kkr.com",
+    "bx": "blackstone.com",
+    "blackstone": "blackstone.com",
+    "apollo": "apollo.com",
+    "carlyle": "carlyle.com",
+    "tpg": "tpg.com",
+    "bain capital": "baincapital.com",
+    "brookfield": "brookfield.com",
+    "de shaw": "deshaw.com",
+    "d.e. shaw": "deshaw.com",
+    "citadel": "citadel.com",
+    "point72": "point72.com",
+    "p72": "point72.com",
+    "millennium": "mlp.com",
+    "two sigma": "twosigma.com",
+    "bridgewater": "bridgewater.com",
+    "jane street": "janestreet.com",
+    "jump trading": "jumptrading.com",
+    # Tech
+    "google": "google.com",
+    "alphabet": "google.com",
+    "meta": "meta.com",
+    "facebook": "meta.com",
+    "fb": "meta.com",
+    "amazon": "amazon.com",
+    "aws": "amazon.com",
+    "microsoft": "microsoft.com",
+    "msft": "microsoft.com",
+    "apple": "apple.com",
+    "netflix": "netflix.com",
+    "tesla": "tesla.com",
+    "nvidia": "nvidia.com",
+    "openai": "openai.com",
+    "anthropic": "anthropic.com",
+    "stripe": "stripe.com",
+    "palantir": "palantir.com",
+    "databricks": "databricks.com",
+    "snowflake": "snowflake.com",
+    "airbnb": "airbnb.com",
+    "uber": "uber.com",
+    "lyft": "lyft.com",
+    "doordash": "doordash.com",
+    "robinhood": "robinhood.com",
+    "coinbase": "coinbase.com",
+    "shopify": "shopify.com",
+    "figma": "figma.com",
+    "notion": "notion.so",
+    "canva": "canva.com",
+    "ibm": "ibm.com",
+    "oracle": "oracle.com",
+    "salesforce": "salesforce.com",
+    "adobe": "adobe.com",
+}
+
+
+def _domain_for_company(name):
+    """Map a user-supplied company name/acronym to its primary domain, if known."""
+    if not name:
+        return None
+    key = str(name).strip().lower()
+    return COMPANY_DOMAIN_MAP.get(key) if key else None
+
+
 def clean_company_name(company):
     """Clean company name using PDL Cleaner API for better matching.
     Results are cached in-process to avoid redundant API calls.
@@ -1653,26 +1785,36 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None, pre_ve
                 first_job_company = first_job.get('company', {})
                 if isinstance(first_job_company, dict):
                     first_job_company_name = first_job_company.get('name', '')
-                    # Clean both company names for accurate comparison
-                    cleaned_target = clean_company_name(target_company).lower().strip()
-                    cleaned_first_job = clean_company_name(first_job_company_name).lower().strip() if first_job_company_name else ''
-                    
-                    # Check if company matches (exact match after cleaning) AND job has no end_date (indicating current employment)
+                    first_job_company_website = (first_job_company.get('website') or '').lower().strip()
                     first_job_end_date = first_job.get('end_date')
-                    if cleaned_first_job and cleaned_target:
-                        # Use exact match or check if cleaned names are very similar (to handle variations like "ASML" vs "ASML Holding")
-                        # But be strict - require the core company name to match
-                        if (cleaned_first_job == cleaned_target
-                                or (cleaned_target in cleaned_first_job and len(cleaned_target) >= 3)
-                                or (cleaned_first_job in cleaned_target and len(cleaned_first_job) >= 3)):
-                            # If no end_date or end_date is empty, assume current employment
-                            if not first_job_end_date or (isinstance(first_job_end_date, dict) and not first_job_end_date.get('year')):
-                                is_currently_at_target = True
-                                print(f"[ContactExtraction] ✅ Currently at target company ({target_company}) - first job: {first_job_company_name}")
-                            else:
-                                print(f"[ContactExtraction] ⚠️ Previously at target company ({target_company}), but left (end_date: {first_job_end_date})")
+                    target_domain = _domain_for_company(target_company)
+
+                    is_current_job = (not first_job_end_date
+                                      or (isinstance(first_job_end_date, dict) and not first_job_end_date.get('year')))
+
+                    # Domain-based match is authoritative for mapped firms — PDL stores
+                    # names under unguessable canonicals, but website is normalized.
+                    if target_domain and first_job_company_website == target_domain:
+                        if is_current_job:
+                            is_currently_at_target = True
+                            print(f"[ContactExtraction] ✅ Currently at target company ({target_company}) via website={first_job_company_website}")
                         else:
-                            print(f"[ContactExtraction] ⚠️ Not at target company - first job: {first_job_company_name} (cleaned: {cleaned_first_job}), target: {target_company} (cleaned: {cleaned_target})")
+                            print(f"[ContactExtraction] ⚠️ Previously at target ({target_company}), end_date: {first_job_end_date}")
+                    else:
+                        # Fall back to name comparison for unmapped firms.
+                        cleaned_target = clean_company_name(target_company).lower().strip()
+                        cleaned_first_job = clean_company_name(first_job_company_name).lower().strip() if first_job_company_name else ''
+                        if cleaned_first_job and cleaned_target:
+                            if (cleaned_first_job == cleaned_target
+                                    or (cleaned_target in cleaned_first_job and len(cleaned_target) >= 3)
+                                    or (cleaned_first_job in cleaned_target and len(cleaned_first_job) >= 3)):
+                                if is_current_job:
+                                    is_currently_at_target = True
+                                    print(f"[ContactExtraction] ✅ Currently at target company ({target_company}) - first job: {first_job_company_name}")
+                                else:
+                                    print(f"[ContactExtraction] ⚠️ Previously at target company ({target_company}), but left (end_date: {first_job_end_date})")
+                            else:
+                                print(f"[ContactExtraction] ⚠️ Not at target company - first job: {first_job_company_name} (cleaned: {cleaned_first_job}), target: {target_company} (cleaned: {cleaned_target})")
 
         # Store minimal experience data for anchor detection (first 2 jobs with dates)
         experience_for_anchors = []
@@ -3025,23 +3167,32 @@ def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0,
     # The "international school × US firm" PDL coverage gap is the main motivator —
     # at level 4 we try to find ANY alum of the school in the role family (no firm
     # constraint) so users get someone reachable instead of zero results.
-    # P1 FIX: Clean company names via PDL cleaner API before querying (e.g. "JP Morgan" → "JPMorgan Chase & Co.")
+    #
+    # PDL stores job_company_name under unguessable canonicals (e.g. BCG is
+    # "boston consulting group (bcg)", not "bcg"; plain "bcg" matches 776
+    # unrelated low-quality records). When we know the firm's domain we route
+    # via job_company_website — orders of magnitude more reliable. We do NOT
+    # call clean_company_name here: it relies on PDL's Company Enrichment,
+    # which returns garbage for acronyms (BCG → NZ IT consultancy).
     companies = parsed_prompt.get("companies") or []
     company_names = [c.get("name", "").strip() for c in companies if isinstance(c, dict) and c.get("name")]
     if retry_level < 4 and company_names:
         company_clauses = []
         for name in company_names:
-            # Clean company name for better PDL matching
-            cleaned = clean_company_name(name)
-            n = cleaned.lower().strip()
-            if n:
-                words = n.split()
-                if len(words) == 1:
-                    # Single-word company: phrase match only to avoid false positives
-                    # (e.g. "meta" as a plain match could hit "Metaverse Corp")
+            n = name.lower().strip()
+            if not n:
+                continue
+            domain = _domain_for_company(name)
+            if domain:
+                print(f"[build_query_from_prompt] company={name!r} → website={domain} (mapped)")
+                company_clauses.append({"match_phrase": {"job_company_website": domain}})
+            else:
+                print(f"[build_query_from_prompt] company={name!r} not in domain map, name match_phrase")
+                # Unmapped: fall back to job_company_name. Multi-word phrases also
+                # accept a relaxed match as fallback (catches "Goldman Sachs Group").
+                if len(n.split()) == 1:
                     company_clauses.append({"match_phrase": {"job_company_name": n}})
                 else:
-                    # Multi-word: phrase match preferred, tokenized match as fallback
                     company_clauses.append({
                         "bool": {
                             "should": [
@@ -3055,7 +3206,6 @@ def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0,
                 must.append(company_clauses[0])
             else:
                 must.append({"bool": {"should": company_clauses}})
-            # Note: job_company_name already refers to the current/primary position in PDL
 
     # Schools: flat match_phrase on education.school.name. PDL's ES dialect
     # does NOT support `nested` clauses (returns 400 "Query clause [path] not
@@ -3133,22 +3283,28 @@ def _contact_matches_prompt_criteria(contact, parsed_prompt, target_company):
     print(f"[PostFilter] Target companies: {companies!r}, Contact company: {contact_company!r}, IsCurrentlyAtTarget: {is_current}, first_job_company: {first_job_company!r}")
     print(f"[PostFilter] Target schools: {schools!r}, Contact College: {college!r}, EducationTop: {education_top!r}")
 
-    # Company check: if user specified a company, contact must be currently at target company
+    # Company check: if user specified a company, contact must be currently at target company.
+    # For mapped firms the upstream PDL query already filtered by exact job_company_website,
+    # so the name-based comparison would only produce false negatives (e.g. "MS" vs
+    # "morgan stanley" fails the substring check). Skip name comparison for mapped firms.
     if companies and target_company:
         if not is_current:
             print(f"[PostFilter] Result for {name}: FAIL — not currently at target company (expected={target_company})")
             return False, "not_currently_at_target"
-        actual = contact_company
-        if not actual:
-            print(f"[PostFilter] Result for {name}: FAIL — company mismatch (expected={target_company}, got=no company)")
-            return False, "company_mismatch"
-        cleaned_expected = clean_company_name(target_company).lower().strip()
-        cleaned_actual = clean_company_name(actual).lower().strip()
-        if (cleaned_expected != cleaned_actual
-                and not (cleaned_expected in cleaned_actual and len(cleaned_expected) >= 3)
-                and not (cleaned_actual in cleaned_expected and len(cleaned_actual) >= 3)):
-            print(f"[PostFilter] Result for {name}: FAIL — company mismatch (expected={target_company}, got={actual})")
-            return False, "company_mismatch"
+        if _domain_for_company(target_company):
+            print(f"[PostFilter] Result for {name}: company check via website domain (mapped firm)")
+        else:
+            actual = contact_company
+            if not actual:
+                print(f"[PostFilter] Result for {name}: FAIL — company mismatch (expected={target_company}, got=no company)")
+                return False, "company_mismatch"
+            cleaned_expected = clean_company_name(target_company).lower().strip()
+            cleaned_actual = clean_company_name(actual).lower().strip()
+            if (cleaned_expected != cleaned_actual
+                    and not (cleaned_expected in cleaned_actual and len(cleaned_expected) >= 3)
+                    and not (cleaned_actual in cleaned_expected and len(cleaned_actual) >= 3)):
+                print(f"[PostFilter] Result for {name}: FAIL — company mismatch (expected={target_company}, got={actual})")
+                return False, "company_mismatch"
 
     # School check: if user specified schools, contact must have at least one matching school.
     # Delegate to contact_matches_school (strictness="loose") which uses word-boundary matching
