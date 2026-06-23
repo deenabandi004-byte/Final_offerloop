@@ -1831,6 +1831,83 @@ def _open_combobox_menu(page, selector: str) -> bool:
     return False
 
 
+def _verify_combobox_commit(
+    page, selector: str, expected_text: str
+) -> bool:
+    """After ArrowDown+Enter+Tab, verify the wrapper form actually accepted
+    the commit. Two signals must agree:
+
+      - `aria-invalid` on the input AND on the .select__control wrapper is
+        not 'true' (and the wrapper doesn't carry --error).
+      - The .select__value-container holds a .select__single-value (chip)
+        whose text matches `expected_text` (case-insensitive, accepting
+        substring match in either direction for "Los Angeles, CA" vs
+        "Los Angeles, California, United States" cases).
+
+    Figma's Greenhouse wrapper sets .select__control--error and
+    aria-invalid='true' independently of react-select's internal state.
+    react-select fires onChange and renders the chip, but the wrapper's
+    validator keeps the field flagged invalid until blur. Without this
+    verification we report `[idx=N]` as a successful fill and the runner
+    re-queues the field as needs_attention; the drawer re-answer hits the
+    same wrapper validator and loops forever (the Figma candidate-location
+    bug from the 2026-06-22 v19 dogfood)."""
+    try:
+        return bool(page.evaluate(
+            """(args) => {
+                const sel = args.sel;
+                const expected = (args.expected || '').toLowerCase().trim();
+                const el = document.querySelector(sel);
+                if (!el) return false;
+                // The input's own aria-invalid is the first signal.
+                if (el.getAttribute('aria-invalid') === 'true') return false;
+                // Walk up to the .select__control wrapper. If it's still
+                // --error or carries aria-invalid='true', the wrapper
+                // validator rejected the commit.
+                let control = el.parentElement;
+                let controlFound = false;
+                for (let i = 0; i < 6 && control; i++) {
+                    const cls = (control.className || '').toString();
+                    if (/select__control/.test(cls) || /control$/.test(cls)) {
+                        controlFound = true;
+                        if (/--error/.test(cls)) return false;
+                        const cAria = control.getAttribute && control.getAttribute('aria-invalid');
+                        if (cAria === 'true') return false;
+                        break;
+                    }
+                    control = control.parentElement;
+                }
+                // The chip is the second signal — react-select renders it
+                // inside .select__value-container as .select__single-value.
+                let valueContainer = el.parentElement;
+                for (let i = 0; i < 6 && valueContainer; i++) {
+                    const cls = (valueContainer.className || '').toString();
+                    if (/value-container/.test(cls)) {
+                        const single = valueContainer.querySelector(
+                            '.select__single-value, [class*="singleValue"]'
+                        );
+                        if (!single) return false;
+                        const txt = (single.textContent || '').trim().toLowerCase();
+                        if (!txt) return false;
+                        if (!expected) return true;
+                        return (
+                            txt === expected ||
+                            txt.includes(expected) ||
+                            expected.includes(txt)
+                        );
+                    }
+                    valueContainer = valueContainer.parentElement;
+                }
+                // No value-container reachable — fall back on aria-invalid
+                // only (the input said it's valid; trust that).
+                return true;
+            }""",
+            {"sel": selector, "expected": expected_text},
+        ))
+    except Exception:
+        return False
+
+
 def _detect_required(page, selector: str) -> bool:
     """Greenhouse marks required questions with aria-required='true' or a
     `required` attribute. Some custom questions also use a star-marked label
@@ -2203,10 +2280,44 @@ def _fill_combobox(
                         page.keyboard.press("ArrowDown")
                     page.wait_for_timeout(50)
                     page.keyboard.press("Enter")
-                    option_clicked = True
+                    # Force the wrapper form's blur handler so
+                    # .select__control--error clears and the wrapper's
+                    # validator re-runs. Figma's Greenhouse keeps
+                    # aria-invalid='true' on the control until blur even
+                    # though react-select already fired onChange and
+                    # rendered the chip. Tab is the cleanest trigger
+                    # because it doubles as natural forward-tab through
+                    # the form; Escape would just close the listbox.
+                    try:
+                        page.keyboard.press("Tab")
+                        page.wait_for_timeout(200)
+                    except Exception:
+                        pass
+                    if _verify_combobox_commit(page, selector, hit.get("text") or ""):
+                        option_clicked = True
+                        filled[selector] = (
+                            f"combo:{hit.get('text')}[idx={target_idx}|q={query!r}]"
+                        )
+                        break
+                    # Chip rendered (react-select committed internally) but
+                    # the wrapper's validator rejected the field. Distinct
+                    # failure mode from [no-match] — re-typing the same
+                    # answer (via drawer resubmit) bounces the same way, so
+                    # surface a specific sentinel and DO NOT fall through
+                    # to the [no-match] catch-all (which would lie about
+                    # the failure mode and reset filled[]).
+                    unmapped.append({
+                        "field_id": selector, "label": option_text,
+                        "reason": (
+                            "combobox chip rendered but wrapper validator "
+                            "still flagged aria-invalid after commit"
+                        ),
+                    })
                     filled[selector] = (
-                        f"combo:{hit.get('text')}[idx={target_idx}|q={query!r}]"
+                        f"combo:{hit.get('text')}"
+                        f"[chip-set-but-invalid|idx={target_idx}|q={query!r}]"
                     )
+                    option_clicked = True
                     break
             if option_clicked:
                 break
