@@ -379,12 +379,20 @@ FREE_DRAFTS_PER_MONTH  = int(os.getenv('FREE_DRAFTS_PER_MONTH', '0'))
 # Employee) even though COGS is per-query (~$0.19 regardless of count).
 # Healthy gross margins at tier caps (Pro 68%, Elite 85%) make this acceptable.
 CREDIT_COSTS = {
-    # Doubled 2026-06-10 — 10 cr = 1 email. Same $/email, same email counts,
-    # just inflated credit numbers for marketing optics. Scout stays free.
-    # Existing user balances doubled via migrate_double_credits.py.
-
-    # Find actions — per contact returned.
-    'find_contact':         10,  # default contact search (incl. verified email + AI draft)
+    # Find actions — per contact returned. 5 cr = 1 contact + verified
+    # email + AI draft = 1 outbound email.
+    #
+    # History: 2026-06-10 we tried to double prices for marketing optics
+    # (10 cr = 1 email) and doubled user balances via
+    # migrate_double_credits.py. The actual deduction site
+    # (routes/runs.py:824) never picked up the bump — it kept hardcoding
+    # 5, so the UI advertised "50 credits per 5-contact search" while
+    # users were only charged 25. Per Sid's call 2026-06-22, we keep the
+    # 5/contact rate (matches actual deduction, matches MCP find_contacts
+    # rate) and update the UI/display constants to stop advertising 10.
+    # Doubled balances stay — net effect is users get more value than
+    # pre-2026-06-10, intentional.
+    'find_contact':         5,  # default contact search (incl. verified email + AI draft)
     'find_hiring_manager':  10,  # Pro+ gated
     'find_recruiter':       6,
     'find_employee':        4,

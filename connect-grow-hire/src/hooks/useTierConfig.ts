@@ -71,7 +71,7 @@ export interface TierConfigPayload {
 const FALLBACK: TierConfigPayload = {
   tiers: FALLBACK_TIERS as unknown as Record<string, Record<string, unknown>>,
   credit_costs: {
-    find_contact: 10,
+    find_contact: 5,
     find_hiring_manager: 10,
     find_recruiter: 6,
     find_employee: 4,
@@ -249,14 +249,14 @@ export function seasonPassVisible(seasonPass: SeasonPassConfig, isNewUser: boole
 
 /**
  * Convert a credit allocation to the equivalent number of emails the user can
- * send, using the Find Contact bundled action cost (10 cr = 1 contact found +
+ * send, using the Find Contact bundled action cost (5 cr = 1 contact found +
  * verified email + AI draft = 1 outbound email). This is marketing math —
  * actual usage varies by feature mix (recruiters cost 6 cr, employees cost 4),
  * so this is a conservative estimate that holds for the standard flow.
  *
  * Tunable via the runtime `credit_costs.find_contact` if we change pricing.
  */
-export const DEFAULT_EMAIL_COST = 10;
+export const DEFAULT_EMAIL_COST = 5;
 
 export function emailsFromCredits(credits: number, costPerEmail: number = DEFAULT_EMAIL_COST): number {
   if (!costPerEmail || costPerEmail <= 0) return 0;
