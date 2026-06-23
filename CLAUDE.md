@@ -238,7 +238,7 @@ Three tiers defined in `backend/app/config.py` (frontend mirror in `connect-grow
 |---|---|---|---|
 | Credits/month | 500 | 3000 | 12000 |
 | Contacts/search | 3 | 8 | 15 |
-| Batch size | 1 | 5 | 15 |
+| Batch size | 3 | 8 | 15 |
 | Firm search | No | Yes | Yes |
 | Coffee chat preps | 3 lifetime | 10/mo | Unlimited |
 | Alumni searches | 10 | Unlimited | Unlimited |
