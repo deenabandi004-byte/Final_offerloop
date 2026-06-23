@@ -1357,7 +1357,7 @@ const Pricing = () => {
                   ~{emailsFromCredits(proStop.credits, tierConfig.credit_costs.find_contact).toLocaleString()} emails / month
                   {' '}<span style={{ color: '#94A3B8', fontWeight: 500 }}>({proStop.credits.toLocaleString()} credits)</span>
                 </FeatureItem>
-                <FeatureItem>Up to 30 contacts per search</FeatureItem>
+                <FeatureItem>Up to 8 contacts per search</FeatureItem>
                 <FeatureItem><span className="font-semibold">Everything in Free, plus:</span></FeatureItem>
                 <FeatureItem>Single agent use</FeatureItem>
                 <FeatureItem>Find Hiring Managers</FeatureItem>
@@ -1557,7 +1557,7 @@ const Pricing = () => {
                   ~{emailsFromCredits(eliteStop.credits, tierConfig.credit_costs.find_contact).toLocaleString()} emails / month
                   {' '}<span style={{ color: '#94A3B8', fontWeight: 500 }}>({eliteStop.credits.toLocaleString()} credits)</span>
                 </FeatureItem>
-                <FeatureItem>Up to 30 contacts per search</FeatureItem>
+                <FeatureItem>Up to 15 contacts per search</FeatureItem>
                 <FeatureItem><span className="font-semibold">Everything in Pro, plus:</span></FeatureItem>
                 <FeatureItem>Priority queue for contact generation</FeatureItem>
                 <FeatureItem>Personalized templates tailored to your resume</FeatureItem>
@@ -2032,7 +2032,7 @@ const Pricing = () => {
                     elite={`~${emailsFromCredits(eliteStop.credits, tierConfig.credit_costs.find_contact)}`}
                   />
                   <ComparisonRow feature="Monthly Credits" free="300" pro={proStop.credits.toLocaleString()} elite={eliteStop.credits.toLocaleString()} />
-                  <ComparisonRow feature="Contacts per Search" free="3" pro="15" elite="30" />
+                  <ComparisonRow feature="Contacts per Search" free="3" pro="8" elite="15" />
                   <ComparisonRow feature="Concurrent Agents" free=" - " pro="1" elite="Up to 5" />
                   <ComparisonRow feature="Find Companies" free={false} pro={true} elite={true} />
                   <ComparisonRow feature="Find Hiring Managers" free={false} pro={true} elite={true} />

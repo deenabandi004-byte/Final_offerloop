@@ -96,7 +96,7 @@ export const OnboardingTrial = ({ onStartTrial, onContinueFree, submitting, isSt
       suffix: "/mo",
       perks: [
         `${eliteDefault.credits.toLocaleString()} credits / mo`,
-        "30 contacts per search",
+        "15 contacts per search",
         "Unlimited coffee chat preps",
         "Priority queue + weekly insights",
       ],
