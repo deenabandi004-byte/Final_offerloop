@@ -39,6 +39,7 @@ const DynamicGradientBackground = React.lazy(() =>
 
 // Lazy load heavy pages for code splitting
 const AboutUs = React.lazy(() => import("./pages/AboutUs"));
+const ConnectorSetup = React.lazy(() => import("./pages/ConnectorSetup"));
 const ForStudentsPage = React.lazy(() => import("./pages/ForStudentsPage"));
 const PromoPage = React.lazy(() => import("./pages/PromoPage"));
 const CoffeeChatLibrary = React.lazy(() => import("./pages/CoffeeChatLibrary"));
@@ -410,6 +411,7 @@ const AppRoutes: React.FC = () => {
 
       {/* Public informational pages */}
       <Route path="/about" element={<Suspense fallback={<PageLoader />}><AboutUs /></Suspense>} />
+      <Route path="/connector" element={<Suspense fallback={<PageLoader />}><ConnectorSetup /></Suspense>} />
       <Route path="/for-students" element={<Suspense fallback={<PageLoader />}><ForStudentsPage /></Suspense>} />
       <Route path="/promo" element={<Suspense fallback={<PageLoader />}><PromoPage /></Suspense>} />
       <Route path="/contact" element={<Navigate to="/contact-us" replace />} />
@@ -515,11 +517,11 @@ const ConditionalBackground: React.FC<{ children: React.ReactNode }> = ({ childr
 };
 
 /* ---------------- Promo overlay gate ----------------
-   The /promo route is a scripted screen-capture surface. Suppress floating
-   Scout UI on that path so it doesn't bleed into recordings. */
+   The /promo route is a scripted screen-capture surface and /connector is a
+   public marketing page. Suppress floating Scout UI on those paths. */
 const NotOnPromo: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { pathname } = useLocation();
-  if (pathname === '/promo') return null;
+  if (pathname === '/promo' || pathname === '/connector') return null;
   return <>{children}</>;
 };
 

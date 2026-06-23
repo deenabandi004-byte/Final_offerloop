@@ -8,7 +8,7 @@ describe('BriefingButton', () => {
     render(<BriefingButton onClick={() => {}} isLoading={false} />)
     const btn = screen.getByTestId('briefing-button')
     expect(btn).toBeEnabled()
-    expect(btn).toHaveTextContent('Get my game plan')
+    expect(btn).toHaveTextContent('Set a plan')
   })
 
   it('shows the loading label and is disabled while isLoading is true', () => {
