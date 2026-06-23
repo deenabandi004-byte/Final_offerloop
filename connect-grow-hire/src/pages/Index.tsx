@@ -1374,7 +1374,7 @@ const Index = () => {
               },
               {
                 q: "What's free vs paid?",
-                a: 'Free gives you 5 contacts per search and 300 credits a month. Pro and Elite raise the limits and unlock advanced search, resume tools, and prep. Full details on the pricing page.',
+                a: 'Free gives you 3 contacts per search and 300 credits a month. Pro and Elite raise the limits and unlock advanced search, resume tools, and prep. Full details on the pricing page.',
               },
               {
                 q: 'How is this different from LinkedIn, Apollo, or coaching?',

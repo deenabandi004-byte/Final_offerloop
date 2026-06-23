@@ -172,7 +172,7 @@ CREDIT_COSTS = {
 TIERS = {
     "Free": "$0/month - 300 credits/month (~20 contacts), up to 3 contacts per search, 3 Meeting Preps (LIFETIME), 2 Interview Preps (LIFETIME), 10 alumni searches (lifetime), NO Firm Search, NO resume-matched emails, NO exports",
     "Pro": "$14.99/month - 1,500 credits/month (~100 contacts), up to 8 contacts per search, 10 Meeting Preps/month, 5 Interview Preps/month, unlimited alumni searches, Full Firm Search, resume-matched emails, smart filters, bulk drafting, CSV export",
-    "Elite": "$34.99/month - 3,000 credits/month (~200 contacts), up to 30 contacts per search, UNLIMITED Meeting Preps, UNLIMITED Interview Preps, everything in Pro, priority queue, personalized templates, weekly insights, early access",
+    "Elite": "$34.99/month - 3,000 credits/month (~200 contacts), up to 15 contacts per search, UNLIMITED Meeting Preps, UNLIMITED Interview Preps, everything in Pro, priority queue, personalized templates, weekly insights, early access",
 }
 
 ROUTE_KEYWORDS = {
@@ -239,7 +239,7 @@ def _build_knowledge_prompt() -> str:
         "",
         "- **Free** ($0/mo): 300 credits, 3 contacts/search, 3 meetings + 2 interview preps LIFETIME, 10 alumni searches. No Firm Search, exports, or resume-matched emails.",
         "- **Pro** ($14.99/mo): 1,500 credits, 8 contacts/search, 10 meetings + 5 interview preps/month, unlimited alumni, Firm Search, smart filters, bulk drafts, CSV export.",
-        "- **Elite** ($34.99/mo): 3,000 credits, 30 contacts/search, UNLIMITED preps, priority queue, personalized templates, weekly insights.",
+        "- **Elite** ($34.99/mo): 3,000 credits, 15 contacts/search, UNLIMITED preps, priority queue, personalized templates, weekly insights.",
         "",
         "Credits reset monthly on billing date. Do NOT roll over. Manage subscription at Pricing → Manage Subscription.",
     ])

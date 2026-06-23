@@ -225,8 +225,8 @@ const StripeTabs: React.FC<StripeTabsProps> = ({ activeTab, onTabChange, tabs })
 };
 
 // Find People default batch size per tier (where the slider initially sits).
-// Free's default equals its max (5), so the Free slider sits at its maximum.
-const PEOPLE_BATCH_DEFAULTS: Record<"free" | "pro" | "elite", number> = { free: 5, pro: 10, elite: 20 };
+// Defaults sit at each tier's max so users get the full batch by default.
+const PEOPLE_BATCH_DEFAULTS: Record<"free" | "pro" | "elite", number> = { free: 3, pro: 8, elite: 15 };
 
 const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; parentEmailTemplate?: EmailTemplate | null; isDevPreview?: boolean }> = ({ embedded = false, hideSubTabs = false, parentEmailTemplate, isDevPreview = false }) => {
   const { user: authUser, checkCredits, updateCredits } = useFirebaseAuth();
@@ -683,9 +683,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
   }, [previewSwap, searchPrompt]);
 
   const maxBatchSize = useMemo(() => {
-    // Per-tier slider ceiling. Elite raised to 30 (the per-search cap); Pro/Free
-    // stay at their prior values.
-    const tierMax = userTier === 'free' ? 5 : userTier === 'pro' ? 15 : 30;
+    const tierMax = userTier === 'free' ? 3 : userTier === 'pro' ? 8 : 15;
     const creditMax = Math.floor(creditsView.balance / 5);
     return Math.min(tierMax, creditMax);
   }, [userTier, creditsView.balance]);

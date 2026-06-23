@@ -423,7 +423,7 @@ CREDIT_COSTS = {
 TIER_CONFIGS = {
     'free': {
         'max_contacts': 3,   # Maximum contacts returned per search
-        'batch_size': 1,      # Maximum batch operations allowed (per audit spec)
+        'batch_size': 3,      # Maximum batch operations allowed (per audit spec)
         'min_contacts': 1,
         'fields': ['FirstName', 'LastName', 'LinkedIn', 'Email', 'Title', 'Company', 'City', 'State', 'College', 'Hometown'],
         'uses_pdl': True,
@@ -457,7 +457,7 @@ TIER_CONFIGS = {
     },
     'pro': {
         'max_contacts': 8,   # Maximum contacts returned per search
-        'batch_size': 5,      # Maximum batch operations allowed (per audit spec)
+        'batch_size': 8,      # Maximum batch operations allowed (per audit spec)
         'min_contacts': 1, 
         'fields': ['FirstName', 'LastName', 'LinkedIn', 'Email', 'Title', 'Company', 'City', 'State', 'College',
                   'Phone', 'PersonalEmail', 'WorkEmail', 'SocialProfiles', 'EducationTop', 'VolunteerHistory',
@@ -490,8 +490,8 @@ TIER_CONFIGS = {
         'max_auto_sends_per_day': 25,
     },
     'elite': {
-        'max_contacts': 30,  # Maximum contacts returned per search
-        'batch_size': 30,     # Maximum batch operations allowed (per audit spec)
+        'max_contacts': 15,  # Maximum contacts returned per search
+        'batch_size': 15,     # Maximum batch operations allowed (per audit spec)
         'min_contacts': 1,
         'fields': ['FirstName', 'LastName', 'LinkedIn', 'Email', 'Title', 'Company', 'City', 'State', 'College',
                   'Phone', 'PersonalEmail', 'WorkEmail', 'SocialProfiles', 'EducationTop', 'VolunteerHistory',
@@ -530,7 +530,7 @@ TIER_CONFIGS = {
     # duration of its active window so feature gates light up identically to Pro.
     'season_pass': {
         'max_contacts': 8,
-        'batch_size': 5,
+        'batch_size': 8,
         'min_contacts': 1,
         'fields': TARGET_INDUSTRIES and None,  # populated below
         'uses_pdl': True,
