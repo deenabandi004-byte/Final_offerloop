@@ -47,7 +47,7 @@ export function CreditMeter({
           {credits} / {max} credits
         </span>
         <span className="tabular-nums">
-          {Math.floor(credits / 15)} searches remaining
+          {Math.floor(credits / 10)} searches remaining
         </span>
       </div>
     </div>

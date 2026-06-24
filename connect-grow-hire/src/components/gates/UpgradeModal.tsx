@@ -54,7 +54,7 @@ export function UpgradeModal({
     const benefits: Record<Tier, string[]> = {
       free: [],
       pro: [
-        '1,500 credits (~100 contacts)',
+        '2,000 credits (~200 contacts)',
         'Full Firm Search',
         '10 Coffee Chat Preps/month',
         'Unlimited alumni searches',
@@ -62,7 +62,7 @@ export function UpgradeModal({
         'Bulk drafting',
       ],
       elite: [
-        '3,000 credits (~200 contacts)',
+        '5,000 credits (~500 contacts)',
         'Everything in Pro, plus:',
         'Unlimited Coffee Chat Prep',
         'Priority queue',

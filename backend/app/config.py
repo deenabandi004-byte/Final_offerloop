@@ -379,20 +379,13 @@ FREE_DRAFTS_PER_MONTH  = int(os.getenv('FREE_DRAFTS_PER_MONTH', '0'))
 # Employee) even though COGS is per-query (~$0.19 regardless of count).
 # Healthy gross margins at tier caps (Pro 68%, Elite 85%) make this acceptable.
 CREDIT_COSTS = {
-    # Find actions — per contact returned. 5 cr = 1 contact + verified
-    # email + AI draft = 1 outbound email.
-    #
-    # History: 2026-06-10 we tried to double prices for marketing optics
-    # (10 cr = 1 email) and doubled user balances via
-    # migrate_double_credits.py. The actual deduction site
-    # (routes/runs.py:824) never picked up the bump — it kept hardcoding
-    # 5, so the UI advertised "50 credits per 5-contact search" while
-    # users were only charged 25. Per Sid's call 2026-06-22, we keep the
-    # 5/contact rate (matches actual deduction, matches MCP find_contacts
-    # rate) and update the UI/display constants to stop advertising 10.
-    # Doubled balances stay — net effect is users get more value than
-    # pre-2026-06-10, intentional.
-    'find_contact':         5,  # default contact search (incl. verified email + AI draft)
+    # Find actions — per contact returned. 10 cr = 1 contact + verified
+    # email + AI draft = 1 outbound email (find + draft + search bundle).
+    # Per Sid's call 2026-06-23, standardized at 10/contact across website
+    # prompt_search, MCP find_contacts, and Loops to match Pro 2000 / Elite
+    # 5000 tier caps (≈200/500 contacts per month respectively). All
+    # deduction sites now read from this dict — no hardcoded 5s left.
+    'find_contact':         10,  # default contact search (incl. verified email + AI draft)
     'find_hiring_manager':  10,  # Pro+ gated
     'find_recruiter':       6,
     'find_employee':        4,
@@ -499,8 +492,9 @@ TIER_CONFIGS = {
         'uses_pdl': True,
         'uses_email_drafting': True,
         'uses_resume': True,
-        # Doubled 2026-06-10: 5,000 cr = 500 emails at 10 cr/email default.
         # See SLIDER_STOPS['elite'] for in-tier slider variants (3K/5K/7K).
+        # Default matches the 5K slider stop and the STRIPE_ELITE_PRICE_ID
+        # grant. The 7K stop is an in-tier upgrade billed separately.
         'credits': 5000,
         'time_saved_minutes': 3500,
         'description': 'For serious recruiting season',

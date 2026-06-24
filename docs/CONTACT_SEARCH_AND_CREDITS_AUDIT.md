@@ -282,4 +282,4 @@ async runPromptSearch(data: { prompt: string; batchSize: number }): Promise<Sear
 
 **Summary**
 
-- One synchronous POST to `/api/prompt-search`; backend runs parse → PDL → emails → drafts → **deduct 15 per contact** → save. Credits are stored in Firestore `users/{uid}.credits`; no refund path. Cancellation is feasible on the client (AbortController + Cancel button); backend does not yet detect disconnect or refund. Adding cancel + refund would touch ContactSearchPage, api.ts (signal), and runs.py (and optionally runs_hunter.py) for disconnect handling and/or a small refund endpoint.
+- One synchronous POST to `/api/prompt-search`; backend runs parse → PDL → emails → drafts → **deduct 10 per contact** → save. Credits are stored in Firestore `users/{uid}.credits`; no refund path. Cancellation is feasible on the client (AbortController + Cancel button); backend does not yet detect disconnect or refund. Adding cancel + refund would touch ContactSearchPage, api.ts (signal), and runs.py (and optionally runs_hunter.py) for disconnect handling and/or a small refund endpoint.

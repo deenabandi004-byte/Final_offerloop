@@ -1,15 +1,14 @@
 // Frontend mirror of backend/app/config.py — kept in sync.
-// 2026-06-22: find_contact reverted to 5 (matches actual deduction site
-// at routes/runs.py:824). The 2026-06-10 double-to-10 was never picked
-// up by the deduction, so the UI was advertising 50 credits per
-// 5-contact search while users were only charged 25.
+// 2026-06-23: find_contact standardized at 10 (find + draft + search bundle)
+// across website prompt_search, MCP find_contacts, and Loops. Pro 2000 /
+// Elite 5000 tier caps = ≈200/500 contacts per month.
 // See backend CREDIT_COSTS dict for the single source of truth.
 export const COFFEE_CHAT_CREDITS = 30;
 export const TIMELINE_CREDITS = 20;
 
 // Per-action credit costs — mirror of backend CREDIT_COSTS.
 export const CREDIT_COSTS = {
-  find_contact: 5,
+  find_contact: 10,
   find_hiring_manager: 10,
   find_recruiter: 6,
   find_employee: 4,

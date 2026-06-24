@@ -33,9 +33,11 @@ PDL_CREDITS_PER_QUERY = 6
 
 
 # Offerloop credits charged to the signed-in caller per contact returned.
-# Mirrors the website's prompt_search rate (routes/runs.py:824 deducts
-# 5 * len(contacts)). Anonymous callers (uid=None) pay nothing — rate
-# limits + the service-wide MCPBudget are their abuse-control surfaces.
+# MCP splits the website's bundled prompt_search rate (10 cr =
+# CREDIT_COSTS['find_contact']) into two tool calls: find_contacts (5)
+# + draft_outreach (5) = 10 total, matching the website's per-contact
+# cost. Anonymous callers (uid=None) pay nothing — rate limits + the
+# service-wide MCPBudget are their abuse-control surfaces.
 CREDITS_PER_CONTACT = 5
 
 

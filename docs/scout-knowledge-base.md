@@ -125,7 +125,7 @@ Offerloop automates the outreach process, helping users spend less time on tedio
    - Saves drafts to user's Gmail account
 8. User opens Gmail, reviews drafts, personalizes if needed, and sends
 
-**Credit Cost:** 15 credits per contact
+**Credit Cost:** 10 credits per contact
 
 **Tier Differences:**
 - **Free:** Up to 3 contacts per search, basic email generation
@@ -335,7 +335,7 @@ Finds professionals at companies based on job title, company, and location. Auto
 - **Elite:** 15 contacts per search
 
 **Credit Consumption:**
-- 15 credits per contact found
+- 10 credits per contact found (bundled with verified email + AI draft)
 - Deducted when contacts are returned (not when search is initiated)
 
 **Email Generation:**
@@ -751,7 +751,7 @@ Finds professionals at companies based on job title, company, and location. Auto
 ### Credits System
 
 **What actions consume credits:**
-- Contact Search: 15 credits per contact
+- Contact Search: 10 credits per contact
 - Firm Search: 5 credits per firm
 - Coffee Chat Prep: 15 credits per prep
 - Interview Prep: 25 credits per prep
@@ -827,7 +827,7 @@ A: Yes, sent emails are tracked in the Outbox tab on your Home page. You can see
 ### Credits & Billing
 
 **Q: How do credits work?**
-A: Credits are your currency for using Offerloop features. Each action costs a specific number of credits (e.g., 15 credits per contact). Credits reset monthly based on your subscription date.
+A: Credits are your currency for using Offerloop features. Each action costs a specific number of credits (e.g., 10 credits per contact). Credits reset monthly based on your subscription date.
 
 **Q: What happens when I run out of credits?**
 A: You'll see an "Insufficient credits" message and actions requiring credits will be blocked. You can upgrade your plan to get more credits or wait for the monthly reset.
@@ -872,13 +872,13 @@ A: Yes, we only request permissions to create drafts and read email threads you'
 ### Feature Explanations (15 examples)
 
 **USER:** What is Contact Search?
-**SCOUT:** Contact Search helps you find professionals at companies to network with. Enter a job title, company, and location, and we'll find matching professionals and generate personalized outreach emails. It costs 15 credits per contact. Free users can find up to 3 contacts per search, Pro users up to 8, and Elite users up to 15.
+**SCOUT:** Contact Search helps you find professionals at companies to network with. Enter a job title, company, and location, and we'll find matching professionals and generate personalized outreach emails. It costs 10 credits per contact. Free users can find up to 3 contacts per search, Pro users up to 8, and Elite users up to 15.
 
 **USER:** How does Coffee Chat Prep work?
 **SCOUT:** Coffee Chat Prep generates preparation materials for networking conversations. Paste the LinkedIn URL of the person you're meeting, and we'll create a PDF with talking points, questions to ask, and research on their company. It takes 1-2 minutes to generate and costs 15 credits per prep.
 
 **USER:** What's the difference between Free and Pro?
-**SCOUT:** Free tier gives you 300 credits/month and up to 3 contacts per search with basic email generation. Pro ($9.99/month) gives you 1,500 credits, up to 8 contacts per search, resume-matched personalized emails, full Firm Search access, and more Coffee Chat/Interview Prep access. Would you like me to show you the Pricing page to compare all plans?
+**SCOUT:** Free tier gives you 300 credits/month and up to 3 contacts per search with basic email generation. Pro ($14.99/month) gives you 2,000 credits, up to 8 contacts per search, resume-matched personalized emails, full Firm Search access, and more Coffee Chat/Interview Prep access. Would you like me to show you the Pricing page to compare all plans?
 
 **USER:** How do I use Firm Search?
 **SCOUT:** Firm Search helps you discover companies matching your criteria. Enter a natural language query like "Investment banks in NYC focused on healthcare M&A", select how many firms you want, and click Search. It costs 5 credits per firm and is available for Pro+ users. I can help you navigate there if you'd like!
@@ -925,7 +925,7 @@ A: Yes, we only request permissions to create drafts and read email threads you'
 **SCOUT:** 1) Click Settings in the sidebar (or your profile), 2) Go to Account Settings, 3) Find the Gmail section, 4) Click "Connect Gmail", 5) Sign in with your Google account, 6) Grant permissions for draft access. Once connected, emails will automatically save to your Gmail drafts!
 
 **USER:** How do I get more credits?
-**SCOUT:** Go to Pricing from the sidebar, compare Free, Pro ($9.99/month), and Elite ($34.99/month) plans, click "Upgrade" on your chosen plan, and complete payment through Stripe. Credits are added immediately and reset monthly based on your subscription date.
+**SCOUT:** Go to Pricing from the sidebar, compare Free, Pro ($14.99/month), and Elite ($34.99/month) plans, click "Upgrade" on your chosen plan, and complete payment through Stripe. Credits are added immediately and reset monthly based on your subscription date.
 
 **USER:** How do I prepare for a coffee chat?
 **SCOUT:** 1) Go to Coffee Chat Prep, 2) Find the LinkedIn URL of the person you're meeting, 3) Paste the URL and click Generate, 4) Wait 1-2 minutes for research to complete, 5) Review the prep materials (similarity points, questions, company news), 6) Download PDF to reference during the meeting. It costs 15 credits per prep.
@@ -969,7 +969,7 @@ A: Yes, we only request permissions to create drafts and read email threads you'
 **SCOUT:** This usually means Gmail isn't connected. Go to Account Settings, find the Gmail section, and click "Connect Gmail". Sign in with Google and grant permissions. Once connected, try your search again - emails should save to drafts automatically.
 
 **USER:** I'm out of credits, what do I do?
-**SCOUT:** You have a few options: 1) Check your credits in the sidebar to see when they reset (monthly), 2) Go to Pricing to upgrade your plan (Pro gives 1,500 credits, Elite gives 3,000), 3) Wait for your monthly reset. Credits don't roll over, so use them before they reset!
+**SCOUT:** You have a few options: 1) Check your credits in the sidebar to see when they reset (monthly), 2) Go to Pricing to upgrade your plan (Pro gives 2,000 credits, Elite gives 5,000), 3) Wait for your monthly reset. Credits don't roll over, so use them before they reset!
 
 **USER:** I'm not finding any contacts
 **SCOUT:** Try these tips: 1) Use broader job titles (e.g., "Analyst" instead of "Investment Banking Analyst"), 2) Check spelling of company name, 3) Try different locations or remove location filter, 4) Some smaller companies may have limited data. If still no results, the role might be too specific - try a more general title.
@@ -987,7 +987,7 @@ A: Yes, we only request permissions to create drafts and read email threads you'
 **SCOUT:** If you upgraded but your plan isn't showing: 1) Refresh the page, 2) Go to Pricing and click "Manage Subscription" to check Stripe, 3) Make sure payment went through, 4) Check if credits were added (they should be immediate). If still not working, contact support.
 
 **USER:** I can't access Firm Search
-**SCOUT:** Firm Search is a Pro+ feature, so Free users don't have access. Upgrade to Pro ($9.99/month) or Elite ($34.99/month) to unlock Firm Search. Pro also gives you more credits (1,500 vs 300) and other premium features.
+**SCOUT:** Firm Search is a Pro+ feature, so Free users don't have access. Upgrade to Pro ($14.99/month) or Elite ($34.99/month) to unlock Firm Search. Pro also gives you more credits (2,000 vs 300) and other premium features.
 
 **USER:** My resume won't upload
 **SCOUT:** Make sure your resume is: 1) A PDF file (not Word or other formats), 2) Under 10MB, 3) Not password-protected, 4) Properly formatted. If it still fails, try a different PDF or contact support. The resume parser works best with clean, well-formatted PDFs.
@@ -1266,7 +1266,7 @@ A: Yes, we only request permissions to create drafts and read email threads you'
 ## Appendix: Quick Reference
 
 ### Credit Costs Summary
-- Contact Search: 15 credits per contact
+- Contact Search: 10 credits per contact
 - Firm Search: 5 credits per firm
 - Coffee Chat Prep: 15 credits per prep
 - Interview Prep: 25 credits per prep

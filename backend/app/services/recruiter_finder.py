@@ -829,7 +829,7 @@ def find_recruiters(
             "company_cleaned": "Google LLC",
             "search_titles": ["technical recruiter", ...],
             "total_found": 12,
-            "credits_charged": 75  # 15 per contact
+            "credits_charged": 30  # find_recruiter cost (6) per contact returned
         }
     """
     if not PEOPLE_DATA_LABS_API_KEY:
@@ -1480,7 +1480,7 @@ def find_hiring_manager(
             "job_type_detected": "engineering",
             "company_cleaned": "Google LLC",
             "total_found": 5,
-            "credits_charged": 45,  # 15 per contact
+            "credits_charged": 50,  # find_hiring_manager cost (10) per contact returned
             "search_tier_used": 2  # Highest tier that contributed results
         }
     """

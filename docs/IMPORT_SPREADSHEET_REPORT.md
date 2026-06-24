@@ -9,7 +9,7 @@ This document describes how the **Import Spreadsheet** (contact import from CSV/
 | Aspect | Details |
 |--------|---------|
 | **Purpose** | Bulk import contacts from a CSV or Excel file into the user’s contact library. |
-| **Cost** | **15 credits per contact** imported. No charge for skipped rows (duplicates, invalid, or no credits). |
+| **Cost** | **10 credits per contact** imported. No charge for skipped rows (duplicates, invalid, or no credits). |
 | **Access** | Intended for Pro/Elite; tier check is currently **disabled** (commented out) in code. |
 | **Location in app** | Contact Search page → **Import** tab (`/contact-search`, tab value `import`). |
 
