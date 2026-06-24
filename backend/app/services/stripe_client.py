@@ -5,7 +5,7 @@ import os
 import stripe
 from datetime import datetime
 from flask import request, jsonify
-from app.config import STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, TIER_CONFIGS, STRIPE_PRO_PRICE_ID, STRIPE_ELITE_PRICE_ID, STRIPE_PRICE_CATALOG, STRIPE_COUPONS
+from app.config import STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, TIER_CONFIGS, STRIPE_PRO_PRICE_ID, STRIPE_ELITE_PRICE_ID, STRIPE_PRICE_CATALOG, STRIPE_COUPONS, TRIAL_DAYS_STUDENT, TRIAL_DAYS_NON_STUDENT
 from app.extensions import get_db
 from app.services.auth import check_and_reset_credits
 
@@ -74,6 +74,18 @@ def _user_has_used_trial(user_id: str) -> bool:
         return False
     snap = db.collection('users').document(user_id).get()
     return bool((snap.to_dict() or {}).get('trialUsedAt')) if snap.exists else False
+
+
+def _trial_days_for_price(price_id: str) -> int:
+    """Trial length for a given Stripe Price ID, driven by the catalog audience.
+    Unknown / unwired prices get 0 (no trial) so we never accidentally grant a
+    trial on a SKU we can't identify."""
+    if not price_id:
+        return 0
+    meta = _PRICE_ID_INDEX.get(price_id)
+    if not meta:
+        return 0
+    return TRIAL_DAYS_STUDENT if meta['audience'] == 'student' else TRIAL_DAYS_NON_STUDENT
 
 
 # ============================================================================
@@ -300,19 +312,15 @@ def create_checkout_session():
         
         # Intended tier from price ID so webhook can use it as fallback if price ID mapping fails
         intended_tier = get_tier_from_price_id(price_id) if price_id else 'pro'
-        # Option A: Stripe Checkout never starts a free trial. Free trials run
-        # only on the no-card Path A (services/trial_service.start_trial). This
-        # path is reserved for direct paid signups and post-trial upgrades.
-        CHECKOUT_TRIAL_DAYS = 0
-        # Decision #5 (defense in depth): never grant more than one trial per
-        # account, lifetime, using the shared trialUsedAt field. No-op while
-        # CHECKOUT_TRIAL_DAYS is 0, but keeps the invariant if a trial is ever
-        # reintroduced on this path.
-        trial_days = CHECKOUT_TRIAL_DAYS
+        # Trial length is driven by the price's audience (student vs list) so
+        # checkout matches the trial copy on the pricing card. handle_checkout_completed
+        # writes trialUsedAt when sub_status=='trialing', and _user_has_used_trial
+        # below enforces one-per-account regardless of which path granted it.
+        trial_days = _trial_days_for_price(price_id)
         if trial_days > 0 and _user_has_used_trial(user_id):
             print(f"[Stripe] user {user_id} already used their trial; checkout will not grant another.")
             trial_days = 0
-        # Prepare session parameters (direct paid checkout; trials live on Path A)
+        # Prepare session parameters
         session_params = {
             'payment_method_types': ['card'],
             'mode': 'subscription',
@@ -324,10 +332,12 @@ def create_checkout_session():
                 'user_id': user_id,
                 'tier': intended_tier,
             },
-            'subscription_data': {
-                'trial_period_days': trial_days,
-            },
         }
+        # Stripe rejects trial_period_days < 1, so only attach subscription_data
+        # when trial_days resolved to >= 1 (i.e., a recognized price the user
+        # hasn't already burned a trial on).
+        if trial_days > 0:
+            session_params['subscription_data'] = {'trial_period_days': trial_days}
         
         # Create checkout session
         if price_id:
