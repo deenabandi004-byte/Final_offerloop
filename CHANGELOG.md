@@ -2,6 +2,16 @@
 
 All notable changes to Offerloop will be documented in this file.
 
+## [0.1.1.1] - 2026-06-24
+
+### Added
+- PostHog analytics now route through the `data.offerloop.ai` reverse proxy so events keep firing for users on ad-blockers and DNS filters that block `posthog.com`
+- `defaults: '2026-05-30'` flag on the PostHog init to opt into the latest defaults bundle
+- `feature_action_completed` PostHog events for onboarding, email generation, and job board flows
+
+### Changed
+- Pricing page back button always lands on the dashboard (logged-in) or landing page (logged-out) instead of `history.back()` so a Stripe-cancel bounce never dumps users back on Stripe checkout
+
 ## [0.1.1.0] - 2026-04-10
 
 ### Added

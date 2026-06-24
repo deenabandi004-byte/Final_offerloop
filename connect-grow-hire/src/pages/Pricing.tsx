@@ -896,20 +896,13 @@ const Pricing = () => {
 
       <div className="w-full px-3 py-6 sm:px-6 sm:py-12" style={{ maxWidth: '900px', margin: '0 auto', position: 'relative', zIndex: 1 }}>
 
-        {/* Back navigation — present for everyone. Logged-in users go back to
-            wherever they came from (sidebar, deep-link, etc.) via browser history,
-            with /find as fallback. Logged-out marketing visitors go home. */}
+        {/* Back navigation — always lands on home. Logged-in users go to the
+            dashboard; logged-out marketing visitors go to the landing page.
+            Never navigate(-1): a Stripe-cancel bounce would otherwise dump them
+            back on Stripe. */}
         <div className="mb-6 animate-fadeInUp" style={{ position: 'relative', zIndex: 2 }}>
           <button
-            onClick={() => {
-              if (!user) {
-                navigate('/');
-              } else if (window.history.length > 1) {
-                navigate(-1);
-              } else {
-                navigate('/find');
-              }
-            }}
+            onClick={() => navigate(user ? '/dashboard' : '/')}
             className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors group"
             style={{
               fontFamily: "'Inter', sans-serif",
@@ -918,7 +911,7 @@ const Pricing = () => {
             }}
           >
             <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-            <span>{user ? 'Back' : 'Back to home'}</span>
+            <span>Back to home</span>
           </button>
         </div>
 
