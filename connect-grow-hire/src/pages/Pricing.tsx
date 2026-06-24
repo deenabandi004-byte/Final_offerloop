@@ -758,6 +758,10 @@ const Pricing = () => {
     ? (subscriptionStatus.tier === 'elite' && (subscriptionStatus.status === 'active' || subscriptionStatus.status === 'trialing'))
     : currentTier === 'elite';
   const hasActiveSubscription = isProUser || isEliteUser;
+  // True only when there's a real Stripe subscription to manage. The tier alone
+  // is not enough — admin-bumped users and no-card Path A trial users have a
+  // paid tier with no stripeCustomerId, so the billing portal would 404.
+  const hasRealStripeSub = !!subscriptionStatus?.subscriptionId;
   // Ready as soon as auth resolves — or immediately if we have a cached tier hint
   // (the common returning-visitor case), so the buttons never pop in from a box.
   const ctaReady = !authLoading || !!cachedTier;
@@ -1379,7 +1383,7 @@ const Pricing = () => {
                 <button
                   onClick={
                     isLoading ? undefined :
-                    currentTier === 'pro'
+                    currentTier === 'pro' && hasRealStripeSub
                       ? (e: React.MouseEvent) => {
                           if (e.shiftKey) {
                             handleResetCredits('pro');
@@ -1390,12 +1394,12 @@ const Pricing = () => {
                       : () => handleUpgrade('pro', 'pricing_page')
                   }
                   disabled={isLoading || currentTier === 'elite'}
-                  title={currentTier === 'pro' ? 'Click to manage subscription. Hold Shift+Click to reset credits.' : currentTier === 'elite' ? 'You are on Elite plan' : undefined}
+                  title={currentTier === 'pro' && hasRealStripeSub ? 'Click to manage subscription. Hold Shift+Click to reset credits.' : currentTier === 'elite' ? 'You are on Elite plan' : undefined}
                   className={`
                     w-full py-3.5 px-6 rounded-lg font-bold transition-all
                     ${currentTier === 'elite'
                       ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
-                      : currentTier === 'pro'
+                      : currentTier === 'pro' && hasRealStripeSub
                         ? 'text-white'
                         : 'text-white hover:scale-[1.02] active:scale-100'
                     }
@@ -1410,7 +1414,15 @@ const Pricing = () => {
                         }
                   }
                 >
-                  {isLoading ? 'Processing...' : currentTier === 'pro' ? 'Manage Subscription' : currentTier === 'elite' ? 'On Elite Plan' : `Start ${trialDays}-Day Free Trial`}
+                  {isLoading
+                    ? 'Processing...'
+                    : currentTier === 'elite'
+                      ? 'On Elite Plan'
+                      : currentTier === 'pro' && hasRealStripeSub
+                        ? 'Manage Subscription'
+                        : currentTier === 'pro'
+                          ? 'Subscribe to Pro'
+                          : `Start ${trialDays}-Day Free Trial`}
                 </button>
                 )}
               </div>
@@ -1577,7 +1589,7 @@ const Pricing = () => {
               <button
                 onClick={
                   isLoading ? undefined :
-                  currentTier === 'elite'
+                  currentTier === 'elite' && hasRealStripeSub
                     ? (e: React.MouseEvent) => {
                         if (e.shiftKey) {
                           handleResetCredits('elite');
@@ -1588,16 +1600,16 @@ const Pricing = () => {
                     : () => handleUpgrade('elite', 'pricing_page')
                 }
                 disabled={isLoading}
-                title={currentTier === 'elite' ? 'Click to manage subscription. Hold Shift+Click to reset credits.' : undefined}
+                title={currentTier === 'elite' && hasRealStripeSub ? 'Click to manage subscription. Hold Shift+Click to reset credits.' : undefined}
                 className={`
                   w-full py-3.5 px-6 rounded-lg font-bold transition-all hover:scale-[1.02] active:scale-100
-                  ${currentTier === 'elite'
+                  ${currentTier === 'elite' && hasRealStripeSub
                     ? 'border-2 border-[#E2E8F0] text-[#3B82F6] hover:bg-[#FAFBFF]'
                     : 'text-white'
                   }
                 `}
                 style={
-                  currentTier === 'elite'
+                  currentTier === 'elite' && hasRealStripeSub
                     ? undefined
                     : {
                         background: `linear-gradient(135deg, ${C_FS.ink} 0%, ${C_POP.purple} 55%, ${C_POP.magentaDeep} 100%)`,
@@ -1605,7 +1617,15 @@ const Pricing = () => {
                       }
                 }
               >
-                {isLoading ? 'Processing...' : currentTier === 'elite' ? 'Manage Subscription' : currentTier === 'pro' ? 'Upgrade to Elite' : 'Get Elite'}
+                {isLoading
+                  ? 'Processing...'
+                  : currentTier === 'elite' && hasRealStripeSub
+                    ? 'Manage Subscription'
+                    : currentTier === 'elite'
+                      ? 'Subscribe to Elite'
+                      : currentTier === 'pro'
+                        ? 'Upgrade to Elite'
+                        : 'Get Elite'}
               </button>
               )}
             </div>
