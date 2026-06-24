@@ -7,6 +7,7 @@ if (typeof window !== 'undefined') {
   if (posthogKey && posthogHost) {
     posthog.init(posthogKey, {
       api_host: posthogHost,
+      defaults: '2026-05-30',
 
       autocapture: true,
       capture_pageview: true,
