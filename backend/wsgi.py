@@ -324,6 +324,19 @@ def create_app() -> Flask:
     def llms():
         return send_from_directory(app.static_folder, 'llms.txt', mimetype='text/plain')
 
+    # Domain verification token for the OpenAI ChatGPT Apps directory.
+    # Returned at the .well-known path OpenAI's submission flow expects.
+    @app.route('/.well-known/openai-apps-challenge')
+    def openai_apps_challenge():
+        token = os.environ.get(
+            'OPENAI_APPS_CHALLENGE_TOKEN',
+            'kMyLrHsGzLSj1Of8pzrzlHuLKo9cXWhMbDnWF8rhgOA',
+        )
+        resp = make_response(token, 200)
+        resp.headers['Content-Type'] = 'text/plain; charset=utf-8'
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
+
     # --- 404 handler for SPA (catches all unmatched routes) ---
     @app.errorhandler(404)
     def not_found(e):
