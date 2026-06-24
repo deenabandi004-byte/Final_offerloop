@@ -758,6 +758,13 @@ export default function AccountSettings() {
         }
       });
 
+      // No stripeCustomerId on the user doc — admin-bumped or no-card trial.
+      // The portal can't help them; send them to /pricing to start a real sub.
+      if (response.status === 404) {
+        navigate('/pricing');
+        return;
+      }
+
       if (!response.ok) {
         throw new Error('Failed to create portal session');
       }

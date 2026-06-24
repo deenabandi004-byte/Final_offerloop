@@ -20,7 +20,7 @@ from app.services.gmail_client import _load_user_gmail_creds, download_resume_fr
 from app.services.resume_parser import extract_text_from_pdf_bytes
 from app.routes.gmail_oauth import build_gmail_oauth_url_for_user
 from app.services.auth import check_and_reset_credits, deduct_credits_atomic
-from app.config import TIER_CONFIGS
+from app.config import TIER_CONFIGS, CREDIT_COSTS
 from app.utils.exceptions import OfferloopException, InsufficientCreditsError, ExternalAPIError
 from app.utils.warmth_scoring import score_contacts_for_email, score_and_sort_contacts, build_briefing_line
 from app.utils.email_quality import check_email_quality, has_specificity_signal
@@ -803,7 +803,7 @@ def prompt_search():
                 # Still deduct credits and save contacts even though drafts failed
                 if db and user_id:
                     try:
-                        deduct_credits_atomic(user_id, 5 * len(contacts), "prompt_search")
+                        deduct_credits_atomic(user_id, CREDIT_COSTS['find_contact'] * len(contacts), "prompt_search")
                     except Exception:
                         pass
                 return jsonify({
@@ -820,7 +820,7 @@ def prompt_search():
         credits_remaining = None
         if db and user_id:
             try:
-                credits_amount = 5 * len(contacts)
+                credits_amount = CREDIT_COSTS['find_contact'] * len(contacts)
                 success, remaining = deduct_credits_atomic(user_id, credits_amount, "prompt_search")
                 if success:
                     credits_used = credits_amount

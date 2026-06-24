@@ -684,7 +684,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
 
   const maxBatchSize = useMemo(() => {
     const tierMax = userTier === 'free' ? 3 : userTier === 'pro' ? 8 : 15;
-    const creditMax = Math.floor(creditsView.balance / 5);
+    const creditMax = Math.floor(creditsView.balance / 10);
     return Math.min(tierMax, creditMax);
   }, [userTier, creditsView.balance]);
 

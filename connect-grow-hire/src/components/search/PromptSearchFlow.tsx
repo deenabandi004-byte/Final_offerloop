@@ -45,7 +45,7 @@ export const PromptSearchFlow: React.FC<PromptSearchFlowProps> = ({
   const maxBatchSize = useMemo(() => {
     // Get tier-specific max contacts: free=3, pro=8, elite=15
     const tierMax = userTier === 'free' ? 3 : userTier === 'pro' ? 8 : 15;
-    const creditMax = Math.floor((userCredits ?? 0) / 15);
+    const creditMax = Math.floor((userCredits ?? 0) / 10);
     return Math.min(tierMax, creditMax);
   }, [userTier, userCredits]);
 

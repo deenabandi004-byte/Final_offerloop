@@ -120,10 +120,9 @@ The active flow: user types NLP query → OpenAI parses → PDL (People Data Lab
 
 ### Credit System
 
-- **Cost**: 15 credits per contact returned
-- **Tiers**: Free (300 credits, 3 contacts/search), Pro (1500 credits, 8 contacts/search), Elite (3000 credits, 15 contacts/search)
-- **Deduction**: `firestore.Increment(-15 * len(contacts))` — NOT atomic
-- `deduct_credits_atomic()` exists in `auth.py` but is **never called** by any search endpoint
+- **Cost**: 10 credits per contact returned (bundled: find + verified email + AI draft)
+- **Tiers**: Free (300 credits, 3 contacts/search), Pro (2000 credits, 8 contacts/search), Elite (5000 credits, 15 contacts/search)
+- **Deduction**: `deduct_credits_atomic(uid, CREDIT_COSTS['find_contact'] * len(contacts), "prompt_search")` in `routes/runs.py`
 
 ### Bugs
 
