@@ -31,8 +31,9 @@ from app.services.gmail_client import create_gmail_draft_for_user, download_resu
 
 contact_import_bp = Blueprint('contact_import', __name__, url_prefix='/api/contacts')
 
-# Cost per imported contact
-CREDITS_PER_CONTACT = 15
+# Cost per imported contact (find + draft + search bundle — matches
+# CREDIT_COSTS['find_contact'] in app/config.py and prompt_search rate).
+CREDITS_PER_CONTACT = 10
 
 # Max contacts to enrich via PDL per import (LinkedIn URL -> email lookup)
 ENRICHMENT_CAP = 50
@@ -272,7 +273,7 @@ def preview_import():
 def import_contacts():
     """
     Import contacts from CSV/Excel file.
-    Deducts 15 credits per contact imported.
+    Deducts CREDITS_PER_CONTACT (10) credits per contact imported.
     Skips duplicates (by email or LinkedIn URL).
     """
     try:

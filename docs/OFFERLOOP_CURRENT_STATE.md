@@ -151,7 +151,7 @@
   - Import contacts from CSV or manually
   - Resume matching for better personalization (Pro+)
   - Batch size: 1-15 contacts (tier-dependent)
-- **Credit Cost:** 15 credits per contact
+- **Credit Cost:** 10 credits per contact
 - **Tier Access:** All (Free: up to 3 contacts per search, Pro: up to 8, Elite: up to 15)
 - **User Inputs:** Job title (required), company (optional), location (required), batch size, optional filters
 - **Outputs:** List of contacts with LinkedIn, email, title, company, location; AI-generated email drafts
@@ -178,7 +178,7 @@
   - Search for recruiters by company
   - Find hiring managers for specific roles
   - Generate contact information
-- **Credit Cost:** 15 credits per contact
+- **Credit Cost:** 10 credits per contact
 - **Tier Access:** All
 - **User Inputs:** Company name, role/job title
 - **Outputs:** List of recruiters/hiring managers with contact info
@@ -398,7 +398,7 @@
 
 #### Free Tier
 - **Price:** $0/month
-- **Monthly Credits:** 300 (~20 contacts)
+- **Monthly Credits:** 300 (~30 contacts)
 - **Max Credits:** 300
 - **Contacts Per Search:** Up to 3 contacts
 - **Coffee Chat Prep:** 3 preps (lifetime, not monthly)
@@ -421,8 +421,8 @@
 #### Pro Tier
 - **Price:** $14.99/month (shown as $9.99/month student pricing with strikethrough)
 - **Stripe Price ID:** `price_1ScLXrERY2WrVHp1bYgdMAu4`
-- **Monthly Credits:** 1,500 (~100 contacts)
-- **Max Credits:** 1,500
+- **Monthly Credits:** 2,000 (~200 contacts)
+- **Max Credits:** 2,000
 - **Contacts Per Search:** Up to 8 contacts
 - **Coffee Chat Prep:** 10/month (resets on billing cycle)
 - **Interview Prep:** 5/month (resets on billing cycle)
@@ -447,8 +447,8 @@
 #### Elite Tier
 - **Price:** $34.99/month
 - **Stripe Price ID:** `price_1ScLcfERY2WrVHp1c5rcONJ3`
-- **Monthly Credits:** 3,000 (~200 contacts)
-- **Max Credits:** 3,000
+- **Monthly Credits:** 5,000 (~500 contacts)
+- **Max Credits:** 5,000
 - **Contacts Per Search:** Up to 15 contacts
 - **Coffee Chat Prep:** Unlimited
 - **Interview Prep:** Unlimited
@@ -978,7 +978,7 @@ Scout has knowledge of all pages in the sidebar:
 
 #### Features Scout Knows About
 
-- Contact Search: 15 credits per contact, tier-based limits
+- Contact Search: 10 credits per contact, tier-based limits
 - Firm Search: 5 credits per firm, Pro+ only
 - Coffee Chat Prep: 15 credits per prep, tier-based monthly limits
 - Interview Prep: 25 credits per prep, tier-based monthly limits
@@ -989,8 +989,8 @@ Scout has knowledge of all pages in the sidebar:
 #### Credit System Scout Knows
 
 - Free: 300 credits/month, up to 3 contacts per search
-- Pro: 1,500 credits/month, up to 8 contacts per search
-- Elite: 3,000 credits/month, up to 15 contacts per search
+- Pro: 2,000 credits/month, up to 8 contacts per search
+- Elite: 5,000 credits/month, up to 15 contacts per search
 - Credits reset monthly (don't roll over)
 - Credit costs for each feature
 
@@ -1048,7 +1048,7 @@ Scout uses keyword matching to suggest routes:
 9. Emails are saved to Gmail drafts automatically (if Gmail connected)
 10. Save contacts to your directory for later
 
-**Credit cost:** 15 credits per contact
+**Credit cost:** 10 credits per contact
 
 **Tier requirements:** All tiers (Free: up to 3 contacts per search, Pro: up to 8, Elite: up to 15)
 
@@ -1236,7 +1236,7 @@ Scout uses keyword matching to suggest routes:
 1. Check your credits in the sidebar (shows current/max)
 2. Go to Pricing to upgrade your plan
 3. Credits reset monthly - check your reset date
-4. Pro ($14.99) gives 1,500 credits, Elite ($34.99) gives 3,000
+4. Pro ($14.99) gives 2,000 credits, Elite ($34.99) gives 5,000
 5. Free tier: 300 credits/month
 
 **Note:** Unused credits don't roll over - use them before they reset!
@@ -1452,7 +1452,7 @@ Scout uses keyword matching to suggest routes:
 
 - `COFFEE_CHAT_CREDITS = 15`
 - `INTERVIEW_PREP_CREDITS = 25`
-- Contact Search: 15 credits per contact (hardcoded in routes)
+- Contact Search: 10 credits per contact (CREDIT_COSTS['find_contact'] in config.py)
 - Firm Search: 5 credits per firm (`CREDITS_PER_FIRM = 5`)
 - Resume Optimization (Job Board): 20 credits (`OPTIMIZATION_CREDIT_COST = 20`)
 - Cover Letter (Job Board): 15 credits (`COVER_LETTER_CREDIT_COST = 15`)

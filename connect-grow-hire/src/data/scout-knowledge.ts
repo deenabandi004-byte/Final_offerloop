@@ -407,8 +407,8 @@ export const CREDIT_SYSTEM = {
     "Each action costs a specific number of credits",
     "Credits reset monthly based on your subscription date",
     "Free tier: 300 credits/month",
-    "Pro tier: 1,500 credits/month",
-    "Elite tier: 3,000 credits/month",
+    "Pro tier: 2,000 credits/month",
+    "Elite tier: 5,000 credits/month",
     "Unused credits don't roll over",
     "You can see your remaining credits in the sidebar"
   ]
@@ -438,7 +438,7 @@ export const TROUBLESHOOTING = {
       "Check your credits in the sidebar",
       "Go to Pricing to upgrade your plan",
       "Credits reset monthly - check your reset date",
-      "Pro ($9.99) gives 1,500 credits, Elite ($34.99) gives 3,000"
+      "Pro ($14.99) gives 2,000 credits, Elite ($34.99) gives 5,000"
     ]
   },
 

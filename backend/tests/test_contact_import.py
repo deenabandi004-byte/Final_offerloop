@@ -288,7 +288,7 @@ class TestDeduplication:
 
 class TestLimits:
     def test_credits_per_contact(self):
-        assert CREDITS_PER_CONTACT == 15
+        assert CREDITS_PER_CONTACT == 10
 
     def test_max_file_size(self):
         assert MAX_FILE_SIZE_BYTES == 5 * 1024 * 1024  # 5MB

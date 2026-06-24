@@ -71,7 +71,7 @@ export interface TierConfigPayload {
 const FALLBACK: TierConfigPayload = {
   tiers: FALLBACK_TIERS as unknown as Record<string, Record<string, unknown>>,
   credit_costs: {
-    find_contact: 5,
+    find_contact: 10,
     find_hiring_manager: 10,
     find_recruiter: 6,
     find_employee: 4,
@@ -132,10 +132,10 @@ const FALLBACK: TierConfigPayload = {
 
 // ---------- hook ----------
 
-// Bumped v6→v7 when all credit values doubled (10 cr = 1 email now). Same
-// dollar prices, same email outputs — just inflated credit numbers. Stale
-// localStorage with the v5/v6 numbers would dramatically misrepresent the math.
-const LS_KEY = 'offerloop:tier-config:v7';
+// Bumped v7→v8 when find_contact bundled cost standardized at 10 (was 5)
+// and Elite default tier cap dropped from 12000 to 5000. Stale localStorage
+// with the v7 numbers would misrepresent credit-per-email math by 2x.
+const LS_KEY = 'offerloop:tier-config:v8';
 
 function readLocalStorage(): TierConfigPayload | null {
   try {
@@ -249,14 +249,14 @@ export function seasonPassVisible(seasonPass: SeasonPassConfig, isNewUser: boole
 
 /**
  * Convert a credit allocation to the equivalent number of emails the user can
- * send, using the Find Contact bundled action cost (5 cr = 1 contact found +
+ * send, using the Find Contact bundled action cost (10 cr = 1 contact found +
  * verified email + AI draft = 1 outbound email). This is marketing math —
  * actual usage varies by feature mix (recruiters cost 6 cr, employees cost 4),
  * so this is a conservative estimate that holds for the standard flow.
  *
  * Tunable via the runtime `credit_costs.find_contact` if we change pricing.
  */
-export const DEFAULT_EMAIL_COST = 5;
+export const DEFAULT_EMAIL_COST = 10;
 
 export function emailsFromCredits(credits: number, costPerEmail: number = DEFAULT_EMAIL_COST): number {
   if (!costPerEmail || costPerEmail <= 0) return 0;
