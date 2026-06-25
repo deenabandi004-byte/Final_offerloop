@@ -597,7 +597,15 @@ def prompt_search():
                     return (item["index"], False)
                 # Attempt regeneration
                 original = {"subject": subject, "body": body}
-                improved = regenerate_with_feedback(contact, user_profile, original, result["failures"])
+                _regen_sender = (auth_display_name or (user_profile or {}).get("name") or "").strip()
+                improved = regenerate_with_feedback(
+                    contact,
+                    user_profile,
+                    original,
+                    result["failures"],
+                    sender_name=_regen_sender or None,
+                    signoff_config=signoff_config,
+                )
                 # Compare: pick the one that passes, or the one with fewer failures
                 improved_result = check_email_quality(improved["subject"], improved["body"], contact, _qg_user_university)
                 if improved_result["passed"] or len(improved_result["failures"]) < len(result["failures"]):

@@ -1492,6 +1492,8 @@ Would you be open to a brief chat?
                                 user_profile,
                                 {"subject": original["subject"], "body": original["body"]},
                                 ["batch_diversity"],
+                                sender_name=sender_name,
+                                signoff_config=signoff_config,
                             )
                             if improved.get("subject") and improved["subject"] != original["subject"]:
                                 cleaned_results[dup_idx]["subject"] = improved["subject"]
@@ -1886,7 +1888,8 @@ Return ONLY a JSON object:
 # Quality-gate regeneration (GPT-4o-mini, one attempt)
 # ---------------------------------------------------------------------------
 
-def regenerate_with_feedback(contact, user_profile, original_email, failures):
+def regenerate_with_feedback(contact, user_profile, original_email, failures,
+                             sender_name=None, signoff_config=None):
     """
     Attempt to fix a low-quality email using GPT-4o-mini.
 
@@ -1900,6 +1903,14 @@ def regenerate_with_feedback(contact, user_profile, original_email, failures):
         {"subject": str, "body": str}
     failures : list[str]
         Named quality failures from check_email_quality.
+    sender_name : str | None
+        Sender's display name. When provided, the regen prompt anchors identity and
+        instructs the model to preserve the sign-off block verbatim. Without this,
+        gpt-4o-mini has hallucinated unrelated names (e.g. "Nicholas Wittig") into
+        the signature line.
+    signoff_config : dict | None
+        Optional {"signoffPhrase": str, "signatureBlock": str}; used to render the
+        exact expected sign-off shown to the regen model.
 
     Returns
     -------
@@ -1956,10 +1967,28 @@ def regenerate_with_feedback(contact, user_profile, original_email, failures):
                 f"comma-spliced fragment like 'Currently a USC student studying X, and I saw...'."
             )
 
+    sender_block = ""
+    if sender_name:
+        try:
+            expected_signoff = _build_signature_block_for_prompt(
+                signoff_config,
+                {"name": sender_name},
+            )
+        except Exception:
+            expected_signoff = f"Best,\n{sender_name}"
+        sender_block = (
+            f"\nSENDER (do not invent a different name or signature):\n"
+            f"- Name: {sender_name}\n\n"
+            f"PRESERVE EXACTLY:\n"
+            f"- The sign-off block at the end of the email. Do not change the name or signature lines.\n"
+            f"  Expected sign-off:\n"
+            f"{expected_signoff}\n"
+        )
+
     prompt = f"""Improve this networking email. Fix ONLY the issues listed below. Keep the tone, structure, and intent.
 
 {format_banned_phrases_block()}
-
+{sender_block}
 ISSUES TO FIX:
 {chr(10).join(f'- {inst}' for inst in failure_instructions)}
 

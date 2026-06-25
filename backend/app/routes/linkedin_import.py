@@ -610,11 +610,14 @@ def import_from_linkedin():
                         qr = check_email_quality(email_subject, email_body, contact_for_email, qg_university)
                         if not qr['passed']:
                             print(f"[LinkedInImport] Quality gate failed ({qr['failures']}), regenerating...")
+                            _regen_sender = (auth_display_name or (user_profile or {}).get("name") or "").strip()
                             improved = regenerate_with_feedback(
                                 contact_for_email,
                                 user_profile,
                                 {"subject": email_subject, "body": email_body},
                                 qr['failures'],
+                                sender_name=_regen_sender or None,
+                                signoff_config=email_request.get("signoff_config") if isinstance(email_request, dict) else None,
                             )
                             improved_qr = check_email_quality(improved['subject'], improved['body'], contact_for_email, qg_university)
                             if improved_qr['passed'] or len(improved_qr['failures']) < len(qr['failures']):

@@ -107,3 +107,39 @@ class TestRegenerateWithFeedback:
             # Verify the prompt mentioned company for no_specificity
             prompt = mock_client.chat.completions.create.call_args[1]["messages"][0]["content"]
             assert "Goldman Sachs" in prompt
+
+    @patch("openai.OpenAI")
+    def test_sender_name_anchors_signoff(self, mock_openai_cls, contact, user_profile, original_email):
+        """When sender_name is passed, the prompt must anchor identity and pin the
+        sign-off — closing the leak that produced fabricated names in prod."""
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "SUBJECT: test\nBODY:\ntest"
+        mock_client.chat.completions.create.return_value = mock_response
+
+        regenerate_with_feedback(
+            contact, user_profile, original_email, ["too_short"],
+            sender_name="Deena Siddharth Bandi",
+            signoff_config={"signoffPhrase": "Best,", "signatureBlock": ""},
+        )
+        prompt = mock_client.chat.completions.create.call_args[1]["messages"][0]["content"]
+        assert "Deena Siddharth Bandi" in prompt
+        assert "PRESERVE EXACTLY" in prompt
+        assert "do not invent a different name" in prompt
+
+    @patch("openai.OpenAI")
+    def test_no_sender_block_when_sender_name_absent(self, mock_openai_cls, contact, user_profile, original_email):
+        """Backwards compat: without sender_name, prompt shape stays unchanged."""
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "SUBJECT: test\nBODY:\ntest"
+        mock_client.chat.completions.create.return_value = mock_response
+
+        regenerate_with_feedback(contact, user_profile, original_email, ["too_short"])
+        prompt = mock_client.chat.completions.create.call_args[1]["messages"][0]["content"]
+        assert "PRESERVE EXACTLY" not in prompt
+        assert "SENDER (do not invent" not in prompt
