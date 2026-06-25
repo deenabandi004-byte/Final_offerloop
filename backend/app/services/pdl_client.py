@@ -943,6 +943,32 @@ COMPANY_DOMAIN_MAP = {
     "oracle": "oracle.com",
     "salesforce": "salesforce.com",
     "adobe": "adobe.com",
+    # Automotive
+    "bmw": "bmwgroup.com",
+    "bmw group": "bmwgroup.com",
+    "mercedes": "mercedes-benz.com",
+    "mercedes-benz": "mercedes-benz.com",
+    "mercedes benz": "mercedes-benz.com",
+    "rivian": "rivian.com",
+    "ford": "ford.com",
+    "gm": "gm.com",
+    "general motors": "gm.com",
+    "toyota": "toyota.com",
+    "hyundai": "hyundai.com",
+    "honda": "honda.co.jp",
+    "koenigsegg": "koenigsegg.com",
+    # Defense / aerospace
+    "northrop": "northropgrumman.com",
+    "northrop grumman": "northropgrumman.com",
+    "raytheon": "raytheon.com",
+    "rtx": "rtx.com",
+    "lockheed": "lockheedmartin.com",
+    "lockheed martin": "lockheedmartin.com",
+    "boeing": "boeing.com",
+    "general dynamics": "gd.com",
+    "l3harris": "l3harris.com",
+    "ti": "ti.com",
+    "texas instruments": "ti.com",
 }
 
 
