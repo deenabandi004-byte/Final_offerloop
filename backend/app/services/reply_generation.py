@@ -941,6 +941,8 @@ ABOUT THE SENDER:
 CONTACTS:
 {chr(10).join(enriched_contact_contexts)}"""
             signature_block_prompt = _build_signature_block_for_prompt(signoff_config, user_info)
+            logger.info("[EMAIL-GEN] Claude signature block: %r (user_info.name=%r)",
+                         signature_block_prompt, user_info.get("name"))
 
             # Build tone guidance driven by the dominant warmth tier
             dominant_tier = max(tier_counts, key=tier_counts.get) if any(tier_counts.values()) else "cold"
@@ -1076,8 +1078,13 @@ COMMON-GROUND DISCOVERY (warm-cold conversion):
    - "Up for a quick 15-min conversation in the next two weeks?"
    - "Free for a 15-minute call sometime this month?"
    NEVER use "Would you have X minutes," "do you have time," "any chance you'd," or any permission-seeking phrasing. Vary the phrasing across the batch — don't reuse the same ask twice.
-{resume_line_section}SIGNATURE (REQUIRED - every email MUST end with this):
+{resume_line_section}SIGNATURE (REQUIRED - every email MUST end with EXACTLY this block, verbatim):
 {signature_block_prompt}
+
+DO NOT invent a different sender name. DO NOT append a company tag, a domain, or
+"| Offerloop.ai" or anything similar. The signature block above is the entire
+sign-off — nothing more, nothing less. The name in the signature must match the
+sender introduced in the email body.
 
 ===== SUBJECT LINES =====
 {f'Use this subject line pattern (personalize per recipient): "{subject_line}"' if subject_line else """Personalize each subject line to the specific contact and relationship:
