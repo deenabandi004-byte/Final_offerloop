@@ -561,6 +561,9 @@ def import_from_linkedin():
         email_personalization = None
         quality_regenerated = False
         draft_result = None
+        warmth_data = {}  # only populated when an email is generated below; keep
+                          # bound so the warmth_entry read after this block is safe
+                          # even when no email is found (has_email == False)
 
         if has_email:
             print(f"[LinkedInImport] Step 6: Generating personalized email...")
