@@ -19,6 +19,57 @@ from ..extensions import get_db
 resume_bp = Blueprint('resume', __name__, url_prefix='/api')
 
 
+# --- Abuse backstop for /parse-resume -----------------------------------------
+# /parse-resume is intentionally UNAUTHENTICATED (resumes are parsed during
+# signup, before the account exists), and it calls OpenAI on every request. That
+# makes it the one place a stranger can drive our OpenAI spend. Two guards:
+#
+#   1. A hard cap on the text length we ever send to the model, so each call's
+#      cost is bounded no matter what file is uploaded.
+#   2. A tight per-IP sliding window (a real user parses a resume once or twice
+#      during onboarding; these caps only bite scripts). The global limiter
+#      (500/hr) is far too loose for an unauthenticated paid endpoint.
+#
+# The window is in-memory + per-gunicorn-worker, so the effective ceiling is
+# roughly (caps × worker count) — fine as a backstop, not exact accounting.
+import time as _time
+from collections import deque
+from flask_limiter.util import get_remote_address
+
+# A resume is a few pages; ~24k chars comfortably covers even a dense CV while
+# capping the worst-case token bill of one parse.
+MAX_RESUME_CHARS = 24_000
+
+_parse_hits: dict[str, deque] = {}
+_PARSE_PER_MIN = 3       # parses / 60s per IP
+_PARSE_PER_HOUR = 10     # parses / 3600s per IP
+
+
+def _parse_rate_limited(ip: str) -> bool:
+    """Record a hit for ip and return True if it exceeds the per-minute or
+    per-hour cap. Sliding window over request timestamps; prunes as it goes."""
+    if not ip:
+        return False
+    now = _time.time()
+    dq = _parse_hits.get(ip)
+    if dq is None:
+        dq = deque()
+        _parse_hits[ip] = dq
+    while dq and now - dq[0] > 3600:
+        dq.popleft()
+    if len(dq) >= _PARSE_PER_HOUR:
+        return True
+    last_min = sum(1 for t in dq if now - t <= 60)
+    if last_min >= _PARSE_PER_MIN:
+        return True
+    dq.append(now)
+    # Opportunistic cleanup so the dict doesn't grow unbounded across many IPs.
+    if len(_parse_hits) > 5000:
+        for k in [k for k, v in _parse_hits.items() if not v or now - v[-1] > 3600]:
+            _parse_hits.pop(k, None)
+    return False
+
+
 def upload_resume_to_firebase_storage(user_id, file):
     """Upload resume to Firebase Storage"""
     try:
@@ -195,11 +246,19 @@ def parse_resume():
     """Parse uploaded resume (PDF, DOCX, or DOC), upload to storage, and extract user information"""
     try:
         from datetime import datetime
-        
+
         print("=" * 60)
         print("📋 RESUME UPLOAD & PARSING")
         print("=" * 60)
-        
+
+        # Abuse backstop: this endpoint is unauthenticated and calls OpenAI, so
+        # throttle per-IP before doing any expensive work.
+        if _parse_rate_limited(get_remote_address()):
+            print("⛔ parse-resume rate limit hit")
+            return jsonify({
+                'error': 'Too many resume uploads. Please wait a bit and try again.'
+            }), 429
+
         # Validate file exists
         if 'resume' not in request.files:
             print("❌ No resume file in request")
@@ -234,7 +293,13 @@ def parse_resume():
             }), 400
         
         print(f"✅ Extracted {len(resume_text)} characters")
-        
+
+        # Cap the text sent to the model so one upload can't run up an
+        # unbounded OpenAI bill (a real resume is far under this).
+        if len(resume_text) > MAX_RESUME_CHARS:
+            print(f"✂️  Truncating resume text {len(resume_text)} -> {MAX_RESUME_CHARS} chars before parsing")
+            resume_text = resume_text[:MAX_RESUME_CHARS]
+
         # Parse user info
         print("🔍 Parsing resume info...")
         parsed_info = parse_resume_info(resume_text)

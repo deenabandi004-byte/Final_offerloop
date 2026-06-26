@@ -1211,3 +1211,30 @@ def admin_metering_ping():
     if not _is_admin(uid):
         return jsonify({"error": "forbidden"}), 403
     return jsonify({"ok": True, "uid": uid, "admin": True}), 200
+
+
+@runs_bp.route("/admin/spend-check", methods=["POST", "GET"])
+def admin_spend_check():
+    """
+    Run the provider-spend safeguard: total today + month-to-date spend and fire
+    a Telegram alert on any newly-crossed budget threshold (50/80/100%).
+
+    Auth is a shared secret (header `X-Spend-Token` or `?token=`) matching the
+    SPEND_CHECK_TOKEN env var, so a GitHub Actions cron can hit it without a
+    Firebase session. Fails closed if the token isn't configured.
+
+    `?force=1` re-sends the current highest threshold even if already alerted
+    (manual test). `?dry=1` returns the spend snapshot without sending alerts.
+    """
+    import os as _os
+    expected = _os.environ.get("SPEND_CHECK_TOKEN")
+    provided = request.headers.get("X-Spend-Token") or request.args.get("token")
+    if not expected or provided != expected:
+        return jsonify({"error": "forbidden"}), 403
+
+    from app.services.spend_alerts import check_and_alert, compute_spend
+    if request.args.get("dry") in ("1", "true"):
+        return jsonify({"ok": True, "dry_run": True, "spend": compute_spend()}), 200
+
+    force = request.args.get("force") in ("1", "true")
+    return jsonify(check_and_alert(force=force)), 200

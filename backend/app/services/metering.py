@@ -65,6 +65,142 @@ PROVIDER_RATES: Dict[str, Dict[str, float]] = {
 
 
 # ---------------------------------------------------------------------------
+# LLM rate sheet (token-based, USD per 1M tokens)
+#
+# OpenAI + Anthropic list prices. Keys are matched by longest startswith() so a
+# dated model id ("gpt-4o-mini-2024-07-18", "claude-sonnet-4-6-20250...") maps
+# to its base rate. Unknown models cost $0 (honest floor — no fake numbers; the
+# model is logged so we can add it). `cached_input` defaults to `input` when a
+# model has no separate cached rate.
+# ---------------------------------------------------------------------------
+
+LLM_RATES: Dict[str, Dict[str, float]] = {
+    # OpenAI
+    "gpt-4o-mini":             {"input": 0.15,  "cached_input": 0.075, "output": 0.60},
+    "gpt-4o":                  {"input": 2.50,  "cached_input": 1.25,  "output": 10.00},
+    "gpt-4-turbo":             {"input": 10.00, "cached_input": 10.00, "output": 30.00},
+    "gpt-4.1-mini":            {"input": 0.40,  "cached_input": 0.10,  "output": 1.60},
+    "gpt-4.1":                 {"input": 2.00,  "cached_input": 0.50,  "output": 8.00},
+    "gpt-4":                   {"input": 30.00, "cached_input": 30.00, "output": 60.00},
+    "text-embedding-3-small":  {"input": 0.02,  "cached_input": 0.02,  "output": 0.0},
+    "text-embedding-3-large":  {"input": 0.13,  "cached_input": 0.13,  "output": 0.0},
+    # Anthropic (Claude). Cache reads bill at ~0.1x input.
+    "claude-sonnet-4":         {"input": 3.00,  "cached_input": 0.30,  "output": 15.00},
+    "claude-3-5-sonnet":       {"input": 3.00,  "cached_input": 0.30,  "output": 15.00},
+    "claude-3-5-haiku":        {"input": 0.80,  "cached_input": 0.08,  "output": 4.00},
+    "claude-opus-4":           {"input": 15.00, "cached_input": 1.50,  "output": 75.00},
+}
+
+
+def _llm_rate(model: str) -> Optional[Dict[str, float]]:
+    """Longest-prefix match a model id to its rate sheet entry."""
+    if not model:
+        return None
+    best_key = ""
+    for key in LLM_RATES:
+        if model.startswith(key) and len(key) > len(best_key):
+            best_key = key
+    return LLM_RATES.get(best_key) if best_key else None
+
+
+def llm_cost_usd(model: str, input_tokens: int, cached_input_tokens: int, output_tokens: int) -> float:
+    """USD cost of one LLM call. Cached input tokens bill at the cached rate."""
+    rate = _llm_rate(model or "")
+    if not rate:
+        return 0.0
+    uncached = max(0, int(input_tokens) - int(cached_input_tokens))
+    return round(
+        uncached / 1_000_000 * rate["input"]
+        + int(cached_input_tokens) / 1_000_000 * rate.get("cached_input", rate["input"])
+        + int(output_tokens) / 1_000_000 * rate["output"],
+        8,
+    )
+
+
+def _tokens_from_usage(usage: Any) -> Tuple[int, int, int]:
+    """
+    Extract (input, cached_input, output) tokens from an OpenAI or Anthropic
+    usage object (or a plain dict). Returns zeros if the shape is unrecognized.
+    """
+    if usage is None:
+        return 0, 0, 0
+
+    def _get(obj, name, default=0):
+        if isinstance(obj, dict):
+            return obj.get(name, default)
+        return getattr(obj, name, default)
+
+    # OpenAI: prompt_tokens / completion_tokens / prompt_tokens_details.cached_tokens
+    inp = _get(usage, "prompt_tokens", None)
+    out = _get(usage, "completion_tokens", None)
+    if inp is not None or out is not None:
+        cached = 0
+        details = _get(usage, "prompt_tokens_details", None)
+        if details is not None:
+            cached = _get(details, "cached_tokens", 0) or 0
+        return int(inp or 0), int(cached or 0), int(out or 0)
+
+    # Anthropic: input_tokens / output_tokens / cache_read_input_tokens
+    inp = _get(usage, "input_tokens", None)
+    out = _get(usage, "output_tokens", None)
+    if inp is not None or out is not None:
+        cached = _get(usage, "cache_read_input_tokens", 0) or 0
+        return int(inp or 0), int(cached or 0), int(out or 0)
+
+    return 0, 0, 0
+
+
+def log_llm_usage(
+    provider: str,
+    model: str,
+    usage: Any,
+    *,
+    latency_ms: int = 0,
+    status: str = "ok",
+    error_msg: Optional[str] = None,
+) -> None:
+    """
+    Record one LLM call into the same `provider_calls` collection the data
+    providers use, so spend dashboards + alerts see OpenAI/Claude too.
+
+    Best-effort: never raises, never adds user-visible latency (Firestore write
+    happens on a daemon thread). `usage` is the raw `.usage` off an OpenAI or
+    Anthropic response; pass None to log a failed/streamed call as a 0-cost row.
+    """
+    try:
+        inp, cached, out = _tokens_from_usage(usage)
+        total = inp + out
+        # Nothing useful to record (e.g. a streamed response with no usage).
+        if total == 0 and status == "ok":
+            return
+        cost = llm_cost_usd(model, inp, cached, out)
+        payload = {
+            "provider": provider,
+            "endpoint": model or "unknown",
+            "user_id": _get_g("user_id", "unknown"),
+            "search_id": _get_g("search_id"),
+            "returned_records": 0,
+            "credits_charged": total,          # for LLMs, "credits" == total tokens
+            "input_tokens": inp,
+            "cached_input_tokens": cached,
+            "output_tokens": out,
+            "est_cost_usd": cost,
+            "cache_hit": cached > 0,
+            "latency_ms": int(latency_ms),
+            "status": status,
+            "error_msg": error_msg,
+        }
+        threading.Thread(
+            target=_safe_write,
+            args=(payload,),
+            daemon=True,
+            name=f"meter-{provider}",
+        ).start()
+    except Exception as meter_err:  # noqa: BLE001 - metering must never break a call
+        logger.warning("LLM metering failed: %s", meter_err)
+
+
+# ---------------------------------------------------------------------------
 # Decorator
 # ---------------------------------------------------------------------------
 

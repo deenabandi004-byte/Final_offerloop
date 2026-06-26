@@ -1,14 +1,125 @@
 """
 OpenAI and Anthropic client service - email generation and AI operations
 """
+import logging
+import time
+
 from openai import OpenAI, AsyncOpenAI
 import httpx
 from backend.app.config import OPENAI_API_KEY, CLAUDE_API_KEY
 
+logger = logging.getLogger("openai_client")
+
+
+# ---------------------------------------------------------------------------
+# Auto-metering
+#
+# Every caller resolves to one of the singletons built below (either via the
+# get_*_client() getters or `from openai_client import client`). Wrapping the
+# `.create` boundary once here means all ~50 call sites get token + cost
+# logging into the `provider_calls` collection with zero per-site edits.
+#
+# Perplexity builds its OWN OpenAI(base_url=...) client elsewhere, so it is not
+# touched here and never double-counted as OpenAI spend.
+#
+# Streamed responses carry no usage object, so they log nothing (Scout, which
+# streams, has its own per-turn metrics in scout/metrics.py). Everything is
+# try/except'd: metering must never break a model call.
+# ---------------------------------------------------------------------------
+
+
+def _install_sync_meter(c, provider: str):
+    """Patch a sync OpenAI/Anthropic client's create() to log token usage."""
+    if c is None:
+        return c
+    try:
+        if provider == "anthropic":
+            target = c.messages
+        else:
+            target = c.chat.completions
+        original = target.create
+
+        def metered_create(*args, **kwargs):
+            t0 = time.time()
+            resp = original(*args, **kwargs)
+            try:
+                from app.services.metering import log_llm_usage
+                log_llm_usage(
+                    provider,
+                    kwargs.get("model", ""),
+                    getattr(resp, "usage", None),
+                    latency_ms=int((time.time() - t0) * 1000),
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            return resp
+
+        target.create = metered_create
+
+        # client.with_options(...)/copy() build a fresh client whose resources
+        # bypass the patch above; re-install the meter on any derived client.
+        if hasattr(c, "copy"):
+            orig_copy = c.copy
+
+            def metered_copy(*args, **kwargs):
+                return _install_sync_meter(orig_copy(*args, **kwargs), provider)
+
+            c.copy = metered_copy
+            c.with_options = metered_copy
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Could not install %s sync meter: %s", provider, e)
+    return c
+
+
+def _install_async_meter(c, provider: str):
+    """Patch an async OpenAI/Anthropic client's create() to log token usage."""
+    if c is None:
+        return c
+    try:
+        if provider == "anthropic":
+            target = c.messages
+        else:
+            target = c.chat.completions
+        original = target.create
+
+        async def metered_create(*args, **kwargs):
+            t0 = time.time()
+            resp = await original(*args, **kwargs)
+            try:
+                from app.services.metering import log_llm_usage
+                log_llm_usage(
+                    provider,
+                    kwargs.get("model", ""),
+                    getattr(resp, "usage", None),
+                    latency_ms=int((time.time() - t0) * 1000),
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            return resp
+
+        target.create = metered_create
+
+        # with_options(...)/copy() build a fresh client; re-meter the derived one.
+        if hasattr(c, "copy"):
+            orig_copy = c.copy
+
+            def metered_copy(*args, **kwargs):
+                return _install_async_meter(orig_copy(*args, **kwargs), provider)
+
+            c.copy = metered_copy
+            c.with_options = metered_copy
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Could not install %s async meter: %s", provider, e)
+    return c
+
 try:
     import anthropic
-    _anthropic_client = anthropic.Anthropic(api_key=CLAUDE_API_KEY) if CLAUDE_API_KEY else None
-    _anthropic_async_client = anthropic.AsyncAnthropic(api_key=CLAUDE_API_KEY) if CLAUDE_API_KEY else None
+    _anthropic_client = _install_sync_meter(
+        anthropic.Anthropic(api_key=CLAUDE_API_KEY) if CLAUDE_API_KEY else None, "anthropic"
+    )
+    _anthropic_async_client = _install_async_meter(
+        anthropic.AsyncAnthropic(api_key=CLAUDE_API_KEY) if CLAUDE_API_KEY else None, "anthropic"
+    )
 except ImportError:
     _anthropic_client = None
     _anthropic_async_client = None
@@ -38,6 +149,7 @@ client = OpenAI(
         limits=_httpx_limits,
     ) if OPENAI_API_KEY else None
 ) if OPENAI_API_KEY else None
+client = _install_sync_meter(client, "openai")
 
 # For async client, create a factory function that creates a new client each time
 # This avoids connection pool issues with long-running requests
@@ -45,7 +157,7 @@ def create_async_openai_client():
     """Create a new AsyncOpenAI client with proper connection pool settings"""
     if not OPENAI_API_KEY:
         return None
-    return AsyncOpenAI(
+    return _install_async_meter(AsyncOpenAI(
         api_key=OPENAI_API_KEY,
         timeout=300.0,  # 5 minutes default timeout
         max_retries=2,
@@ -53,7 +165,7 @@ def create_async_openai_client():
             timeout=_httpx_timeout,
             limits=_httpx_limits,
         ),
-    )
+    ), "openai")
 
 # Create initial async client (but we'll create new ones for long-running requests)
 async_client = create_async_openai_client()

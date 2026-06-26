@@ -33,6 +33,15 @@ FLASK_SECRET = os.getenv("FLASK_SECRET", "dev")
 BROWSERBASE_API_KEY = os.getenv("BROWSERBASE_API_KEY", "")
 BROWSERBASE_PROJECT_ID = os.getenv("BROWSERBASE_PROJECT_ID", "")
 
+# Provider-spend alerting (see app/services/spend_alerts.py).
+# Budgets are USD; the spend monitor alerts at 50/80/100% of each. 0 = disabled.
+# SPEND_CHECK_TOKEN guards the cron-triggered /api/admin/spend-check endpoint.
+# Telegram alerts reuse TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (same as the
+# reddit scanner). All read at call-time via os.getenv in spend_alerts.py.
+SPEND_DAILY_ALERT_USD = float(os.getenv("SPEND_DAILY_ALERT_USD") or 0)
+SPEND_MONTHLY_ALERT_USD = float(os.getenv("SPEND_MONTHLY_ALERT_USD") or 0)
+SPEND_CHECK_TOKEN = os.getenv("SPEND_CHECK_TOKEN", "")
+
 # Gmail push notifications (Pub/Sub)
 GOOGLE_CLOUD_PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT_ID", "offerloop-native")
 GMAIL_PUBSUB_TOPIC = os.getenv("GMAIL_PUBSUB_TOPIC", "projects/offerloop-native/topics/gmail-notifications")
