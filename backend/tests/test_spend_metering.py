@@ -87,7 +87,8 @@ class TestCheckAndAlert:
     def _patch(self, monkeypatch, today, mtd, state):
         import backend.app.services.spend_alerts as sa
         sent = []
-        monkeypatch.setattr(sa, "send_telegram", lambda m: (sent.append(m), True)[1])
+        monkeypatch.setattr(sa, "_dispatch_alert",
+                            lambda subject, html, text: (sent.append(subject), True)[1])
         monkeypatch.setattr(sa, "_db", lambda: object())
         monkeypatch.setattr(sa, "_read_state", lambda db: dict(state))
         monkeypatch.setattr(sa, "_write_state", lambda db, s: (state.clear(), state.update(s)))
@@ -128,3 +129,23 @@ class TestCheckAndAlert:
         r = sa.check_and_alert()
         assert r["alerts_fired"] == []
         assert sent == []
+
+
+class TestRecipientsAndFormat:
+    def test_default_recipient_is_support(self, monkeypatch):
+        import backend.app.services.spend_alerts as sa
+        monkeypatch.delenv("SPEND_ALERT_EMAILS", raising=False)
+        assert sa._recipients() == ["support@offerloop.ai"]
+
+    def test_custom_recipients_parsed(self, monkeypatch):
+        import backend.app.services.spend_alerts as sa
+        monkeypatch.setenv("SPEND_ALERT_EMAILS", "a@x.com, b@y.com ,")
+        assert sa._recipients() == ["a@x.com", "b@y.com"]
+
+    def test_format_alert_returns_subject_html_text(self):
+        import backend.app.services.spend_alerts as sa
+        subject, html, text = sa._format_alert("Today", "2026-06-25", 1.0, 120.0, 100.0,
+                                               {"openai": 90.0, "pdl": 30.0})
+        assert "100%" in subject and "$120.00" in subject
+        assert "<h2>" in html and "openai: $90.00" in html
+        assert "openai: $90.00" in text.replace("  - ", "")

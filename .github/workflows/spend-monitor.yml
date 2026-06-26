@@ -1,10 +1,10 @@
 name: Provider Spend Monitor
 
 # Hits the backend's spend-check endpoint, which totals today + month-to-date
-# provider spend (PDL / Hunter / OpenAI / Claude / Scout) and fires a Telegram
-# alert on any newly-crossed budget threshold (50/80/100%). The budgets live in
-# Render env (SPEND_DAILY_ALERT_USD / SPEND_MONTHLY_ALERT_USD); this job only
-# triggers the check on a schedule.
+# provider spend (PDL / Hunter / OpenAI / Claude / Scout) and emails the team
+# (SPEND_ALERT_EMAILS, default support@offerloop.ai) on any newly-crossed budget
+# threshold (50/80/100%). The budgets live in Render env (SPEND_DAILY_ALERT_USD /
+# SPEND_MONTHLY_ALERT_USD); this job only triggers the check on a schedule.
 
 on:
   schedule:

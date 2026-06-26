@@ -35,11 +35,13 @@ BROWSERBASE_PROJECT_ID = os.getenv("BROWSERBASE_PROJECT_ID", "")
 
 # Provider-spend alerting (see app/services/spend_alerts.py).
 # Budgets are USD; the spend monitor alerts at 50/80/100% of each. 0 = disabled.
+# Alerts email SPEND_ALERT_EMAILS (default support@offerloop.ai → whole team) via
+# the Resend pipeline; Telegram is an optional backup (only if TELEGRAM_CHAT_ID set).
 # SPEND_CHECK_TOKEN guards the cron-triggered /api/admin/spend-check endpoint.
-# Telegram alerts reuse TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (same as the
-# reddit scanner). All read at call-time via os.getenv in spend_alerts.py.
+# All read at call-time via os.getenv in spend_alerts.py.
 SPEND_DAILY_ALERT_USD = float(os.getenv("SPEND_DAILY_ALERT_USD") or 0)
 SPEND_MONTHLY_ALERT_USD = float(os.getenv("SPEND_MONTHLY_ALERT_USD") or 0)
+SPEND_ALERT_EMAILS = os.getenv("SPEND_ALERT_EMAILS", "support@offerloop.ai")
 SPEND_CHECK_TOKEN = os.getenv("SPEND_CHECK_TOKEN", "")
 
 # Gmail push notifications (Pub/Sub)

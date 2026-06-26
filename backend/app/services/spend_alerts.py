@@ -10,17 +10,23 @@ Spend comes from two Firestore collections that already log real, computed cost:
   - `scout_metrics`   — Scout's own per-turn OpenAI cost
 
 When today's or the month's spend crosses a configured budget threshold
-(50% / 80% / 100%), fire a Telegram alert to the founder chat. Each threshold
-fires at most once per period (deduped via the `system/spend_alert_state` doc)
-so a cron hitting this every few hours never spams.
+(50% / 80% / 100%), email the founders. Each threshold fires at most once per
+period (deduped via the `system/spend_alert_state` doc) so a cron hitting this
+every few hours never spams.
+
+Email is the primary channel — it reuses the existing Resend pipeline
+(notification_adapter) and goes to SPEND_ALERT_EMAILS (default support@offerloop.ai,
+which fans out to the whole team). Telegram is kept only as an optional silent
+backup, fired solely when TELEGRAM_CHAT_ID is configured.
 
 This module NEVER raises — a monitoring failure must not take anything down.
 
 ENV
   SPEND_DAILY_ALERT_USD     daily budget (alert at 50/80/100%). 0/unset = off.
   SPEND_MONTHLY_ALERT_USD   month-to-date budget. 0/unset = off.
-  TELEGRAM_BOT_TOKEN        reused from the reddit scanner.
-  TELEGRAM_CHAT_ID          reused from the reddit scanner.
+  SPEND_ALERT_EMAILS        comma-separated recipients (default support@offerloop.ai).
+  TELEGRAM_BOT_TOKEN        optional backup; reused from the reddit scanner.
+  TELEGRAM_CHAT_ID          optional backup; if set, also pings Telegram.
 """
 from __future__ import annotations
 
@@ -125,21 +131,26 @@ def _write_state(db, state: Dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Telegram (same channel/secrets as the reddit scanner)
+# Alert dispatch — email primary (Resend), Telegram optional backup
 # ---------------------------------------------------------------------------
 
 
+def _recipients() -> List[str]:
+    raw = os.getenv("SPEND_ALERT_EMAILS", "support@offerloop.ai")
+    return [e.strip() for e in raw.split(",") if e.strip()]
+
+
 def send_telegram(message: str) -> bool:
+    """Optional backup channel. Only fires if a Telegram chat is configured."""
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
     if not token or not chat_id:
-        logger.warning("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set — alert:\n%s", message)
         return False
     try:
         import requests
         resp = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": message, "parse_mode": "HTML"},
+            json={"chat_id": chat_id, "text": message},
             timeout=15,
         )
         return resp.ok
@@ -148,20 +159,55 @@ def send_telegram(message: str) -> bool:
         return False
 
 
+def _dispatch_alert(subject: str, html_body: str, text_body: str) -> bool:
+    """Email every recipient via the existing Resend pipeline; also ping
+    Telegram if (and only if) a backup chat is configured. Best-effort."""
+    sent_any = False
+    try:
+        from app.services.notification_adapter import send, Channel
+        for rcpt in _recipients():
+            try:
+                res = send(Channel.EMAIL, rcpt, subject, html_body, text_body)
+                sent_any = bool(getattr(res, "success", False)) or sent_any
+            except Exception as e:  # noqa: BLE001
+                logger.warning("spend alert email to %s failed: %s", rcpt, e)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("spend alert email dispatch failed: %s", e)
+
+    if os.getenv("TELEGRAM_CHAT_ID"):
+        sent_any = send_telegram(text_body) or sent_any
+
+    if not sent_any:
+        logger.warning("spend alert had no working channel — alert:\n%s", text_body)
+    return sent_any
+
+
 def _format_alert(window: str, period_key: str, frac: float, spend: float,
-                  budget: float, by_provider: Dict[str, float]) -> str:
+                  budget: float, by_provider: Dict[str, float]):
+    """Return (subject, html_body, text_body) for one alert."""
     pct = int(round(frac * 100))
     siren = "🔴" if frac >= 1.0 else ("🟠" if frac >= 0.8 else "🟡")
-    lines = [
-        f"{siren} <b>Offerloop spend alert — {window} at {pct}% of budget</b>",
+    subject = f"{siren} Offerloop spend alert — {window} at {pct}% of budget (${spend:,.2f}/${budget:,.2f})"
+
+    rows = [(prov, cost) for prov, cost in list(by_provider.items())[:8] if cost > 0]
+    text_lines = [
+        subject,
         f"${spend:,.2f} / ${budget:,.2f}  ({period_key})",
         "",
         "By provider:",
-    ]
-    for prov, cost in list(by_provider.items())[:8]:
-        if cost > 0:
-            lines.append(f"  • {prov}: ${cost:,.2f}")
-    return "\n".join(lines)
+    ] + [f"  - {prov}: ${cost:,.2f}" for prov, cost in rows]
+    text_body = "\n".join(text_lines)
+
+    html_rows = "".join(f"<li>{prov}: ${cost:,.2f}</li>" for prov, cost in rows)
+    html_body = (
+        f"<h2>{siren} Offerloop spend alert</h2>"
+        f"<p><b>{window}</b> spend has reached <b>{pct}%</b> of budget "
+        f"(<b>${spend:,.2f}</b> / ${budget:,.2f}) for {period_key}.</p>"
+        f"<p>By provider:</p><ul>{html_rows}</ul>"
+        f"<p style='color:#888;font-size:12px'>Automated by the spend monitor. "
+        f"Live numbers: GET /api/admin/spend-check?dry=1</p>"
+    )
+    return subject, html_body, text_body
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +248,8 @@ def check_and_alert(force: bool = False) -> Dict[str, Any]:
         st = state.get(kind) or {}
         already = st.get("level", 0.0) if st.get("period") == period_key else 0.0
         if frac > already or force:
-            sent = send_telegram(_format_alert(label, period_key, frac, total, budget, by_prov))
+            subject, html_body, text_body = _format_alert(label, period_key, frac, total, budget, by_prov)
+            sent = _dispatch_alert(subject, html_body, text_body)
             fired.append({"kind": kind, "level": frac, "spend": total, "budget": budget, "sent": sent})
             state[kind] = {"period": period_key, "level": frac, "alerted_at": now.isoformat()}
 
