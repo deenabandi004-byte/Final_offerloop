@@ -356,28 +356,61 @@ def notifications():
     return jsonify({'items': items, 'unreadCount': unread}), 200
 
 
+def _clean_str_list(value, cap=20):
+    """Dedupe + trim a list of strings, dropping blanks. Returns None if the
+    input isn't a list (so callers can tell 'omitted' from 'empty')."""
+    if not isinstance(value, list):
+        return None
+    out = []
+    for x in value:
+        s = str(x).strip()
+        if s and s not in out:
+            out.append(s)
+    return out[:cap]
+
+
 @mobile_bp.post('/preferences')
 @require_firebase_auth
 def save_preferences():
-    """Save the user's job location preferences. The feed already reads
-    preferredLocations as a soft geo ranking signal (jobs.py _signals +
-    job_board ranking), so setting it here improves feed relevance without
-    touching the ranking engine. Soft, not a hard filter — off-location jobs
-    still surface for swipe volume."""
+    """Persist onboarding + preference answers onto the user doc. Each field is
+    optional, so the mobile onboarding can POST them independently:
+      - preferredLocations — soft geo ranking signal the feed already reads
+        (jobs.py _signals + job_board ranking). Soft, not a hard filter.
+      - targetRoles / industries — the onboarding goal (IB / Consulting / Tech);
+        /me already surfaces these and the feed ranks against them.
+      - referralSource — acquisition attribution ("How did you hear about us?").
+    Only the fields present in the body are written (merge=True), so a
+    locations-only or goal-only POST never clobbers the others."""
     db = get_db()
     uid = request.firebase_user['uid']
     data = request.get_json(silent=True) or {}
-    locs = data.get('preferredLocations')
-    if not isinstance(locs, list):
-        return jsonify({'error': 'preferredLocations must be a list'}), 400
-    clean = []
-    for x in locs:
-        s = str(x).strip()
-        if s and s not in clean:
-            clean.append(s)
-    clean = clean[:20]
-    db.collection('users').document(uid).set({'preferredLocations': clean}, merge=True)
-    return jsonify({'ok': True, 'preferredLocations': clean}), 200
+
+    patch = {}
+    if 'preferredLocations' in data:
+        locs = _clean_str_list(data.get('preferredLocations'))
+        if locs is None:
+            return jsonify({'error': 'preferredLocations must be a list'}), 400
+        patch['preferredLocations'] = locs
+    if 'targetRoles' in data:
+        roles = _clean_str_list(data.get('targetRoles'))
+        if roles is None:
+            return jsonify({'error': 'targetRoles must be a list'}), 400
+        patch['targetRoles'] = roles
+    if 'industries' in data:
+        inds = _clean_str_list(data.get('industries'))
+        if inds is None:
+            return jsonify({'error': 'industries must be a list'}), 400
+        patch['industries'] = inds
+    if 'referralSource' in data:
+        src = str(data.get('referralSource') or '').strip()[:120]
+        if src:
+            patch['referralSource'] = src
+
+    if not patch:
+        return jsonify({'error': 'no recognized preference fields'}), 400
+
+    db.collection('users').document(uid).set(patch, merge=True)
+    return jsonify({'ok': True, **patch}), 200
 
 
 @mobile_bp.post('/notifications/read')

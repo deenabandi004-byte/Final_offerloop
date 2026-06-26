@@ -35,6 +35,48 @@ scout_admin_bp = Blueprint("scout_admin", __name__)
 # turn of a single conversation.
 _user_context_cache = TTLCache(maxsize=500, ttl=60)
 
+# --- Abuse backstop -----------------------------------------------------------
+# Scout is intentionally free (no credit cost), which makes /chat a raw LLM
+# faucet: a leaked token or a loop could fan out unbounded paid OpenAI/Anthropic
+# calls on our dime. The global limiter (500/hr) is far too loose for an
+# expensive generate endpoint, so we add a tight per-user sliding window here.
+# Normal use is a handful of messages a minute; these caps only bite scripts.
+# Caveat: in-memory + per-gunicorn-worker, so the effective ceiling is roughly
+# (caps × worker count) — fine as a backstop, not exact billing. Keyed by uid
+# so one abuser can't starve everyone.
+import time as _time
+from collections import deque
+
+_scout_hits: dict[str, deque] = {}
+_SCOUT_PER_MIN = 20      # messages / 60s
+_SCOUT_PER_HOUR = 200    # messages / 3600s
+
+
+def _scout_rate_limited(uid: str) -> bool:
+    """Record a hit for uid and return True if it exceeds the per-minute or
+    per-hour cap. Sliding window over request timestamps; prunes as it goes."""
+    if not uid:
+        return False
+    now = _time.time()
+    dq = _scout_hits.get(uid)
+    if dq is None:
+        dq = deque()
+        _scout_hits[uid] = dq
+    # Drop anything older than an hour, then evaluate both windows.
+    while dq and now - dq[0] > 3600:
+        dq.popleft()
+    if len(dq) >= _SCOUT_PER_HOUR:
+        return True
+    last_min = sum(1 for t in dq if now - t <= 60)
+    if last_min >= _SCOUT_PER_MIN:
+        return True
+    dq.append(now)
+    # Opportunistic cleanup so the dict doesn't grow unbounded across many uids.
+    if len(_scout_hits) > 2000:
+        for k in [k for k, v in _scout_hits.items() if not v or now - v[-1] > 3600]:
+            _scout_hits.pop(k, None)
+    return False
+
 
 def _sse_stream_from_queue(q, heartbeat_interval_s: float = 15.0,
                             real_timeout_s: float = 120.0):
@@ -406,6 +448,15 @@ def scout_assistant_chat():
         if not user_name or user_name == "there":
             user_name = firebase_user.get("name", firebase_user.get("email", "").split("@")[0])
 
+    # Abuse backstop: Scout is free, so cap the LLM faucet per user.
+    if _scout_rate_limited(uid):
+        return jsonify({
+            "message": "You're sending messages to Scout very fast — give it a moment and try again.",
+            "navigate_to": None,
+            "action_buttons": [],
+            "error": "rate_limited",
+        }), 429
+
     # Fetch rich user context from Firestore
     user_context = _fetch_user_context(uid) if uid else {}
     print(f"[ScoutChat] uid={uid!r} user_context_keys={list(user_context.keys())}")
@@ -763,6 +814,11 @@ def scout_assistant_chat_stream():
         uid = firebase_user.get("uid")
         if not user_name or user_name == "there":
             user_name = firebase_user.get("name", firebase_user.get("email", "").split("@")[0])
+
+    # Abuse backstop: Scout is free, so cap the LLM faucet per user.
+    if _scout_rate_limited(uid):
+        return jsonify({"error": "rate_limited",
+                        "message": "You're messaging Scout very fast — give it a moment."}), 429
 
     user_context = _fetch_user_context(uid) if uid else {}
 
