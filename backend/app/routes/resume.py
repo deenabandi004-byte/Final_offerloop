@@ -40,9 +40,14 @@ from flask_limiter.util import get_remote_address
 # capping the worst-case token bill of one parse.
 MAX_RESUME_CHARS = 24_000
 
+# Generous on purpose. The real cost protection is MAX_RESUME_CHARS (each parse
+# is bounded to a fraction of a cent), so these caps only need to stop a script
+# doing thousands — NOT a legit signup wave. College students on one campus
+# network or at a live demo share a public IP, so we leave plenty of headroom
+# (an 80-signup hour on a single IP is a huge real event, and still ~8 cents).
 _parse_hits: dict[str, deque] = {}
-_PARSE_PER_MIN = 3       # parses / 60s per IP
-_PARSE_PER_HOUR = 10     # parses / 3600s per IP
+_PARSE_PER_MIN = 20      # parses / 60s per IP
+_PARSE_PER_HOUR = 80     # parses / 3600s per IP
 
 
 def _parse_rate_limited(ip: str) -> bool:
