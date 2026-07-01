@@ -142,6 +142,7 @@ def create_user_data(
     tier_config = TIER_CONFIGS.get(tier, TIER_CONFIGS['free'])
     default_credits = tier_config.get('credits', 300)
 
+    now_iso = datetime.now().isoformat()
     user_data = {
         'uid': uid,
         'email': email,
@@ -149,14 +150,25 @@ def create_user_data(
         'tier': tier,  # Keep tier for backward compatibility
         'credits': credits if credits is not None else default_credits,
         'maxCredits': max_credits if max_credits is not None else default_credits,
-        'createdAt': datetime.now().isoformat(),
-        'lastCreditReset': datetime.now().isoformat(),
-        'lastUsageReset': datetime.now().isoformat(),  # Track usage reset date
+        'createdAt': now_iso,
+        'signupAt': now_iso,
+        'lastActiveAt': now_iso,
+        'lastLoginAt': now_iso,
+        'lastCreditReset': now_iso,
+        'lastUsageReset': now_iso,  # Track usage reset date
         'subscriptionStatus': 'active' if tier in ['pro', 'elite'] else None,
         # Usage tracking fields
         'alumniSearchesUsed': 0,
         'coffeeChatPrepsUsed': 0,
         'interviewPrepsUsed': 0,
+        # Lifecycle email trigger fields — populated by app/services/lifecycle_signals.py
+        'firstSearchAt': None,
+        'firstEmailSentAt': None,
+        'firstReplyReceivedAt': None,
+        'lastSearchAt': None,
+        'lastEmailSentAt': None,
+        'lastReplyReceivedAt': None,
+        'newsletterSubscribed': True,  # opt-out via /api/lifecycle/unsubscribe or prefs center
         # Personalization schema version
         'schemaVersion': SCHEMA_VERSION,
     }

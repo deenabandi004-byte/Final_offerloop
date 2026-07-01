@@ -519,6 +519,13 @@ def _process_gmail_notification(email_address, history_id):
                 except Exception:
                     pass
 
+                # Lifecycle signal: stamp firstEmailSentAt / lastEmailSentAt
+                try:
+                    from app.services.lifecycle_signals import stamp_first_email_sent
+                    stamp_first_email_sent(uid)
+                except Exception:
+                    pass
+
                 # Cooldown: record global outreach for saturation tracking
                 try:
                     from app.services.cooldown_service import record_outreach
@@ -674,6 +681,13 @@ def _process_gmail_notification(email_address, history_id):
                     "contact_id": contact_id,
                     "hours_since_send": hours_since,
                 })
+            except Exception:
+                pass
+
+            # Lifecycle signal: stamp firstReplyReceivedAt / lastReplyReceivedAt
+            try:
+                from app.services.lifecycle_signals import stamp_first_reply
+                stamp_first_reply(uid)
             except Exception:
                 pass
 

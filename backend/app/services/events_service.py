@@ -106,10 +106,12 @@ def log_event(
             doc_ref = events_ref.document(doc_id)
             # doc_ref.create() raises AlreadyExists if the doc exists → idempotent
             doc_ref.create(doc_data)
+            _stamp_lifecycle_signal(uid, et)
             return doc_ref.id
         else:
             # Auto-generate ID
             _, ref = events_ref.add(doc_data)
+            _stamp_lifecycle_signal(uid, et)
             return ref.id
     except Exception as e:
         err_str = str(e)
@@ -118,6 +120,24 @@ def log_event(
             return None
         logger.error("Failed to log event %s for uid=%s: %s", event_type_str, uid, e)
         return None
+
+
+def _stamp_lifecycle_signal(uid: str, event_type: EventType) -> None:
+    """Route relevant events into the lifecycle signal helpers so the
+    campaign scanner has denormalized `first*`/`last*` timestamps to trigger
+    on without joining the full events collection."""
+    try:
+        from app.services.lifecycle_signals import (
+            stamp_first_search,
+            stamp_first_email_sent,
+        )
+        if event_type == EventType.SEARCH_EXECUTED:
+            stamp_first_search(uid)
+        elif event_type == EventType.EMAIL_SENT:
+            stamp_first_email_sent(uid)
+    except Exception:
+        # Lifecycle stamps are best-effort — never let them break event logging.
+        pass
 
 
 def log_event_batch(

@@ -2,6 +2,22 @@
 
 All notable changes to Offerloop will be documented in this file.
 
+## [0.1.2.0] - 2026-07-01
+
+### Added
+- Email lifecycle campaign system: `bandis@offerloop.ai` now sends pricing-page follow-ups, checkout abandonment, trial-ending nudges, low-credit alerts, and win-back mail via Resend, with HMAC-signed unsubscribe links and a CAN-SPAM postal-address footer
+- Beehiiv newsletter integration: signup and profile-change events sync subscriber attributes (school, target industry, class year, tier) into the `Offerloop Recruiting Tips` audience; inbound unsubscribes from Beehiiv mirror back into user preferences
+- Newsletter opt-in step in onboarding (default checked) so new signups auto-join the newsletter unless they decline
+- Email preferences panel in Account Settings with per-channel toggles (product tips, recruiting playbook, weekly recap, activity digest)
+- `lastLoginAt` field on user documents, stamped whenever an authenticated request lands after a 30-minute activity gap, which powers dormancy and streak logic in upcoming campaigns
+- New backend services: `beehiiv_client.py`, `beehiiv_webhook.py`, `lifecycle_signals.py`
+- Operational scripts: `audit_users_for_outreach.py` reports on user activity buckets, `backfill_lifecycle_fields.py` fills `signupAt`/`lastActiveAt`/`lastLoginAt`/`newsletterSubscribed` on pre-existing users
+- Docs: `EMAIL_CAMPAIGN_SYSTEM_PLAN.md` (six-phase rollout plan) and `EMAIL_DELIVERABILITY_DNS_CHECKLIST.md` (SPF/DKIM/DMARC setup runbook)
+
+### Changed
+- Stripe webhook now syncs tier changes to the Beehiiv subscriber record on subscription create/update/cancel
+- User document creation stamps `lastLoginAt` alongside `signupAt` and `lastActiveAt` on every new signup
+
 ## [0.1.1.1] - 2026-06-24
 
 ### Added

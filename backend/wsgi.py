@@ -57,6 +57,8 @@ from .app.routes.find_companies_public import find_companies_public_bp
 from .app.routes.find_jobs_public import find_jobs_public_bp
 from .app.routes.find_people_public import find_people_public_bp
 from .app.routes.shares import shares_bp
+from .app.routes.lifecycle import lifecycle_bp
+from .app.routes.beehiiv_webhook import beehiiv_webhook_bp
 from .app.extensions import init_app_extensions
 
 def create_app() -> Flask:
@@ -259,6 +261,8 @@ def create_app() -> Flask:
     app.register_blueprint(find_companies_public_bp)
     app.register_blueprint(find_jobs_public_bp)
     app.register_blueprint(find_people_public_bp)
+    app.register_blueprint(lifecycle_bp)         # /api/lifecycle/tick + unsubscribe
+    app.register_blueprint(beehiiv_webhook_bp)   # /api/beehiiv/webhook (inbound unsub sync)
 
     # --- MCP server (anonymous IP-based, mounts /mcp + /api/mcp/health) ---
     # Skippable for local dev: the MCP mount refuses to boot against the prod
