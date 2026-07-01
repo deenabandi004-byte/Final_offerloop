@@ -2,6 +2,11 @@
 
 All notable changes to Offerloop will be documented in this file.
 
+## [0.1.2.1] - 2026-07-01
+
+### Changed
+- Lifecycle email template now renders CTA links as plain inline text (color inherited from body prose, no bold weight) and drops the centered marketing container. Reduces Gmail Promotions-tab signal so lifecycle sends land closer to Primary. Applies to every campaign (pricing abandonment, checkout abandonment, trial ending, low credits, win-back).
+
 ## [0.1.2.0] - 2026-07-01
 
 ### Added
