@@ -182,9 +182,12 @@ def _render_html(paragraphs: list[str], cta_label: Optional[str], cta_url: Optio
     )
     cta_html = ''
     if cta_label and cta_url:
+        # Plain inline link, not a styled button. Gmail's Promotions classifier
+        # keys on bold/colored CTA links + separated visual sections; letting
+        # the CTA read like "another line in the letter" nudges toward Primary.
         cta_html = (
-            f'<p style="margin:18px 0 14px; font-size:15px; line-height:1.6;">'
-            f'<a href="{cta_url}" style="color:#2563EB; font-weight:600;">{cta_label}</a>'
+            f'<p style="margin:0 0 14px; font-size:15px; line-height:1.6; color:#1F2937;">'
+            f'<a href="{cta_url}" style="color:inherit;">{cta_label}</a>'
             f'</p>'
         )
     signature_html = (
@@ -205,9 +208,11 @@ def _render_html(paragraphs: list[str], cta_label: Optional[str], cta_url: Optio
         f'<br>Offerloop &middot; {address_line}'
         '</p>'
     )
+    # No centered content box or fixed max-width — those are marketing-email
+    # tells. Let the content flow edge-to-edge like a Gmail-composed message.
     return (
         '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;'
-        ' max-width:540px; margin:0 auto; padding:24px 22px; color:#1F2937;">'
+        ' font-size:15px; line-height:1.6; color:#1F2937;">'
         + body + cta_html + signature_html + footer +
         '</div>'
     )
