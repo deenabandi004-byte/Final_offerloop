@@ -2,6 +2,11 @@
 
 All notable changes to Offerloop will be documented in this file.
 
+## [0.1.2.2] - 2026-07-01
+
+### Changed
+- Lifecycle email CTA link now uses an explicit `color:#1F2937` instead of `color:inherit`. Gmail's viewer was overriding the inherit rule with its default anchor color (blue underlined), so the CTA still visually rendered as a marketing button. Explicit dark text sticks.
+
 ## [0.1.2.1] - 2026-07-01
 
 ### Changed

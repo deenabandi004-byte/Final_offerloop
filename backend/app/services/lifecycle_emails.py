@@ -187,7 +187,7 @@ def _render_html(paragraphs: list[str], cta_label: Optional[str], cta_url: Optio
         # the CTA read like "another line in the letter" nudges toward Primary.
         cta_html = (
             f'<p style="margin:0 0 14px; font-size:15px; line-height:1.6; color:#1F2937;">'
-            f'<a href="{cta_url}" style="color:inherit;">{cta_label}</a>'
+            f'<a href="{cta_url}" style="color:#1F2937;">{cta_label}</a>'
             f'</p>'
         )
     signature_html = (
