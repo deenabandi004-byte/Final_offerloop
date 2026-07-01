@@ -1,5 +1,6 @@
 import { ArrowLeft, Upload, Trash2, LogOut, CreditCard, FileText, User, GraduationCap, Briefcase, Rocket, Settings, AlertTriangle, Lock, Eye, RefreshCw, X, CheckCircle, Mail, Target, Star, Gift, Copy, Send } from "lucide-react";
 import { ApplicationProfileModal } from "@/components/jobs/ApplicationProfileModal";
+import EmailPreferencesPanel from "@/components/settings/EmailPreferencesPanel";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -107,6 +108,7 @@ const sections = [
   { id: 'career', label: 'Career Interests', icon: Rocket },
   { id: 'goals', label: 'Career Goals', icon: Target },
   { id: 'referrals', label: 'Refer & Earn', icon: Gift },
+  { id: 'email_prefs', label: 'Email Preferences', icon: Send },
   { id: 'app_profile', label: 'Application Profile', icon: Send },
   { id: 'gmail', label: 'Gmail Integration', icon: Mail },
   { id: 'account', label: 'Account Management', icon: Settings },
@@ -2433,6 +2435,16 @@ export default function AccountSettings() {
                         Edit profile
                       </Button>
                     </div>
+                  </SettingsSection>
+
+                  {/* Email Preferences Section */}
+                  <SettingsSection
+                    id="email_prefs"
+                    icon={Send}
+                    title="Email Preferences"
+                    description="Choose which Offerloop emails you want to receive. Transactional emails (receipts, security) are always on."
+                  >
+                    <EmailPreferencesPanel />
                   </SettingsSection>
 
                   {/* Gmail Integration Section */}

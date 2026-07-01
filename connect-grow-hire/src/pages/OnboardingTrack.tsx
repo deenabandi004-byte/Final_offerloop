@@ -14,6 +14,7 @@ export interface TrackData {
   careerTrackLabels: string[];
   jobTypes: string[];
   dreamCompanies: string[];
+  newsletterSubscribed: boolean;
 }
 
 const JOB_TYPES = ["Internship", "Part-Time", "Full-Time"];
@@ -29,6 +30,9 @@ export const OnboardingTrack = ({ onNext, initial }: OnboardingTrackProps) => {
   const [open, setOpen] = useState(false);
   const [jobTypes, setJobTypes] = useState<string[]>(initial?.jobTypes || []);
   const [dreamCompanies, setDreamCompanies] = useState<string[]>(initial?.dreamCompanies || []);
+  const [newsletterSubscribed, setNewsletterSubscribed] = useState<boolean>(
+    initial?.newsletterSubscribed ?? true,
+  );
   const dcRef = useRef<DreamCompanyAutocompleteHandle>(null);
 
   const toggleJobType = (t: string) =>
@@ -56,7 +60,7 @@ export const OnboardingTrack = ({ onNext, initial }: OnboardingTrackProps) => {
   const handleContinue = () => {
     if (!valid) return;
     const finalCompanies = dcRef.current?.flushPending() ?? dreamCompanies;
-    onNext({ careerTrackLabels: selected, jobTypes, dreamCompanies: finalCompanies });
+    onNext({ careerTrackLabels: selected, jobTypes, dreamCompanies: finalCompanies, newsletterSubscribed });
   };
 
   return (
@@ -174,7 +178,35 @@ export const OnboardingTrack = ({ onNext, initial }: OnboardingTrackProps) => {
         </div>
       </div>
 
-      <Button type="button" onClick={handleContinue} disabled={!valid} className="w-full bg-[#1E3A8A] hover:bg-[#172554] mt-8">
+      <button
+        type="button"
+        onClick={() => setNewsletterSubscribed((v) => !v)}
+        className="mt-6 flex w-full items-start gap-3 rounded-lg border p-3 text-left transition-all"
+        style={{
+          borderColor: newsletterSubscribed ? "#1E3A8A" : "#E2E8F0",
+          background: newsletterSubscribed ? "#EFF6FF" : "#FFFFFF",
+        }}
+      >
+        <span
+          className="mt-0.5 flex h-5 w-5 items-center justify-center rounded border shrink-0"
+          style={{
+            borderColor: newsletterSubscribed ? "#1E3A8A" : "#CBD5E1",
+            background: newsletterSubscribed ? "#1E3A8A" : "#FFFFFF",
+          }}
+        >
+          {newsletterSubscribed && <Check className="h-3.5 w-3.5 text-white" />}
+        </span>
+        <div className="min-w-0">
+          <div className="text-sm font-medium" style={{ color: newsletterSubscribed ? "#1E3A8A" : "#0F172A" }}>
+            Send me the recruiting newsletter
+          </div>
+          <div className="text-xs text-[#64748B] mt-0.5">
+            Twice a week during recruiting season. New roles, playbooks, and shortcuts. Unsubscribe anytime.
+          </div>
+        </div>
+      </button>
+
+      <Button type="button" onClick={handleContinue} disabled={!valid} className="w-full bg-[#1E3A8A] hover:bg-[#172554] mt-4">
         Continue
       </Button>
     </div>

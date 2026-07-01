@@ -176,6 +176,13 @@ def require_firebase_auth(fn):
                     decoded = fb_auth.verify_id_token(id_token, clock_skew_seconds=5)
                     request.firebase_user = decoded
                     print("[Auth] Token verified")
+                    # Lifecycle signal: fire-and-forget lastActiveAt stamp.
+                    # In-process TTL cache prevents write-flooding.
+                    try:
+                        from app.services.lifecycle_signals import touch_last_active
+                        touch_last_active(decoded.get('uid'))
+                    except Exception:
+                        pass
                     break  # Success, exit retry loop
                 except ValueError as ve:
                     # Firebase Admin SDK not initialized error or invalid token format

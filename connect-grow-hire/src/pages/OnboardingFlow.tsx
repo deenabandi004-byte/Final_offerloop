@@ -192,6 +192,22 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
     logOnboardingEvent("completed", "trial");
     await completeOnboarding(finalData);
     sessionStorage.setItem("onboarding_just_completed", "true");
+    // Newsletter opt-in — best-effort; failures don't block onboarding.
+    auth.currentUser
+      ?.getIdToken()
+      .then((token) => {
+        fetch(`${BACKEND_URL}/api/users/newsletter-opt-in`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            subscribed: track.newsletterSubscribed,
+            school: finalData.academics?.university || "",
+            target_industry: finalData.targetIndustries?.[0] || "",
+            class_year: finalData.academics?.graduationYear || "",
+          }),
+        }).catch(() => {});
+      })
+      .catch(() => {});
     await new Promise((r) => setTimeout(r, 300));
     await refreshUser();
     trackFeatureActionCompleted('onboarding', 'complete', true);

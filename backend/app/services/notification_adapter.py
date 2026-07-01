@@ -50,6 +50,7 @@ def send(
     html_body: str,
     text_body: str,
     headers: Optional[dict] = None,
+    from_email: Optional[str] = None,
 ) -> SendResult:
     """Dispatch a notification on the given channel.
 
@@ -57,9 +58,12 @@ def send(
     NotImplementedError per spec — surface the enum now so callers can
     forward-reference them, but fail loudly if anyone tries to use them
     before PR3+.
+
+    `from_email` lets specific channels (e.g. lifecycle) override the default
+    sender identity so reputation builds independently per persona.
     """
     if channel == Channel.EMAIL:
-        return _send_email(recipient, subject, html_body, text_body, headers or {})
+        return _send_email(recipient, subject, html_body, text_body, headers or {}, from_email)
     if channel == Channel.SMS:
         raise NotImplementedError("channel deferred — see TODOS T3")
     if channel == Channel.SLACK:
@@ -73,6 +77,7 @@ def _send_email(
     html_body: str,
     text_body: str,
     headers: dict,
+    from_email: Optional[str] = None,
 ) -> SendResult:
     """POST to Resend and translate vendor responses into SendResult.
 
@@ -96,7 +101,7 @@ def _send_email(
         )
 
     payload = {
-        "from": config.RESEND_FROM_EMAIL,
+        "from": from_email or config.RESEND_FROM_EMAIL,
         "to": [recipient],
         "subject": subject,
         "html": html_body,

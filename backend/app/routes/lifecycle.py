@@ -83,6 +83,18 @@ def unsubscribe():
         return _unsubscribe_page(success=True, message='You\'re already unsubscribed. We won\'t email you again.'), 200
 
     record_unsubscribe(email)
+    # Mirror the opt-out into users/{uid} for the campaign scanner + newsletter
+    # sync. Look up by email since the unsub link doesn't carry a uid.
+    try:
+        from app.extensions import get_db
+        from app.services.lifecycle_signals import set_newsletter_subscribed
+        db = get_db()
+        if db:
+            for snap in db.collection('users').where('email', '==', email).limit(1).stream():
+                set_newsletter_subscribed(snap.id, False)
+                break
+    except Exception as e:
+        logger.debug("newsletter opt-out mirror failed for %s: %s", email, e)
     return _unsubscribe_page(success=True, message='You\'re unsubscribed. We won\'t email you again.'), 200
 
 

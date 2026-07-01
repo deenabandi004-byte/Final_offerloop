@@ -31,7 +31,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from app.config import STRIPE_COUPONS
+from app.config import STRIPE_COUPONS, LIFECYCLE_FROM_EMAIL, LIFECYCLE_POSTAL_ADDRESS
 from app.extensions import get_db
 from app.services.notification_adapter import send as notify_send, Channel
 
@@ -48,7 +48,7 @@ PUBLIC_BASE_URL = os.getenv('PUBLIC_BASE_URL', 'https://offerloop.ai')
 
 # Who the emails are signed by. Single-name to keep the voice personal — these
 # are coming from a co-founder talking to a student, not a brand.
-SIGNATURE_NAME = os.getenv('LIFECYCLE_SIGNATURE_NAME', 'Rylan')
+SIGNATURE_NAME = os.getenv('LIFECYCLE_SIGNATURE_NAME', 'Deena')
 
 
 def _unsubscribe_secret() -> str:
@@ -166,7 +166,7 @@ def _send_lifecycle_email(
     html = _render_html(body_paragraphs, cta_label, cta_url, unsub_url)
     text = _render_text(body_paragraphs, cta_label, cta_url, unsub_url)
 
-    result = notify_send(Channel.EMAIL, recipient_email, subject, html, text, headers)
+    result = notify_send(Channel.EMAIL, recipient_email, subject, html, text, headers, from_email=LIFECYCLE_FROM_EMAIL)
     if getattr(result, 'success', False):
         _record_send(user_or_lead_id, campaign, step, recipient_email)
         return {'sent': True, 'reason': 'ok'}
@@ -191,10 +191,18 @@ def _render_html(paragraphs: list[str], cta_label: Optional[str], cta_url: Optio
         f'<p style="margin:20px 0 6px; font-size:15px; line-height:1.6; color:#1F2937;">'
         f'— {SIGNATURE_NAME}</p>'
     )
+    # CAN-SPAM requires a valid physical postal address in every commercial
+    # email. If LIFECYCLE_POSTAL_ADDRESS is unset, print a highly visible
+    # placeholder so a reviewer catches it before prod.
+    address_line = (
+        LIFECYCLE_POSTAL_ADDRESS
+        or '⚠ Set LIFECYCLE_POSTAL_ADDRESS env var — CAN-SPAM compliance requires a real postal address here'
+    )
     footer = (
         '<p style="margin-top:28px; padding-top:14px; border-top:1px solid #E5E7EB;'
         ' font-size:11px; color:#9CA3AF; line-height:1.55;">'
         f'<a href="{unsub_url}" style="color:#9CA3AF;">Unsubscribe</a>'
+        f'<br>Offerloop &middot; {address_line}'
         '</p>'
     )
     return (
@@ -207,12 +215,17 @@ def _render_html(paragraphs: list[str], cta_label: Optional[str], cta_url: Optio
 
 def _render_text(paragraphs: list[str], cta_label: Optional[str], cta_url: Optional[str], unsub_url: str) -> str:
     """Plain-text fallback — actual line breaks, no HTML."""
+    address_line = (
+        LIFECYCLE_POSTAL_ADDRESS
+        or 'MISSING POSTAL ADDRESS — set LIFECYCLE_POSTAL_ADDRESS'
+    )
     lines = paragraphs[:]
     if cta_label and cta_url:
         lines.append(f"{cta_label}: {cta_url}")
     lines.append(f"— {SIGNATURE_NAME}")
     lines.append("")
     lines.append(f"Unsubscribe: {unsub_url}")
+    lines.append(f"Offerloop · {address_line}")
     return "\n\n".join(lines)
 
 

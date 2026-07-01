@@ -740,6 +740,13 @@ def handle_subscription_updated(subscription):
                 }, sync=True)
             except Exception:
                 pass
+            # Newsletter tier sync — keeps Beehiiv segmentation accurate.
+            try:
+                from app.services.beehiiv_client import update_subscriber_tier
+                if user_data.get('email') and user_data.get('newsletterSubscribed') is not False:
+                    update_subscriber_tier(user_data['email'], tier)
+            except Exception:
+                pass
             break
         
     except Exception as e:
