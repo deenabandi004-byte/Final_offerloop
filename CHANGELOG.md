@@ -2,6 +2,11 @@
 
 All notable changes to Offerloop will be documented in this file.
 
+## [0.1.5.0] - 2026-07-01
+
+### Added
+- First-search activation lifecycle campaign. Fires for users who confirmed their profile but haven't run a first search, personalizing the copy with `targetIndustries` and `targetCompanies` from onboarding. Day 2 (48-72h after `profileConfirmedAt`): "the one thing to do this week" with a CTA to `/find`. Day 5 (120-144h): "one specific thing to try" with a concrete query template built from the user's target industry and company. Gated by `FIRST_SEARCH_ACTIVATION_LAUNCH_DATE = 2026-07-01` on `signupAt` so backfilled users can't retro-enroll. Wired into `process_all_pending_emails()` and appears in the cron tick response as `first_search_activation`.
+
 ## [0.1.4.1] - 2026-07-01
 
 ### Changed

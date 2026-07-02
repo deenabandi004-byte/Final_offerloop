@@ -36,6 +36,7 @@ from app.config import (
     LIFECYCLE_FROM_EMAIL,
     LIFECYCLE_POSTAL_ADDRESS,
     ONBOARDING_DROPOFF_LAUNCH_DATE,
+    FIRST_SEARCH_ACTIVATION_LAUNCH_DATE,
 )
 from app.extensions import get_db
 from app.services.notification_adapter import send as notify_send, Channel
@@ -727,6 +728,116 @@ def process_onboarding_dropoffs() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Sequence 7: First-search activation (confirmed profile but never searched)
+# ---------------------------------------------------------------------------
+
+def process_first_search_activations() -> dict:
+    """Scan for users who confirmed profile but haven't run a first search.
+    Day 2 nudge (the one thing to do this week), Day 5 specific example.
+
+    Safety invariant: FIRST_SEARCH_ACTIVATION_LAUNCH_DATE gates on signupAt
+    (not profileConfirmedAt) so backfilled users whose profileConfirmedAt is
+    null AND whose signupAt predates the launch never enroll. The scan also
+    naturally skips backfilled users because they have no profileConfirmedAt
+    stamp at all, but the signup-date filter is belt-and-suspenders in case
+    a future backfill ever populates that field.
+    """
+    db = get_db()
+    if not db:
+        return {'ok': False, 'error': 'db_unavailable'}
+
+    sent = {'day_2': 0, 'day_5': 0}
+    now = datetime.now(timezone.utc)
+
+    for snap in db.collection('users').stream():
+        user = snap.to_dict() or {}
+        uid = snap.id
+        email = user.get('email')
+        if not email:
+            continue
+
+        # Must have confirmed profile (didn't drop off during onboarding)
+        profile_confirmed_at = _parse_ts_or_dt(user.get('profileConfirmedAt'))
+        if not profile_confirmed_at:
+            continue
+
+        # Skip users who already ran their first search
+        if _parse_ts_or_dt(user.get('firstSearchAt')):
+            continue
+
+        # Paying users already invested. Skip.
+        tier = user.get('subscriptionTier') or user.get('tier') or 'free'
+        if tier in ('pro', 'elite'):
+            continue
+
+        # Belt-and-suspenders launch-date filter on signupAt
+        signup_at = _parse_ts_or_dt(user.get('signupAt'))
+        if not signup_at or signup_at < FIRST_SEARCH_ACTIVATION_LAUNCH_DATE:
+            continue
+
+        hours_since_confirm = (now - profile_confirmed_at).total_seconds() / 3600
+
+        # Personalization: use user's targetIndustries or targetCompanies to
+        # concretize the example. Falls back to a generic phrasing if we
+        # don't have either signal (rare — onboarding collects at least one).
+        industries = user.get('targetIndustries') or []
+        primary_industry = (industries[0] if industries else '').lower()
+        companies = user.get('targetCompanies') or user.get('dreamCompanies') or []
+        primary_company = companies[0] if companies else None
+
+        # Day 2: 48-72h after profileConfirmedAt
+        if 48 < hours_since_confirm < 72 and not already_sent(uid, 'first_search_activation', 'day_2'):
+            if primary_industry:
+                second_line = f"The one thing to do this week: search Find for one hiring manager or alumni at a {primary_industry} firm you actually care about."
+            else:
+                second_line = "The one thing to do this week: search Find for one hiring manager or alumni at a firm you actually care about."
+            res = _send_lifecycle_email(
+                user_or_lead_id=uid,
+                recipient_email=email,
+                campaign='first_search_activation',
+                step='day_2',
+                subject="the one thing to do this week",
+                body_paragraphs=[
+                    f"Hey, {SIGNATURE_NAME} here.",
+                    second_line,
+                    "One search takes about 30 seconds. Either what Offerloop returns is dialed enough that the rest of the workflow makes sense, or it isn't, and you'll know in that first minute. Better than sitting on it.",
+                ],
+                cta_label="Run your first search",
+                cta_url=f'{PUBLIC_BASE_URL}/find?utm_source=lifecycle&utm_campaign=first_search_activation&utm_content=day_2',
+            )
+            if res.get('sent'):
+                sent['day_2'] += 1
+
+        # Day 5: 120-144h after profileConfirmedAt
+        elif 120 < hours_since_confirm < 144 and not already_sent(uid, 'first_search_activation', 'day_5'):
+            if primary_company and primary_industry:
+                example_line = f"Try this specifically: type '{primary_industry} analyst at {primary_company}' (or whatever role you're targeting) in Find. That's the exact query pattern our most active users start with."
+            elif primary_industry:
+                example_line = f"Try this specifically: type '{primary_industry} analyst at [company you're targeting]' in Find. Fill in the company that matters to you. That's the exact query pattern our most active users start with."
+            else:
+                example_line = "Try this specifically: type '[role you're recruiting for] at [company you're targeting]' in Find. Concrete title, concrete firm. That's how our most active users start."
+            res = _send_lifecycle_email(
+                user_or_lead_id=uid,
+                recipient_email=email,
+                campaign='first_search_activation',
+                step='day_5',
+                subject="one specific thing to try",
+                body_paragraphs=[
+                    f"Hey, {SIGNATURE_NAME} again.",
+                    "Your profile is set up but you haven't tried a search yet. That's usually the hardest step for new users so I'll drop something specific.",
+                    example_line,
+                    "If the results feel off or you're not sure what to search for, reply and tell me what you're recruiting for. I'll suggest a search that actually fits.",
+                ],
+                cta_label="Try the search",
+                cta_url=f'{PUBLIC_BASE_URL}/find?utm_source=lifecycle&utm_campaign=first_search_activation&utm_content=day_5',
+            )
+            if res.get('sent'):
+                sent['day_5'] += 1
+
+    return {'ok': True, 'sent': sent}
+
+
+# ---------------------------------------------------------------------------
 # Cron entry: fires all time-based sequences
 # ---------------------------------------------------------------------------
 
@@ -737,6 +848,7 @@ def process_all_pending_emails() -> dict:
         'trial_ending': process_trial_endings(),
         'winback': process_winbacks(),
         'onboarding_dropoff': process_onboarding_dropoffs(),
+        'first_search_activation': process_first_search_activations(),
     }
 
 
