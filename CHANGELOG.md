@@ -2,6 +2,11 @@
 
 All notable changes to Offerloop will be documented in this file.
 
+## [0.1.2.4] - 2026-07-01
+
+### Added
+- `profileConfirmedAt` field on user documents, stamped when the profile-confirm endpoint completes. Powers the trigger for two Phase 2 lifecycle campaigns: onboarding drop-off (fires if signup > 24h ago and this field is still null) and first-search activation (fires 48h after profile confirm if no first search yet). Pre-existing users leave the field null and are excluded from these campaigns via the per-campaign launch-date filter that will ship with each Phase 2 campaign.
+
 ## [0.1.2.3] - 2026-07-01
 
 ### Changed

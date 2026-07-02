@@ -165,6 +165,29 @@ def stamp_first_reply(uid: str) -> None:
         logger.debug("stamp_first_reply failed for %s: %s", uid, exc)
 
 
+def stamp_profile_confirmed(uid: str) -> None:
+    """Called when onboarding completes. One-shot stamp: sets
+    `profileConfirmedAt` only if it's still null. Powers the trigger for
+    #7 (onboarding drop-off — fires when signup > 24h and profileConfirmedAt
+    still null) and #8 (first-search activation — fires when profileConfirmedAt
+    > 48h and firstSearchAt still null)."""
+    if not uid:
+        return
+    now = _now_iso()
+    ref = _user_ref(uid)
+    if ref is None:
+        return
+    try:
+        snap = ref.get(field_paths=['profileConfirmedAt'])
+        data = snap.to_dict() or {}
+        updates = {'lastActiveAt': now}
+        if not data.get('profileConfirmedAt'):
+            updates['profileConfirmedAt'] = now
+        ref.update(updates)
+    except Exception as exc:
+        logger.debug("stamp_profile_confirmed failed for %s: %s", uid, exc)
+
+
 def set_newsletter_subscribed(uid: str, subscribed: bool) -> None:
     """Called from onboarding opt-in step and from the unsubscribe handler."""
     if not uid:

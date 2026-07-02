@@ -463,6 +463,16 @@ def confirm_structured_profile():
         except Exception:
             pass
 
+        # Stamp profileConfirmedAt (one-shot). Powers Phase 2 lifecycle
+        # campaign triggers: onboarding drop-off (fires if signup > 24h and
+        # this is still null) and first-search activation (fires 48h after
+        # this stamps if no first search yet).
+        try:
+            from app.services.lifecycle_signals import stamp_profile_confirmed
+            stamp_profile_confirmed(uid)
+        except Exception:
+            pass
+
         return jsonify({"ok": True, "updatedFields": list(provenance_updates.keys())}), 200
     except Exception as e:
         print(f"[ProfileConfirm] Error for uid={uid}: {e}")
