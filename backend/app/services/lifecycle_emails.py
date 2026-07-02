@@ -1,15 +1,15 @@
 """
-Lifecycle email service — five sequences via the existing Resend integration.
+Lifecycle email service. Five sequences via the existing Resend integration.
 
 Voice: founder-direct. These emails are "from" Rylan @ Offerloop. Plain English,
 no fake testimonials, no fabricated PDFs, no "5-10x more outreach" stats we
 can't back up. Per the standing project rule, no fake numbers or fake social
-proof anywhere. Only real things — real product features, real personalization
+proof anywhere. Only real things: real product features, real personalization
 (saved contact counts pulled from Firestore), real coupon codes that fail
 gracefully when the underlying Stripe coupon isn't wired yet.
 
 Sequences:
-  1. Pricing visit abandonment (anonymous, popup-driven — currently dormant
+  1. Pricing visit abandonment (anonymous, popup-driven, currently dormant
      since the PricingExitPopup is removed). Day 0 / Day 2 / Day 5.
   2. Checkout abandonment (signed-in). Hour 1 / Day 1.
   3. Trial ending. 48h / 24h / at-expiry.
@@ -46,7 +46,7 @@ MAX_LIFECYCLE_EMAILS_PER_7_DAYS = 2
 
 PUBLIC_BASE_URL = os.getenv('PUBLIC_BASE_URL', 'https://offerloop.ai')
 
-# Who the emails are signed by. Single-name to keep the voice personal — these
+# Who the emails are signed by. Single-name to keep the voice personal. These
 # are coming from a co-founder talking to a student, not a brand.
 SIGNATURE_NAME = os.getenv('LIFECYCLE_SIGNATURE_NAME', 'Deena')
 
@@ -174,7 +174,7 @@ def _send_lifecycle_email(
 
 
 def _render_html(paragraphs: list[str], cta_label: Optional[str], cta_url: Optional[str], unsub_url: str) -> str:
-    """Plain email styling — no eyebrows, no gradient buttons, no serif drama.
+    """Plain email styling. No eyebrows, no gradient buttons, no serif drama.
     Reads like a normal email someone would actually send."""
     body = ''.join(
         f'<p style="margin:0 0 14px; font-size:15px; line-height:1.6; color:#1F2937;">{p}</p>'
@@ -199,7 +199,7 @@ def _render_html(paragraphs: list[str], cta_label: Optional[str], cta_url: Optio
     # placeholder so a reviewer catches it before prod.
     address_line = (
         LIFECYCLE_POSTAL_ADDRESS
-        or '⚠ Set LIFECYCLE_POSTAL_ADDRESS env var — CAN-SPAM compliance requires a real postal address here'
+        or '⚠ Set LIFECYCLE_POSTAL_ADDRESS env var. CAN-SPAM compliance requires a real postal address here'
     )
     footer = (
         '<p style="margin-top:28px; padding-top:14px; border-top:1px solid #E5E7EB;'
@@ -208,7 +208,7 @@ def _render_html(paragraphs: list[str], cta_label: Optional[str], cta_url: Optio
         f'<br>Offerloop &middot; {address_line}'
         '</p>'
     )
-    # No centered content box or fixed max-width — those are marketing-email
+    # No centered content box or fixed max-width. Those are marketing-email
     # tells. Let the content flow edge-to-edge like a Gmail-composed message.
     return (
         '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;'
@@ -219,10 +219,10 @@ def _render_html(paragraphs: list[str], cta_label: Optional[str], cta_url: Optio
 
 
 def _render_text(paragraphs: list[str], cta_label: Optional[str], cta_url: Optional[str], unsub_url: str) -> str:
-    """Plain-text fallback — actual line breaks, no HTML."""
+    """Plain-text fallback. Actual line breaks, no HTML."""
     address_line = (
         LIFECYCLE_POSTAL_ADDRESS
-        or 'MISSING POSTAL ADDRESS — set LIFECYCLE_POSTAL_ADDRESS'
+        or 'MISSING POSTAL ADDRESS: set LIFECYCLE_POSTAL_ADDRESS'
     )
     lines = paragraphs[:]
     if cta_label and cta_url:
@@ -264,7 +264,7 @@ def _real_coupon(key: str) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
-# Sequence 1 — Pricing visit abandonment (anonymous leads from capture endpoint)
+# Sequence 1: Pricing visit abandonment (anonymous leads from capture endpoint)
 # ---------------------------------------------------------------------------
 
 def process_pricing_leads() -> dict:
@@ -293,8 +293,8 @@ def process_pricing_leads() -> dict:
                 step='day_0',
                 subject="saw you on the pricing page",
                 body_paragraphs=[
-                    f"Hey — {SIGNATURE_NAME} here, I help run Offerloop.",
-                    "Saw you stopped by the pricing page. No script, no PDF — just want to flag what you'd actually get if you tried it.",
+                    f"Hey, {SIGNATURE_NAME} here. I help run Offerloop.",
+                    "Saw you stopped by the pricing page. No script, no PDF, just want to flag what you'd actually get if you tried it.",
                     "Offerloop is built for college students recruiting for internships and full-time roles. You search for alumni / hiring managers / recruiters at companies you want, we pull their verified email and draft a first-touch tied to your background, and the pipeline view tracks who's replied. Pro is $14.99/mo with a .edu and the trial is 14 days, no credit card.",
                     "If anything's confusing or you want to ask whether the product makes sense for your situation, just reply.",
                 ],
@@ -323,7 +323,7 @@ def process_pricing_leads() -> dict:
             if res.get('sent'):
                 sent['day_2'] += 1
 
-        # Day 5 — final note
+        # Day 5: final note
         elif 108 < hours_since < 156 and not already_sent(lead_id, 'pricing_abandon', 'day_5'):
             promo = _real_coupon('checkout_recovery') or _real_coupon('pricing_recapture')
             paragraphs = [
@@ -353,7 +353,7 @@ def process_pricing_leads() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Sequence 2 — Checkout abandonment
+# Sequence 2: Checkout abandonment
 # ---------------------------------------------------------------------------
 
 def process_checkout_abandons() -> dict:
@@ -375,7 +375,7 @@ def process_checkout_abandons() -> dict:
             continue  # converted later via a separate flow
         hours_since = (now - abandoned_at).total_seconds() / 3600
 
-        # Hour 1 — quick "did something break?"
+        # Hour 1: quick "did something break?"
         if 0.5 < hours_since < 4 and not already_sent(uid, 'checkout_abandon', 'hour_1'):
             res = _send_lifecycle_email(
                 user_or_lead_id=uid,
@@ -384,9 +384,9 @@ def process_checkout_abandons() -> dict:
                 step='hour_1',
                 subject="did checkout break?",
                 body_paragraphs=[
-                    f"Hey — {SIGNATURE_NAME} from Offerloop.",
+                    f"Hey, {SIGNATURE_NAME} from Offerloop.",
                     "Saw you started checkout for Pro but didn't finish. If something actually went sideways on our end (Stripe weirdness, card got declined, redirect failed), reply and tell me what happened. I can usually sort it out fast.",
-                    "If you just second-guessed it, no worries. The trial is 14 days with no credit card required — that's probably the better starting point anyway.",
+                    "If you just second-guessed it, no worries. The trial is 14 days with no credit card required. That's probably the better starting point anyway.",
                 ],
                 cta_label="Pick up where you left off",
                 cta_url=f'{PUBLIC_BASE_URL}/pricing?utm_source=lifecycle&utm_campaign=checkout_abandon&utm_content=hour_1',
@@ -394,12 +394,12 @@ def process_checkout_abandons() -> dict:
             if res.get('sent'):
                 sent['hour_1'] += 1
 
-        # Day 1 — soft follow-up
+        # Day 1: soft follow-up
         elif 20 < hours_since < 30 and not already_sent(uid, 'checkout_abandon', 'day_1'):
             promo = _real_coupon('checkout_recovery')
             paragraphs = [
                 "Following up once on the checkout from yesterday. Then I'll leave you alone.",
-                "If you want to actually try Pro before paying, the 14-day trial doesn't ask for a card. That's the right move if you're on the fence — the product either clicks for how you work or it doesn't, and you'll know inside a week.",
+                "If you want to actually try Pro before paying, the 14-day trial doesn't ask for a card. That's the right move if you're on the fence. The product either clicks for how you work or it doesn't, and you'll know inside a week.",
             ]
             if promo:
                 paragraphs.append(
@@ -423,7 +423,7 @@ def process_checkout_abandons() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Sequence 3 — Trial ending
+# Sequence 3: Trial ending
 # ---------------------------------------------------------------------------
 
 def process_trial_endings() -> dict:
@@ -455,9 +455,9 @@ def process_trial_endings() -> dict:
                 step='h48',
                 subject="2 days left on your Pro trial",
                 body_paragraphs=[
-                    f"Quick heads up — your Pro trial ends in 2 days.",
-                    f"You've saved {contacts_count} {'contact' if contacts_count == 1 else 'contacts'} so far. When the trial ends you drop to Free, so those contacts and their drafts stay visible, but you lose the things that found them — hiring-manager search, firm search, bulk drafting, and unlimited Coffee Chat Prep.",
-                    "If Pro's been useful, $14.99/mo with a .edu locks in that student price for life. If it hasn't been useful, no charge — you never gave us a card.",
+                    f"Quick heads up. Your Pro trial ends in 2 days.",
+                    f"You've saved {contacts_count} {'contact' if contacts_count == 1 else 'contacts'} so far. When the trial ends you drop to Free, so those contacts and their drafts stay visible, but you lose the things that found them: hiring-manager search, firm search, bulk drafting, and unlimited Coffee Chat Prep.",
+                    "If Pro's been useful, $14.99/mo with a .edu locks in that student price for life. If it hasn't been useful, no charge. You never gave us a card.",
                 ],
                 cta_label="Keep Pro",
                 cta_url=f'{PUBLIC_BASE_URL}/pricing?utm_source=lifecycle&utm_campaign=trial_ending&utm_content=h48',
@@ -474,7 +474,7 @@ def process_trial_endings() -> dict:
                 step='h24',
                 subject="trial ends tomorrow",
                 body_paragraphs=[
-                    "Last reminder — Pro trial ends tomorrow.",
+                    "Last reminder: Pro trial ends tomorrow.",
                     f"{contacts_count} {'contact' if contacts_count == 1 else 'contacts'} saved. Pick a plan if Pro's been working, or do nothing and you'll drop to Free automatically.",
                 ],
                 cta_label="Pick a plan",
@@ -483,7 +483,7 @@ def process_trial_endings() -> dict:
             if res.get('sent'):
                 sent['h24'] += 1
 
-    # Post-expiry note — sweep users whose status flipped to 'expired' recently
+    # Post-expiry note: sweep users whose status flipped to 'expired' recently
     cutoff = now - timedelta(hours=2)
     for snap in db.collection('users').where('subscriptionStatus', '==', 'expired').stream():
         user = snap.to_dict() or {}
@@ -506,7 +506,7 @@ def process_trial_endings() -> dict:
             subject="you're on Free now",
             body_paragraphs=[
                 "Your Pro trial ended. You're on the Free plan now.",
-                "Your saved contacts and drafts are still there. The things that need Pro — hiring-manager search, firm search, bulk drafting, Coffee Chat Prep beyond the 3 lifetime free ones — are locked.",
+                "Your saved contacts and drafts are still there. The things that need Pro (hiring-manager search, firm search, bulk drafting, Coffee Chat Prep beyond the 3 lifetime free ones) are locked.",
                 "If you change your mind, Pro's in account settings.",
             ],
             cta_label=None,
@@ -519,7 +519,7 @@ def process_trial_endings() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Sequence 4 — Low credits (fired real-time from auth.deduct_credits_atomic)
+# Sequence 4: Low credits (fired real-time from auth.deduct_credits_atomic)
 # ---------------------------------------------------------------------------
 
 def notify_low_credits(uid: str, credits_remaining: int, max_credits: int) -> dict:
@@ -548,9 +548,9 @@ def notify_low_credits(uid: str, credits_remaining: int, max_credits: int) -> di
         step=step,
         subject=f"{credits_remaining} credits left",
         body_paragraphs=[
-            f"Quick FYI — you've used about {pct_used}% of your credits this month. {credits_remaining} left, which is roughly {rough_emails} more {'email' if rough_emails == 1 else 'emails'} before your monthly reset.",
+            f"Quick FYI: you've used about {pct_used}% of your credits this month. {credits_remaining} left, which is roughly {rough_emails} more {'email' if rough_emails == 1 else 'emails'} before your monthly reset.",
             "Two options if you need more before then:",
-            "Top up — one-time credit pack, never expires. Or upgrade to Elite if you're going to keep burning at this pace.",
+            "Top up: one-time credit pack, never expires. Or upgrade to Elite if you're going to keep burning at this pace.",
         ],
         cta_label="See options",
         cta_url=f'{PUBLIC_BASE_URL}/pricing?utm_source=lifecycle&utm_campaign=low_credits',
@@ -558,7 +558,7 @@ def notify_low_credits(uid: str, credits_remaining: int, max_credits: int) -> di
 
 
 # ---------------------------------------------------------------------------
-# Sequence 5 — Win-back (30 days post-cancel)
+# Sequence 5: Win-back (30 days post-cancel)
 # ---------------------------------------------------------------------------
 
 def process_winbacks() -> dict:
@@ -588,7 +588,7 @@ def process_winbacks() -> dict:
         contacts_count = _count_saved_contacts(uid)
         promo = _real_coupon('winback')
         paragraphs = [
-            f"Hey — {SIGNATURE_NAME} again.",
+            f"Hey, {SIGNATURE_NAME} again.",
             f"Been about a month since you canceled. Just flagging: your {contacts_count} saved {'contact' if contacts_count == 1 else 'contacts'} and the drafts you built are still in your Offerloop account, right where you left them.",
         ]
         if promo:
@@ -616,7 +616,7 @@ def process_winbacks() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Cron entry — fires all four time-based sequences
+# Cron entry: fires all four time-based sequences
 # ---------------------------------------------------------------------------
 
 def process_all_pending_emails() -> dict:
