@@ -144,6 +144,7 @@ LOOPS_UNSUBSCRIBE_TOKEN_TTL_DAYS = int(os.getenv("LOOPS_UNSUBSCRIBE_TOKEN_TTL_DA
 # launch-date constant to now or later.
 from datetime import datetime as _dt, timezone as _tz  # local alias
 ONBOARDING_DROPOFF_LAUNCH_DATE = _dt(2026, 7, 1, tzinfo=_tz.utc)
+FIRST_SEARCH_ACTIVATION_LAUNCH_DATE = _dt(2026, 7, 1, tzinfo=_tz.utc)
 
 # ========================================
 # Beehiiv (Newsletter)
