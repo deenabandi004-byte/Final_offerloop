@@ -2,6 +2,11 @@
 
 All notable changes to Offerloop will be documented in this file.
 
+## [0.1.2.3] - 2026-07-01
+
+### Changed
+- Lifecycle email copy and internal comments in `lifecycle_emails.py` no longer use em dashes. 32 occurrences swapped for commas, periods, colons, or parentheses depending on context. Matches Sid's founder voice rules. The two `— {SIGNATURE_NAME}` signature markers are preserved as email signoff convention.
+
 ## [0.1.2.2] - 2026-07-01
 
 ### Changed
