@@ -39,6 +39,9 @@ from app.config import (
     FIRST_SEARCH_ACTIVATION_LAUNCH_DATE,
     FIRST_SEND_ACTIVATION_LAUNCH_DATE,
     WELCOME_DRIP_LAUNCH_DATE,
+    COFFEE_CHAT_DISCOVERY_LAUNCH_DATE,
+    JOB_BOARD_DISCOVERY_LAUNCH_DATE,
+    FREE_CEILING_LAUNCH_DATE,
 )
 from app.extensions import get_db
 from app.services.notification_adapter import send as notify_send, Channel
@@ -1117,6 +1120,202 @@ def process_welcome_drips() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Sequence 10: Coffee chat prep discovery (got a reply, hasn't tried Meeting Prep)
+# ---------------------------------------------------------------------------
+
+def process_coffee_chat_discoveries() -> dict:
+    """One-shot email for users who got their first reply but never opened
+    Meeting Prep. Fires within 24h of firstReplyReceivedAt.
+
+    A reply is a stronger activation signal than "5+ sent" per the plan spec:
+    it means they have a real meeting coming up and need to prep for it now,
+    not later.
+
+    Safety: COFFEE_CHAT_DISCOVERY_LAUNCH_DATE gates on signupAt.
+    """
+    db = get_db()
+    if not db:
+        return {'ok': False, 'error': 'db_unavailable'}
+
+    sent = {'day_0': 0}
+    now = datetime.now(timezone.utc)
+
+    for snap in db.collection('users').stream():
+        user = snap.to_dict() or {}
+        uid = snap.id
+        email = user.get('email')
+        if not email:
+            continue
+
+        first_reply_at = _parse_ts_or_dt(user.get('firstReplyReceivedAt'))
+        if not first_reply_at:
+            continue
+
+        # Skip users who already used Meeting Prep
+        if (user.get('coffeeChatPrepsUsed') or 0) > 0:
+            continue
+
+        signup_at = _parse_ts_or_dt(user.get('signupAt'))
+        if not signup_at or signup_at < COFFEE_CHAT_DISCOVERY_LAUNCH_DATE:
+            continue
+
+        hours_since_reply = (now - first_reply_at).total_seconds() / 3600
+
+        # Day 0: fire within 24h of first reply (positive-signal, hot moment)
+        if 0 <= hours_since_reply < 24 and not already_sent(uid, 'coffee_chat_discovery', 'day_0'):
+            res = _send_lifecycle_email(
+                user_or_lead_id=uid,
+                recipient_email=email,
+                campaign='coffee_chat_discovery',
+                step='day_0',
+                subject="you got a reply, time to prep",
+                body_paragraphs=[
+                    f"Hey, {SIGNATURE_NAME} here.",
+                    "Saw you got a reply on Offerloop, which means you have a real conversation coming up. Meeting Prep pulls together talking points, questions to ask, and background research on the person you're meeting so you don't fumble the actual call.",
+                    "Free tier gets 3 preps lifetime, so save them for the meetings that matter most. Worth using one before your first coffee chat.",
+                ],
+                cta_label="Try Meeting Prep",
+                cta_url=f'{PUBLIC_BASE_URL}/coffee-chat-prep?utm_source=lifecycle&utm_campaign=coffee_chat_discovery&utm_content=day_0',
+            )
+            if res.get('sent'):
+                sent['day_0'] += 1
+
+    return {'ok': True, 'sent': sent}
+
+
+# ---------------------------------------------------------------------------
+# Sequence 11: Job board discovery (has been active but never opened Job Board)
+# ---------------------------------------------------------------------------
+
+def process_job_board_discoveries() -> dict:
+    """One-shot email at profileConfirmedAt + 10 days for users who haven't
+    visited /job-board yet. The stamp is written by the /api/lifecycle/job-board-view
+    endpoint on frontend mount.
+
+    Safety: JOB_BOARD_DISCOVERY_LAUNCH_DATE gates on signupAt.
+    """
+    db = get_db()
+    if not db:
+        return {'ok': False, 'error': 'db_unavailable'}
+
+    sent = {'day_10': 0}
+    now = datetime.now(timezone.utc)
+
+    for snap in db.collection('users').stream():
+        user = snap.to_dict() or {}
+        uid = snap.id
+        email = user.get('email')
+        if not email:
+            continue
+
+        profile_confirmed_at = _parse_ts_or_dt(user.get('profileConfirmedAt'))
+        if not profile_confirmed_at:
+            continue
+
+        # Skip users who already visited Job Board
+        if _parse_ts_or_dt(user.get('jobBoardVisitedAt')):
+            continue
+
+        signup_at = _parse_ts_or_dt(user.get('signupAt'))
+        if not signup_at or signup_at < JOB_BOARD_DISCOVERY_LAUNCH_DATE:
+            continue
+
+        hours_since_confirm = (now - profile_confirmed_at).total_seconds() / 3600
+
+        # Day 10: fires 240-264h after profileConfirmedAt (10-11 days)
+        if 240 < hours_since_confirm < 264 and not already_sent(uid, 'job_board_discovery', 'day_10'):
+            res = _send_lifecycle_email(
+                user_or_lead_id=uid,
+                recipient_email=email,
+                campaign='job_board_discovery',
+                step='day_10',
+                subject="the other half of Offerloop",
+                body_paragraphs=[
+                    f"Hey, {SIGNATURE_NAME} here.",
+                    "Most students focus on the outreach side of Offerloop but the Job Board is where actual openings live. Every job listing has real hiring team contacts pre-attached, so you can email the hiring manager the same day the role posts.",
+                    "It takes about a minute to see if anything on your target list is hiring right now. Worth a look.",
+                ],
+                cta_label="See Job Board",
+                cta_url=f'{PUBLIC_BASE_URL}/job-board?utm_source=lifecycle&utm_campaign=job_board_discovery&utm_content=day_10',
+            )
+            if res.get('sent'):
+                sent['day_10'] += 1
+
+    return {'ok': True, 'sent': sent}
+
+
+# ---------------------------------------------------------------------------
+# Sequence 12: Free ceiling (free user hit 90% of monthly credits)
+# ---------------------------------------------------------------------------
+
+def process_free_ceilings() -> dict:
+    """One email when a free user has used 90%+ of their monthly credit
+    allotment. Idempotency key includes the calendar month so the same
+    user can trigger again next month if they hit the ceiling again.
+
+    Safety: FREE_CEILING_LAUNCH_DATE gates on signupAt.
+    """
+    db = get_db()
+    if not db:
+        return {'ok': False, 'error': 'db_unavailable'}
+
+    sent = {'month': 0}
+    now = datetime.now(timezone.utc)
+    month_key = now.strftime('%Y_%m')
+
+    for snap in db.collection('users').stream():
+        user = snap.to_dict() or {}
+        uid = snap.id
+        email = user.get('email')
+        if not email:
+            continue
+
+        tier = user.get('subscriptionTier') or user.get('tier') or 'free'
+        if tier != 'free':
+            continue
+
+        max_credits = user.get('maxCredits') or 0
+        credits = user.get('credits')
+        if not max_credits or credits is None:
+            continue
+        # 90% or more consumed
+        if credits > 0.1 * max_credits:
+            continue
+
+        signup_at = _parse_ts_or_dt(user.get('signupAt'))
+        if not signup_at or signup_at < FREE_CEILING_LAUNCH_DATE:
+            continue
+
+        used = max_credits - credits
+        used_pct = int(round(100 * used / max_credits)) if max_credits else 0
+
+        # Month-scoped idempotency: uid can retrigger next month, but only once per month
+        step = f'month_{month_key}'
+        if already_sent(uid, 'free_ceiling', step):
+            continue
+
+        res = _send_lifecycle_email(
+            user_or_lead_id=uid,
+            recipient_email=email,
+            campaign='free_ceiling',
+            step=step,
+            subject=f"you've used {used_pct}% of your credits",
+            body_paragraphs=[
+                f"Hey, {SIGNATURE_NAME} here.",
+                f"You've used {used} of your {max_credits} credits this month, which means you've been getting real value from Offerloop. Free tier resets on the 1st of next month, so you have a decision to make.",
+                "If you want to keep going before then, Pro is $14.99/mo with a .edu and gets you 3,000 credits (about 6x what you had this month) plus 8 contacts per search instead of 3. Trial is 14 days, no card.",
+                "If you'd rather just wait for the reset, that's a legitimate move too. Just wanted to flag where you are.",
+            ],
+            cta_label="See Pro",
+            cta_url=f'{PUBLIC_BASE_URL}/pricing?utm_source=lifecycle&utm_campaign=free_ceiling&utm_content={month_key}',
+        )
+        if res.get('sent'):
+            sent['month'] += 1
+
+    return {'ok': True, 'sent': sent}
+
+
+# ---------------------------------------------------------------------------
 # Cron entry: fires all time-based sequences
 # ---------------------------------------------------------------------------
 
@@ -1130,6 +1329,9 @@ def process_all_pending_emails() -> dict:
         'first_search_activation': process_first_search_activations(),
         'first_send_activation': process_first_send_activations(),
         'welcome_drip': process_welcome_drips(),
+        'coffee_chat_discovery': process_coffee_chat_discoveries(),
+        'job_board_discovery': process_job_board_discoveries(),
+        'free_ceiling': process_free_ceilings(),
     }
 
 

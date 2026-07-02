@@ -2,6 +2,19 @@
 
 All notable changes to Offerloop will be documented in this file.
 
+## [0.1.8.0] - 2026-07-02
+
+### Added
+- Three Phase 2 P1 lifecycle campaigns (per `docs/EMAIL_CAMPAIGN_SYSTEM_PLAN.md` §"Phase 4 — P1"):
+  - **Coffee chat prep discovery (#10):** fires within 24h of `firstReplyReceivedAt` for free-tier users who haven't used Meeting Prep yet. Frames prep as "you got a reply, time to prep so you don't fumble the actual call."
+  - **Job board discovery (#11):** fires 240-264h after `profileConfirmedAt` for users who haven't visited `/job-board` yet. Frames Job Board as "the other half of Offerloop" with hiring team contacts pre-attached to listings.
+  - **Free ceiling (#12):** fires when free user has used 90%+ of monthly credits. Data-driven copy naming their actual used/total counts. Idempotency scoped per calendar month so a user can re-trigger next month.
+- New `jobBoardVisitedAt` field on user documents, stamped on first `/job-board` mount. Powers the exclusion filter for Campaign #11.
+- New `POST /api/lifecycle/job-board-view` endpoint (Firebase-auth'd, one-shot idempotent stamp).
+- New `stamp_job_board_visited(uid)` helper in `lifecycle_signals.py`.
+- Frontend hook in `JobBoardPage.redesign.tsx` fires the stamp endpoint once per component mount for signed-in users. Fire-and-forget.
+- Three new `_LAUNCH_DATE` constants (COFFEE_CHAT_DISCOVERY, JOB_BOARD_DISCOVERY, FREE_CEILING = 2026-07-02) as safety filters. All 270 backfilled users are excluded because their `signupAt` predates the launch date.
+
 ## [0.1.7.0] - 2026-07-02
 
 ### Added

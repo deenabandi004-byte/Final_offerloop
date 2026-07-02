@@ -25,8 +25,10 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useCreditsView } from "@/hooks/useCreditsView";
+import { getAuth } from "firebase/auth";
 import {
   apiService,
+  BACKEND_URL,
   type FeedJob,
   type JobFeedResponse,
   type JobSearchParams,
@@ -143,6 +145,34 @@ const descriptionCache = new Map<string, JobDescriptionState>();
 export const JobBoardPage: React.FC = () => {
   const { user, isLoading: authLoading } = useFirebaseAuth();
   const creditsView = useCreditsView();
+
+  // Stamp jobBoardVisitedAt on first mount so signed-in users are excluded
+  // from the Job Board discovery lifecycle campaign (#11). Fire-and-forget,
+  // backend one-shot stamp is idempotent so repeated mounts are cheap.
+  const jobBoardVisitStamped = useRef(false);
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) return;
+    if (jobBoardVisitStamped.current) return;
+    jobBoardVisitStamped.current = true;
+    (async () => {
+      try {
+        const auth = getAuth();
+        const firebaseUser = auth.currentUser;
+        if (!firebaseUser) return;
+        const token = await firebaseUser.getIdToken();
+        await fetch(`${BACKEND_URL}/api/lifecycle/job-board-view`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        });
+      } catch {
+        // Fire-and-forget. Never surface a lifecycle capture error.
+      }
+    })();
+  }, [authLoading, user]);
 
   // ---- Server data --------------------------------------------------------
   const [feed, setFeed] = useState<JobFeedResponse | null>(null);

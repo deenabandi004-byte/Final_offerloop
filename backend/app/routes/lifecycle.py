@@ -3,10 +3,11 @@ Lifecycle email routes: cron tick, pricing-page capture (anonymous + signed-in),
 unsubscribe.
 
 Auth modes:
-  - /api/lifecycle/tick           secret-guarded (LIFECYCLE_CRON_SECRET)
-  - /api/lifecycle/pricing-capture anonymous, body-supplied email
-  - /api/lifecycle/pricing-view   Firebase-auth'd, extracts email from user doc
-  - /api/lifecycle/unsubscribe    HMAC-verified token
+  - /api/lifecycle/tick             secret-guarded (LIFECYCLE_CRON_SECRET)
+  - /api/lifecycle/pricing-capture  anonymous, body-supplied email
+  - /api/lifecycle/pricing-view     Firebase-auth'd, extracts email from user doc
+  - /api/lifecycle/job-board-view   Firebase-auth'd, stamps jobBoardVisitedAt
+  - /api/lifecycle/unsubscribe      HMAC-verified token
 
 See `backend/app/services/lifecycle_emails.py` for the campaign logic itself.
 """
@@ -111,6 +112,27 @@ def pricing_view():
     if not result.get('ok'):
         return jsonify(result), 500
     return jsonify(result), 200
+
+
+@lifecycle_bp.route('/job-board-view', methods=['POST'])
+@require_firebase_auth
+def job_board_view():
+    """Signed-in user landed on /job-board. One-shot stamps
+    `jobBoardVisitedAt` on the user doc. Used to exclude them from
+    campaign #11 (Job Board discovery), which prompts users who haven't
+    found the tab yet.
+
+    Idempotent: repeated calls do not overwrite the first-visit timestamp.
+    """
+    uid = request.firebase_user.get('uid')
+    if not uid:
+        return jsonify({'error': 'unauthorized'}), 401
+    try:
+        from app.services.lifecycle_signals import stamp_job_board_visited
+        stamp_job_board_visited(uid)
+    except Exception as exc:
+        logger.debug("job_board_view stamp failed for %s: %s", uid, exc)
+    return jsonify({'ok': True}), 200
 
 
 @lifecycle_bp.route('/unsubscribe', methods=['GET'])

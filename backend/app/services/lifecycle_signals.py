@@ -188,6 +188,28 @@ def stamp_profile_confirmed(uid: str) -> None:
         logger.debug("stamp_profile_confirmed failed for %s: %s", uid, exc)
 
 
+def stamp_job_board_visited(uid: str) -> None:
+    """Called on first `/job-board` page mount for a signed-in user.
+    One-shot stamp: sets `jobBoardVisitedAt` only if it's still null.
+    Powers the exclusion filter for campaign #11 (Job Board discovery)
+    so users who've already found the tab don't get pointed at it."""
+    if not uid:
+        return
+    now = _now_iso()
+    ref = _user_ref(uid)
+    if ref is None:
+        return
+    try:
+        snap = ref.get(field_paths=['jobBoardVisitedAt'])
+        data = snap.to_dict() or {}
+        updates = {'lastActiveAt': now}
+        if not data.get('jobBoardVisitedAt'):
+            updates['jobBoardVisitedAt'] = now
+        ref.update(updates)
+    except Exception as exc:
+        logger.debug("stamp_job_board_visited failed for %s: %s", uid, exc)
+
+
 def set_newsletter_subscribed(uid: str, subscribed: bool) -> None:
     """Called from onboarding opt-in step and from the unsubscribe handler."""
     if not uid:
