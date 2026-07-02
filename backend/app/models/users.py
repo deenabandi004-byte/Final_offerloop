@@ -161,13 +161,14 @@ def create_user_data(
         'alumniSearchesUsed': 0,
         'coffeeChatPrepsUsed': 0,
         'interviewPrepsUsed': 0,
-        # Lifecycle email trigger fields — populated by app/services/lifecycle_signals.py
+        # Lifecycle email trigger fields, populated by app/services/lifecycle_signals.py
         'firstSearchAt': None,
         'firstEmailSentAt': None,
         'firstReplyReceivedAt': None,
         'lastSearchAt': None,
         'lastEmailSentAt': None,
         'lastReplyReceivedAt': None,
+        'profileConfirmedAt': None,  # stamped when profile-confirm endpoint completes
         'newsletterSubscribed': True,  # opt-out via /api/lifecycle/unsubscribe or prefs center
         # Personalization schema version
         'schemaVersion': SCHEMA_VERSION,
