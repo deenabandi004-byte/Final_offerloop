@@ -2,6 +2,11 @@
 
 All notable changes to Offerloop will be documented in this file.
 
+## [0.1.6.0] - 2026-07-02
+
+### Added
+- First-send activation lifecycle campaign. Fires for users who ran a first search but haven't sent an email, addressing the "found the contact but afraid to hit send" freeze that stops most first-time cold outreach. Day 3 (72-96h after `firstSearchAt`): "the send is the whole game" with the shortest working template pattern spelled out. Day 7 (168-192h): "what's the block?" as a pure reply CTA (Deena asking what's holding them up). Gated by `FIRST_SEND_ACTIVATION_LAUNCH_DATE = 2026-07-01` on `signupAt`, plus the natural `firstSearchAt`-must-be-set filter, so backfilled users can't retro-enroll. Wired into `process_all_pending_emails()`.
+
 ## [0.1.5.0] - 2026-07-01
 
 ### Added
