@@ -2,6 +2,11 @@
 
 All notable changes to Offerloop will be documented in this file.
 
+## [0.1.3.0] - 2026-07-01
+
+### Added
+- Rewired pricing abandonment lifecycle campaign. New `POST /api/lifecycle/pricing-view` endpoint (Firebase-auth'd) captures signed-in non-paying visitors as `pricing_abandon` leads when they land on `/pricing`, replacing the removed `PricingExitPopup` capture point. The existing Day 0 / Day 2 / Day 5 sequence in `lifecycle_emails.py` fires from these leads with no other changes. Backend skips users already on Pro or Elite. Frontend fires the capture once per component mount from `Pricing.tsx`. Anonymous visitors aren't captured (deferred design decision).
+
 ## [0.1.2.4] - 2026-07-01
 
 ### Added

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Helmet } from "react-helmet-async";
 import { Check, ArrowLeft, Settings, Shield, ChevronDown, X, Menu, Sparkles, Zap, Clock, Plus } from "lucide-react";
 import { useNavigate, Link } from "react-router-dom";
@@ -776,6 +776,37 @@ const Pricing = () => {
       localStorage.removeItem('offerloop_tier');
     }
   }, [user, authLoading]);
+
+  // Capture signed-in non-paying visitors as pricing_abandon leads so the
+  // Day 0 / Day 2 / Day 5 sequence fires. Fire-and-forget. Backend also
+  // gates on tier, so this is defense-in-depth. Anonymous visitors aren't
+  // captured here (that's a separate design call about rebuilding capture UI).
+  const pricingViewCaptured = useRef(false);
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) return;
+    if (hasActiveSubscription) return;
+    if (pricingViewCaptured.current) return;
+    pricingViewCaptured.current = true;
+
+    (async () => {
+      try {
+        const auth = getAuth();
+        const firebaseUser = auth.currentUser;
+        if (!firebaseUser) return;
+        const token = await firebaseUser.getIdToken();
+        await fetch(`${BACKEND_URL}/api/lifecycle/pricing-view`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        });
+      } catch {
+        // Fire-and-forget. Never surface a lifecycle capture error to the user.
+      }
+    })();
+  }, [authLoading, user, hasActiveSubscription]);
 
   // Format renewal date
   const renewalDate = subscriptionStatus?.currentPeriodEnd 

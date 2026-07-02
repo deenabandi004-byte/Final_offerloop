@@ -1,9 +1,11 @@
 """
-Lifecycle email routes — cron tick, anonymous pricing-page capture, unsubscribe.
+Lifecycle email routes: cron tick, pricing-page capture (anonymous + signed-in),
+unsubscribe.
 
-All three are public-with-validation rather than auth-gated:
+Auth modes:
   - /api/lifecycle/tick           secret-guarded (LIFECYCLE_CRON_SECRET)
-  - /api/lifecycle/pricing-capture rate-limited by IP + email
+  - /api/lifecycle/pricing-capture anonymous, body-supplied email
+  - /api/lifecycle/pricing-view   Firebase-auth'd, extracts email from user doc
   - /api/lifecycle/unsubscribe    HMAC-verified token
 
 See `backend/app/services/lifecycle_emails.py` for the campaign logic itself.
@@ -12,6 +14,7 @@ import os
 import logging
 from flask import Blueprint, request, jsonify, render_template_string
 
+from app.extensions import require_firebase_auth, get_db
 from app.services.lifecycle_emails import (
     process_all_pending_emails,
     capture_pricing_lead,
@@ -63,6 +66,50 @@ def pricing_capture():
     if not result.get('ok'):
         return jsonify(result), 500
 
+    return jsonify(result), 200
+
+
+@lifecycle_bp.route('/pricing-view', methods=['POST'])
+@require_firebase_auth
+def pricing_view():
+    """Signed-in user landed on /pricing. Captures them as a pricing_abandon
+    lead so the existing Day 0 / Day 2 / Day 5 sequence fires. Replaces the
+    removed PricingExitPopup capture point.
+
+    Skip if user is already on Pro or Elite (no need to nudge them to upgrade).
+
+    Anonymous /pricing visitors aren't captured by this endpoint. Rebuilding
+    anonymous capture (popup or inline form) is a separate design decision.
+    """
+    uid = request.firebase_user.get('uid')
+    if not uid:
+        return jsonify({'error': 'unauthorized'}), 401
+
+    db = get_db()
+    if not db:
+        return jsonify({'ok': False, 'error': 'db_unavailable'}), 500
+
+    try:
+        snap = db.collection('users').document(uid).get()
+    except Exception as exc:
+        logger.exception("pricing_view db read failed for uid=%s", uid)
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+    if not snap.exists:
+        return jsonify({'ok': False, 'error': 'user_not_found'}), 404
+    user = snap.to_dict() or {}
+
+    email = user.get('email')
+    if not email:
+        return jsonify({'ok': False, 'error': 'no_email'}), 400
+
+    tier = user.get('subscriptionTier') or user.get('tier') or 'free'
+    if tier in ('pro', 'elite'):
+        return jsonify({'ok': True, 'skipped': 'already_paying'}), 200
+
+    result = capture_pricing_lead(email, utm_source='pricing_view')
+    if not result.get('ok'):
+        return jsonify(result), 500
     return jsonify(result), 200
 
 
