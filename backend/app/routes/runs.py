@@ -475,49 +475,73 @@ def prompt_search():
         # Trim to the originally requested count (whether or not dedup ran)
         contacts = contacts[:max_contacts]
 
-        # Enrich contacts with non-LinkedIn web presence (Perplexity)
+        # Enrich contacts. The three passes (Perplexity person presence, Apify
+        # LinkedIn posts, Perplexity company news) are independent of each other,
+        # so we fetch them CONCURRENTLY instead of in series. Each worker only
+        # fetches; results are attached to the contact dicts on the main thread
+        # afterward, so there is no shared-state race. Caching (enrichment_cache)
+        # is untouched, so this is a pure wall-clock win with identical output.
         enrichment_data = {}
-        try:
+        apify_results = {}
+        company_enrichment = {}
+
+        def _fetch_contact_enrichment():
             from app.services.perplexity_client import batch_enrich_contacts
-            enrichment_data = batch_enrich_contacts(contacts)
-            for idx, contact in enumerate(contacts):
-                enrich = enrichment_data.get(idx, {})
-                if enrich.get("talking_points"):
-                    contact["enrichment_talking_points"] = enrich["talking_points"]
-                if enrich.get("recent_activity"):
-                    contact["enrichment_recent_activity"] = enrich["recent_activity"]
-                if enrich.get("media_appearances"):
-                    contact["perplexity_media_appearances"] = enrich["media_appearances"]
-                if enrich.get("published_writing"):
-                    contact["perplexity_published_writing"] = enrich["published_writing"]
-                if enrich.get("news_mentions"):
-                    contact["perplexity_news_mentions"] = enrich["news_mentions"]
-        except Exception:
-            print("⚠️ Contact enrichment failed, continuing without", flush=True)
+            return batch_enrich_contacts(contacts) or {}
 
-        # Enrich contacts with LinkedIn recent posts (Apify)
-        try:
+        def _fetch_apify_posts():
             from app.services.apify_client import batch_enrich_linkedin_posts_via_apify
-            apify_results = batch_enrich_linkedin_posts_via_apify(contacts) or {}
-            for idx, contact in enumerate(contacts):
-                payload = apify_results.get(idx, {})
-                if payload.get("linkedin_recent_posts"):
-                    contact["linkedin_recent_posts"] = payload["linkedin_recent_posts"]
-        except Exception:
-            print("⚠️ Apify LinkedIn enrichment failed, continuing", flush=True)
+            return batch_enrich_linkedin_posts_via_apify(contacts) or {}
 
-        # Enrich contacts with company news (Perplexity, batched per company)
-        try:
+        def _fetch_company_news():
             from app.services.perplexity_client import batch_enrich_company_news
-            company_enrichment = batch_enrich_company_news(contacts) or {}
-            for idx, contact in enumerate(contacts):
-                co = company_enrichment.get(idx, {})
-                if co.get("company_recent_news"):
-                    contact["company_recent_news"] = co["company_recent_news"]
-                if co.get("company_description"):
-                    contact["company_description"] = co["company_description"]
-        except Exception:
-            print("⚠️ Perplexity company enrichment failed, continuing", flush=True)
+            return batch_enrich_company_news(contacts) or {}
+
+        try:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as _enrich_pool:
+                _f_contacts = _enrich_pool.submit(_fetch_contact_enrichment)
+                _f_apify = _enrich_pool.submit(_fetch_apify_posts)
+                _f_company = _enrich_pool.submit(_fetch_company_news)
+                try:
+                    enrichment_data = _f_contacts.result()
+                except Exception:
+                    print("⚠️ Contact enrichment failed, continuing without", flush=True)
+                try:
+                    apify_results = _f_apify.result()
+                except Exception:
+                    print("⚠️ Apify LinkedIn enrichment failed, continuing", flush=True)
+                try:
+                    company_enrichment = _f_company.result()
+                except Exception:
+                    print("⚠️ Perplexity company enrichment failed, continuing", flush=True)
+        except Exception as _enrich_pool_err:
+            print(f"⚠️ Enrichment pool failed, continuing: {_enrich_pool_err}", flush=True)
+
+        # Attach all three enrichment results to the contacts (in-memory, main
+        # thread). Each pass writes distinct keys, so order does not matter.
+        for idx, contact in enumerate(contacts):
+            enrich = enrichment_data.get(idx, {})
+            if enrich.get("talking_points"):
+                contact["enrichment_talking_points"] = enrich["talking_points"]
+            if enrich.get("recent_activity"):
+                contact["enrichment_recent_activity"] = enrich["recent_activity"]
+            if enrich.get("media_appearances"):
+                contact["perplexity_media_appearances"] = enrich["media_appearances"]
+            if enrich.get("published_writing"):
+                contact["perplexity_published_writing"] = enrich["published_writing"]
+            if enrich.get("news_mentions"):
+                contact["perplexity_news_mentions"] = enrich["news_mentions"]
+
+            payload = apify_results.get(idx, {})
+            if payload.get("linkedin_recent_posts"):
+                contact["linkedin_recent_posts"] = payload["linkedin_recent_posts"]
+
+            co = company_enrichment.get(idx, {})
+            if co.get("company_recent_news"):
+                contact["company_recent_news"] = co["company_recent_news"]
+            if co.get("company_description"):
+                contact["company_description"] = co["company_description"]
 
         # Cost telemetry — single line per search so spend impact is visible.
         try:
@@ -583,12 +607,29 @@ def prompt_search():
 
         auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
 
-        # Download resume PDF and extract text for email personalization
+        # Resume text for email personalization. The extracted text never changes
+        # between drafts, so we CACHE it on the user doc (keyed to the resume URL)
+        # and reuse it — skipping the slow per-draft PDF download + parse. The
+        # Gmail draft/send step still fetches the bytes for the attachment via
+        # resume_url when resume_content is None (create_drafts_parallel /
+        # send_emails_parallel handle that), so dropping the upfront download here
+        # never loses the attachment.
         resume_url = (user_data or {}).get("resumeUrl") or (user_data or {}).get("resumeURL")
         resume_text = None
         resume_content = None
         resume_filename = None
-        if resume_url:
+        # resumeText is written paired with the current resume on every upload —
+        # by the web (resume.py:193-195) AND by our own cache write below — so when
+        # it's present we trust it and skip the download + parse. The only time we
+        # re-extract is when WE previously cached it for a DIFFERENT resume URL
+        # (stale), which never false-flags a web-uploaded resumeText (no source url).
+        cached_resume_text = (user_data or {}).get("resumeText")
+        cached_resume_src = (user_data or {}).get("resumeTextSourceUrl")
+        _resume_text_stale = bool(cached_resume_src) and cached_resume_src != resume_url
+        if cached_resume_text and len(cached_resume_text.strip()) > 50 and not _resume_text_stale:
+            resume_text = cached_resume_text
+            print(f"[Runs] Using stored resume text ({len(resume_text)} chars) — skipped download + parse")
+        elif resume_url:
             try:
                 print(f"[Runs] Downloading resume for text extraction: {resume_url[:80]}...")
                 _content, _fname = download_resume_from_url(resume_url)
@@ -598,6 +639,14 @@ def prompt_search():
                     resume_text = extract_text_from_pdf_bytes(_content)
                     if resume_text and len(resume_text.strip()) > 50:
                         print(f"[Runs] Extracted {len(resume_text)} chars from resume PDF")
+                        # Cache so every future draft skips this download + parse.
+                        try:
+                            db.collection("users").document(user_id).set(
+                                {"resumeText": resume_text, "resumeTextSourceUrl": resume_url},
+                                merge=True,
+                            )
+                        except Exception as cache_err:
+                            print(f"[Runs] Resume text cache write failed: {cache_err}")
                     else:
                         print(f"[Runs] Resume text extraction too short ({len(resume_text or '')} chars)")
                         resume_text = None
