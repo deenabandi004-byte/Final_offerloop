@@ -14,7 +14,7 @@ starting from `p=none` and warming up.
 
 | Sender | Domain | Vendor |
 |---|---|---|
-| `Deena from Offerloop <bandis@offerloop.ai>` | offerloop.ai | Resend (lifecycle) |
+| `Deena from Offerloop <sid@offerloop.ai>` | offerloop.ai | Resend (lifecycle) |
 | `Offerloop Newsletter <hello@offerloop.ai>` | offerloop.ai | Beehiiv (newsletter) |
 | `Offerloop <noreply@offerloop.ai>` | offerloop.ai | Resend (system + transactional) |
 | `Offerloop Loops <loops@offerloop.ai>` | offerloop.ai | Resend (agent loop alerts) |
@@ -38,7 +38,7 @@ dig TXT offerloop.ai +short | grep spf1
 v=spf1 include:_spf.resend.com include:_spf.beehiiv.com include:_spf.google.com ~all
 ```
 
-Include Google if you use Google Workspace for `bandis@offerloop.ai` (which you should, per the plan). If Google Workspace isn't used, drop that include.
+Include Google if you use Google Workspace for `sid@offerloop.ai` (which you should, per the plan). If Google Workspace isn't used, drop that include.
 
 Notes:
 - `~all` (soft-fail) not `-all` (hard-fail) during warm-up. Switch to `-all` after 2 weeks of clean sends.
@@ -59,7 +59,7 @@ Notes:
 - Beehiiv dashboard: Settings → Custom Sending Domain → walk through the wizard for `offerloop.ai`.
 - Add the TXT records it prints, hit **Verify**.
 
-**Google Workspace DKIM** (for `bandis@offerloop.ai` outbound replies):
+**Google Workspace DKIM** (for `sid@offerloop.ai` outbound replies):
 - Google Admin → Apps → Google Workspace → Gmail → Authenticate email → Generate new record → 2048-bit.
 - Add the TXT record at `google._domainkey.offerloop.ai`.
 - Start authentication after the record propagates.
@@ -124,7 +124,7 @@ If/when you cross the threshold:
 
 **Send a test lifecycle email to a Gmail address**:
 
-1. Point `LIFECYCLE_CRON_SECRET`, `RESEND_API_KEY`, `LIFECYCLE_FROM_EMAIL=bandis@offerloop.ai`, `LIFECYCLE_POSTAL_ADDRESS=<real address>` on staging.
+1. Point `LIFECYCLE_CRON_SECRET`, `RESEND_API_KEY`, `LIFECYCLE_FROM_EMAIL=sid@offerloop.ai`, `LIFECYCLE_POSTAL_ADDRESS=<real address>` on staging.
 2. Create a test lead in `lifecycle_leads` with `captured_at` = now.
 3. Hit `POST /api/lifecycle/tick` with the cron secret.
 4. Open the received Gmail message → click **⋮** → **Show original**.
@@ -133,7 +133,7 @@ If/when you cross the threshold:
 - `SPF: PASS` ✅
 - `DKIM: PASS` for `d=offerloop.ai` ✅
 - `DMARC: PASS` ✅
-- `From:` shows `Deena from Offerloop <bandis@offerloop.ai>` with no `via` warning ✅
+- `From:` shows `Deena from Offerloop <sid@offerloop.ai>` with no `via` warning ✅
 - Body contains a real postal address in the footer ✅
 - Click the Unsubscribe link → confirms unsubscribed ✅
 
@@ -165,7 +165,7 @@ Required before Phase 2 lifecycle campaigns ship:
 
 | Var | Where to get | Example |
 |---|---|---|
-| `LIFECYCLE_FROM_EMAIL` | The plan | `Deena from Offerloop <bandis@offerloop.ai>` |
+| `LIFECYCLE_FROM_EMAIL` | The plan | `Deena from Offerloop <sid@offerloop.ai>` |
 | `LIFECYCLE_SIGNATURE_NAME` | The plan | `Deena` |
 | `LIFECYCLE_POSTAL_ADDRESS` | Section 6 above | see example |
 | `LIFECYCLE_CRON_SECRET` | Generate: `openssl rand -hex 32` | `<64 hex chars>` |

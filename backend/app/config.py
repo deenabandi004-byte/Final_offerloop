@@ -126,7 +126,7 @@ RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "loops@offerloop.ai")
 # Lifecycle marketing/activation emails are signed by a real person and
 # expect replies. Keep this separate from the system sender so deliverability
 # reputation for the two identities builds independently.
-LIFECYCLE_FROM_EMAIL = os.getenv("LIFECYCLE_FROM_EMAIL", "Deena from Offerloop <bandis@offerloop.ai>")
+LIFECYCLE_FROM_EMAIL = os.getenv("LIFECYCLE_FROM_EMAIL", "Deena from Offerloop <sid@offerloop.ai>")
 # CAN-SPAM requires a physical postal address in every commercial email.
 # Empty default is intentional — the sender emits an in-content placeholder
 # that fails the eye test in dev so it can't be missed. Set on Render.
