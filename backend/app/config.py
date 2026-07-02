@@ -137,6 +137,14 @@ RESEND_WEBHOOK_SECRET = os.getenv("RESEND_WEBHOOK_SECRET", "")
 # Unsubscribe tokens are HMAC-signed with FLASK_SECRET and expire after N days.
 LOOPS_UNSUBSCRIBE_TOKEN_TTL_DAYS = int(os.getenv("LOOPS_UNSUBSCRIBE_TOKEN_TTL_DAYS", "30"))
 
+# Per-campaign launch dates. Every Phase 2 campaign that scans users by
+# signup date compares signupAt against its own launch-date constant so that
+# pre-launch users (including the ~270 backfilled by scripts/backfill_lifecycle_fields.py)
+# do not retroactively enroll. When you turn on a new campaign, set its
+# launch-date constant to now or later.
+from datetime import datetime as _dt, timezone as _tz  # local alias
+ONBOARDING_DROPOFF_LAUNCH_DATE = _dt(2026, 7, 1, tzinfo=_tz.utc)
+
 # ========================================
 # Beehiiv (Newsletter)
 # ========================================
