@@ -38,6 +38,7 @@ from app.config import (
     ONBOARDING_DROPOFF_LAUNCH_DATE,
     FIRST_SEARCH_ACTIVATION_LAUNCH_DATE,
     FIRST_SEND_ACTIVATION_LAUNCH_DATE,
+    WELCOME_DRIP_LAUNCH_DATE,
 )
 from app.extensions import get_db
 from app.services.notification_adapter import send as notify_send, Channel
@@ -937,6 +938,185 @@ def process_first_send_activations() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Sequence 9: Welcome + onboarding drip (six emails over 30 days)
+# ---------------------------------------------------------------------------
+
+def process_welcome_drips() -> dict:
+    """Six-email drip from Deena starting the moment someone signs up.
+    Different intent per step:
+    - Day 0: personal intro + reply-back question
+    - Day 1: activation nudge to Find
+    - Day 3: industry-personalized cold-email pattern
+    - Day 7: 5 things top recruiters do differently
+    - Day 14: honest Pro vs Free read (skipped if already Pro/Elite)
+    - Day 30: month-1 recap + month-2 direction
+
+    Safety invariant: WELCOME_DRIP_LAUNCH_DATE gates on signupAt. Every
+    one of the ~270 backfilled users has signupAt < 2026-07-02, so none
+    of them retro-enroll. Only signups from launch day forward flow
+    through the drip.
+    """
+    db = get_db()
+    if not db:
+        return {'ok': False, 'error': 'db_unavailable'}
+
+    sent = {'day_0': 0, 'day_1': 0, 'day_3': 0, 'day_7': 0, 'day_14': 0, 'day_30': 0}
+    now = datetime.now(timezone.utc)
+
+    for snap in db.collection('users').stream():
+        user = snap.to_dict() or {}
+        uid = snap.id
+        email = user.get('email')
+        if not email:
+            continue
+
+        signup_at = _parse_ts_or_dt(user.get('signupAt'))
+        if not signup_at:
+            continue
+
+        # Launch-date safety filter (mandatory — see docstring)
+        if signup_at < WELCOME_DRIP_LAUNCH_DATE:
+            continue
+
+        hours_since_signup = (now - signup_at).total_seconds() / 3600
+        tier = user.get('subscriptionTier') or user.get('tier') or 'free'
+        industries = user.get('targetIndustries') or []
+        primary_industry = (industries[0] if industries else '').lower()
+
+        # Day 0: fires within first 6h of signup (catches any cron lag)
+        if 0 <= hours_since_signup < 6 and not already_sent(uid, 'welcome_drip', 'day_0'):
+            res = _send_lifecycle_email(
+                user_or_lead_id=uid,
+                recipient_email=email,
+                campaign='welcome_drip',
+                step='day_0',
+                subject="you just signed up, a question",
+                body_paragraphs=[
+                    f"I'm {SIGNATURE_NAME}, one of the co-founders of Offerloop.",
+                    "What industry are you recruiting for, and what school are you at? Reply with those two things and I'll send back the specific playbook for your situation over the next 30 days.",
+                    "No script, no automated funnel. I read every reply.",
+                ],
+                cta_label=None,
+                cta_url=None,
+            )
+            if res.get('sent'):
+                sent['day_0'] += 1
+
+        # Day 1: 24-30h after signup
+        elif 24 < hours_since_signup < 30 and not already_sent(uid, 'welcome_drip', 'day_1'):
+            res = _send_lifecycle_email(
+                user_or_lead_id=uid,
+                recipient_email=email,
+                campaign='welcome_drip',
+                step='day_1',
+                subject="your recruiting workspace is ready",
+                body_paragraphs=[
+                    f"Hey, {SIGNATURE_NAME} here.",
+                    "Your Find tab is set up with alumni and hiring-manager search dialed to the industries you told us about. One search takes about 30 seconds and pulls verified emails plus context on each contact.",
+                    "Try one now. If nothing comes back or the results feel off, reply and tell me what you're targeting. I'll help figure out the right query.",
+                ],
+                cta_label="Run your first search",
+                cta_url=f'{PUBLIC_BASE_URL}/find?utm_source=lifecycle&utm_campaign=welcome_drip&utm_content=day_1',
+            )
+            if res.get('sent'):
+                sent['day_1'] += 1
+
+        # Day 3: 72-78h — industry-personalized cold email pattern
+        elif 72 < hours_since_signup < 78 and not already_sent(uid, 'welcome_drip', 'day_3'):
+            if primary_industry:
+                subject = f"the cold email that works in {primary_industry}"
+                second_line = f"Every industry has its own cold-email pattern. For {primary_industry}, the one that works reliably is: subject line under five words, first sentence names a shared connection or specific project, body has one specific ask."
+            else:
+                subject = "the cold email that actually works"
+                second_line = "The cold-email pattern that reliably works: subject line under five words, first sentence names a shared connection or specific project, body has one specific ask."
+            res = _send_lifecycle_email(
+                user_or_lead_id=uid,
+                recipient_email=email,
+                campaign='welcome_drip',
+                step='day_3',
+                subject=subject,
+                body_paragraphs=[
+                    f"Hey, {SIGNATURE_NAME} again.",
+                    second_line,
+                    "Template that works: 'Subject: Quick question about your work. Body: Hey {first_name}, I'm a {school} student recruiting for the industry. Saw your background at {company}. Would you be open to a 15-min call about how you got there? Best, {your_name}'",
+                    "Two sentences, one specific ask. Send Tuesday through Thursday mornings. Offerloop drafts something like this for you in one click.",
+                ],
+                cta_label="Try one send",
+                cta_url=f'{PUBLIC_BASE_URL}/find?utm_source=lifecycle&utm_campaign=welcome_drip&utm_content=day_3',
+            )
+            if res.get('sent'):
+                sent['day_3'] += 1
+
+        # Day 7: 168-174h — 5 things
+        elif 168 < hours_since_signup < 174 and not already_sent(uid, 'welcome_drip', 'day_7'):
+            res = _send_lifecycle_email(
+                user_or_lead_id=uid,
+                recipient_email=email,
+                campaign='welcome_drip',
+                step='day_7',
+                subject="5 things that separate students who land offers",
+                body_paragraphs=[
+                    f"Hey, {SIGNATURE_NAME} here.",
+                    "Watched a lot of student recruiters over the last year. Here's what separates the ones who land offers from the ones who grind and get nothing back:",
+                    "1. Send Tuesday through Thursday between 6am and 8am local. Your email sits at the top when they open their inbox.",
+                    "2. Reply to something they wrote or posted before cold-emailing them. Gives you a legit shared reference in sentence one.",
+                    "3. Mention a specific project or deal they worked on, not the company. Everyone else names the company.",
+                    "4. Ask for 15 minutes, not 'your time'. Specific ask converts about two-to-one.",
+                    "5. Send from your school email. Response rate roughly doubles.",
+                    "If any of these feel weird or you want to know why they work, reply and I'll explain.",
+                ],
+                cta_label=None,
+                cta_url=None,
+            )
+            if res.get('sent'):
+                sent['day_7'] += 1
+
+        # Day 14: 336-342h — Pro upgrade nudge. Skip if already paying.
+        elif 336 < hours_since_signup < 342 and tier not in ('pro', 'elite') and not already_sent(uid, 'welcome_drip', 'day_14'):
+            res = _send_lifecycle_email(
+                user_or_lead_id=uid,
+                recipient_email=email,
+                campaign='welcome_drip',
+                step='day_14',
+                subject="should you go pro?",
+                body_paragraphs=[
+                    f"Hey, {SIGNATURE_NAME} here.",
+                    "You're two weeks in. Honest read on whether Pro is worth it:",
+                    "If you're running 5+ searches a week, want 8 contacts per search instead of 3, or you want the hiring-manager search unlocked, Pro is $14.99/mo with a .edu and pays for itself with one landed coffee chat.",
+                    "If you're doing 1-2 searches, stay on Free. You don't need it yet.",
+                    "The trial is 14 days, no credit card. If you want to try it or you're unsure whether it fits your situation, reply and I'll help you decide.",
+                ],
+                cta_label="See Pro",
+                cta_url=f'{PUBLIC_BASE_URL}/pricing?utm_source=lifecycle&utm_campaign=welcome_drip&utm_content=day_14',
+            )
+            if res.get('sent'):
+                sent['day_14'] += 1
+
+        # Day 30: 720-726h — month-1 recap + month-2 direction
+        elif 720 < hours_since_signup < 726 and not already_sent(uid, 'welcome_drip', 'day_30'):
+            res = _send_lifecycle_email(
+                user_or_lead_id=uid,
+                recipient_email=email,
+                campaign='welcome_drip',
+                step='day_30',
+                subject="your first month",
+                body_paragraphs=[
+                    f"Hey, {SIGNATURE_NAME} here.",
+                    "It's been 30 days since you signed up. Whether you're deep in the pipeline right now or Offerloop's been sitting in a tab, here's the honest read on month two:",
+                    "The users who land offers by the end of month two usually run 3 searches a week, send 5 emails, and follow up on any reply within 24 hours. That's basically it. That's the pattern.",
+                    "If you've fallen off or you're not sure what to do next, reply and tell me where you're stuck. I'll suggest the next specific move for your situation.",
+                    "If you're already crushing it, keep the streak.",
+                ],
+                cta_label="Back to your workspace",
+                cta_url=f'{PUBLIC_BASE_URL}/find?utm_source=lifecycle&utm_campaign=welcome_drip&utm_content=day_30',
+            )
+            if res.get('sent'):
+                sent['day_30'] += 1
+
+    return {'ok': True, 'sent': sent}
+
+
+# ---------------------------------------------------------------------------
 # Cron entry: fires all time-based sequences
 # ---------------------------------------------------------------------------
 
@@ -949,6 +1129,7 @@ def process_all_pending_emails() -> dict:
         'onboarding_dropoff': process_onboarding_dropoffs(),
         'first_search_activation': process_first_search_activations(),
         'first_send_activation': process_first_send_activations(),
+        'welcome_drip': process_welcome_drips(),
     }
 
 

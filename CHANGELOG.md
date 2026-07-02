@@ -2,6 +2,11 @@
 
 All notable changes to Offerloop will be documented in this file.
 
+## [0.1.7.0] - 2026-07-02
+
+### Added
+- Welcome + onboarding drip lifecycle campaign. Six emails from Deena over the first 30 days for every new signup. Day 0 (immediate): personal intro asking industry + school with a reply CTA. Day 1: activation nudge to Find. Day 3: industry-personalized cold-email pattern with a working template. Day 7: "5 things that separate students who land offers" playbook. Day 14: honest Pro vs Free read (skipped if user is already Pro/Elite). Day 30: month-1 recap with month-2 direction. Gated by `WELCOME_DRIP_LAUNCH_DATE = 2026-07-02` on `signupAt` so all ~270 backfilled users are excluded. Wired into `process_all_pending_emails()`. This is the last of the five P0 Phase 2 lifecycle campaigns per `docs/EMAIL_CAMPAIGN_SYSTEM_PLAN.md`.
+
 ## [0.1.6.0] - 2026-07-02
 
 ### Added
