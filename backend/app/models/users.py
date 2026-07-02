@@ -169,6 +169,7 @@ def create_user_data(
         'lastEmailSentAt': None,
         'lastReplyReceivedAt': None,
         'profileConfirmedAt': None,  # stamped when profile-confirm endpoint completes
+        'jobBoardVisitedAt': None,  # stamped on first /job-board page mount
         'newsletterSubscribed': True,  # opt-out via /api/lifecycle/unsubscribe or prefs center
         # Personalization schema version
         'schemaVersion': SCHEMA_VERSION,

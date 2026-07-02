@@ -147,6 +147,9 @@ ONBOARDING_DROPOFF_LAUNCH_DATE = _dt(2026, 7, 1, tzinfo=_tz.utc)
 FIRST_SEARCH_ACTIVATION_LAUNCH_DATE = _dt(2026, 7, 1, tzinfo=_tz.utc)
 FIRST_SEND_ACTIVATION_LAUNCH_DATE = _dt(2026, 7, 1, tzinfo=_tz.utc)
 WELCOME_DRIP_LAUNCH_DATE = _dt(2026, 7, 2, tzinfo=_tz.utc)
+COFFEE_CHAT_DISCOVERY_LAUNCH_DATE = _dt(2026, 7, 2, tzinfo=_tz.utc)
+JOB_BOARD_DISCOVERY_LAUNCH_DATE = _dt(2026, 7, 2, tzinfo=_tz.utc)
+FREE_CEILING_LAUNCH_DATE = _dt(2026, 7, 2, tzinfo=_tz.utc)
 
 # ========================================
 # Beehiiv (Newsletter)
