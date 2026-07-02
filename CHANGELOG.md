@@ -2,6 +2,11 @@
 
 All notable changes to Offerloop will be documented in this file.
 
+## [0.1.4.0] - 2026-07-01
+
+### Added
+- Onboarding drop-off lifecycle campaign. Two emails from Deena to users who signed up but never completed the profile-confirm step: Day 1 "you're 60 seconds from being set up" (with a link back to onboarding) and Day 3 "anything i can help with?" (reply CTA, no button). Fires only for free-tier users who haven't confirmed. `ONBOARDING_DROPOFF_LAUNCH_DATE` in `backend/app/config.py` gates the campaign to users who signed up on or after 2026-07-01 so the ~270 backfilled users don't retro-enroll. New `_parse_ts_or_dt` helper in `lifecycle_emails.py` normalizes both ISO-string and native Firestore Timestamp values.
+
 ## [0.1.3.0] - 2026-07-01
 
 ### Added

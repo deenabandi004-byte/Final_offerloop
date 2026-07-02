@@ -31,7 +31,12 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from app.config import STRIPE_COUPONS, LIFECYCLE_FROM_EMAIL, LIFECYCLE_POSTAL_ADDRESS
+from app.config import (
+    STRIPE_COUPONS,
+    LIFECYCLE_FROM_EMAIL,
+    LIFECYCLE_POSTAL_ADDRESS,
+    ONBOARDING_DROPOFF_LAUNCH_DATE,
+)
 from app.extensions import get_db
 from app.services.notification_adapter import send as notify_send, Channel
 
@@ -53,6 +58,24 @@ SIGNATURE_NAME = os.getenv('LIFECYCLE_SIGNATURE_NAME', 'Deena')
 
 def _unsubscribe_secret() -> str:
     return os.getenv('LIFECYCLE_UNSUBSCRIBE_SECRET') or os.getenv('FLASK_SECRET', 'dev')
+
+
+def _parse_ts_or_dt(val) -> Optional[datetime]:
+    """Firestore timestamp fields may arrive as native datetime (Firestore
+    Timestamp) OR as ISO 8601 string (from create_user_data() and the
+    lifecycle backfill script). This helper normalizes both to a
+    timezone-aware datetime, or None if the value can't be parsed."""
+    if val is None:
+        return None
+    if hasattr(val, 'isoformat'):
+        dt = val
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    try:
+        s = str(val).replace('Z', '+00:00')
+        dt = datetime.fromisoformat(s)
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -616,7 +639,95 @@ def process_winbacks() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Cron entry: fires all four time-based sequences
+# Sequence 6: Onboarding drop-off (users signed up but never confirmed profile)
+# ---------------------------------------------------------------------------
+
+def process_onboarding_dropoffs() -> dict:
+    """Scan for signed-up users who never confirmed their profile.
+    Day 1 nudge, Day 3 personal follow-up.
+
+    Safety invariant: ONBOARDING_DROPOFF_LAUNCH_DATE filter prevents
+    retro-firing on the ~270 backfilled users whose profileConfirmedAt is
+    null only because the field didn't exist when they onboarded. If you
+    remove this filter, expect a wave of confused replies from long-time
+    users being told to "finish setup."
+    """
+    db = get_db()
+    if not db:
+        return {'ok': False, 'error': 'db_unavailable'}
+
+    sent = {'day_1': 0, 'day_3': 0}
+    now = datetime.now(timezone.utc)
+
+    for snap in db.collection('users').stream():
+        user = snap.to_dict() or {}
+        uid = snap.id
+        email = user.get('email')
+        if not email:
+            continue
+
+        # Already confirmed onboarding: nothing to nudge
+        if user.get('profileConfirmedAt'):
+            continue
+
+        # Paying users already invested. No onboarding nudge.
+        tier = user.get('subscriptionTier') or user.get('tier') or 'free'
+        if tier in ('pro', 'elite'):
+            continue
+
+        signup_at = _parse_ts_or_dt(user.get('signupAt'))
+        if not signup_at:
+            continue
+
+        # Launch-date safety filter (see docstring)
+        if signup_at < ONBOARDING_DROPOFF_LAUNCH_DATE:
+            continue
+
+        hours_since_signup = (now - signup_at).total_seconds() / 3600
+
+        # Day 1: signup 24-48h ago, still no profile confirmation
+        if 24 < hours_since_signup < 48 and not already_sent(uid, 'onboarding_dropoff', 'day_1'):
+            res = _send_lifecycle_email(
+                user_or_lead_id=uid,
+                recipient_email=email,
+                campaign='onboarding_dropoff',
+                step='day_1',
+                subject="you're 60 seconds from being set up",
+                body_paragraphs=[
+                    f"Hey, {SIGNATURE_NAME} here.",
+                    "Saw you signed up but didn't finish setting up your profile. It takes about 60 seconds and unlocks alumni and hiring-manager search dialed to the companies you're targeting.",
+                    "The rest of Offerloop is only useful once your profile is in.",
+                ],
+                cta_label="Finish setting up",
+                cta_url=f'{PUBLIC_BASE_URL}/onboarding?utm_source=lifecycle&utm_campaign=onboarding_dropoff&utm_content=day_1',
+            )
+            if res.get('sent'):
+                sent['day_1'] += 1
+
+        # Day 3: signup 72-96h ago, still no profile confirmation
+        elif 72 < hours_since_signup < 96 and not already_sent(uid, 'onboarding_dropoff', 'day_3'):
+            res = _send_lifecycle_email(
+                user_or_lead_id=uid,
+                recipient_email=email,
+                campaign='onboarding_dropoff',
+                step='day_3',
+                subject="anything i can help with?",
+                body_paragraphs=[
+                    f"Hey, {SIGNATURE_NAME} again.",
+                    "One more nudge. If the onboarding flow is confusing, if something isn't working, or if you're just not sure Offerloop fits what you're recruiting for, reply to this email. I read every reply and answer.",
+                    "If Offerloop isn't the right thing right now, no worries. Reply 'stop' and I'll take you off the list.",
+                ],
+                cta_label=None,
+                cta_url=None,
+            )
+            if res.get('sent'):
+                sent['day_3'] += 1
+
+    return {'ok': True, 'sent': sent}
+
+
+# ---------------------------------------------------------------------------
+# Cron entry: fires all time-based sequences
 # ---------------------------------------------------------------------------
 
 def process_all_pending_emails() -> dict:
@@ -625,6 +736,7 @@ def process_all_pending_emails() -> dict:
         'checkout_abandon': process_checkout_abandons(),
         'trial_ending': process_trial_endings(),
         'winback': process_winbacks(),
+        'onboarding_dropoff': process_onboarding_dropoffs(),
     }
 
 
