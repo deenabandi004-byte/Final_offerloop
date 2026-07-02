@@ -2,6 +2,11 @@
 
 All notable changes to Offerloop will be documented in this file.
 
+## [0.1.4.1] - 2026-07-01
+
+### Changed
+- Lifecycle sender identity switched from `bandis@offerloop.ai` to `sid@offerloop.ai` (mailbox was deleted from Workspace). Friendly-From stays as "Deena from Offerloop" (Deena is Sid's real name) to preserve the small amount of Gmail-side sender reputation earned from the first day of test sends. `LIFECYCLE_FROM_EMAIL` env var on Render must be updated to `Deena from Offerloop <sid@offerloop.ai>` for the switch to take effect in prod; code changes update the default and tests but env var wins.
+
 ## [0.1.4.0] - 2026-07-01
 
 ### Added

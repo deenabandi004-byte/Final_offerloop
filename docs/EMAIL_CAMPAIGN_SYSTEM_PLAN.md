@@ -1,7 +1,7 @@
 # Email Campaign System — Comprehensive Plan
 
 Owner: Deena (marketing + eng) with Nick / Sid / Rylan sign-off
-Sender: `bandis@offerloop.ai` (signed "Deena")
+Sender: `sid@offerloop.ai` (signed "Deena")
 Draft: 2026-07-01
 Status: Proposed — needs founder sign-off before Phase 1 starts
 
@@ -47,7 +47,7 @@ What's missing is the *campaigns themselves* — not the plumbing. This plan is 
 - **Bounce/complaint**: Resend webhook → `disable_for_bounce()` / `disable_for_complaint()`. Suppression list already global + per-user.
 - **Cron**: `/api/lifecycle/tick` secret-guarded by `LIFECYCLE_CRON_SECRET`, runs time-based scans.
 - **Attribution**: PostHog events `lifecycle_email_clicked`, `winback_clicked` already fire.
-- **Voice preset**: `LIFECYCLE_SIGNATURE_NAME=Deena` — every campaign signed as a real founder, not a brand. Sender: `bandis@offerloop.ai`.
+- **Voice preset**: `LIFECYCLE_SIGNATURE_NAME=Deena` — every campaign signed as a real founder, not a brand. Sender: `sid@offerloop.ai`.
 
 ### Event streams we can trigger on
 
@@ -325,11 +325,11 @@ Most of this is already handled. Diff from current state:
 
 ### Sender identity
 
-- `Deena @ Offerloop <bandis@offerloop.ai>` for lifecycle
+- `Deena @ Offerloop <sid@offerloop.ai>` for lifecycle
 - `Offerloop Newsletter <hello@offerloop.ai>` for Beehiiv (unchanged)
 - `Offerloop <noreply@offerloop.ai>` for transactional (receipts, password reset)
 
-All three from the same root domain, all DKIM/SPF signed via Resend and Beehiiv. `bandis@offerloop.ai` must be a real mailbox (or forward to one) — Day 0 welcome emails have reply CTAs and someone needs to actually answer.
+All three from the same root domain, all DKIM/SPF signed via Resend and Beehiiv. `sid@offerloop.ai` must be a real mailbox (or forward to one) — Day 0 welcome emails have reply CTAs and someone needs to actually answer.
 
 ---
 
@@ -427,8 +427,8 @@ Explicit no-list to prevent scope creep:
 
 1. **Physical address for CAN-SPAM footer** — school PO box? Delaware LLC address? Home address is legal but not ideal.
 2. **Beehiiv API key access** — who provisions? Does the current Beehiiv plan include API? (Growth plan does; Launch doesn't)
-3. **Deena's send/reply cadence** — Day 0 welcome expects replies. Is Deena checking `bandis@offerloop.ai` (or wherever it forwards) daily? Set up auto-forward to primary inbox if needed.
-4. **Sender email `bandis@offerloop.ai`** — ✅ locked. Needs to be provisioned in Google Workspace (or wherever offerloop.ai mail lives) with either a mailbox or forward to Deena's real inbox before Phase 2 ships.
+3. **Deena's send/reply cadence** — Day 0 welcome expects replies. Is Deena checking `sid@offerloop.ai` (or wherever it forwards) daily? Set up auto-forward to primary inbox if needed.
+4. **Sender email `sid@offerloop.ai`** — ✅ locked. Needs to be provisioned in Google Workspace (or wherever offerloop.ai mail lives) with either a mailbox or forward to Deena's real inbox before Phase 2 ships.
 5. **Weekly recap = every user forever, or opt-in?** — default = opt-in via onboarding step, prefs center toggle
 6. **Peer comparison data threshold** — how many peers per (school, industry, class year) tuple before we surface it? Recommendation: 20
 
@@ -440,7 +440,7 @@ Explicit no-list to prevent scope creep:
 |---|---|
 | Rate limit (2 emails / 7 days) blocks important campaigns | Priority-ordered scan (spec'd above). Also raise to 3 / 7d after 60d of stable metrics. |
 | Users get spammed by overlapping campaigns | Idempotency table + priority ordering. Weekly recap opts out of that user's other lifecycle scans that same week. |
-| Deliverability drops as volume grows | DMARC hard, warm-up new sender identity for `bandis@offerloop.ai` slowly (start w/ 100 sends/day for 2 weeks). Monitor Resend reputation dashboard weekly. |
+| Deliverability drops as volume grows | DMARC hard, warm-up new sender identity for `sid@offerloop.ai` slowly (start w/ 100 sends/day for 2 weeks). Monitor Resend reputation dashboard weekly. |
 | Newsletter starts strong then dies | Editorial calendar 4 weeks ahead, non-negotiable Tue+Thu ship, one dedicated writing block per week for whoever writes the newsletter. |
 | Beehiiv referral gets abused (fake signups for rewards) | Only count refs who confirm email + hit `PROFILE_CONFIRMED` before rewards apply. |
 | Reply volume on Day 0 welcome overwhelms Deena | Cap Day 0 replies at 20/day early on; if it becomes a firehose, add a shared inbox + auto-triage. |
@@ -501,6 +501,6 @@ Explicit no-list to prevent scope creep:
 - `BEEHIIV_PUBLICATION_ID`
 - `BEEHIIV_WEBHOOK_SECRET`
 - `LIFECYCLE_SIGNATURE_NAME=Deena` (override existing `Rylan` default)
-- `LIFECYCLE_FROM_EMAIL=bandis@offerloop.ai` (needs to be added to Resend adapter — currently hardcoded)
+- `LIFECYCLE_FROM_EMAIL=sid@offerloop.ai` (needs to be added to Resend adapter — currently hardcoded)
 
 **No new services / no new vendors.**

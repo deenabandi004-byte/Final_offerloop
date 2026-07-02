@@ -194,9 +194,9 @@ def test_email_from_override_wins_over_config(monkeypatch):
         subject="x",
         html_body="x",
         text_body="x",
-        from_email="Deena from Offerloop <bandis@offerloop.ai>",
+        from_email="Deena from Offerloop <sid@offerloop.ai>",
     )
-    assert captured["payload"]["from"] == "Deena from Offerloop <bandis@offerloop.ai>"
+    assert captured["payload"]["from"] == "Deena from Offerloop <sid@offerloop.ai>"
 
 
 def test_email_uses_config_from_when_no_override(monkeypatch):
