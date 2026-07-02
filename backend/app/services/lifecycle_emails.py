@@ -37,6 +37,7 @@ from app.config import (
     LIFECYCLE_POSTAL_ADDRESS,
     ONBOARDING_DROPOFF_LAUNCH_DATE,
     FIRST_SEARCH_ACTIVATION_LAUNCH_DATE,
+    FIRST_SEND_ACTIVATION_LAUNCH_DATE,
 )
 from app.extensions import get_db
 from app.services.notification_adapter import send as notify_send, Channel
@@ -838,6 +839,104 @@ def process_first_search_activations() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Sequence 8: First-send activation (searched but never sent an email)
+# ---------------------------------------------------------------------------
+
+def process_first_send_activations() -> dict:
+    """Scan for users who ran a first search but never sent an email.
+    Addresses the "I found the contact but I'm scared to send" freeze
+    that stops a lot of first-time cold outreach.
+
+    Day 3 (72-96h after firstSearchAt): Name the fear, offer the shortest
+    template that works, one CTA to compose.
+
+    Day 7 (168-192h after firstSearchAt): Personal reply CTA from Deena.
+    (The plan spec calls for an anonymized case study on Day 7 but that
+    requires real user data; leaving as a reply-only prompt until Sid
+    has a real case study to plug in.)
+
+    Safety filter: FIRST_SEND_ACTIVATION_LAUNCH_DATE gates on signupAt
+    to protect the backfilled users. Belt-and-suspenders alongside the
+    natural firstSearchAt-must-be-set filter.
+    """
+    db = get_db()
+    if not db:
+        return {'ok': False, 'error': 'db_unavailable'}
+
+    sent = {'day_3': 0, 'day_7': 0}
+    now = datetime.now(timezone.utc)
+
+    for snap in db.collection('users').stream():
+        user = snap.to_dict() or {}
+        uid = snap.id
+        email = user.get('email')
+        if not email:
+            continue
+
+        # Must have run a search (past the profile-confirm and first-search steps)
+        first_search_at = _parse_ts_or_dt(user.get('firstSearchAt'))
+        if not first_search_at:
+            continue
+
+        # Skip users who already sent an email
+        if _parse_ts_or_dt(user.get('firstEmailSentAt')):
+            continue
+
+        # Paying users skip
+        tier = user.get('subscriptionTier') or user.get('tier') or 'free'
+        if tier in ('pro', 'elite'):
+            continue
+
+        # Launch-date safety filter on signupAt
+        signup_at = _parse_ts_or_dt(user.get('signupAt'))
+        if not signup_at or signup_at < FIRST_SEND_ACTIVATION_LAUNCH_DATE:
+            continue
+
+        hours_since_search = (now - first_search_at).total_seconds() / 3600
+
+        # Day 3: 72-96h after first search
+        if 72 < hours_since_search < 96 and not already_sent(uid, 'first_send_activation', 'day_3'):
+            res = _send_lifecycle_email(
+                user_or_lead_id=uid,
+                recipient_email=email,
+                campaign='first_send_activation',
+                step='day_3',
+                subject="the send is the whole game",
+                body_paragraphs=[
+                    f"Hey, {SIGNATURE_NAME} here.",
+                    "Saw you ran a search but haven't sent an email yet. That's the most common freeze point for first-time cold outreach — the search gives you the contacts, but hitting send feels like a real thing you can't take back.",
+                    "The move that actually works is stupidly short. Two sentences, one question. Something like: 'Hey {first_name}, I'm a {school} student recruiting for {industry}. Would you be open to a 15-min call so I can ask how you got to {company}?' That's it. That's the whole thing. Most replies come back within 48 hours.",
+                    "Offerloop drafts something like that for you in one click. Try one send this week and see what comes back.",
+                ],
+                cta_label="Draft your first email",
+                cta_url=f'{PUBLIC_BASE_URL}/find?utm_source=lifecycle&utm_campaign=first_send_activation&utm_content=day_3',
+            )
+            if res.get('sent'):
+                sent['day_3'] += 1
+
+        # Day 7: 168-192h after first search
+        elif 168 < hours_since_search < 192 and not already_sent(uid, 'first_send_activation', 'day_7'):
+            res = _send_lifecycle_email(
+                user_or_lead_id=uid,
+                recipient_email=email,
+                campaign='first_send_activation',
+                step='day_7',
+                subject="what's the block?",
+                body_paragraphs=[
+                    f"Hey, {SIGNATURE_NAME} again.",
+                    "You ran a search a week ago and still haven't sent an email. There's usually one specific thing holding people up: not sure what to say, not sure who to send to first, worried about looking dumb, or the whole thing feels performative.",
+                    "Whatever it is, reply and tell me. I'll help figure out the shortest first send that gets you a reply.",
+                ],
+                cta_label=None,
+                cta_url=None,
+            )
+            if res.get('sent'):
+                sent['day_7'] += 1
+
+    return {'ok': True, 'sent': sent}
+
+
+# ---------------------------------------------------------------------------
 # Cron entry: fires all time-based sequences
 # ---------------------------------------------------------------------------
 
@@ -849,6 +948,7 @@ def process_all_pending_emails() -> dict:
         'winback': process_winbacks(),
         'onboarding_dropoff': process_onboarding_dropoffs(),
         'first_search_activation': process_first_search_activations(),
+        'first_send_activation': process_first_send_activations(),
     }
 
 
