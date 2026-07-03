@@ -2,6 +2,11 @@
 
 All notable changes to Offerloop will be documented in this file.
 
+## [0.1.9.0] - 2026-07-03
+
+### Added
+- Weekly win report lifecycle campaign (Plan #13, the highest-lift Phase 4 P1 campaign per `docs/EMAIL_CAMPAIGN_SYSTEM_PLAN.md`). Fires only on Sunday between UTC 18:00 and 22:00 (11am–3pm Pacific / 2pm–6pm Eastern), once per user per ISO week. Per-user recap uses three real numbers pulled from the contacts subcollection (contacts added, emails sent, replies received in the last 7 days) via the same aggregation pattern as `networking_roadmap.compute_weekly_progress`. Peer comparison line appears only when at least 5 eligible users exist, using the median across the eligible cohort (no small-sample skew). Next-week nudge is data-driven: chooses the CTA based on which stat is 0 (no contacts → run a search, contacts but no sends → send one email, sends but no replies → send more, replies → tend the pipeline). Skips users with zero total activity for the week (activation campaigns already cover that funnel stage). Gated by `WEEKLY_WIN_REPORT_LAUNCH_DATE = 2026-07-03` on `signupAt` so the ~270 backfilled users are excluded, plus a natural `profileConfirmedAt` filter and a "signed up 7+ days ago" gate. Wired into `process_all_pending_emails()`.
+
 ## [0.1.8.0] - 2026-07-02
 
 ### Added

@@ -42,6 +42,7 @@ from app.config import (
     COFFEE_CHAT_DISCOVERY_LAUNCH_DATE,
     JOB_BOARD_DISCOVERY_LAUNCH_DATE,
     FREE_CEILING_LAUNCH_DATE,
+    WEEKLY_WIN_REPORT_LAUNCH_DATE,
 )
 from app.extensions import get_db
 from app.services.notification_adapter import send as notify_send, Channel
@@ -1316,6 +1317,198 @@ def process_free_ceilings() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Sequence 13: Weekly win report (Sunday recap of past 7 days + peer median)
+# ---------------------------------------------------------------------------
+
+def _week_start_utc(now: datetime) -> datetime:
+    """Return midnight UTC on the Monday that opened the just-completed
+    Monday–Sunday week. `now` should be a Sunday; if it isn't, we still return
+    Monday-of-current-ISO-week; the tick gate prevents the campaign from
+    firing on any day other than Sunday."""
+    monday = now - timedelta(days=now.weekday())
+    return monday.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _count_weekly_stats(uid: str, week_start_iso: str) -> dict:
+    """Per-user weekly counts pulled from the contacts subcollection.
+    Mirrors the aggregation done in networking_roadmap.compute_weekly_progress."""
+    db = get_db()
+    stats = {'contacts_added': 0, 'emails_sent': 0, 'replies_received': 0}
+    if not db:
+        return stats
+    try:
+        contacts_ref = db.collection('users').document(uid).collection('contacts')
+        added = list(contacts_ref.where('createdAt', '>=', week_start_iso).limit(500).stream())
+        stats['contacts_added'] = len(added)
+
+        emailed = list(contacts_ref.where('emailGeneratedAt', '>=', week_start_iso).limit(500).stream())
+        stats['emails_sent'] = len(emailed)
+        for doc in emailed:
+            data = doc.to_dict() or {}
+            reply_at = data.get('replyReceivedAt')
+            if reply_at and str(reply_at) >= week_start_iso:
+                stats['replies_received'] += 1
+    except Exception as e:
+        logger.debug("weekly stats read failed for %s: %s", uid, e)
+    return stats
+
+
+def _median(values: list[int]) -> int:
+    if not values:
+        return 0
+    s = sorted(values)
+    n = len(s)
+    mid = n // 2
+    if n % 2:
+        return s[mid]
+    return (s[mid - 1] + s[mid]) // 2
+
+
+def _weekly_nudge(stats: dict) -> tuple[str, str, str]:
+    """Return (paragraph, cta_label, cta_url) for the next-week nudge based on
+    the weakest link in the funnel. Emails sent gates replies; contacts added
+    gates emails."""
+    contacts = stats['contacts_added']
+    emails = stats['emails_sent']
+    replies = stats['replies_received']
+
+    if contacts == 0:
+        return (
+            "For next week, the smallest useful action is one search. Pick one company you'd take a call from and pull three contacts. That's the whole thing.",
+            "Run a search",
+            f'{PUBLIC_BASE_URL}/find?utm_source=lifecycle&utm_campaign=weekly_win_report&utm_content=nudge_search',
+        )
+    if emails == 0:
+        return (
+            f"You added {contacts} contact{'s' if contacts != 1 else ''} but didn't send anything. The bottleneck for most students isn't finding people, it's writing the first email. Pick one contact and let Offerloop draft it.",
+            "Send one email",
+            f'{PUBLIC_BASE_URL}/my-network/people?utm_source=lifecycle&utm_campaign=weekly_win_report&utm_content=nudge_send',
+        )
+    if replies == 0:
+        return (
+            f"You sent {emails} email{'s' if emails != 1 else ''} and haven't heard back yet. That's normal at this volume. Doubling the send count usually breaks the silence, since reply rates are more about attempts than any single email being perfect.",
+            "Send more",
+            f'{PUBLIC_BASE_URL}/find?utm_source=lifecycle&utm_campaign=weekly_win_report&utm_content=nudge_more_sends',
+        )
+    return (
+        f"You got {replies} repl{'ies' if replies != 1 else 'y'} this week. Keep the compound going by replying same-day and running one more search before Monday.",
+        "See your pipeline",
+        f'{PUBLIC_BASE_URL}/tracker?utm_source=lifecycle&utm_campaign=weekly_win_report&utm_content=nudge_pipeline',
+    )
+
+
+def process_weekly_win_reports() -> dict:
+    """Sunday recap: 3 real numbers + peer median (if available) + next-week nudge.
+
+    Fires only:
+    - On Sunday, UTC 18:00–22:00 (11am–3pm Pacific, 2pm–6pm Eastern).
+    - Once per user per ISO week (idempotency key includes iso_year/iso_week).
+    - User signed up >= 7 days ago (so a full week of data exists).
+    - profileConfirmedAt is set (they got past onboarding).
+    - Total activity for the week > 0 (skip send-nothing weeks; activation
+      campaigns already cover users with zero movement).
+    - signupAt >= WEEKLY_WIN_REPORT_LAUNCH_DATE (protects the ~270 backfilled users).
+
+    Peer comparison line only appears when we have >= 5 comparable users with
+    non-zero activity; below that we skip the line rather than compare against
+    a fragile sample.
+    """
+    db = get_db()
+    if not db:
+        return {'ok': False, 'error': 'db_unavailable'}
+
+    now = datetime.now(timezone.utc)
+
+    # Day-of-week + time-of-day gate. Sunday = weekday 6. Send window 18:00–22:00 UTC.
+    if now.weekday() != 6 or not (18 <= now.hour < 22):
+        return {'ok': True, 'sent': {'weekly': 0}, 'skipped': 'not_send_window'}
+
+    iso_year, iso_week, _ = now.isocalendar()
+    step = f'week_{iso_year}_{iso_week:02d}'
+
+    # The "week" we're reporting on is the Monday–Sunday that just closed.
+    # At UTC Sunday 18:00 we're still inside that week, so start-of-week is
+    # the Monday of the current ISO week.
+    week_start = _week_start_utc(now)
+    week_start_iso = week_start.isoformat().replace('+00:00', 'Z')
+
+    eligible: list[tuple[str, dict, str, dict]] = []  # (uid, user, email, stats)
+
+    for snap in db.collection('users').stream():
+        user = snap.to_dict() or {}
+        uid = snap.id
+        email = user.get('email')
+        if not email:
+            continue
+
+        signup_at = _parse_ts_or_dt(user.get('signupAt'))
+        if not signup_at or signup_at < WEEKLY_WIN_REPORT_LAUNCH_DATE:
+            continue
+        if (now - signup_at).days < 7:
+            continue
+        if not _parse_ts_or_dt(user.get('profileConfirmedAt')):
+            continue
+        if already_sent(uid, 'weekly_win_report', step):
+            continue
+
+        stats = _count_weekly_stats(uid, week_start_iso)
+        if stats['contacts_added'] + stats['emails_sent'] + stats['replies_received'] == 0:
+            continue
+
+        eligible.append((uid, user, email, stats))
+
+    peer_line = None
+    if len(eligible) >= 5:
+        peer_contacts = _median([s['contacts_added'] for _, _, _, s in eligible])
+        peer_emails = _median([s['emails_sent'] for _, _, _, s in eligible])
+        peer_replies = _median([s['replies_received'] for _, _, _, s in eligible])
+        peer_line = (
+            f"For reference, the median student on Offerloop this week added {peer_contacts} "
+            f"contact{'s' if peer_contacts != 1 else ''}, sent {peer_emails} "
+            f"email{'s' if peer_emails != 1 else ''}, and got {peer_replies} "
+            f"repl{'ies' if peer_replies != 1 else 'y'}."
+        )
+
+    sent = {'weekly': 0}
+    for uid, _user, email, stats in eligible:
+        contacts = stats['contacts_added']
+        emails = stats['emails_sent']
+        replies = stats['replies_received']
+
+        stat_lines = [
+            f"Contacts added: {contacts}",
+            f"Emails sent: {emails}",
+            f"Replies received: {replies}",
+        ]
+        stats_block = " · ".join(stat_lines)
+
+        nudge_para, cta_label, cta_url = _weekly_nudge(stats)
+
+        paragraphs = [
+            f"Hey, {SIGNATURE_NAME} here. Quick recap of your last 7 days on Offerloop.",
+            stats_block,
+        ]
+        if peer_line:
+            paragraphs.append(peer_line)
+        paragraphs.append(nudge_para)
+
+        res = _send_lifecycle_email(
+            user_or_lead_id=uid,
+            recipient_email=email,
+            campaign='weekly_win_report',
+            step=step,
+            subject="your week on Offerloop",
+            body_paragraphs=paragraphs,
+            cta_label=cta_label,
+            cta_url=cta_url,
+        )
+        if res.get('sent'):
+            sent['weekly'] += 1
+
+    return {'ok': True, 'sent': sent, 'eligible': len(eligible)}
+
+
+# ---------------------------------------------------------------------------
 # Cron entry: fires all time-based sequences
 # ---------------------------------------------------------------------------
 
@@ -1332,6 +1525,7 @@ def process_all_pending_emails() -> dict:
         'coffee_chat_discovery': process_coffee_chat_discoveries(),
         'job_board_discovery': process_job_board_discoveries(),
         'free_ceiling': process_free_ceilings(),
+        'weekly_win_report': process_weekly_win_reports(),
     }
 
 
