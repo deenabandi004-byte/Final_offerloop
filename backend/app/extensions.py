@@ -359,6 +359,12 @@ def get_rate_limit_key():
     if (request.method == 'GET' and
         _re.match(r'^/api/coffee-chat-prep/[^/]+$', request.path)):
         return None
+
+    # Exempt draft-job status polling (GET /api/mobile/draft-jobs/<id>) — the
+    # app polls every 2-3s while a swipe drafts, same pattern as coffee chat.
+    if (request.method == 'GET' and
+        _re.match(r'^/api/mobile/draft-jobs/[^/]+$', request.path)):
+        return None
     
     # For authenticated requests, use user ID instead of IP address
     if hasattr(request, 'firebase_user') and request.firebase_user:

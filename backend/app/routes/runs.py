@@ -242,22 +242,48 @@ def prompt_search():
     if PDL_OUTAGE_ACTIVE:
         return jsonify({"error": "service_unavailable", "message": "Contact search temporarily unavailable.", "code": "PDL_OUTAGE"}), 503
 
+    payload, code = execute_prompt_search(
+        user_id=request.firebase_user["uid"],
+        user_email=request.firebase_user.get("email"),
+        auth_display_name=(getattr(request, "firebase_user", None) or {}).get("name") or "",
+        data=request.get_json(silent=True) or {},
+    )
+    return jsonify(payload), code
+
+
+def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progress=None):
+    """
+    The full swipe→draft pipeline (parse → search → enrich → write → Gmail →
+    save), extracted from the route so a background draft-job worker can run it
+    without a request context (see app/services/draft_jobs.py). Returns
+    (payload_dict, status_code) instead of a Flask response.
+
+    `progress`, when provided, is called as progress(stage, label, pct, extra)
+    at each real pipeline stage — the mobile job flow streams these into the
+    job doc so the app can show honest progress ("Found <name> — writing…").
+    Never required, never allowed to break the pipeline.
+    """
+    def _progress(stage, label, pct, extra=None):
+        if progress is None:
+            return
+        try:
+            progress(stage, label, pct, extra)
+        except Exception:
+            traceback.print_exc()
+
     # Idempotency + refund bookkeeping. Assigned inside the try; read by the
     # outer except, so they must exist before anything can raise.
     idem_swipe_id = None
     charged_amount = 0
-    user_id = None
     db = None
     try:
-        user_email = request.firebase_user.get("email")
-        user_id = request.firebase_user["uid"]
         db = get_db()
 
         # Set request-scoped context so the @meter_call decorator can attribute
         # every provider HTTP call in this request to the right user / search.
+        # No-op when there's no Flask context (background draft-job worker).
         attach_request_context(user_id=user_id)
 
-        data = request.get_json(silent=True) or {}
         prompt = (data.get("prompt") or "").strip()
         batch_size = data.get("batchSize")
         # Mobile swipe opts into a durable "draft ready" bell item + push (the
@@ -266,11 +292,11 @@ def prompt_search():
 
         # Validate prompt length
         if not prompt:
-            return jsonify({"error": "Prompt is required"}), 400
+            return ({"error": "Prompt is required"}), 400
         if len(prompt) < 3:
-            return jsonify({"error": "Prompt must be at least 3 characters"}), 400
+            return ({"error": "Prompt must be at least 3 characters"}), 400
         if len(prompt) > 500:
-            return jsonify({"error": "Prompt must be at most 500 characters"}), 400
+            return ({"error": "Prompt must be at most 500 characters"}), 400
 
         # Resolve tier and max_contacts
         user_tier = "free"
@@ -296,11 +322,11 @@ def prompt_search():
             except Exception as e:
                 # Fail closed: if we can't load user data, don't allow search
                 print(f"⚠️ Failed to load user profile for {user_id}: {e}")
-                return jsonify({"error": "Could not load user profile. Please try again."}), 500
+                return ({"error": "Could not load user profile. Please try again."}), 500
 
         # Credit check outside try/except — always enforced
         if credits_available < 5:
-            return jsonify({
+            return ({
                 "error": "Insufficient credits",
                 "credits_needed": 5,
                 "current_credits": credits_available,
@@ -346,10 +372,10 @@ def prompt_search():
                 if outcome == "completed":
                     payload, code = swipe_idem.replay_response(stored)
                     print(f"[SwipeIdem] replaying completed swipe {swipe_id} (status {code})")
-                    return jsonify(payload), code
+                    return (payload), code
                 if outcome == "in_flight":
                     print(f"[SwipeIdem] swipe {swipe_id} already in flight — rejecting duplicate")
-                    return jsonify({
+                    return ({
                         "error": "duplicate_request",
                         "message": "This swipe is already being drafted.",
                         "in_flight": True,
@@ -357,12 +383,13 @@ def prompt_search():
                 idem_swipe_id = swipe_id
 
         # Parse prompt
+        _progress("parsing", "Reading your request", 8)
         parsed = parse_search_prompt_structured(prompt)
         if parsed.get("error"):
             if idem_swipe_id:
                 from app.services import swipe_idempotency as swipe_idem
                 swipe_idem.fail(db, user_id, idem_swipe_id)
-            return jsonify({
+            return ({
                 "error": parsed.get("error", "Failed to parse prompt"),
                 "parsed_query": {k: parsed.get(k) for k in ("companies", "title_variations", "locations") if k in parsed},
             }), 400
@@ -370,7 +397,7 @@ def prompt_search():
             if idem_swipe_id:
                 from app.services import swipe_idempotency as swipe_idem
                 swipe_idem.fail(db, user_id, idem_swipe_id)
-            return jsonify({
+            return ({
                 "error": "Your search was too vague. Please add more specifics (e.g. job title, company, or location).",
                 "parsed_query": {k: parsed.get(k) for k in ("companies", "title_variations", "locations") if k in parsed},
             }), 400
@@ -386,6 +413,17 @@ def prompt_search():
         # Credit-efficiency: pdl_client.search_contacts_from_prompt now caps
         # the PDL fetch at max_contacts + min(exclude_count, 3), so the
         # worst-case credit burn per search is ~max_contacts + 3.
+        _search_co = ""
+        try:
+            _first_co = (parsed.get("companies") or [{}])[0]
+            _search_co = (_first_co.get("name", "") if isinstance(_first_co, dict) else str(_first_co)).strip()
+        except Exception:
+            pass
+        _progress(
+            "searching",
+            f"Finding the right person at {_search_co}" if _search_co else "Finding the right person",
+            18,
+        )
         try:
             contacts, retry_level_used, already_saved_contacts, adjacency_metadata = search_contacts_from_prompt(
                 parsed, max_contacts, exclude_keys=seen_contact_set, user_profile=user_data
@@ -473,7 +511,7 @@ def prompt_search():
             if idem_swipe_id:
                 from app.services import swipe_idempotency as swipe_idem
                 swipe_idem.complete(db, user_id, idem_swipe_id, response_data)
-            return jsonify(response_data)
+            return response_data, 200
 
         # Pre-generation dedup: filter out contacts already in Firestore (avoid generating emails for them)
         # Reuse the exclusion data loaded during auth (no second Firestore stream).
@@ -528,12 +566,30 @@ def prompt_search():
                     if idem_swipe_id:
                         from app.services import swipe_idempotency as swipe_idem
                         swipe_idem.complete(db, user_id, idem_swipe_id, all_saved_response)
-                    return jsonify(all_saved_response), 200
+                    return (all_saved_response), 200
             except Exception as e:
                 print(f"⚠️ Pre-generation dedup failed, continuing: {e}", flush=True)
 
         # Trim to the originally requested count (whether or not dedup ran)
         contacts = contacts[:max_contacts]
+
+        # The "found" beat carries the real people — the app can show the name
+        # the moment we know it ("Found Sarah Kim at Adyen — researching…").
+        _progress(
+            "found",
+            f"Found {len(contacts)} {'person' if len(contacts) == 1 else 'people'}",
+            32,
+            {
+                "contacts": [
+                    {
+                        "name": f"{(c.get('FirstName') or c.get('firstName') or '').strip()} {(c.get('LastName') or c.get('lastName') or '').strip()}".strip(),
+                        "title": c.get("Title") or c.get("JobTitle") or "",
+                        "company": c.get("Company") or c.get("company") or "",
+                    }
+                    for c in contacts
+                ]
+            },
+        )
 
         # Charge credits NOW — before the expensive work (enrichment, LLM
         # writing, Gmail drafts) — and refund on pipeline failure (see the
@@ -558,7 +614,7 @@ def prompt_search():
                     if idem_swipe_id:
                         from app.services import swipe_idempotency as swipe_idem
                         swipe_idem.fail(db, user_id, idem_swipe_id)
-                    return jsonify({
+                    return ({
                         "error": "Insufficient credits",
                         "credits_needed": credits_amount,
                         "current_credits": remaining,
@@ -568,6 +624,8 @@ def prompt_search():
                 # the user (matches the old code's forgiveness on deduct errors).
                 print(f"⚠️ Credit deduction error for {user_id}: {credit_error}")
                 traceback.print_exc()
+
+        _progress("researching", "Researching their background and recent news", 45)
 
         # Enrich contacts. The three passes (Perplexity person presence, Apify
         # LinkedIn posts, Perplexity company news) are independent of each other,
@@ -699,7 +757,8 @@ def prompt_search():
         # Get resume filename for email body reference
         user_resume_filename = (user_data or {}).get("resumeFileName")
 
-        auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
+        # (auth_display_name arrives as a parameter — the route reads it from
+        # request.firebase_user; the draft-job worker passes the stored value.)
 
         # Resume text for email personalization. The extracted text never changes
         # between drafts, so we CACHE it on the user doc (keyed to the resume URL)
@@ -765,6 +824,9 @@ def prompt_search():
             briefing = build_briefing_line(contact, signals)
             if briefing:
                 contact["briefing"] = briefing
+
+        if outreach_mode != "preview":
+            _progress("writing", "Writing your outreach", 62)
 
         # Generate emails with resume text. Skipped entirely in preview mode:
         # preview returns contact info only, so no email is written and (because
@@ -892,6 +954,12 @@ def prompt_search():
         successful_drafts = 0
         successful_sends = 0
         user_info = {"name": user_profile.get("name", ""), "email": user_profile.get("email", ""), "phone": "", "linkedin": ""}
+        if contacts_with_emails:
+            _progress(
+                "drafting",
+                "Sending from your Gmail" if outreach_mode == "send" else "Creating the draft in your Gmail",
+                82,
+            )
         try:
             creds = _load_user_gmail_creds(user_id) if user_id else None
             if creds and contacts_with_emails and outreach_mode == "send":
@@ -1048,9 +1116,10 @@ def prompt_search():
                 if idem_swipe_id:
                     from app.services import swipe_idempotency as swipe_idem
                     swipe_idem.complete(db, user_id, idem_swipe_id, expired_response, status_code=401)
-                return jsonify(expired_response), 401
+                return (expired_response), 401
             print(f"[Runs] Gmail draft error (prompt-search): {gmail_error}")
 
+        _progress("saving", "Saving to your network", 93)
         if not (db and user_id):
             print(f"[Runs] Prompt-search: skipping Firestore save")
         # Credits were already deducted up front (right after the contact list
@@ -1283,7 +1352,7 @@ def prompt_search():
         if idem_swipe_id:
             from app.services import swipe_idempotency as swipe_idem
             swipe_idem.complete(db, user_id, idem_swipe_id, response_data)
-        return jsonify(response_data)
+        return response_data, 200
     except (OfferloopException, InsufficientCreditsError, ExternalAPIError):
         _refund_and_release_failed_swipe(db, user_id, charged_amount, idem_swipe_id)
         raise

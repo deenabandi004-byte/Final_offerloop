@@ -622,3 +622,65 @@ def meeting_prep_preview():
         'location': c.get('location') or '',
         'school': school,
     }), 200
+
+
+# ---------------------------------------------------------------------------
+# Draft jobs — the async swipe→draft flow (PLAN-instant-feel.md Phase 2).
+# POST returns a job id in <1s; the pipeline runs on a bounded background
+# pool streaming real stage updates into users/{uid}/draftJobs/{job_id};
+# GET polls that doc. The web app keeps using the synchronous /api/prompt-
+# search — these routes are mobile-only.
+# ---------------------------------------------------------------------------
+
+@mobile_bp.route('/draft-jobs', methods=['POST'])
+@require_firebase_auth
+def create_draft_job_route():
+    from app.services.feature_flags import PDL_OUTAGE_ACTIVE
+    if PDL_OUTAGE_ACTIVE:
+        return jsonify({
+            'error': 'service_unavailable',
+            'message': 'Contact search temporarily unavailable.',
+            'code': 'PDL_OUTAGE',
+        }), 503
+
+    db = get_db()
+    if db is None:
+        return jsonify({'error': 'Database unavailable'}), 503
+
+    data = request.get_json(silent=True) or {}
+    prompt = (data.get('prompt') or '').strip()
+    if not prompt or len(prompt) < 3 or len(prompt) > 500:
+        return jsonify({'error': 'Prompt must be 3-500 characters'}), 400
+
+    from app.services.draft_jobs import create_draft_job
+    state = create_draft_job(
+        db,
+        user_id=request.firebase_user['uid'],
+        user_email=request.firebase_user.get('email'),
+        auth_display_name=(request.firebase_user or {}).get('name') or '',
+        data=data,
+    )
+    return jsonify(state), 202
+
+
+@mobile_bp.route('/draft-jobs/<job_id>', methods=['GET'])
+@require_firebase_auth
+def get_draft_job_route(job_id):
+    db = get_db()
+    if db is None:
+        return jsonify({'error': 'Database unavailable'}), 503
+    if not re.match(r'^[A-Za-z0-9_-]{8,160}$', job_id or ''):
+        return jsonify({'error': 'Invalid job id'}), 400
+
+    snap = (
+        db.collection('users')
+        .document(request.firebase_user['uid'])
+        .collection('draftJobs')
+        .document(job_id)
+        .get()
+    )
+    if not snap.exists:
+        return jsonify({'error': 'Job not found'}), 404
+
+    from app.services.draft_jobs import public_job_state
+    return jsonify(public_job_state(job_id, snap.to_dict() or {})), 200
