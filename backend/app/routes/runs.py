@@ -208,6 +208,25 @@ def invalidate_contact_dedup_cache():
     return jsonify({"ok": True}), 200
 
 
+def _refund_and_release_failed_swipe(db, user_id, charged_amount, idem_swipe_id):
+    """Failure cleanup for prompt_search: give back the up-front credit charge
+    and release the idempotency claim so a retry can re-run. Best-effort —
+    never raises (we're already on an error path)."""
+    if db and user_id and charged_amount:
+        try:
+            from app.services.auth import refund_credits_atomic
+            refund_credits_atomic(user_id, charged_amount, "prompt_search_failed")
+            print(f"[Runs] Refunded {charged_amount} credits to {user_id} after failed prompt-search")
+        except Exception:
+            traceback.print_exc()
+    if db and user_id and idem_swipe_id:
+        try:
+            from app.services import swipe_idempotency as swipe_idem
+            swipe_idem.fail(db, user_id, idem_swipe_id)
+        except Exception:
+            traceback.print_exc()
+
+
 @runs_bp.route("/prompt-search", methods=["POST"])
 @require_firebase_auth
 def prompt_search():
@@ -223,6 +242,12 @@ def prompt_search():
     if PDL_OUTAGE_ACTIVE:
         return jsonify({"error": "service_unavailable", "message": "Contact search temporarily unavailable.", "code": "PDL_OUTAGE"}), 503
 
+    # Idempotency + refund bookkeeping. Assigned inside the try; read by the
+    # outer except, so they must exist before anything can raise.
+    idem_swipe_id = None
+    charged_amount = 0
+    user_id = None
+    db = None
     try:
         user_email = request.firebase_user.get("email")
         user_id = request.firebase_user["uid"]
@@ -309,14 +334,42 @@ def prompt_search():
         outreach_mode = requested_mode
         print(f"[Runs] Outreach mode: requested={data.get('mode')!r}, tier={user_tier}, resolved={outreach_mode}")
 
+        # Idempotency (mobile swipes): the app sends a per-gesture swipe_id so a
+        # retry of the same gesture replays the recorded outcome instead of
+        # re-running the pipeline (which would create duplicate Gmail drafts and
+        # charge credits twice). Web doesn't send swipe_id — no-op there.
+        swipe_id = (data.get("swipe_id") or "").strip()
+        if swipe_id and db and user_id:
+            from app.services import swipe_idempotency as swipe_idem
+            if swipe_idem.valid_swipe_id(swipe_id):
+                outcome, stored = swipe_idem.claim(db, user_id, swipe_id)
+                if outcome == "completed":
+                    payload, code = swipe_idem.replay_response(stored)
+                    print(f"[SwipeIdem] replaying completed swipe {swipe_id} (status {code})")
+                    return jsonify(payload), code
+                if outcome == "in_flight":
+                    print(f"[SwipeIdem] swipe {swipe_id} already in flight — rejecting duplicate")
+                    return jsonify({
+                        "error": "duplicate_request",
+                        "message": "This swipe is already being drafted.",
+                        "in_flight": True,
+                    }), 409
+                idem_swipe_id = swipe_id
+
         # Parse prompt
         parsed = parse_search_prompt_structured(prompt)
         if parsed.get("error"):
+            if idem_swipe_id:
+                from app.services import swipe_idempotency as swipe_idem
+                swipe_idem.fail(db, user_id, idem_swipe_id)
             return jsonify({
                 "error": parsed.get("error", "Failed to parse prompt"),
                 "parsed_query": {k: parsed.get(k) for k in ("companies", "title_variations", "locations") if k in parsed},
             }), 400
         if parsed.get("confidence") == "low":
+            if idem_swipe_id:
+                from app.services import swipe_idempotency as swipe_idem
+                swipe_idem.fail(db, user_id, idem_swipe_id)
             return jsonify({
                 "error": "Your search was too vague. Please add more specifics (e.g. job title, company, or location).",
                 "parsed_query": {k: parsed.get(k) for k in ("companies", "title_variations", "locations") if k in parsed},
@@ -417,6 +470,9 @@ def prompt_search():
                         }]
             else:
                 response_data["message"] = "No contacts found. Try broadening your search."
+            if idem_swipe_id:
+                from app.services import swipe_idempotency as swipe_idem
+                swipe_idem.complete(db, user_id, idem_swipe_id, response_data)
             return jsonify(response_data)
 
         # Pre-generation dedup: filter out contacts already in Firestore (avoid generating emails for them)
@@ -459,7 +515,7 @@ def prompt_search():
                         )
                     else:
                         message = "No contacts found. Try broadening your search."
-                    return jsonify({
+                    all_saved_response = {
                         "contacts": [],
                         "already_saved_contacts": saved_cards,
                         "successful_drafts": 0,
@@ -468,12 +524,50 @@ def prompt_search():
                         "user_email": user_email,
                         "parsed_query": parsed_query_payload,
                         "message": message,
-                    }), 200
+                    }
+                    if idem_swipe_id:
+                        from app.services import swipe_idempotency as swipe_idem
+                        swipe_idem.complete(db, user_id, idem_swipe_id, all_saved_response)
+                    return jsonify(all_saved_response), 200
             except Exception as e:
                 print(f"⚠️ Pre-generation dedup failed, continuing: {e}", flush=True)
 
         # Trim to the originally requested count (whether or not dedup ran)
         contacts = contacts[:max_contacts]
+
+        # Charge credits NOW — before the expensive work (enrichment, LLM
+        # writing, Gmail drafts) — and refund on pipeline failure (see the
+        # outer except). The old post-draft deduction left a window where a
+        # crash after drafts were created charged nothing, but a client retry
+        # re-created the drafts and charged twice. Same TOCTOU-safe ordering
+        # coffee_chat_prep uses. The contact count is final after this trim,
+        # so the amount here equals what the old code charged at the end.
+        credits_used = 0
+        credits_remaining = None
+        if db and user_id:
+            credits_amount = 5 * len(contacts)
+            try:
+                success, remaining = deduct_credits_atomic(user_id, credits_amount, "prompt_search")
+                if success:
+                    charged_amount = credits_amount
+                    credits_used = credits_amount
+                    credits_remaining = remaining
+                else:
+                    # Balance changed since the pre-check (e.g. a parallel swipe
+                    # spent it). Fail clean before any drafts exist.
+                    if idem_swipe_id:
+                        from app.services import swipe_idempotency as swipe_idem
+                        swipe_idem.fail(db, user_id, idem_swipe_id)
+                    return jsonify({
+                        "error": "Insufficient credits",
+                        "credits_needed": credits_amount,
+                        "current_credits": remaining,
+                    }), 400
+            except Exception as credit_error:
+                # Transient Firestore trouble: run uncharged rather than block
+                # the user (matches the old code's forgiveness on deduct errors).
+                print(f"⚠️ Credit deduction error for {user_id}: {credit_error}")
+                traceback.print_exc()
 
         # Enrich contacts. The three passes (Perplexity person presence, Apify
         # LinkedIn posts, Perplexity company news) are independent of each other,
@@ -942,37 +1036,26 @@ def prompt_search():
         except Exception as gmail_error:
             err_str = str(gmail_error).lower()
             if "invalid_grant" in err_str or "token has been expired or revoked" in err_str:
-                # Still deduct credits and save contacts even though drafts failed
-                if db and user_id:
-                    try:
-                        deduct_credits_atomic(user_id, 5 * len(contacts), "prompt_search")
-                    except Exception:
-                        pass
-                return jsonify({
+                # Credits were already deducted up front; keep the charge (emails
+                # were generated) and record the outcome so a retry replays this
+                # instead of re-running and charging again.
+                expired_response = {
                     "error": "gmail_token_expired",
                     "message": "Your Gmail connection has expired. Please reconnect your Gmail account.",
                     "require_reauth": True,
                     "contacts": contacts,
-                }), 401
+                }
+                if idem_swipe_id:
+                    from app.services import swipe_idempotency as swipe_idem
+                    swipe_idem.complete(db, user_id, idem_swipe_id, expired_response, status_code=401)
+                return jsonify(expired_response), 401
             print(f"[Runs] Gmail draft error (prompt-search): {gmail_error}")
 
         if not (db and user_id):
             print(f"[Runs] Prompt-search: skipping Firestore save")
-        credits_used = 0
-        credits_remaining = None
+        # Credits were already deducted up front (right after the contact list
+        # was finalized) — credits_used / credits_remaining carry down from there.
         if db and user_id:
-            try:
-                credits_amount = 5 * len(contacts)
-                success, remaining = deduct_credits_atomic(user_id, credits_amount, "prompt_search")
-                if success:
-                    credits_used = credits_amount
-                    credits_remaining = remaining
-                else:
-                    print(f"⚠️ Credit deduction failed for {user_id}: insufficient credits (have {remaining}, need {credits_amount})")
-                    credits_remaining = remaining
-            except Exception as credit_error:
-                print(f"⚠️ Credit deduction error for {user_id}: {credit_error}")
-                traceback.print_exc()
             try:
                 print(f"💾 Saving {len(contacts)} contacts to Firestore (prompt-search)...")
                 contacts_ref = db.collection("users").document(user_id).collection("contacts")
@@ -1197,12 +1280,17 @@ def prompt_search():
         except Exception:
             pass
 
+        if idem_swipe_id:
+            from app.services import swipe_idempotency as swipe_idem
+            swipe_idem.complete(db, user_id, idem_swipe_id, response_data)
         return jsonify(response_data)
     except (OfferloopException, InsufficientCreditsError, ExternalAPIError):
+        _refund_and_release_failed_swipe(db, user_id, charged_amount, idem_swipe_id)
         raise
     except Exception as e:
         print(f"Prompt-search error: {e}")
         traceback.print_exc()
+        _refund_and_release_failed_swipe(db, user_id, charged_amount, idem_swipe_id)
         raise OfferloopException(f"Prompt search failed: {str(e)}", error_code="PROMPT_SEARCH_ERROR")
 
 

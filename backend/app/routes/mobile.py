@@ -285,7 +285,10 @@ def me():
         'credits': int(u.get('credits') or 0),
         'maxCredits': int(u.get('maxCredits') or 0),
         'resetLabel': _reset_label(),
-        'creditsPerSwipe': 10,
+        # Per-CONTACT price of a swipe. Must match the actual charge in
+        # runs.py prompt_search (5 × contacts drafted) — the app multiplies
+        # this by its contacts-per-swipe setting for the optimistic decrement.
+        'creditsPerSwipe': 5,
         'gmailConnected': gmail_connected,
         'gmailAddress': gmail_address,
         'resume': ({'name': resume_name, 'url': resume_url} if resume_name else None),
