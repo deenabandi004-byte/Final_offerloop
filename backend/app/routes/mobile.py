@@ -547,6 +547,45 @@ def _map_company_profile(name: str, firecrawl: dict) -> dict:
 # Cached company profiles are global (not per-user) and refreshed every 30 days —
 # firm intel changes slowly and the live Perplexity+Firecrawl call is slow/costly.
 _COMPANY_CACHE_TTL_DAYS = 30
+# Async-fill guards (PLAN-instant-feel.md Phase 3): a cache MISS no longer
+# blocks the request on the slow Perplexity+Firecrawl pipeline — it answers
+# {pending: true} instantly and fills the cache in a background thread while
+# the app polls. These bound the transient states:
+_COMPANY_FETCHING_STALE_S = 150      # in-flight marker older than this = dead thread, respawn
+_COMPANY_EMPTY_TTL_HOURS = 24        # "nothing found" is remembered for a day, then retried
+_COMPANY_FAIL_COOLDOWN_S = 90        # provider error: don't re-hit a downed provider per poll
+
+
+def _parse_iso_utc(value):
+    try:
+        return datetime.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
+
+
+def _fill_company_profile_background(name: str, slug: str) -> None:
+    """The slow half of the company endpoint, off the request thread. Writes
+    exactly one of: a real profile, an empty marker, or a failure marker."""
+    db = get_db()
+    ref = db.collection('companyProfiles').document(slug)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        from app.services.firm_details_extraction import _fetch_serp_results_only
+        raw = _fetch_serp_results_only(name)
+        firecrawl = (raw or {}).get('_firecrawl_data') or {}
+        profile = _map_company_profile(name, firecrawl)
+        if profile['about'] or profile['industry'] or profile['hq']:
+            # Full overwrite (not merge) so stale fetch/empty markers clear.
+            ref.set({'name': name, 'profile': profile, 'fetchedAt': now_iso})
+        else:
+            # Honest miss: remember for a day so polls stop, retry tomorrow.
+            ref.set({'name': name, 'emptyAt': now_iso})
+    except Exception as e:
+        print(f"[MobileCompany] background fill failed for {name!r}: {e}")
+        try:
+            ref.set({'name': name, 'failedAt': now_iso})
+        except Exception:
+            pass
 
 
 @mobile_bp.get('/company/<path:name>')
@@ -554,8 +593,9 @@ _COMPANY_CACHE_TTL_DAYS = 30
 def company(name: str):
     """Lightweight single-company overview for the app's company page. Reuses the
     firm-intel pipeline (Perplexity website discovery → Firecrawl profile), cached
-    in Firestore companyProfiles/{slug}. Returns honest-empty fields when nothing
-    is found rather than fabricating."""
+    in Firestore companyProfiles/{slug}. Cache hits return instantly; misses
+    return {pending: true} and fill in the background (the app polls). Returns
+    honest-empty fields when nothing is found rather than fabricating."""
     name = (name or '').strip()
     if not name:
         return jsonify({'error': 'name is required'}), 400
@@ -563,45 +603,55 @@ def company(name: str):
     db = get_db()
     slug = _company_slug(name)
     cache_ref = db.collection('companyProfiles').document(slug) if slug else None
+    now = datetime.now(timezone.utc)
 
     if cache_ref is not None:
         snap = cache_ref.get()
         if snap.exists:
             data = snap.to_dict() or {}
-            fetched = data.get('fetchedAt')
-            try:
-                fetched_dt = datetime.fromisoformat(fetched) if isinstance(fetched, str) else None
-            except ValueError:
-                fetched_dt = None
-            fresh = (
+
+            fetched_dt = _parse_iso_utc(data.get('fetchedAt'))
+            if (
                 fetched_dt is not None
-                and (datetime.now(timezone.utc) - fetched_dt).days < _COMPANY_CACHE_TTL_DAYS
-            )
-            if fresh and data.get('profile'):
+                and (now - fetched_dt).days < _COMPANY_CACHE_TTL_DAYS
+                and data.get('profile')
+            ):
                 return jsonify(data['profile']), 200
 
-    try:
-        from app.services.firm_details_extraction import _fetch_serp_results_only
-        raw = _fetch_serp_results_only(name)
-    except Exception:
-        raw = None
+            empty_dt = _parse_iso_utc(data.get('emptyAt'))
+            if empty_dt is not None and (now - empty_dt).total_seconds() < _COMPANY_EMPTY_TTL_HOURS * 3600:
+                return jsonify(_map_company_profile(name, {})), 200
 
-    firecrawl = (raw or {}).get('_firecrawl_data') or {}
-    profile = _map_company_profile(name, firecrawl)
+            failed_dt = _parse_iso_utc(data.get('failedAt'))
+            if failed_dt is not None and (now - failed_dt).total_seconds() < _COMPANY_FAIL_COOLDOWN_S:
+                return jsonify(_map_company_profile(name, {})), 200
 
-    # Only cache when we actually got something, so a transient miss doesn't pin
-    # an empty profile for 30 days.
-    if cache_ref is not None and (profile['about'] or profile['industry'] or profile['hq']):
+            fetching_dt = _parse_iso_utc(data.get('fetchStartedAt'))
+            if fetching_dt is not None and (now - fetching_dt).total_seconds() < _COMPANY_FETCHING_STALE_S:
+                return jsonify({'pending': True}), 202
+
+    if cache_ref is None:
+        # No Firestore (shouldn't happen in prod) — degrade to the old
+        # synchronous behavior rather than lying.
         try:
-            cache_ref.set({
-                'name': name,
-                'profile': profile,
-                'fetchedAt': datetime.now(timezone.utc).isoformat(),
-            })
+            from app.services.firm_details_extraction import _fetch_serp_results_only
+            raw = _fetch_serp_results_only(name)
         except Exception:
-            pass
+            raw = None
+        firecrawl = (raw or {}).get('_firecrawl_data') or {}
+        return jsonify(_map_company_profile(name, firecrawl)), 200
 
-    return jsonify(profile), 200
+    # Claim the fetch (merge keeps any stale profile visible to no one — the
+    # freshness checks above already rejected it) and fill in the background.
+    try:
+        cache_ref.set({'name': name, 'fetchStartedAt': now.isoformat()}, merge=True)
+    except Exception:
+        pass
+    import threading as _threading
+    _threading.Thread(
+        target=_fill_company_profile_background, args=(name, slug), daemon=True
+    ).start()
+    return jsonify({'pending': True}), 202
 
 
 @mobile_bp.route('/meeting-prep/preview', methods=['POST'])
