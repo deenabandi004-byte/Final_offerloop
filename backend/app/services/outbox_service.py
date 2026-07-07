@@ -130,6 +130,12 @@ def _contact_to_dict(contact_id, data):
     # Gmail API returns HTML-encoded snippets (&#39; &amp; etc.) — decode them
     if snippet:
         snippet = html.unescape(snippet)
+    # A snippet is a preview line, not the document: the emailBody fallback
+    # above was shipping FULL email bodies for every draft-stage contact,
+    # inflating GET /outbox/threads to ~0.5MB per poll across a few hundred
+    # contacts. Detail views fetch the real body via the messages endpoint.
+    if snippet and len(snippet) > 160:
+        snippet = snippet[:157].rstrip() + "…"
 
     # Flag drafts stuck in draft_created for > STUCK_DRAFT_HOURS with no thread.
     # These are contacts the Gmail webhook never matched to a sent message, so
