@@ -37,7 +37,12 @@ _SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 _TTL = timedelta(days=7)
 # A running job whose last heartbeat is older than this belongs to a dead
 # process (deploy restart, crash) — report it failed so the app can retry.
-STALE_RUNNING = timedelta(minutes=10)
+# A healthy pipeline updates the doc at every stage; the longest quiet gap
+# (enrichment + email generation on a big batch) is well under 4 minutes.
+# Must be SHORTER than the app's 6-minute polling deadline, or a crash
+# leaves the user stuck watching "running" with no way to retry (field-
+# tested 2026-07-07: instance restart mid-cook froze 4 jobs for 10 min).
+STALE_RUNNING = timedelta(minutes=4)
 _MAX_STORED_RESULT_BYTES = 700_000
 _HEAVY_CONTACT_FIELDS = (
     "briefing",

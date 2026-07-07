@@ -22,7 +22,10 @@ from datetime import datetime, timedelta, timezone
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 # gunicorn --timeout (300s) kills a request long before this, so a
 # 'processing' doc this old belongs to a dead request and is reclaimable.
-_STALE_PROCESSING = timedelta(minutes=10)
+# Kept in lockstep with draft_jobs.STALE_RUNNING: when a crash orphans a
+# job AND its claim, the retry must be able to reclaim both at the same
+# moment or the re-run answers 409 in_flight and the app waits forever.
+_STALE_PROCESSING = timedelta(minutes=4)
 _TTL = timedelta(days=7)
 # Stay well clear of Firestore's 1 MiB document cap when storing the response.
 _MAX_STORED_RESPONSE_BYTES = 700_000
