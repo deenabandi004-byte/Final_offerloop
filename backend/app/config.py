@@ -104,7 +104,11 @@ RESUME_LINE = "For context, I've attached my resume below."
 # Credit costs doubled 2026-06-10 as a pure marketing inflation: same dollar
 # prices, same email outputs, but credit numbers feel more substantial.
 # 10 cr = 1 email. Existing user balances are doubled via migrate_double_credits.py.
-COFFEE_CHAT_CREDITS = 30
+# Meeting prep is FREE as of 2026-07-07 (Rylan + cofounder call: the feature
+# was underused behind the paywall). Monthly caps in TIER_CONFIGS stay as
+# abuse valves — each prep still costs real provider money. Re-monetizing
+# later is this one constant.
+COFFEE_CHAT_CREDITS = 0
 TIMELINE_CREDITS = 20
 AUTO_APPLY_CREDITS = 5
 SUPPORTED_AUTO_APPLY_ATS = {"greenhouse", "lever", "ashby"}
@@ -395,8 +399,8 @@ CREDIT_COSTS = {
     'firm_search':          10,  # per firm returned, Pro+ gated
 
     # Generative actions — per output
-    'coffee_chat_prep':     30,  # alias for back-compat with COFFEE_CHAT_CREDITS
-    'meeting_prep':         30,  # same as coffee_chat_prep — label-only rename
+    'coffee_chat_prep':     0,   # FREE (2026-07-07) — see COFFEE_CHAT_CREDITS
+    'meeting_prep':         0,   # same as coffee_chat_prep — label-only rename
     'resume_optimization':  40,
     'cover_letter':         20,
     'timeline':             20,  # alias for back-compat with TIMELINE_CREDITS
@@ -430,7 +434,7 @@ TIER_CONFIGS = {
         'time_saved_minutes': 300,
         'description': 'Try it out for free',
         'alumni_searches': 10,
-        'coffee_chat_preps': 3,
+        'coffee_chat_preps': 8,
         # Find contacts free, cap personalized drafts. Custom templates without
         # AI personalization remain unlimited.
         'ai_drafts_per_month': FREE_DRAFTS_PER_MONTH,
@@ -466,7 +470,7 @@ TIER_CONFIGS = {
         'time_saved_minutes': 2500,
         'description': 'Best for Students',
         'alumni_searches': 'unlimited',
-        'coffee_chat_preps': 10,
+        'coffee_chat_preps': 40,
         'firm_search': True,
         'smart_filters': True,
         'bulk_drafting': True,
@@ -536,7 +540,7 @@ TIER_CONFIGS = {
         'time_saved_minutes': 2500,
         'description': 'Recruiting season — 4 months, one charge',
         'alumni_searches': 'unlimited',
-        'coffee_chat_preps': 10,
+        'coffee_chat_preps': 40,
         'firm_search': True,
         'smart_filters': True,
         'bulk_drafting': True,

@@ -31,7 +31,8 @@ class TestCreditRefundOnFailure:
         assert "credits_charged" in sig.parameters
         # Default should be COFFEE_CHAT_CREDITS
         default = sig.parameters["credits_charged"].default
-        assert default == 15
+        from app.config import COFFEE_CHAT_CREDITS
+        assert default == COFFEE_CHAT_CREDITS
 
     def test_refund_on_exception_in_source(self):
         """Background worker calls refund on exception."""
@@ -64,7 +65,8 @@ class TestCreditRefundOnFailure:
             resume_text="Some resume text here with enough length to pass checks",
         )
 
-        mock_refund.assert_called_once_with("user-456", 15, "coffee_chat_enrichment_failed")
+        from app.config import COFFEE_CHAT_CREDITS
+        mock_refund.assert_called_once_with("user-456", COFFEE_CHAT_CREDITS, "coffee_chat_enrichment_failed")
         # Verify status was set to failed with refund flag
         update_call = mock_prep_ref.update.call_args_list[-1]
         update_data = update_call[0][0]
@@ -89,7 +91,8 @@ class TestCreditRefundOnFailure:
             resume_text="Some resume text here",
         )
 
-        mock_refund.assert_called_once_with("user-456", 15, "coffee_chat_prep_failure")
+        from app.config import COFFEE_CHAT_CREDITS
+        mock_refund.assert_called_once_with("user-456", COFFEE_CHAT_CREDITS, "coffee_chat_prep_failure")
 
 
 # =============================================================================
@@ -597,11 +600,11 @@ class TestCoffeeChatTierLimits:
 
     def test_free_tier_limit(self):
         from app.config import TIER_CONFIGS
-        assert TIER_CONFIGS["free"]["coffee_chat_preps"] == 3
+        assert TIER_CONFIGS["free"]["coffee_chat_preps"] == 8
 
     def test_pro_tier_limit(self):
         from app.config import TIER_CONFIGS
-        assert TIER_CONFIGS["pro"]["coffee_chat_preps"] == 10
+        assert TIER_CONFIGS["pro"]["coffee_chat_preps"] == 40
 
     def test_elite_tier_unlimited(self):
         from app.config import TIER_CONFIGS
@@ -609,7 +612,9 @@ class TestCoffeeChatTierLimits:
 
     def test_credit_cost(self):
         from app.config import COFFEE_CHAT_CREDITS
-        assert COFFEE_CHAT_CREDITS == 15
+        # FREE as of 2026-07-07 — see config.py. Track the constant's intent,
+        # not a magic number that silently drifts from the real charge.
+        assert COFFEE_CHAT_CREDITS == 0
 
 
 # =============================================================================
@@ -629,7 +634,7 @@ class TestCanAccessCoffeeChat:
     def test_free_tier_at_limit(self):
         from app.services.auth import can_access_feature
         from app.config import TIER_CONFIGS
-        user_data = {"coffeeChatPrepsUsed": 3}
+        user_data = {"coffeeChatPrepsUsed": 8}
         allowed, reason = can_access_feature("free", "coffee_chat_prep", user_data, TIER_CONFIGS["free"])
         assert allowed is False
         assert "limit" in reason.lower()

@@ -1181,7 +1181,9 @@ def get_contact_thread_messages(uid, contact_id):
 # Auto-Prep (Coffee Chat) — triggered when meeting_scheduled
 # ---------------------------------------------------------------------------
 
-COFFEE_CHAT_CREDITS = 15
+# Single source of truth in config — this local copy silently drifted to 15
+# while manual preps charged 30 (found 2026-07-07; both are 0 now).
+from app.config import COFFEE_CHAT_CREDITS
 
 
 def _maybe_trigger_auto_prep(uid, contact_id, contact_data):

@@ -238,7 +238,7 @@ Three tiers defined in `backend/app/config.py` (frontend mirror in `connect-grow
 | Contacts/search | 3 | 8 | 15 |
 | Batch size | 1 | 5 | 15 |
 | Firm search | No | Yes | Yes |
-| Coffee chat preps | 3 lifetime | 10/mo | Unlimited |
+| Coffee chat preps | 8/mo | 40/mo | Unlimited |
 | Alumni searches | 10 | Unlimited | Unlimited |
 | Smart filters | No | Yes | Yes |
 | Bulk drafting | No | Yes | Yes |
@@ -247,7 +247,7 @@ Three tiers defined in `backend/app/config.py` (frontend mirror in `connect-grow
 | Personalized templates | No | No | Yes |
 | Weekly insights | No | No | Yes |
 
-**Credit costs**: Coffee chat = 15, Scout = 5.
+**Credit costs**: Coffee chat (meeting prep) = FREE as of 2026-07-07 (monthly caps remain), Scout = 5.
 
 Credits reset at calendar month boundary (not billing cycle). Atomic Firestore deduction prevents double-spend. Free tier has lifetime limits on some features; Pro/Elite reset monthly.
 

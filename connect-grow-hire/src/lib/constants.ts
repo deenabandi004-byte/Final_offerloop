@@ -1,7 +1,8 @@
 // Frontend mirror of backend/app/config.py — kept in sync. Credit costs and
 // tier sizes doubled 2026-06-10 (marketing-optics inflation, same $/email).
 // See backend CREDIT_COSTS dict for the single source of truth.
-export const COFFEE_CHAT_CREDITS = 30;
+// FREE as of 2026-07-07 (underused behind the paywall) — caps in tier configs remain.
+export const COFFEE_CHAT_CREDITS = 0;
 export const TIMELINE_CREDITS = 20;
 
 // Per-action credit costs — mirror of backend CREDIT_COSTS.
@@ -11,7 +12,7 @@ export const CREDIT_COSTS = {
   find_recruiter: 6,
   find_employee: 4,
   firm_search: 10,
-  coffee_chat_prep: 30,
+  coffee_chat_prep: 0,
   meeting_prep: 30,
   resume_optimization: 40,
   cover_letter: 20,
