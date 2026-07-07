@@ -245,6 +245,12 @@ def public_job_state(job_id: str, doc: dict) -> dict:
         except Exception:
             state["result"] = {}
         state["statusCode"] = int(doc.get("statusCode") or 200)
+        # Where the seconds went — the Phase 3 measurement layer, exposed so
+        # tooling (and eventually the app) can read it per draft.
+        if doc.get("stageTimings"):
+            state["stageTimings"] = doc["stageTimings"]
+        if doc.get("totalSeconds") is not None:
+            state["totalSeconds"] = doc["totalSeconds"]
     if status == "failed":
         state["error"] = doc.get("error") or "Draft failed"
     return state
