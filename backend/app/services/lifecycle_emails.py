@@ -43,6 +43,9 @@ from app.config import (
     JOB_BOARD_DISCOVERY_LAUNCH_DATE,
     FREE_CEILING_LAUNCH_DATE,
     WEEKLY_WIN_REPORT_LAUNCH_DATE,
+    PRO_MONTHLY_RECAP_LAUNCH_DATE,
+    RENEWAL_REMINDER_LAUNCH_DATE,
+    STRIPE_SECRET_KEY,
 )
 from app.extensions import get_db
 from app.services.notification_adapter import send as notify_send, Channel
@@ -1509,6 +1512,287 @@ def process_weekly_win_reports() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Sequence 17: Pro monthly recap (1st of month, Pro/Elite users only)
+# ---------------------------------------------------------------------------
+
+def _prev_month_bounds_utc(now: datetime) -> tuple[datetime, datetime, str]:
+    """Return (start, end, key) for the calendar month that just ended.
+    key is 'YYYY_MM' of the reported month, used for idempotency."""
+    first_of_this_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    end = first_of_this_month
+    prev_year = end.year if end.month > 1 else end.year - 1
+    prev_month = end.month - 1 if end.month > 1 else 12
+    start = end.replace(year=prev_year, month=prev_month)
+    key = f"{prev_year}_{prev_month:02d}"
+    return start, end, key
+
+
+def _count_month_stats(uid: str, start_iso: str, end_iso: str) -> dict:
+    """Per-user monthly counts pulled from the contacts subcollection. Same
+    aggregation pattern as _count_weekly_stats, but bounded on both ends so
+    we don't over-count when running on the 1st of the following month."""
+    db = get_db()
+    stats = {'contacts_added': 0, 'emails_sent': 0, 'replies_received': 0}
+    if not db:
+        return stats
+    try:
+        contacts_ref = db.collection('users').document(uid).collection('contacts')
+
+        added = list(contacts_ref
+                     .where('createdAt', '>=', start_iso)
+                     .where('createdAt', '<', end_iso)
+                     .limit(2000).stream())
+        stats['contacts_added'] = len(added)
+
+        emailed = list(contacts_ref
+                       .where('emailGeneratedAt', '>=', start_iso)
+                       .where('emailGeneratedAt', '<', end_iso)
+                       .limit(2000).stream())
+        stats['emails_sent'] = len(emailed)
+        for doc in emailed:
+            data = doc.to_dict() or {}
+            reply_at = data.get('replyReceivedAt')
+            if reply_at and start_iso <= str(reply_at) < end_iso:
+                stats['replies_received'] += 1
+    except Exception as e:
+        logger.debug("monthly stats read failed for %s: %s", uid, e)
+    return stats
+
+
+def _untried_feature(user: dict) -> tuple[str, str, str]:
+    """Return (paragraph, cta_label, cta_url) pointing at one Pro feature the
+    user hasn't tried yet. Priority is Meeting Prep, then Loops, then Job Board.
+    Falls back to a general tip if all three have been used."""
+    if not (user.get('coffeeChatPrepsUsed') or 0):
+        return (
+            "One feature you haven't touched: Meeting Prep. If you have a coffee chat coming up, spin one up and it'll pull the person's background, common ground, and 5 questions worth asking. Costs 30 credits and turns a 30-minute call into something the other person remembers.",
+            "Try Meeting Prep",
+            f'{PUBLIC_BASE_URL}/coffee-chat-prep?utm_source=lifecycle&utm_campaign=pro_monthly_recap&utm_content=meeting_prep',
+        )
+    if not user.get('lastLoopRunAt'):
+        return (
+            "One feature you haven't tried: Loops. Instead of running one-off searches, you set a target (schools, companies, roles) and Offerloop runs a search weekly on your behalf, drafts outreach, and drops it in your queue. Set it once and it compounds.",
+            "Set up a Loop",
+            f'{PUBLIC_BASE_URL}/agent/setup?utm_source=lifecycle&utm_campaign=pro_monthly_recap&utm_content=loops',
+        )
+    if not _parse_ts_or_dt(user.get('jobBoardVisitedAt')):
+        return (
+            "One feature you haven't opened: the job board. It's ranked against your resume and pulls hiring managers per posting. Worth a look for the weeks when you'd rather browse than search.",
+            "Open the job board",
+            f'{PUBLIC_BASE_URL}/job-board?utm_source=lifecycle&utm_campaign=pro_monthly_recap&utm_content=job_board',
+        )
+    return (
+        "One tip: the fastest month-over-month lift usually comes from replying to your existing threads same-day. Half the students who plateau are just leaving warm replies on the table.",
+        "See your pipeline",
+        f'{PUBLIC_BASE_URL}/tracker?utm_source=lifecycle&utm_campaign=pro_monthly_recap&utm_content=pipeline',
+    )
+
+
+def process_pro_monthly_recaps() -> dict:
+    """1st-of-month recap for Pro and Elite users covering the calendar month
+    that just ended.
+
+    Fires only:
+    - On the 1st of the month, UTC 15:00-19:00 (8am-12pm Pacific, 11am-3pm Eastern).
+    - Once per user per calendar month (idempotency key uses YYYY_MM of the
+      reported month).
+    - subscriptionTier is 'pro' or 'elite'.
+    - profileConfirmedAt is set (they got past onboarding).
+    - signupAt >= PRO_MONTHLY_RECAP_LAUNCH_DATE (protects backfilled users).
+
+    Users with zero activity for the month are skipped; the free_ceiling and
+    activation campaigns already cover that funnel stage.
+    """
+    db = get_db()
+    if not db:
+        return {'ok': False, 'error': 'db_unavailable'}
+
+    now = datetime.now(timezone.utc)
+
+    # Day-of-month + time-of-day gate. Only on the 1st, UTC 15:00-19:00.
+    if now.day != 1 or not (15 <= now.hour < 19):
+        return {'ok': True, 'sent': {'monthly': 0}, 'skipped': 'not_send_window'}
+
+    start, end, month_key = _prev_month_bounds_utc(now)
+    start_iso = start.isoformat().replace('+00:00', 'Z')
+    end_iso = end.isoformat().replace('+00:00', 'Z')
+    step = f'monthly_recap_{month_key}'
+
+    sent = {'monthly': 0}
+    eligible_count = 0
+
+    for snap in db.collection('users').stream():
+        user = snap.to_dict() or {}
+        uid = snap.id
+        email = user.get('email')
+        if not email:
+            continue
+
+        tier = user.get('subscriptionTier') or user.get('tier') or 'free'
+        if tier not in ('pro', 'elite'):
+            continue
+
+        signup_at = _parse_ts_or_dt(user.get('signupAt'))
+        if not signup_at or signup_at < PRO_MONTHLY_RECAP_LAUNCH_DATE:
+            continue
+        if not _parse_ts_or_dt(user.get('profileConfirmedAt')):
+            continue
+        if already_sent(uid, 'pro_monthly_recap', step):
+            continue
+
+        stats = _count_month_stats(uid, start_iso, end_iso)
+        if stats['contacts_added'] + stats['emails_sent'] + stats['replies_received'] == 0:
+            continue
+
+        eligible_count += 1
+
+        month_name = start.strftime('%B')
+        stats_block = " · ".join([
+            f"Contacts added: {stats['contacts_added']}",
+            f"Emails sent: {stats['emails_sent']}",
+            f"Replies received: {stats['replies_received']}",
+        ])
+        feature_para, cta_label, cta_url = _untried_feature(user)
+
+        paragraphs = [
+            f"Hey, {SIGNATURE_NAME} here. Quick recap of your {month_name} on Offerloop.",
+            stats_block,
+            feature_para,
+            "If any of this is off or you have thoughts on what would make next month more useful, just reply. Real inbox on this end.",
+        ]
+
+        res = _send_lifecycle_email(
+            user_or_lead_id=uid,
+            recipient_email=email,
+            campaign='pro_monthly_recap',
+            step=step,
+            subject=f"your {month_name} on Offerloop",
+            body_paragraphs=paragraphs,
+            cta_label=cta_label,
+            cta_url=cta_url,
+        )
+        if res.get('sent'):
+            sent['monthly'] += 1
+
+    return {'ok': True, 'sent': sent, 'eligible': eligible_count}
+
+
+# ---------------------------------------------------------------------------
+# Sequence 20: Renewal reminder (3 days before subscription renewal)
+# ---------------------------------------------------------------------------
+
+def _fetch_stripe_renewal_end(subscription_id: str) -> Optional[datetime]:
+    """Live query Stripe for the current_period_end on a subscription. Returns
+    None if the subscription is missing, cancelling at period end, or the
+    Stripe SDK errors. Small blast radius: called at most ~15 times per tick
+    (one per Pro/Elite user) and only inside the send window."""
+    if not subscription_id or not STRIPE_SECRET_KEY:
+        return None
+    try:
+        import stripe
+        stripe.api_key = STRIPE_SECRET_KEY
+        sub = stripe.Subscription.retrieve(subscription_id)
+    except Exception as e:
+        logger.debug("stripe subscription retrieve failed for %s: %s", subscription_id, e)
+        return None
+
+    # Skip if already scheduled to cancel; sending a renewal reminder to
+    # someone who cancelled would be confusing and off-message.
+    if sub.get('cancel_at_period_end'):
+        return None
+    if sub.get('status') not in ('active', 'trialing'):
+        return None
+
+    period_end = sub.get('current_period_end')
+    if not period_end:
+        return None
+    try:
+        return datetime.fromtimestamp(int(period_end), tz=timezone.utc)
+    except Exception:
+        return None
+
+
+def process_renewal_reminders() -> dict:
+    """Send one email ~3 days before the subscription's current_period_end.
+
+    Fires only:
+    - UTC 15:00-19:00 window (avoids odd-hour sends across ticks).
+    - subscriptionTier is 'pro' or 'elite' and stripeSubscriptionId is set.
+    - Live Stripe query says current_period_end is 2-4 days from now and
+      cancel_at_period_end is false.
+    - signupAt >= RENEWAL_REMINDER_LAUNCH_DATE.
+    - Once per renewal cycle (idempotency key is the ISO date of period_end).
+    """
+    db = get_db()
+    if not db:
+        return {'ok': False, 'error': 'db_unavailable'}
+
+    now = datetime.now(timezone.utc)
+    if not (15 <= now.hour < 19):
+        return {'ok': True, 'sent': {'renewal': 0}, 'skipped': 'not_send_window'}
+
+    window_lo = now + timedelta(days=2)
+    window_hi = now + timedelta(days=4)
+
+    sent = {'renewal': 0}
+    eligible_count = 0
+
+    for snap in db.collection('users').stream():
+        user = snap.to_dict() or {}
+        uid = snap.id
+        email = user.get('email')
+        if not email:
+            continue
+
+        tier = user.get('subscriptionTier') or user.get('tier') or 'free'
+        if tier not in ('pro', 'elite'):
+            continue
+
+        sub_id = user.get('stripeSubscriptionId')
+        if not sub_id:
+            continue
+
+        signup_at = _parse_ts_or_dt(user.get('signupAt'))
+        if not signup_at or signup_at < RENEWAL_REMINDER_LAUNCH_DATE:
+            continue
+
+        period_end = _fetch_stripe_renewal_end(sub_id)
+        if not period_end or not (window_lo <= period_end < window_hi):
+            continue
+
+        step = f'renewal_{period_end.date().isoformat()}'
+        if already_sent(uid, 'renewal_reminder', step):
+            continue
+
+        eligible_count += 1
+
+        renew_date = period_end.strftime('%B %-d')
+        tier_label = 'Elite' if tier == 'elite' else 'Pro'
+        price_line = '$34.99' if tier == 'elite' else '$14.99'
+
+        paragraphs = [
+            f"Hey, {SIGNATURE_NAME} here. Quick heads up: your Offerloop {tier_label} plan renews on {renew_date} for {price_line}.",
+            "Nothing you need to do. Sending this so it's not a surprise on the card statement.",
+            "If you want to switch plans or cancel, you can do it from your account settings in under a minute. If you're staying, thanks for being on Pro; the product gets better every month because paying users tell me what's broken.",
+        ]
+
+        res = _send_lifecycle_email(
+            user_or_lead_id=uid,
+            recipient_email=email,
+            campaign='renewal_reminder',
+            step=step,
+            subject=f"your Offerloop {tier_label} renews on {renew_date}",
+            body_paragraphs=paragraphs,
+            cta_label="Manage your subscription",
+            cta_url=f'{PUBLIC_BASE_URL}/account-settings?utm_source=lifecycle&utm_campaign=renewal_reminder&utm_content={step}',
+        )
+        if res.get('sent'):
+            sent['renewal'] += 1
+
+    return {'ok': True, 'sent': sent, 'eligible': eligible_count}
+
+
+# ---------------------------------------------------------------------------
 # Cron entry: fires all time-based sequences
 # ---------------------------------------------------------------------------
 
@@ -1526,6 +1810,8 @@ def process_all_pending_emails() -> dict:
         'job_board_discovery': process_job_board_discoveries(),
         'free_ceiling': process_free_ceilings(),
         'weekly_win_report': process_weekly_win_reports(),
+        'pro_monthly_recap': process_pro_monthly_recaps(),
+        'renewal_reminder': process_renewal_reminders(),
     }
 
 
