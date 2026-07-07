@@ -151,6 +151,8 @@ COFFEE_CHAT_DISCOVERY_LAUNCH_DATE = _dt(2026, 7, 2, tzinfo=_tz.utc)
 JOB_BOARD_DISCOVERY_LAUNCH_DATE = _dt(2026, 7, 2, tzinfo=_tz.utc)
 FREE_CEILING_LAUNCH_DATE = _dt(2026, 7, 2, tzinfo=_tz.utc)
 WEEKLY_WIN_REPORT_LAUNCH_DATE = _dt(2026, 7, 3, tzinfo=_tz.utc)
+PRO_MONTHLY_RECAP_LAUNCH_DATE = _dt(2026, 7, 7, tzinfo=_tz.utc)
+RENEWAL_REMINDER_LAUNCH_DATE = _dt(2026, 7, 7, tzinfo=_tz.utc)
 
 # ========================================
 # Beehiiv (Newsletter)

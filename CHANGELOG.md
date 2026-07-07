@@ -2,6 +2,14 @@
 
 All notable changes to Offerloop will be documented in this file.
 
+## [0.1.10.0] - 2026-07-07
+
+### Added
+- Two Phase 4 P1 lifecycle campaigns close out the P1 tier (per `docs/EMAIL_CAMPAIGN_SYSTEM_PLAN.md` §"Phase 4 P1"):
+  - **Pro monthly recap (#17):** fires on the 1st of each month, UTC 15:00-19:00 (8am-12pm Pacific / 11am-3pm Eastern). Recap of the prior calendar month for `pro` and `elite` users: contacts added, emails sent, replies received, aggregated from the contacts subcollection with hard month bounds. Highlights one untried Pro feature (Meeting Prep first, then Loops, then Job Board) so the recap ships value alongside stats. Skips users with zero activity for the month (free_ceiling and activation campaigns already cover that funnel). Idempotency key `monthly_recap_{YYYY_MM}` guarantees one per user per calendar month. Gated by `PRO_MONTHLY_RECAP_LAUNCH_DATE = 2026-07-07`.
+  - **Renewal reminder (#20):** fires ~3 days before `current_period_end` for Pro/Elite users. Live-queries Stripe for the period end on each Pro/Elite user during the send window rather than persisting a new user-doc field. Filters out subscriptions set to cancel at period end, subscriptions not in `active`/`trialing` status, and any renewal outside the 2-to-4-day window. Idempotency key is the ISO date of the period end so we send exactly once per renewal cycle. Subject and body use the real tier label (Pro / Elite) and price ($14.99 / $34.99). Gated by `RENEWAL_REMINDER_LAUNCH_DATE = 2026-07-07`.
+- Two new `_LAUNCH_DATE` constants (`PRO_MONTHLY_RECAP_LAUNCH_DATE`, `RENEWAL_REMINDER_LAUNCH_DATE` = 2026-07-07) as safety filters on `signupAt`, following the same protection pattern as prior Phase 2 and Phase 4 campaigns. Both new sequences wired into `process_all_pending_emails()`.
+
 ## [0.1.9.0] - 2026-07-03
 
 ### Added
@@ -10,7 +18,7 @@ All notable changes to Offerloop will be documented in this file.
 ## [0.1.8.0] - 2026-07-02
 
 ### Added
-- Three Phase 2 P1 lifecycle campaigns (per `docs/EMAIL_CAMPAIGN_SYSTEM_PLAN.md` §"Phase 4 — P1"):
+- Three Phase 2 P1 lifecycle campaigns (per `docs/EMAIL_CAMPAIGN_SYSTEM_PLAN.md` §"Phase 4 P1"):
   - **Coffee chat prep discovery (#10):** fires within 24h of `firstReplyReceivedAt` for free-tier users who haven't used Meeting Prep yet. Frames prep as "you got a reply, time to prep so you don't fumble the actual call."
   - **Job board discovery (#11):** fires 240-264h after `profileConfirmedAt` for users who haven't visited `/job-board` yet. Frames Job Board as "the other half of Offerloop" with hiring team contacts pre-attached to listings.
   - **Free ceiling (#12):** fires when free user has used 90%+ of monthly credits. Data-driven copy naming their actual used/total counts. Idempotency scoped per calendar month so a user can re-trigger next month.
