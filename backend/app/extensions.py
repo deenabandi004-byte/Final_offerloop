@@ -387,6 +387,18 @@ def init_app_extensions(app: Flask):
         strategy="fixed-window",
         headers_enabled=True
     )
+
+    # Exempt BEFORE key evaluation: when get_rate_limit_key returns None
+    # (static assets, status polling), flask-limiter still tried to apply the
+    # default limits and logged two ERROR lines per request ("Skipping limit:
+    # ... Empty value found in parameters") — at a 2.5s poll that doubled our
+    # log volume. A request_filter short-circuits cleanly instead.
+    @limiter.request_filter
+    def _skip_exempt_paths() -> bool:
+        try:
+            return get_rate_limit_key() is None
+        except Exception:
+            return False
     # Replace in-memory storage with Firestore for persistence across workers/restarts
     try:
         from app.utils.firestore_limiter import FirestoreStorage

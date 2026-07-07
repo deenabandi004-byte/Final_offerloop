@@ -61,6 +61,18 @@ def create_app() -> Flask:
         static_url_path=""
     )
 
+    # --- Response compression (Phase 3, instant-feel) ---
+    # Nothing was compressed before: the mobile inbox poll (~213KB of JSON)
+    # and the web tracker (~410KB) went over the wire raw. gzip cuts JSON
+    # 5-10x — less cellular time per poll, less worker time per response.
+    # try/except so a dev venv without flask-compress still boots.
+    try:
+        from flask_compress import Compress
+        Compress(app)
+        app.logger.info("Response compression enabled (flask-compress)")
+    except ImportError:
+        app.logger.warning("flask-compress not installed — responses uncompressed")
+
     # --- Prerender.io middleware for bot crawlers (SEO/AEO) ---
     PRERENDER_TOKEN = os.environ.get("PRERENDER_TOKEN")
     if not PRERENDER_TOKEN:

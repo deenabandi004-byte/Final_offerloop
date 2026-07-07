@@ -28,6 +28,7 @@ instead of spawning a second pipeline.
 
 import json
 import re
+import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -151,13 +152,23 @@ def _run_job(db, *, user_id: str, user_email: str, auth_display_name: str, data:
         except Exception:
             traceback.print_exc()
 
+    # Per-stage wall-clock, persisted on the job doc (stageTimings map). This
+    # is the Phase 3 measurement layer: every real swipe records where its
+    # seconds went, so "make it faster" decisions run on data, not guesses.
+    started_at = time.time()
+    last_stage = {"name": "queued", "t": started_at}
+
     def _progress(stage, label, pct, extra=None):
+        now = time.time()
         fields = {
             "status": "running",
             "stage": stage,
             "stageLabel": label,
             "progressPct": int(pct),
         }
+        if stage != last_stage["name"]:
+            fields["stageTimings"] = {last_stage["name"]: round(now - last_stage["t"], 2)}
+            last_stage["name"], last_stage["t"] = stage, now
         # The 'found' beat carries the real people (name/title/company) so the
         # app can put the actual name on the drafting row within seconds.
         if extra and isinstance(extra, dict) and extra.get("contacts"):
@@ -177,6 +188,7 @@ def _run_job(db, *, user_id: str, user_email: str, auth_display_name: str, data:
             data=data,
             progress=_progress,
         )
+        total = round(time.time() - started_at, 2)
         _update({
             "status": "completed",
             "stage": "done",
@@ -185,7 +197,10 @@ def _run_job(db, *, user_id: str, user_email: str, auth_display_name: str, data:
             "statusCode": int(code),
             "resultJson": _slim_result_json(payload),
             "completedAt": datetime.now(timezone.utc),
+            "stageTimings": {last_stage["name"]: round(time.time() - last_stage["t"], 2)},
+            "totalSeconds": total,
         })
+        print(f"[DraftJob] {job_id} completed in {total}s", flush=True)
     except Exception as e:
         # execute_prompt_search already refunded credits + released the
         # idempotency claim on its own error paths.
