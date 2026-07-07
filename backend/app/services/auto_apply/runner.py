@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import threading
 import traceback
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
@@ -63,6 +64,27 @@ def update_status(uid: str, auto_apply_id: str, **fields: Any) -> None:
         logger.exception("update_status failed for %s/%s", uid, auto_apply_id)
 
 
+# Per-user concurrency cap. Each submit spawns its own daemon thread, so a user
+# swiping several jobs in a row fires several Browserbase sessions at once — and
+# concurrent sessions amplify the submit/validate timing races (a job that
+# submits cleanly when run alone gets a transient aria-invalid under load). Cap
+# the number of simultaneous live runs PER USER (not globally, so one user's
+# burst never blocks another user). Waiting jobs sit on the semaphore showing
+# "queued" until a slot frees.
+_APPLY_CONCURRENCY_PER_USER = 2
+_user_apply_sems_lock = threading.Lock()
+_user_apply_sems: Dict[str, threading.BoundedSemaphore] = {}
+
+
+def _user_apply_semaphore(uid: str) -> threading.BoundedSemaphore:
+    with _user_apply_sems_lock:
+        sem = _user_apply_sems.get(uid)
+        if sem is None:
+            sem = threading.BoundedSemaphore(_APPLY_CONCURRENCY_PER_USER)
+            _user_apply_sems[uid] = sem
+        return sem
+
+
 def run_auto_apply_job(
     auto_apply_id: str,
     uid: str,
@@ -73,6 +95,10 @@ def run_auto_apply_job(
     """Background entry point. Drives the whole run and writes status to
     Firestore so the polling endpoint can serve the UI."""
     resume_path: Optional[str] = None
+    # Throttle concurrent runs for this user (see note above). Blocks here while
+    # the user's other runs hold the slots; the doc stays "queued" meanwhile.
+    sem = _user_apply_semaphore(uid)
+    sem.acquire()
     try:
         update_status(uid, auto_apply_id, status="running", stage="loading_data")
 
@@ -232,6 +258,16 @@ def run_auto_apply_job(
             except Exception:
                 logger.exception("needs_attention notify failed for %s", auto_apply_id)
 
+        # Terminal outcomes get a ping too (real submissions only): submitted
+        # is the win the user is waiting on; needs_verification is one human
+        # tap from done; failed shouldn't sit silent in a tab.
+        if not dry_run and status in ("submitted", "needs_verification", "failed", "submit_failed"):
+            try:
+                from app.services.auto_apply.notify import notify_application_result
+                notify_application_result(uid, auto_apply_id, status, db=db)
+            except Exception:
+                logger.exception("application result notify failed for %s", auto_apply_id)
+
         if result.get("status") == "submitted":
             try:
                 db.collection("users").document(uid).collection(
@@ -252,7 +288,19 @@ def run_auto_apply_job(
             traceback=traceback.format_exc()[-2000:],
             completed_at=datetime.utcnow().isoformat(),
         )
+        if not dry_run:
+            try:
+                from app.services.auto_apply.notify import notify_application_result
+                notify_application_result(uid, auto_apply_id, "failed", db=db)
+            except Exception:
+                logger.exception("crash-path result notify failed for %s", auto_apply_id)
     finally:
+        try:
+            sem.release()
+        except (ValueError, RuntimeError):
+            # BoundedSemaphore over-release guard — should never happen since we
+            # always acquire once above, but never let it mask a real error.
+            pass
         if resume_path and os.path.exists(resume_path):
             try:
                 os.unlink(resume_path)

@@ -87,3 +87,86 @@ def notify_needs_attention(uid: str, auto_apply_id: str, db=None) -> bool:
     except Exception:
         logger.exception("notify_needs_attention failed uid=%s aa=%s", uid, auto_apply_id)
         return False
+
+
+def notify_application_result(uid: str, auto_apply_id: str, status: str, db=None) -> bool:
+    """Bell item + push for a terminal application outcome.
+
+    submitted          → "it went in" (the win — celebrate it)
+    needs_verification → "one human tap left" (deep-links to the answer screen)
+    failed/submit_failed → "didn't go through" (honest, points at the list)
+
+    Upserts by auto_apply_id so resubmits replace the old outcome instead of
+    stacking, and a success clears any stale needs-attention item for the same
+    application. Never raises. Real submissions only — callers gate dry runs.
+    """
+    try:
+        if db is None:
+            from app.extensions import get_db
+            db = get_db()
+
+        job_ref = (
+            db.collection("users").document(uid)
+            .collection("autoApplyJobs").document(auto_apply_id)
+        )
+        job = job_ref.get().to_dict() or {}
+        title = job.get("job_title") or "a job"
+        company = job.get("company") or "the company"
+
+        outcome = "failed" if status in ("failed", "submit_failed") else status
+        if outcome not in ("submitted", "needs_verification", "failed"):
+            return False
+
+        ref = (
+            db.collection("users").document(uid)
+            .collection("notifications").document("outbox")
+        )
+        data = ref.get().to_dict() or {}
+        items = list(data.get("items") or [])
+        # Replace any prior item for this application: an older result, and —
+        # on success — the now-resolved needs-attention ping.
+        items = [i for i in items if i.get("autoApplyId") != auto_apply_id]
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        item = {
+            "kind": "auto_apply_result",
+            "autoApplyId": auto_apply_id,
+            "jobTitle": title,
+            "company": company,
+            "outcome": outcome,
+            "timestamp": now_iso,
+            "read": False,
+        }
+        ref.set({"items": ([item] + items)[:_MAX_NOTIFICATION_ITEMS], "updatedAt": now_iso}, merge=True)
+
+        if outcome == "submitted":
+            push_title = "Application submitted"
+            push_body = f"{title} at {company} is in."
+            url = "/(tabs)/network"
+        elif outcome == "needs_verification":
+            push_title = "One tap left"
+            push_body = f"{company} needs a quick human check to finish {title}."
+            url = f"/apply-questions/{auto_apply_id}"
+        else:
+            push_title = "An application didn't go through"
+            push_body = f"{title} at {company} hit a wall — tap to see what happened."
+            url = "/(tabs)/network"
+
+        try:
+            from app.services.push_service import send_push
+            send_push(
+                uid,
+                title=push_title,
+                body=push_body,
+                data={
+                    "url": url,
+                    "type": "auto_apply_result",
+                    "autoApplyId": auto_apply_id,
+                },
+            )
+        except Exception:
+            logger.exception("application result push failed uid=%s aa=%s", uid, auto_apply_id)
+        return True
+    except Exception:
+        logger.exception("notify_application_result failed uid=%s aa=%s", uid, auto_apply_id)
+        return False

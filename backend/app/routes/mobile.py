@@ -121,6 +121,27 @@ def _map_notification_item(item: dict) -> dict:
             'autoApplyId': aid,
         }
 
+    if item.get('kind') == 'auto_apply_result':
+        title = item.get('jobTitle') or 'a job'
+        company = item.get('company') or 'the company'
+        outcome = item.get('outcome') or 'submitted'
+        aid = item.get('autoApplyId') or ''
+        if outcome == 'submitted':
+            text = f'Application submitted — {title} at {company} is in'
+        elif outcome == 'needs_verification':
+            text = f'One tap left: {company} needs a quick human check to finish {title}'
+        else:
+            text = f"Application to {company} didn't go through — tap to see what happened"
+        return {
+            'id': f'aar:{aid}',
+            'kind': 'auto_apply_result',
+            'outcome': outcome,
+            'text': text,
+            'timeLabel': _relative_label(ts),
+            'read': read,
+            'autoApplyId': aid,
+        }
+
     if item.get('kind') == 'draft_ready':
         who = item.get('contactName') or 'a contact'
         company = item.get('company') or ''
