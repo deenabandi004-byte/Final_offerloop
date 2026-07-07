@@ -636,6 +636,20 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
         enrichment_data = {}
         apify_results = {}
         company_enrichment = {}
+        # Per-pass wall-clock — the researching stage dominates draft time
+        # (7.6s in the first instrumented job), and the three passes run in
+        # parallel, so only the slowest one matters. Recorded on the job doc
+        # (enrichTimings) so we learn which pass to attack, with data.
+        _enrich_timings = {}
+
+        def _timed_pass(name, fn):
+            def run():
+                _t0 = time.time()
+                try:
+                    return fn()
+                finally:
+                    _enrich_timings[name] = round(time.time() - _t0, 2)
+            return run
 
         def _fetch_contact_enrichment():
             from app.services.perplexity_client import batch_enrich_contacts
@@ -652,9 +666,9 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
         try:
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor(max_workers=3) as _enrich_pool:
-                _f_contacts = _enrich_pool.submit(_fetch_contact_enrichment)
-                _f_apify = _enrich_pool.submit(_fetch_apify_posts)
-                _f_company = _enrich_pool.submit(_fetch_company_news)
+                _f_contacts = _enrich_pool.submit(_timed_pass("person", _fetch_contact_enrichment))
+                _f_apify = _enrich_pool.submit(_timed_pass("linkedin_posts", _fetch_apify_posts))
+                _f_company = _enrich_pool.submit(_timed_pass("company_news", _fetch_company_news))
                 try:
                     enrichment_data = _f_contacts.result()
                 except Exception:
@@ -669,6 +683,17 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
                     print("⚠️ Perplexity company enrichment failed, continuing", flush=True)
         except Exception as _enrich_pool_err:
             print(f"⚠️ Enrichment pool failed, continuing: {_enrich_pool_err}", flush=True)
+
+        if _enrich_timings:
+            print(f"[Enrich timing] {_enrich_timings}", flush=True)
+            # Same stage, higher pct: records the per-pass numbers on the job
+            # doc without disturbing the stage-duration bookkeeping.
+            _progress(
+                "researching",
+                "Researching their background and recent news",
+                58,
+                {"enrichTimings": _enrich_timings},
+            )
 
         # Attach all three enrichment results to the contacts (in-memory, main
         # thread). Each pass writes distinct keys, so order does not matter.

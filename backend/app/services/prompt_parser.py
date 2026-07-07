@@ -28,11 +28,58 @@ _EMPTY_STRUCTURED = {
     "title_variations": [],
 }
 
-# Manual TTL cache for parsed prompts — same pattern as company_search.py
+# Manual TTL cache for parsed prompts — same pattern as company_search.py.
+# Layer 1 (this): in-memory, per-worker, fast. Layer 2: Firestore
+# (prompt_parse_cache collection), shared across workers/restarts/users —
+# added after stage timing showed a cold parse costs ~3s of every swipe and
+# the in-memory cache misses constantly (2 workers, hourly expiry, deploy
+# restarts). Same LLM output either way; only WHERE it's remembered changed.
 _parse_cache: dict[str, tuple[float, dict]] = {}
 _parse_cache_lock = threading.Lock()
 _PARSE_CACHE_TTL = 3600   # 1 hour
 _PARSE_CACHE_MAX = 500
+_PARSE_FS_COLLECTION = "prompt_parse_cache"
+_PARSE_FS_TTL_DAYS = 14
+
+
+def _fs_parse_cache_get(cache_key: str):
+    """Durable cache lookup. Returns the parsed dict or None. Never raises."""
+    try:
+        from datetime import datetime, timezone
+        from app.extensions import get_db
+        db = get_db()
+        if db is None:
+            return None
+        snap = db.collection(_PARSE_FS_COLLECTION).document(cache_key).get()
+        if not snap.exists:
+            return None
+        data = snap.to_dict() or {}
+        expires = data.get("expires_at")
+        if expires is not None and datetime.now(timezone.utc) > expires:
+            return None
+        result = json.loads(data.get("resultJson") or "")
+        return result if isinstance(result, dict) else None
+    except Exception:
+        return None
+
+
+def _fs_parse_cache_put(cache_key: str, prompt: str, result: dict) -> None:
+    """Durable cache write. Best-effort, never raises."""
+    try:
+        from datetime import datetime, timedelta, timezone
+        from app.extensions import get_db
+        db = get_db()
+        if db is None:
+            return
+        now = datetime.now(timezone.utc)
+        db.collection(_PARSE_FS_COLLECTION).document(cache_key).set({
+            "prompt": prompt[:500],
+            "resultJson": json.dumps(result),
+            "createdAt": now,
+            "expires_at": now + timedelta(days=_PARSE_FS_TTL_DAYS),
+        })
+    except Exception:
+        pass
 
 # Cache for industry/title expansion (separate keyspace; same TTL/limits)
 _expand_cache: dict[str, tuple[float, dict]] = {}
@@ -82,7 +129,7 @@ def parse_search_prompt_structured(prompt: str) -> Dict[str, Any]:
     if not client:
         return _make_empty(prompt, "OpenAI client not available")
 
-    # --- Cache lookup ---
+    # --- Cache lookup: memory first, then the shared Firestore layer ---
     cache_key = hashlib.md5(prompt.lower().strip().encode()).hexdigest()
     with _parse_cache_lock:
         if cache_key in _parse_cache:
@@ -92,6 +139,16 @@ def parse_search_prompt_structured(prompt: str) -> Dict[str, Any]:
                 return cached_result
             else:
                 del _parse_cache[cache_key]
+
+    fs_cached = _fs_parse_cache_get(cache_key)
+    if fs_cached is not None:
+        print(f"[PromptParser] Firestore cache hit (MD5: {cache_key})")
+        with _parse_cache_lock:
+            if len(_parse_cache) >= _PARSE_CACHE_MAX:
+                oldest_key = min(_parse_cache, key=lambda k: _parse_cache[k][0])
+                del _parse_cache[oldest_key]
+            _parse_cache[cache_key] = (time.time(), fs_cached)
+        return fs_cached
 
     print("[PromptParser] Cache miss — calling OpenAI")
 
@@ -168,6 +225,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
                     oldest_key = min(_parse_cache, key=lambda k: _parse_cache[k][0])
                     del _parse_cache[oldest_key]
                 _parse_cache[cache_key] = (time.time(), result)
+            _fs_parse_cache_put(cache_key, prompt, result)
         return result
     except json.JSONDecodeError as e:
         print(f"⚠️ Prompt parser JSON decode error: {e}")

@@ -173,6 +173,9 @@ def _run_job(db, *, user_id: str, user_email: str, auth_display_name: str, data:
         # app can put the actual name on the drafting row within seconds.
         if extra and isinstance(extra, dict) and extra.get("contacts"):
             fields["foundContacts"] = extra["contacts"][:15]
+        # Per-pass research timings (person / linkedin_posts / company_news).
+        if extra and isinstance(extra, dict) and extra.get("enrichTimings"):
+            fields["enrichTimings"] = extra["enrichTimings"]
         _update(fields)
 
     _update({"status": "running", "stage": "starting", "stageLabel": "Starting", "progressPct": 3})
@@ -249,6 +252,8 @@ def public_job_state(job_id: str, doc: dict) -> dict:
         # tooling (and eventually the app) can read it per draft.
         if doc.get("stageTimings"):
             state["stageTimings"] = doc["stageTimings"]
+        if doc.get("enrichTimings"):
+            state["enrichTimings"] = doc["enrichTimings"]
         if doc.get("totalSeconds") is not None:
             state["totalSeconds"] = doc["totalSeconds"]
     if status == "failed":
