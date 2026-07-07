@@ -8,8 +8,17 @@ import re
 # ---------------------------------------------------------------------------
 # Ask-phrase patterns (compiled once)
 # ---------------------------------------------------------------------------
+# Calibrated 2026-07-07 against real generated emails: the gate was flagging
+# "no_clear_ask" on drafts whose ask read "Open to a 15-min call next week?"
+# because the list only knew "15 minutes" spelled out. 88% of emails were
+# being sent to a regen that changed nothing. These additions teach the
+# DETECTOR the phrasings already in use — the bar itself is unchanged.
 _ASK_PATTERNS = re.compile(
-    r"15 minutes|quick chat|coffee chat|your time|would love to hear|"
+    r"\b\d{1,3}\s*-?\s*min(?:ute)?s?\b|"          # "15 minutes", "15-min", "20 min"
+    r"open to (?:a |an )?(?:quick |short |brief )?(?:call|chat|conversation|meeting|coffee)|"
+    r"would you be open|are you open to|"
+    r"grab (?:a )?(?:coffee|call|time)|"
+    r"quick chat|coffee chat|your time|would love to hear|"
     r"would appreciate|brief call|short conversation|few minutes|"
     r"chance to connect|love to learn|happy to work around your schedule|"
     r"pick your brain|hear your perspective|learn more about",
@@ -120,8 +129,12 @@ def check_email_quality(
     if _TEMPLATE_LEAK.search(body) or _TEMPLATE_LEAK.search(subject):
         failures.append("template_leak")
 
+    # Cap raised 8 → 10 (2026-07-07): real subjects like "From Research
+    # Intern to Quant Researcher at Jane Street" (9 words) were flagged and
+    # regenerated for length alone. The cap guards against rambling, not
+    # against descriptive.
     subject_words = len(subject.split())
-    if subject_words < 3 or subject_words > 8 or subject.lower().rstrip("?").strip() in _GENERIC_SUBJECTS:
+    if subject_words < 3 or subject_words > 10 or subject.lower().rstrip("?").strip() in _GENERIC_SUBJECTS:
         failures.append("weak_subject")
 
     # P1a: Subject must reference the contact, not just the sender's school

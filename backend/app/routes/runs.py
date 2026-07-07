@@ -911,12 +911,16 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
             _qg_user_university = (user_profile or {}).get("university", "")
 
             def _quality_check_and_regen(item):
-                """Check one email; regen if needed. Returns (index, was_regenerated)."""
+                """Check one email; regen if needed. Returns (index, was_regenerated).
+                Stashes the FINAL check result on the item (_final_qr) so the
+                quality log and the send-mode guardrail reuse it instead of
+                re-running the check."""
                 contact = item["contact"]
                 subject = item["email_subject"]
                 body = item["email_body"]
                 result = check_email_quality(subject, body, contact, _qg_user_university)
                 if result["passed"]:
+                    item["_final_qr"] = result
                     return (item["index"], False)
                 # Attempt regeneration
                 original = {"subject": subject, "body": body}
@@ -928,6 +932,9 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
                     contact["emailBody"] = improved["body"]
                     item["email_subject"] = improved["subject"]
                     item["email_body"] = improved["body"]
+                    item["_final_qr"] = improved_result
+                else:
+                    item["_final_qr"] = result
                 contact["_qualityRegenerated"] = True
                 return (item["index"], True)
 
@@ -946,23 +953,38 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
             if regen_count > 0:
                 print(f"[Runs] Quality gate: regenerated {regen_count}/{len(contacts_with_emails)} emails")
 
-            # Log quality gate results to Firestore
+            # Log quality gate results to Firestore — in the BACKGROUND. These
+            # writes are telemetry, not product: serial .add() calls were
+            # sitting on the hot path between "email written" and "draft in
+            # Gmail". Entries are snapshotted here; the thread only does I/O.
             if db and user_id and contacts_with_emails:
-                try:
-                    quality_ref = db.collection("email_quality_logs")
-                    for item in contacts_with_emails:
-                        contact = item["contact"]
-                        qr = check_email_quality(item["email_subject"], item["email_body"], contact, _qg_user_university)
-                        quality_ref.add({
-                            "userId": user_id,
-                            "contactId": contact.get("pdlId", ""),
-                            "passed": qr["passed"],
-                            "failures": qr["failures"],
-                            "regenerated": bool(contact.get("_qualityRegenerated")),
-                            "timestamp": datetime.utcnow().isoformat() + "Z",
-                        })
-                except Exception as qlog_err:
-                    print(f"[Runs] Quality log write failed: {qlog_err}")
+                _qlog_entries = []
+                _qlog_ts = datetime.utcnow().isoformat() + "Z"
+                for item in contacts_with_emails:
+                    contact = item["contact"]
+                    qr = item.get("_final_qr") or check_email_quality(
+                        item["email_subject"], item["email_body"], contact, _qg_user_university
+                    )
+                    _qlog_entries.append({
+                        "userId": user_id,
+                        "contactId": contact.get("pdlId", ""),
+                        "passed": qr["passed"],
+                        "failures": qr["failures"],
+                        "regenerated": bool(contact.get("_qualityRegenerated")),
+                        "timestamp": _qlog_ts,
+                    })
+
+                def _write_quality_logs(entries):
+                    try:
+                        quality_ref = db.collection("email_quality_logs")
+                        for entry in entries:
+                            quality_ref.add(entry)
+                    except Exception as qlog_err:
+                        print(f"[Runs] Quality log write failed: {qlog_err}")
+
+                threading.Thread(
+                    target=_write_quality_logs, args=(_qlog_entries,), daemon=True
+                ).start()
         except Exception as qgate_err:
             print(f"[Runs] Quality gate error (non-blocking): {qgate_err}")
 
@@ -994,7 +1016,9 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
                 for item in contacts_with_emails:
                     contact = item["contact"]
                     try:
-                        qr = check_email_quality(
+                        # Reuse the gate's final verdict (same subject/body —
+                        # nothing changes them between the gate and here).
+                        qr = item.get("_final_qr") or check_email_quality(
                             item["email_subject"], item["email_body"], contact, _qg_user_university
                         )
                         if qr.get("passed", False):
