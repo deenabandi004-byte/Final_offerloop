@@ -2,6 +2,19 @@
 
 All notable changes to Offerloop will be documented in this file.
 
+## [0.1.11.0] - 2026-07-07
+
+### Added
+- Five Phase 5 lifecycle campaigns close out retention + expansion (per `docs/EMAIL_CAMPAIGN_SYSTEM_PLAN.md` §"Phase 5 P2"):
+  - **Dormancy nudges #14 / #15 / #16:** three-tier ladder at 14d, 30d, 60d since `lastActiveAt`. Non-overlapping windows (14-21d, 30-45d, 60d+) so returning users naturally reset via `lastActiveAt` bumping forward. Falls back to `signupAt` if `lastActiveAt` is missing so long-dormant signups still enter the ladder. One send per tier per user total.
+  - **Pro to Elite upgrade nudge (#18):** fires when a Pro user has used 80%+ of their monthly credit cap (400 or fewer remaining on the 2,000-credit Pro tier). Plan doc's 2,500-credit threshold was written when Pro cap was 3,000; 80% of current cap is the equivalent power-user threshold. Same shape as Free ceiling, but earlier in the funnel since this is an upsell nudge, not a "you're about to run out" warning. Monthly idempotency so a user can retrigger next month.
+  - **Referral milestone (#19):** fires when a user has received 3+ replies in the past 30 days. Uses `get_or_create_referral_code()` to guarantee a referral code before building the share link. One send per user total.
+- Phase 6 measurement primitives:
+  - **`GET /api/lifecycle/stats?days=N`** endpoint (cron-secret gated). Aggregates `lifecycle_email_log` over the past N days into per-campaign / per-step send counts plus a variant breakdown for A/B tests. Read-only operator surface for the admin dashboard.
+  - **PostHog attribution wired into every lifecycle send.** `_send_lifecycle_email` now fires a synchronous `lifecycle_email_sent` PostHog event per successful send with `{campaign, step, subject, variant}` properties, so downstream opens / clicks / replies attribute back to the lifecycle send in PostHog funnels. Sync-mode capture per the project rule that funnel writes are durable before request completion.
+  - **First A/B test set up on welcome Day 0 subject line.** Two variants (curious opener "you just signed up, a question" vs value-forward "welcome to Offerloop, quick question"), bucketed deterministically per uid via SHA1 hash so re-runs stay consistent. Variant is persisted on the `lifecycle_email_log` row and included in the PostHog event property, so the winning subject line can be picked from PostHog once ~100 sends land.
+- Three new `_LAUNCH_DATE` constants (`DORMANCY_NUDGE_LAUNCH_DATE`, `PRO_UPGRADE_NUDGE_LAUNCH_DATE`, `REFERRAL_MILESTONE_LAUNCH_DATE` = 2026-07-07) as safety filters on `signupAt`. All three new sequences wired into `process_all_pending_emails()`.
+
 ## [0.1.10.0] - 2026-07-07
 
 ### Added
