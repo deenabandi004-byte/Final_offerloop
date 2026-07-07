@@ -28,6 +28,27 @@ logger = logging.getLogger(__name__)
 outbox_bp = Blueprint("outbox", __name__, url_prefix="/api/outbox")
 
 
+# The subset of _contact_to_dict the mobile Inbox list actually renders
+# (see offerloop-mobile src/api/endpoints/inbox.ts mapThread). Requested via
+# ?fields=list so each poll ships ~1/3 of the bytes; the web tracker keeps
+# the full shape by default.
+_LIST_VIEW_FIELDS = frozenset({
+    "id",
+    "name",
+    "company",
+    "title",
+    "linkedinUrl",
+    "pipelineStage",
+    "hasUnreadReply",
+    "emailSubject",
+    "lastMessageSnippet",
+    "lastActivityAt",
+    "updatedAt",
+    "draftCreatedAt",
+    "gmailDraftUrl",
+})
+
+
 @outbox_bp.get("/threads")
 @require_firebase_auth
 def list_threads():
@@ -38,6 +59,11 @@ def list_threads():
     else:
         include_archived = request.args.get("include_archived", "").lower() == "true"
         contacts = get_outbox_contacts(uid, include_archived=include_archived)
+    if request.args.get("fields") == "list":
+        contacts = [
+            {k: v for k, v in c.items() if k in _LIST_VIEW_FIELDS}
+            for c in contacts
+        ]
     return jsonify({"threads": contacts}), 200
 
 
