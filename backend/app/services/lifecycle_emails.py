@@ -45,6 +45,9 @@ from app.config import (
     WEEKLY_WIN_REPORT_LAUNCH_DATE,
     PRO_MONTHLY_RECAP_LAUNCH_DATE,
     RENEWAL_REMINDER_LAUNCH_DATE,
+    DORMANCY_NUDGE_LAUNCH_DATE,
+    PRO_UPGRADE_NUDGE_LAUNCH_DATE,
+    REFERRAL_MILESTONE_LAUNCH_DATE,
     STRIPE_SECRET_KEY,
 )
 from app.extensions import get_db
@@ -122,18 +125,29 @@ def _rate_limit_exceeded(user_or_lead_id: str) -> bool:
     return count >= MAX_LIFECYCLE_EMAILS_PER_7_DAYS
 
 
-def _record_send(user_or_lead_id: str, campaign: str, step: str, recipient_email: str) -> None:
+def _record_send(user_or_lead_id: str, campaign: str, step: str, recipient_email: str, variant: Optional[str] = None) -> None:
     db = get_db()
     if not db:
         return
     key = _log_key(user_or_lead_id, campaign, step)
-    db.collection('lifecycle_email_log').document(key).set({
+    payload = {
         'recipient_id': user_or_lead_id,
         'recipient_email': recipient_email,
         'campaign': campaign,
         'step': step,
         'sent_at': datetime.now(timezone.utc),
-    })
+    }
+    if variant:
+        payload['variant'] = variant
+    db.collection('lifecycle_email_log').document(key).set(payload)
+
+
+def _ab_variant(user_or_lead_id: str, experiment: str) -> str:
+    """Deterministic A/B bucketing by uid + experiment. Returns 'A' or 'B'.
+    Same uid always gets the same variant for the same experiment, so opens /
+    clicks / replies attribute back cleanly."""
+    h = hashlib.sha1(f"{experiment}:{user_or_lead_id}".encode('utf-8')).hexdigest()
+    return 'A' if int(h[:8], 16) % 2 == 0 else 'B'
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +196,7 @@ def _send_lifecycle_email(
     body_paragraphs: list[str],
     cta_label: Optional[str] = None,
     cta_url: Optional[str] = None,
+    variant: Optional[str] = None,
 ) -> dict:
     if not recipient_email or '@' not in recipient_email:
         return {'sent': False, 'reason': 'invalid_email'}
@@ -201,7 +216,18 @@ def _send_lifecycle_email(
 
     result = notify_send(Channel.EMAIL, recipient_email, subject, html, text, headers, from_email=LIFECYCLE_FROM_EMAIL)
     if getattr(result, 'success', False):
-        _record_send(user_or_lead_id, campaign, step, recipient_email)
+        _record_send(user_or_lead_id, campaign, step, recipient_email, variant=variant)
+        # Attribution: sync PostHog capture so opens / clicks / replies can be
+        # tied back to the lifecycle send in funnels. Sync-mode per the project
+        # rule that funnel writes must be durable before the request returns.
+        try:
+            from app.utils.posthog_client import track_event
+            props = {'campaign': campaign, 'step': step, 'subject': subject}
+            if variant:
+                props['variant'] = variant
+            track_event(user_or_lead_id, 'lifecycle_email_sent', props, sync=True)
+        except Exception:
+            pass
         return {'sent': True, 'reason': 'ok'}
     return {'sent': False, 'reason': getattr(result, 'error_code', 'send_failed')}
 
@@ -990,14 +1016,22 @@ def process_welcome_drips() -> dict:
         industries = user.get('targetIndustries') or []
         primary_industry = (industries[0] if industries else '').lower()
 
-        # Day 0: fires within first 6h of signup (catches any cron lag)
+        # Day 0: fires within first 6h of signup (catches any cron lag).
+        # A/B test on subject line: curious opener (A) vs value-forward (B).
+        # Variant is deterministic per uid so re-runs stay consistent.
         if 0 <= hours_since_signup < 6 and not already_sent(uid, 'welcome_drip', 'day_0'):
+            variant = _ab_variant(uid, 'welcome_day_0_subject')
+            day_0_subject = (
+                "you just signed up, a question"
+                if variant == 'A'
+                else "welcome to Offerloop, quick question"
+            )
             res = _send_lifecycle_email(
                 user_or_lead_id=uid,
                 recipient_email=email,
                 campaign='welcome_drip',
                 step='day_0',
-                subject="you just signed up, a question",
+                subject=day_0_subject,
                 body_paragraphs=[
                     f"I'm {SIGNATURE_NAME}, one of the co-founders of Offerloop.",
                     "What industry are you recruiting for, and what school are you at? Reply with those two things and I'll send back the specific playbook for your situation over the next 30 days.",
@@ -1005,6 +1039,7 @@ def process_welcome_drips() -> dict:
                 ],
                 cta_label=None,
                 cta_url=None,
+                variant=variant,
             )
             if res.get('sent'):
                 sent['day_0'] += 1
@@ -1793,6 +1828,282 @@ def process_renewal_reminders() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Sequences 14-16: Dormancy nudges (14d / 30d / 60d since lastActiveAt)
+# ---------------------------------------------------------------------------
+
+# One tier of dormancy at a time: at each day mark we send once, then wait for
+# the next mark. Users who become active in between reset the ladder naturally
+# via lastActiveAt bumping forward.
+_DORMANCY_TIERS = [
+    # (days_min, days_max, step_label, subject, body_paragraphs)
+    (14, 21, '14d',
+     "haven't seen you in 2 weeks",
+     [
+        "Hey, {SIGNATURE_NAME} here. Noticed you haven't opened Offerloop in a couple weeks.",
+        "Not chasing. Two honest reasons students go quiet: recruiting timing shifted, or the first few searches didn't land the person you actually wanted. If it's the second one, reply and tell me the target profile; I can point you at the right filter combo or open a Loop for you.",
+        "If it's the first, ignore this and come back when you're ready.",
+     ]),
+    (30, 45, '30d',
+     "quick check-in",
+     [
+        "Hey, {SIGNATURE_NAME} here. It's been a month since you were last on Offerloop, so I wanted to check in.",
+        "Two things worth flagging if you're still recruiting: (1) Loops now runs a weekly search on your behalf so you don't have to open the app to keep the pipeline moving; (2) Meeting Prep turns a coffee chat into a memorable one, and it's often the difference between a polite reply and a real introduction.",
+        "If recruiting fell off your plate for now, no worries. I'll leave you alone.",
+     ]),
+    (60, None, '60d',
+     "semester reset",
+     [
+        "Hey, {SIGNATURE_NAME} here. Two months since you were last on Offerloop, so I'm assuming your semester or your priorities shifted.",
+        "If you're coming back at some point, your data is here waiting: contacts, threads, resume, everything. Nothing gets deleted.",
+        "If you don't want emails from me anymore, the unsubscribe link at the bottom works and I won't take it personally.",
+     ]),
+]
+
+
+def process_dormancy_nudges() -> dict:
+    """Three-tier dormancy ladder at 14d, 30d, 60d since lastActiveAt.
+
+    A user gets at most one dormancy email per tier ever. The tiers are
+    non-overlapping windows (14-21d, 30-45d, 60d+) so returning users who
+    become active mid-window naturally reset via lastActiveAt bumping.
+
+    Filters:
+    - lastActiveAt is set (fall back to signupAt so long-dormant signups still
+      trigger). Users with no activity signal at all are skipped.
+    - signupAt >= DORMANCY_NUDGE_LAUNCH_DATE (protects the ~270 backfilled users).
+    - Not unsubscribed and not rate-limited (enforced downstream by
+      _send_lifecycle_email).
+    """
+    db = get_db()
+    if not db:
+        return {'ok': False, 'error': 'db_unavailable'}
+
+    now = datetime.now(timezone.utc)
+    sent = {'14d': 0, '30d': 0, '60d': 0}
+    eligible = {'14d': 0, '30d': 0, '60d': 0}
+
+    for snap in db.collection('users').stream():
+        user = snap.to_dict() or {}
+        uid = snap.id
+        email = user.get('email')
+        if not email:
+            continue
+
+        signup_at = _parse_ts_or_dt(user.get('signupAt'))
+        if not signup_at or signup_at < DORMANCY_NUDGE_LAUNCH_DATE:
+            continue
+
+        # Prefer lastActiveAt; fall back to signupAt so users who signed up and
+        # never came back still enter the ladder.
+        last_active = _parse_ts_or_dt(user.get('lastActiveAt')) or signup_at
+        days_since = (now - last_active).days
+        if days_since < 14:
+            continue
+
+        for lo, hi, step, subject, para_template in _DORMANCY_TIERS:
+            in_window = days_since >= lo and (hi is None or days_since < hi)
+            if not in_window:
+                continue
+            if already_sent(uid, 'dormancy_nudge', step):
+                break
+            eligible[step] += 1
+            body = [p.format(SIGNATURE_NAME=SIGNATURE_NAME) for p in para_template]
+            res = _send_lifecycle_email(
+                user_or_lead_id=uid,
+                recipient_email=email,
+                campaign='dormancy_nudge',
+                step=step,
+                subject=subject,
+                body_paragraphs=body,
+                cta_label="Open Offerloop",
+                cta_url=f'{PUBLIC_BASE_URL}/find?utm_source=lifecycle&utm_campaign=dormancy_nudge&utm_content={step}',
+            )
+            if res.get('sent'):
+                sent[step] += 1
+            break
+
+    return {'ok': True, 'sent': sent, 'eligible': eligible}
+
+
+# ---------------------------------------------------------------------------
+# Sequence 18: Pro to Elite upgrade nudge (80% of Pro monthly credits used)
+# ---------------------------------------------------------------------------
+
+def process_pro_upgrade_nudges() -> dict:
+    """One email per calendar month when a Pro user has used 80%+ of their Pro
+    credit allotment. Frames Elite as more headroom (5,000 vs 2,000 credits) and
+    Priority Queue for reply detection.
+
+    Plan doc originally called for 2,500+ used, written when Pro cap was 3,000.
+    Pro cap is now 2,000, so the pragmatic power-user threshold is 80% of cap
+    (1,600 used out of 2,000; 400 or fewer remaining). Same shape as Free
+    ceiling, but earlier in the funnel (20% remaining vs 10%) since this is an
+    upsell nudge, not a "you're about to run out" warning.
+
+    Skips Elite users (already on the higher tier) and any user with no
+    stripeSubscriptionId (comped / trial / weird state).
+    """
+    db = get_db()
+    if not db:
+        return {'ok': False, 'error': 'db_unavailable'}
+
+    now = datetime.now(timezone.utc)
+    month_key = now.strftime('%Y_%m')
+    step = f'month_{month_key}'
+    sent = {'month': 0}
+    eligible_count = 0
+
+    for snap in db.collection('users').stream():
+        user = snap.to_dict() or {}
+        uid = snap.id
+        email = user.get('email')
+        if not email:
+            continue
+
+        tier = user.get('subscriptionTier') or user.get('tier') or 'free'
+        if tier != 'pro':
+            continue
+
+        max_credits = user.get('maxCredits') or 0
+        credits = user.get('credits')
+        if not max_credits or credits is None:
+            continue
+        # 80% or more consumed (400 or fewer credits remaining on a 2,000 cap).
+        if credits > 0.2 * max_credits:
+            continue
+
+        signup_at = _parse_ts_or_dt(user.get('signupAt'))
+        if not signup_at or signup_at < PRO_UPGRADE_NUDGE_LAUNCH_DATE:
+            continue
+
+        if already_sent(uid, 'pro_upgrade_nudge', step):
+            continue
+
+        used = max_credits - credits
+        used_pct = int(round(100 * used / max_credits)) if max_credits else 0
+        eligible_count += 1
+
+        paragraphs = [
+            f"Hey, {SIGNATURE_NAME} here.",
+            f"You've used {used} of your {max_credits} Pro credits this month ({used_pct}%). That's power-user pace; most Pro users don't get anywhere near their ceiling.",
+            "If this is a normal month for you, Elite is $34.99/mo and gets you 5,000 credits (2.5x Pro), Priority Queue for reply detection, and personalized templates. If it's an outlier month, ignore this and the credits reset on your next billing cycle.",
+        ]
+
+        res = _send_lifecycle_email(
+            user_or_lead_id=uid,
+            recipient_email=email,
+            campaign='pro_upgrade_nudge',
+            step=step,
+            subject=f"you've used {used_pct}% of your Pro credits",
+            body_paragraphs=paragraphs,
+            cta_label="See Elite",
+            cta_url=f'{PUBLIC_BASE_URL}/pricing?utm_source=lifecycle&utm_campaign=pro_upgrade_nudge&utm_content={month_key}',
+        )
+        if res.get('sent'):
+            sent['month'] += 1
+
+    return {'ok': True, 'sent': sent, 'eligible': eligible_count}
+
+
+# ---------------------------------------------------------------------------
+# Sequence 19: Referral milestone (3+ replies received in past 30 days)
+# ---------------------------------------------------------------------------
+
+def _count_recent_replies(uid: str, since_iso: str, cap: int = 10) -> int:
+    """Count replies received since `since_iso`. Stops at `cap` to keep the
+    scan cheap: we only care whether the threshold is crossed."""
+    db = get_db()
+    if not db:
+        return 0
+    try:
+        contacts_ref = db.collection('users').document(uid).collection('contacts')
+        docs = list(contacts_ref
+                    .where('replyReceivedAt', '>=', since_iso)
+                    .limit(cap).stream())
+        return len(docs)
+    except Exception as e:
+        logger.debug("recent reply count failed for %s: %s", uid, e)
+        return 0
+
+
+def process_referral_milestones() -> dict:
+    """One email when a user has received 3+ replies in the past 30 days.
+    Fires exactly once per user total (no step suffix beyond the campaign name)
+    because the "you're getting real traction, share Offerloop with a friend"
+    message doesn't need to repeat.
+
+    Filters:
+    - signupAt >= REFERRAL_MILESTONE_LAUNCH_DATE.
+    - profileConfirmedAt set (real onboarded user).
+    - 3+ replies in the past 30 days (queried from contacts subcollection).
+    """
+    db = get_db()
+    if not db:
+        return {'ok': False, 'error': 'db_unavailable'}
+
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=30)
+    since_iso = since.isoformat().replace('+00:00', 'Z')
+    step = 'reached'  # one-per-user total
+    sent = {'reached': 0}
+    eligible_count = 0
+
+    from app.services.referral_service import get_or_create_referral_code
+
+    for snap in db.collection('users').stream():
+        user = snap.to_dict() or {}
+        uid = snap.id
+        email = user.get('email')
+        if not email:
+            continue
+
+        signup_at = _parse_ts_or_dt(user.get('signupAt'))
+        if not signup_at or signup_at < REFERRAL_MILESTONE_LAUNCH_DATE:
+            continue
+        if not _parse_ts_or_dt(user.get('profileConfirmedAt')):
+            continue
+        if already_sent(uid, 'referral_milestone', step):
+            continue
+
+        reply_count = _count_recent_replies(uid, since_iso, cap=3)
+        if reply_count < 3:
+            continue
+
+        eligible_count += 1
+
+        # Guarantee the user has a referral code before we build the link.
+        # get_or_create_referral_code is idempotent and safe to call.
+        try:
+            code = get_or_create_referral_code(db, uid)
+        except Exception as e:
+            logger.debug("referral code lookup failed for %s: %s", uid, e)
+            continue
+        ref_link = f'{PUBLIC_BASE_URL}/signin?ref={code}&utm_source=lifecycle&utm_campaign=referral_milestone'
+
+        paragraphs = [
+            f"Hey, {SIGNATURE_NAME} here.",
+            f"Noticed you've gotten {reply_count}+ replies in the last month. That's real traction and the compound effect from here is real: reply rates trend up as more people at the same company see you in the loop.",
+            "If it's working for you, it'd probably work for one of your friends who's recruiting. Your personal referral link is below. There's no gimmick or reward on my side; I just want more USC / Michigan / NYU / Georgetown students in the network so replies land warmer for everyone.",
+            f"Your link: {ref_link}",
+        ]
+
+        res = _send_lifecycle_email(
+            user_or_lead_id=uid,
+            recipient_email=email,
+            campaign='referral_milestone',
+            step=step,
+            subject="you're getting real replies",
+            body_paragraphs=paragraphs,
+            cta_label="Share Offerloop",
+            cta_url=ref_link,
+        )
+        if res.get('sent'):
+            sent['reached'] += 1
+
+    return {'ok': True, 'sent': sent, 'eligible': eligible_count}
+
+
+# ---------------------------------------------------------------------------
 # Cron entry: fires all time-based sequences
 # ---------------------------------------------------------------------------
 
@@ -1812,6 +2123,9 @@ def process_all_pending_emails() -> dict:
         'weekly_win_report': process_weekly_win_reports(),
         'pro_monthly_recap': process_pro_monthly_recaps(),
         'renewal_reminder': process_renewal_reminders(),
+        'dormancy_nudge': process_dormancy_nudges(),
+        'pro_upgrade_nudge': process_pro_upgrade_nudges(),
+        'referral_milestone': process_referral_milestones(),
     }
 
 

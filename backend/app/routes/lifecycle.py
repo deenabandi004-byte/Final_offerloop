@@ -50,6 +50,64 @@ def tick():
     return jsonify({'ok': True, 'results': results}), 200
 
 
+@lifecycle_bp.route('/stats', methods=['GET'])
+def stats():
+    """Send-count snapshot per campaign / step over the past N days.
+
+    Auth: same cron-secret gate as `/tick` (this is an operator surface, not
+    end-user). Read-only aggregation over `lifecycle_email_log`. Groups by
+    campaign then step, plus a variant breakdown for any campaign that ran
+    an A/B test.
+
+    Query params:
+      - days: lookback window (default 7, max 90)
+    """
+    expected = os.getenv('LIFECYCLE_CRON_SECRET', '')
+    provided = request.headers.get('X-Cron-Secret') or request.args.get('secret', '')
+    if not expected or not provided or provided != expected:
+        return jsonify({'error': 'unauthorized'}), 401
+
+    try:
+        days = max(1, min(90, int(request.args.get('days', 7))))
+    except Exception:
+        days = 7
+
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    cutoff = _dt.now(_tz.utc) - _td(days=days)
+
+    db = get_db()
+    if not db:
+        return jsonify({'ok': False, 'error': 'db_unavailable'}), 500
+
+    by_campaign: dict = {}
+    variants: dict = {}
+    total = 0
+    try:
+        q = db.collection('lifecycle_email_log').where('sent_at', '>=', cutoff).limit(10000)
+        for snap in q.stream():
+            row = snap.to_dict() or {}
+            campaign = row.get('campaign', 'unknown')
+            step = row.get('step', 'unknown')
+            variant = row.get('variant')
+            by_campaign.setdefault(campaign, {})
+            by_campaign[campaign][step] = by_campaign[campaign].get(step, 0) + 1
+            total += 1
+            if variant:
+                key = f"{campaign}:{step}:{variant}"
+                variants[key] = variants.get(key, 0) + 1
+    except Exception as exc:
+        logger.exception("lifecycle stats aggregation failed")
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+    return jsonify({
+        'ok': True,
+        'window_days': days,
+        'total_sends': total,
+        'by_campaign': by_campaign,
+        'variants': variants,
+    }), 200
+
+
 @lifecycle_bp.route('/pricing-capture', methods=['POST'])
 def pricing_capture():
     """Email capture from the /pricing exit-intent popup.
