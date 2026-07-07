@@ -206,6 +206,32 @@ def submit_auto_apply(job_id: str):
             "code": "PROFILE_REQUIRED",
         }), 409
 
+    # Dedupe: one live application per (user, job). Multiple client surfaces
+    # can fire submit for the same role; return the existing record instead of
+    # charging credits and spawning a second Browserbase run. Failed attempts
+    # and dry-runs don't count, so retries stay possible.
+    if not dry_run:
+        existing = (
+            db.collection("users").document(uid).collection("autoApplyJobs")
+            .where("job_id", "==", str(job_id))
+            .stream()
+        )
+        for snap in existing:
+            data = snap.to_dict() or {}
+            if data.get("dry_run") or data.get("status") in ("failed", "submit_failed"):
+                continue
+            logger.info(
+                "dedupe: uid=%s already applied to job=%s (auto_apply_id=%s, status=%s); skipping",
+                uid, job_id, snap.id, data.get("status"),
+            )
+            return jsonify({
+                "auto_apply_id": snap.id,
+                "job_id": str(job_id),
+                "dry_run": False,
+                "status": data.get("status") or "queued",
+                "deduped": True,
+            }), 200
+
     # Credit deduction: only on REAL submits. Dry-runs are free so users can
     # iterate without burning credits. Refund on failure.
     if not dry_run:
@@ -558,16 +584,53 @@ def list_auto_apply_jobs():
     except ValueError:
         limit = 100
 
+    # LIST fields only — the union of what the web Auto-Submission tab and the
+    # mobile Network tab actually render. The full docs carry screenshot_b64,
+    # attempt_log, filled_summary, etc., which ballooned this response to ~5MB
+    # per poll and helped OOM the staging box (2026-07-07). The Firestore
+    # `select` projection means the heavy fields are never even read; detail
+    # views keep using GET /auto-apply/<id>/status, which returns everything.
+    _LIST_FIELDS = [
+        "auto_apply_id",
+        "job_id",
+        "job_title",
+        "company",
+        "ats_platform",
+        "apply_url",
+        "dry_run",
+        "status",
+        "stage",
+        "failure_reason",
+        "pending_questions",
+        "credits_charged",
+        "credits_refunded",
+        "created_at",
+        "updated_at",
+        "inspect_completed_at",
+        "completed_at",
+    ]
+
     collection = (
         get_db().collection("users").document(uid).collection("autoApplyJobs")
     )
     if statuses:
         # Firestore `in` queries cap at 10 values — auto-apply has only 6
         # statuses today so we're fine.
-        docs = collection.where("status", "in", statuses).stream()
+        query = collection.where("status", "in", statuses)
     else:
-        docs = collection.stream()
+        query = collection
+    try:
+        docs = query.select(_LIST_FIELDS).stream()
+        items = [d.to_dict() or {} for d in docs]
+    except Exception:
+        # Projection failed (unexpected) — fall back to full docs but strip
+        # the known heavy fields so the response stays list-sized.
+        _HEAVY = {"screenshot_b64", "attempt_log", "filled_summary", "unmapped", "attempted_urls"}
+        docs = query.stream()
+        items = [
+            {k: v for k, v in (d.to_dict() or {}).items() if k not in _HEAVY}
+            for d in docs
+        ]
 
-    items = [d.to_dict() or {} for d in docs]
     items.sort(key=lambda x: x.get("created_at") or "", reverse=True)
     return jsonify({"items": items[:limit], "count": len(items)})
