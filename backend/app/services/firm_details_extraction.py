@@ -91,7 +91,57 @@ def _set_cached_firm(cache_key: str, firm_data: Dict[str, Any]):
 _WEBSITE_URL_RE = re.compile(
     r'https?://(?:www\.)?(?!linkedin\.com)[\w.-]+\.(?:com|org|io|co|net|ai)(?:/[\w./-]*)?'
 )
+# Bare domain mentioned in prose ("official website is **chronosphere.io**") —
+# Perplexity often names the site without a scheme, which the URL regex above
+# can't see. Only trusted when the domain root matches the firm name.
+_BARE_DOMAIN_RE = re.compile(r'\b([a-z0-9][a-z0-9-]{1,62}\.(?:com|org|io|co|net|ai|dev))\b', re.IGNORECASE)
 _LINKEDIN_URL_RE = re.compile(r'https?://(?:www\.)?linkedin\.com/company/[\w-]+')
+
+# Domains that can never be a company's own website — citation noise.
+_NON_COMPANY_HOSTS = (
+    "linkedin.com", "wikipedia.org", "crunchbase.com", "glassdoor.com",
+    "indeed.com", "bloomberg.com", "pitchbook.com", "zoominfo.com",
+    "x.com", "twitter.com", "facebook.com", "youtube.com", "reddit.com",
+    "github.com", "levels.fyi", "builtin.com", "forbes.com", "techcrunch.com",
+)
+
+
+def _find_company_website(firm_name: str, content: str, citations: list) -> Optional[str]:
+    """Best-effort company website: full URL in prose → name-matching bare
+    domain in prose → name-matching citation. Prose outranks citations: the
+    answer TEXT names the company's real site ("official website is
+    chronosphere.io") while citations mix in same-named strangers
+    (chronosphere.in, an unrelated school). Name matching keeps precision
+    high either way."""
+    m = _WEBSITE_URL_RE.search(content)
+    if m:
+        return m.group(0)
+
+    name_key = re.sub(r"[^a-z0-9]", "", (firm_name or "").lower())
+    if len(name_key) < 4:
+        return None
+
+    def _domain_matches(domain: str) -> bool:
+        root = domain.lower().split(".")[0].replace("-", "")
+        return bool(root) and (root in name_key or name_key in root)
+
+    for m in _BARE_DOMAIN_RE.finditer(content or ""):
+        domain = m.group(1)
+        if any(h in domain.lower() for h in _NON_COMPANY_HOSTS):
+            continue
+        if _domain_matches(domain):
+            return f"https://{domain}"
+
+    for c in citations or []:
+        url = str(c)
+        low = url.lower()
+        if any(h in low for h in _NON_COMPANY_HOSTS):
+            continue
+        host = re.sub(r"^https?://(?:www\.)?", "", low).split("/")[0]
+        if _domain_matches(host):
+            return url if low.startswith("http") else f"https://{url}"
+
+    return None
 
 
 def _fetch_serp_results_only(
@@ -140,8 +190,7 @@ def _fetch_serp_results_only(
     if not content:
         return None
 
-    website_match = _WEBSITE_URL_RE.search(content)
-    website_url = website_match.group(0) if website_match else None
+    website_url = _find_company_website(firm_name, content, citations)
 
     linkedin_match = _LINKEDIN_URL_RE.search(content)
     linkedin_url = linkedin_match.group(0) if linkedin_match else None
