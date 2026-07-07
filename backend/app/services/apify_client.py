@@ -150,6 +150,11 @@ def batch_enrich_linkedin_posts_via_apify(contacts: list[dict]) -> dict[int, dic
         if get_cached:
             try:
                 cached = get_cached("contact_enrichment", ["linkedin_apify_posts", canon])
+                if cached is None:
+                    # Negative marker: recently scraped, no posts found. Skips
+                    # the ~5s scrape for profiles that yield nothing (the
+                    # common case) — 48h TTL so new posters surface quickly.
+                    cached = get_cached("linkedin_posts_empty", ["linkedin_apify_posts", canon])
             except Exception:
                 cached = None
         if cached:
@@ -208,6 +213,22 @@ def batch_enrich_linkedin_posts_via_apify(contacts: list[dict]) -> dict[int, dic
                     pass
             for idx in url_to_indices[canon]:
                 results[idx] = payload
+
+        # Cache the no-posts outcome too (the scrape SUCCEEDED; the profile
+        # just has nothing). Only reached on a valid response — timeouts and
+        # errors return early above and are never negative-cached.
+        if set_cached:
+            for canon in urls_to_fetch:
+                if canon in posts_per_url:
+                    continue
+                try:
+                    set_cached(
+                        "linkedin_posts_empty",
+                        ["linkedin_apify_posts", canon],
+                        {"linkedin_recent_posts": []},
+                    )
+                except Exception:
+                    pass
 
         return results
     except requests.Timeout:

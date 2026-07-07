@@ -15,6 +15,13 @@ logger = logging.getLogger(__name__)
 
 CACHE_TTLS = {
     "contact_enrichment": 7 * 86400,     # 7 days
+    # Negative marker: this profile had NO recent posts. Short-lived on
+    # purpose — a quiet profile skips the ~5s Apify scrape for 2 days, then
+    # gets re-checked so someone who starts posting is picked up quickly.
+    # (Without this, no-post profiles — the common case — were re-scraped
+    # on every single swipe; per-pass timings showed the posts pass pacing
+    # the whole research stage.)
+    "linkedin_posts_empty": 2 * 86400,   # 48 hours
     "company_news": 24 * 3600,           # 24 hours
     "company_profile": 7 * 86400,        # 7 days
     "job_posting": 6 * 3600,             # 6 hours
