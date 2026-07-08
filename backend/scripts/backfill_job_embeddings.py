@@ -87,6 +87,29 @@ def main():
     logger.info("Scanning jobs collection for missing embeddings...")
     started = time.time()
 
+    # Fast-path: pre-fetch the set of ALL job_ids that already have an
+    # embedding doc. Single paginated scan instead of one .get() per job.
+    # Cost: ~30 Firestore queries for a 15k collection vs ~15k queries.
+    logger.info("Pre-fetching existing job_embeddings IDs...")
+    existing_embedding_ids: set[str] = set()
+    _emb_page_size = 1000
+    _emb_last = None
+    while True:
+        q = db.collection(JOB_EMBEDDINGS_COLLECTION).order_by("__name__").limit(_emb_page_size)
+        if _emb_last is not None:
+            q = q.start_after(_emb_last)
+        _page = list(q.get())
+        if not _page:
+            break
+        _emb_last = _page[-1]
+        for doc in _page:
+            # We treat "doc exists" as "has embedding" — the writer only
+            # creates docs with an embedding field, so this is safe.
+            existing_embedding_ids.add(doc.id)
+        if len(existing_embedding_ids) % 5000 == 0:
+            logger.info("  ...pre-fetch progress: %d existing IDs", len(existing_embedding_ids))
+    logger.info("Pre-fetch complete: %d existing embedding docs", len(existing_embedding_ids))
+
     processed = 0
     skipped_existing = 0
     skipped_no_text = 0
@@ -143,19 +166,16 @@ def main():
             processed += 1
 
             job_id = job_doc.id
-            # Fast-path skip: is there already an embedding doc?
-            existing = db.collection(JOB_EMBEDDINGS_COLLECTION).document(job_id).get()
-            if existing.exists:
-                data = existing.to_dict() or {}
-                emb = data.get("embedding")
-                if isinstance(emb, list) and len(emb) == EMBEDDING_DIM:
-                    skipped_existing += 1
-                    if processed % 500 == 0:
-                        logger.info(
-                            "  ...progress: processed=%d embedded=%d skipped=%d",
-                            processed, embedded, skipped_existing,
-                        )
-                    continue
+            # Fast-path skip using the pre-fetched set (O(1) lookup, no
+            # Firestore call per doc).
+            if job_id in existing_embedding_ids:
+                skipped_existing += 1
+                if processed % 500 == 0:
+                    logger.info(
+                        "  ...progress: processed=%d embedded=%d skipped=%d",
+                        processed, embedded, skipped_existing,
+                    )
+                continue
 
             job = job_doc.to_dict() or {}
             text = _job_text(job)
