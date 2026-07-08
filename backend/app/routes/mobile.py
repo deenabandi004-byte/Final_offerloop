@@ -837,8 +837,15 @@ def scout_ask():
     ask_id = (data.get('askId') or '').strip()
     action = (data.get('action') or '').strip()
     params = data.get('params') or {}
-    if not ask or len(ask) > 500 or action not in ('find_contacts', 'draft_outreach'):
+    if not ask or len(ask) > 500 or action not in ('find_contacts', 'draft_outreach', 'classify'):
         return jsonify({'error': 'Bad request'}), 400
+
+    if action == 'classify':
+        # The intelligence layer for ANY ask: LLM classification with the
+        # app's regex ladder as its instant fast-path / offline fallback.
+        from app.services.scout_intent import classify_scout_ask
+        result = classify_scout_ask(db, ask)
+        return jsonify({'askId': ask_id, 'classification': result}), 200
 
     if action == 'draft_outreach':
         from app.services.feature_flags import PDL_OUTAGE_ACTIVE
