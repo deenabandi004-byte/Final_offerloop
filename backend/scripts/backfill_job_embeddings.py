@@ -62,7 +62,6 @@ def main():
     )
     args = parser.parse_args()
 
-    from backend.app.extensions import get_db
     from backend.app.utils.embedding_ranker import (
         _embed_batch,
         _job_text,
@@ -71,16 +70,22 @@ def main():
     )
     from backend.app.services.vector_store import upsert_job_embedding
 
-    db = get_db()
+    # Standalone Firebase init (same pattern as scripts/salary_backfill_t1_t2.py)
+    import firebase_admin
+    from firebase_admin import credentials, firestore
+    if not firebase_admin._apps:
+        cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        if cred_path and os.path.exists(cred_path):
+            firebase_admin.initialize_app(credentials.Certificate(cred_path))
+        else:
+            firebase_admin.initialize_app()
+    db = firestore.client()
     if not db:
         logger.error("Firestore DB not initialized. Aborting.")
         sys.exit(1)
 
     logger.info("Scanning jobs collection for missing embeddings...")
     started = time.time()
-
-    # Stream jobs (avoid loading all into memory at once for large collections).
-    jobs_iter = db.collection("jobs").stream()
 
     processed = 0
     skipped_existing = 0
@@ -116,47 +121,63 @@ def main():
         pending_batch.clear()
         time.sleep(args.sleep_ms / 1000.0)
 
-    for job_doc in jobs_iter:
-        if args.limit is not None and processed >= args.limit:
+    # Paginate via cursor rather than a single .stream() — the version of
+    # google-cloud-firestore installed here has a stream-retry incompatibility
+    # that trips on large collections.
+    PAGE_SIZE = 500
+    last_doc = None
+    done = False
+    while not done:
+        query = db.collection("jobs").order_by("__name__").limit(PAGE_SIZE)
+        if last_doc is not None:
+            query = query.start_after(last_doc)
+        page = list(query.get())
+        if not page:
             break
-        processed += 1
+        last_doc = page[-1]
 
-        job_id = job_doc.id
-        # Fast-path skip: is there already an embedding doc?
-        existing = db.collection(JOB_EMBEDDINGS_COLLECTION).document(job_id).get()
-        if existing.exists:
-            data = existing.to_dict() or {}
-            emb = data.get("embedding")
-            if isinstance(emb, list) and len(emb) == EMBEDDING_DIM:
-                skipped_existing += 1
-                if processed % 500 == 0:
-                    logger.info(
-                        "  ...progress: processed=%d embedded=%d skipped=%d",
-                        processed, embedded, skipped_existing,
-                    )
+        for job_doc in page:
+            if args.limit is not None and processed >= args.limit:
+                done = True
+                break
+            processed += 1
+
+            job_id = job_doc.id
+            # Fast-path skip: is there already an embedding doc?
+            existing = db.collection(JOB_EMBEDDINGS_COLLECTION).document(job_id).get()
+            if existing.exists:
+                data = existing.to_dict() or {}
+                emb = data.get("embedding")
+                if isinstance(emb, list) and len(emb) == EMBEDDING_DIM:
+                    skipped_existing += 1
+                    if processed % 500 == 0:
+                        logger.info(
+                            "  ...progress: processed=%d embedded=%d skipped=%d",
+                            processed, embedded, skipped_existing,
+                        )
+                    continue
+
+            job = job_doc.to_dict() or {}
+            text = _job_text(job)
+            if not text:
+                skipped_no_text += 1
                 continue
 
-        job = job_doc.to_dict() or {}
-        text = _job_text(job)
-        if not text:
-            skipped_no_text += 1
-            continue
+            filter_attrs = {
+                "expired": bool(job.get("expired", False)),
+                "career_domain": job.get("career_domain"),
+                "source": job.get("source"),
+            }
+            pending_batch.append((job_id, text, filter_attrs))
 
-        filter_attrs = {
-            "expired": bool(job.get("expired", False)),
-            "career_domain": job.get("career_domain"),
-            "source": job.get("source"),
-        }
-        pending_batch.append((job_id, text, filter_attrs))
+            if len(pending_batch) >= args.batch_size:
+                flush_batch()
 
-        if len(pending_batch) >= args.batch_size:
-            flush_batch()
-
-        if processed % 500 == 0:
-            logger.info(
-                "  ...progress: processed=%d embedded=%d skipped_existing=%d",
-                processed, embedded, skipped_existing,
-            )
+            if processed % 500 == 0:
+                logger.info(
+                    "  ...progress: processed=%d embedded=%d skipped_existing=%d",
+                    processed, embedded, skipped_existing,
+                )
 
     # Final batch
     flush_batch()
