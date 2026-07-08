@@ -755,3 +755,48 @@ def get_draft_job_route(job_id):
 
     from app.services.draft_jobs import public_job_state
     return jsonify(public_job_state(job_id, snap.to_dict() or {})), 200
+
+
+@mobile_bp.get('/scout/active')
+@require_firebase_auth
+def scout_active_jobs():
+    """Re-hydration for the Scout tab (SCOUT-ACTION-CONTRACT.md): the app's
+    in-flight action cards survive a full app kill by re-reading what's
+    actually still running server-side. Thin aggregator over job state that
+    already lives in Firestore — draft jobs + auto-applies in progress."""
+    db = get_db()
+    uid = request.firebase_user['uid']
+    items = []
+    try:
+        draft_jobs = (
+            db.collection('users').document(uid).collection('draftJobs')
+            .where('status', 'in', ['queued', 'running'])
+            .limit(10).stream()
+        )
+        for d in draft_jobs:
+            x = d.to_dict() or {}
+            items.append({
+                'jobRef': {'kind': 'draft_job', 'id': d.id},
+                'title': (x.get('prompt') or 'Drafting outreach')[:80],
+                'stageLabel': x.get('stageLabel') or '',
+                'startedAt': x.get('createdAt').isoformat() if x.get('createdAt') else None,
+            })
+    except Exception:
+        pass
+    try:
+        aa = (
+            db.collection('users').document(uid).collection('autoApplyJobs')
+            .where('status', 'in', ['queued', 'running'])
+            .limit(10).stream()
+        )
+        for d in aa:
+            x = d.to_dict() or {}
+            items.append({
+                'jobRef': {'kind': 'auto_apply', 'id': d.id},
+                'title': f"Applying: {x.get('job_title') or 'a job'} · {x.get('company') or ''}"[:80],
+                'stageLabel': x.get('stage') or '',
+                'startedAt': x.get('created_at'),
+            })
+    except Exception:
+        pass
+    return jsonify({'items': items}), 200
