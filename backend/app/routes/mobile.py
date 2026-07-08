@@ -8,7 +8,7 @@ reuses existing services, not new business logic.
 """
 import calendar
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request
 
@@ -773,8 +773,16 @@ def scout_active_jobs():
             .where('status', 'in', ['queued', 'running'])
             .limit(10).stream()
         )
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=8)
         for d in draft_jobs:
             x = d.to_dict() or {}
+            # Zombie filter: jobs that died mid-run keep status 'running'
+            # forever. Only re-hydrate work that heartbeat'd recently —
+            # anything older flashes as a card then instantly dies (the
+            # glitch Rylan screenshotted 2026-07-08).
+            ts = x.get('updatedAt') or x.get('createdAt')
+            if not ts or ts < cutoff:
+                continue
             items.append({
                 'jobRef': {'kind': 'draft_job', 'id': d.id},
                 'title': (x.get('prompt') or 'Drafting outreach')[:80],
