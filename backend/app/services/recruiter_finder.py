@@ -2279,7 +2279,11 @@ def find_hiring_manager(
         },
     }
 
-    # Add fallback messaging when no results or only low-tier results
+    # Add fallback messaging when no results or when the returned cohort is
+    # dominated by adjacent-role people. Checking `_cohort` on the actual
+    # returned contacts is more honest than checking `highest_tier_used`,
+    # which fires whenever the search *walked* into Tier 4 even if the
+    # top-ranked people ended up being Tier 1-2 team leads.
     if not final_hiring_managers:
         result["fallback_message"] = f"No direct hiring managers found at {cleaned_company} for {job_type} roles. Consider searching for recruiters instead."
         result["suggestions"] = [{
@@ -2288,8 +2292,17 @@ def find_hiring_manager(
             "tab": "recruiters",
             "prefill": {"company": cleaned_company}
         }]
-    elif highest_tier_used >= 4:
-        result["fallback_message"] = f"Found {len(final_hiring_managers)} people in adjacent roles (People Operations, executives) who may influence hiring at {cleaned_company}."
+    else:
+        adjacent_count = sum(
+            1 for c in final_hiring_managers if c.get("_cohort") == "adjacent"
+        )
+        if adjacent_count >= len(final_hiring_managers) / 2:
+            result["fallback_message"] = (
+                f"We couldn't confirm the exact hiring manager. Returned "
+                f"{adjacent_count} people in adjacent roles (People Ops, "
+                f"executives, exec assistants) who may influence hiring "
+                f"at {cleaned_company}."
+            )
 
     return result
 

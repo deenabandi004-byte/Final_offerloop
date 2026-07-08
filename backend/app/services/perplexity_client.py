@@ -1285,6 +1285,11 @@ def discover_hiring_leads(
         content = response.choices[0].message.content
         parsed = _parse_json_response(content)
         if isinstance(parsed, dict) and isinstance(parsed.get("leads"), list):
+            # Reuse the recruiter_finder heuristic so we reject the same
+            # role-shaped strings ("Director of Product Design",
+            # "Chief Technology Officer") that Perplexity sometimes returns
+            # as `name` when it can't find a concrete person.
+            from app.services.recruiter_finder import _looks_like_person_name
             leads = []
             for entry in parsed["leads"]:
                 if not isinstance(entry, dict):
@@ -1296,6 +1301,15 @@ def discover_hiring_leads(
                 # Reject obvious placeholder / anonymous entries.
                 lowered = name.lower()
                 if lowered in ("unknown", "n/a", "none", "hiring manager"):
+                    continue
+                # Reject when Perplexity returned a role string ("Director
+                # of Product Design") in the name field, or when name and
+                # title are the same string (definitely a placeholder).
+                if not _looks_like_person_name(name):
+                    logger.info("discover_hiring_leads rejected role-shaped name: %r", name)
+                    continue
+                if name.strip().lower() == title.strip().lower():
+                    logger.info("discover_hiring_leads rejected name==title placeholder: %r", name)
                     continue
                 leads.append({
                     "name": name,
