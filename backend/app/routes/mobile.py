@@ -808,3 +808,124 @@ def scout_active_jobs():
     except Exception:
         pass
     return jsonify({'items': items}), 200
+
+
+@mobile_bp.route('/scout/ask', methods=['POST'])
+@require_firebase_auth
+def scout_ask():
+    """SCOUT-ACTION-CONTRACT.md translator, v0 (app-team reference build,
+    2026-07-08 — Nick's brain replaces/merges with this behind the same
+    envelope). Handles the two action types the app can't fake client-side:
+
+      find_contacts   — search WITHOUT drafting (web-Find parity): semantic
+                        parse (same cached LLM parser the draft pipeline
+                        uses) → PDL search → warmth-ordered preview. NO
+                        emails in the payload and NO credits charged — the
+                        reveal/charge happens only if the user drafts.
+      draft_outreach  — creates a draft job (existing pipeline) and returns
+                        its jobRef in the SAME response, per the contract.
+
+    Everything else (clarify, receipts, apply, prep) stays app-side until
+    the real brain lands. Say-text follows the honesty rule: no claimed
+    work without the matching action attached.
+    """
+    db = get_db()
+    if db is None:
+        return jsonify({'error': 'Database unavailable'}), 503
+    data = request.get_json(silent=True) or {}
+    ask = (data.get('ask') or '').strip()
+    ask_id = (data.get('askId') or '').strip()
+    action = (data.get('action') or '').strip()
+    params = data.get('params') or {}
+    if not ask or len(ask) > 500 or action not in ('find_contacts', 'draft_outreach'):
+        return jsonify({'error': 'Bad request'}), 400
+
+    if action == 'draft_outreach':
+        from app.services.feature_flags import PDL_OUTAGE_ACTIVE
+        if PDL_OUTAGE_ACTIVE:
+            return jsonify({
+                'say': "Contact search is briefly down for maintenance — try again in a few minutes.",
+                'actions': [], 'askId': ask_id,
+                'error': {'code': 'pdl_outage', 'detail': ''},
+            }), 200
+        from app.services.draft_jobs import create_draft_job
+        batch = max(1, min(int(params.get('count') or 1), 5))
+        prompt = (params.get('prompt') or ask)[:500]
+        state = create_draft_job(
+            db,
+            user_id=request.firebase_user['uid'],
+            user_email=request.firebase_user.get('email'),
+            auth_display_name=(request.firebase_user or {}).get('name') or '',
+            data={'prompt': prompt, 'batchSize': batch, 'mode': 'draft', 'swipe_id': ask_id or None},
+        )
+        who = 'person' if batch == 1 else f'{batch} people'
+        return jsonify({
+            'say': f'On it — drafting {who} now. Watch the card; drafts land in your Inbox.',
+            'actions': [{
+                'type': 'draft_outreach',
+                'params': {'prompt': prompt, 'count': batch},
+                'needsConfirm': False,
+                'jobRef': {'kind': 'draft_job', 'id': state.get('jobId')},
+                'results': None,
+            }],
+            'askId': ask_id,
+        }), 200
+
+    # ---- find_contacts: search-only, web-Find parity ----
+    from app.services.prompt_parser import parse_search_prompt_structured
+    from app.services.pdl_client import search_contacts_with_smart_location_strategy
+    role = (params.get('role') or '').strip()
+    company = (params.get('company') or '').strip()
+    location = (params.get('location') or '').strip()
+    if not (role and company):
+        parsed = parse_search_prompt_structured(ask) or {}
+        companies = parsed.get('companies') or []
+        if not company and companies:
+            company = (companies[0] or {}).get('name') or ''
+        titles = parsed.get('title_variations') or []
+        if not role:
+            role = titles[0] if titles else ''
+        locs = parsed.get('locations') or []
+        if not location and locs:
+            location = locs[0] or ''
+    if not company:
+        return jsonify({
+            'say': 'Which company should I look at?',
+            'actions': [], 'askId': ask_id,
+            'error': {'code': 'needs_company', 'detail': ''},
+        }), 200
+    try:
+        contacts = search_contacts_with_smart_location_strategy(
+            role or 'professional', company, location or '', max_contacts=5,
+        ) or []
+    except Exception:
+        contacts = []
+    items = []
+    for c in contacts[:5]:
+        name = f"{c.get('FirstName', '')} {c.get('LastName', '')}".strip() or c.get('Name') or ''
+        if not name:
+            continue
+        items.append({
+            'name': name,
+            'title': c.get('Title') or c.get('JobTitle') or '',
+            'company': c.get('Company') or company,
+            'linkedinUrl': c.get('LinkedIn') or '',
+            # deliberately NO email — reveal happens on draft, where it's charged
+        })
+    say = (
+        f"Found {len(items)} at {company}" + (f" in {location}" if location else '') +
+        " — tap Draft and I'll write to the best matches."
+        if items else
+        f"I couldn't find anyone matching that at {company} — try a broader role. Nothing was charged."
+    )
+    return jsonify({
+        'say': say,
+        'actions': ([{
+            'type': 'find_contacts',
+            'params': {'role': role, 'company': company, 'location': location},
+            'needsConfirm': False,
+            'jobRef': None,
+            'results': {'kind': 'contacts', 'items': items},
+        }] if items else []),
+        'askId': ask_id,
+    }), 200
