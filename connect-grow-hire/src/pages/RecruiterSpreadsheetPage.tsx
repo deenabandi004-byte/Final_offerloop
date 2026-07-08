@@ -72,6 +72,8 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
   const [progress, setProgress] = useState(0);
   const [estimatedManagers] = useState(2);
   const [managersFound, setManagersFound] = useState(0);
+  const [hmDirectFound, setHmDirectFound] = useState(0);
+  const [reachableFound, setReachableFound] = useState(0);
   const [showManualEntry, setShowManualEntry] = useState(false);
 
   // Job feed chips + profile-based fallback
@@ -421,6 +423,14 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
             }
             if (associatedJobUrl) recruiter.associatedJobUrl = associatedJobUrl;
 
+            // Cohort labeling — persist so the tracker chip renders when
+            // the user comes back later. Backend sets _cohort on each
+            // hiring manager and each reachablePerson.
+            const cohort = manager._cohort || manager.cohort;
+            const cohortReason = manager._cohort_reason || manager.cohortReason;
+            if (cohort) recruiter.cohort = cohort;
+            if (cohortReason) recruiter.cohortReason = cohortReason;
+
             // Match draft info by email and add to recruiter
             if (managerEmail) {
               const draftInfo = draftMap.get(managerEmail.toLowerCase());
@@ -443,6 +453,33 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
 
             return recruiter;
           });
+
+          // Merge in reachablePeople (alumni + Perplexity-discovered leads).
+          // Same shape as hiringManagers but always has a cohort of
+          // school_alum or reachable, no drafts, no email verification.
+          const reachablePeople: any[] = (response as any).reachablePeople || [];
+          if (Array.isArray(reachablePeople) && reachablePeople.length > 0) {
+            for (const person of reachablePeople) {
+              const rp: Omit<FirebaseRecruiter, 'id'> = {
+                firstName: person.FirstName || '',
+                lastName: person.LastName || '',
+                linkedinUrl: person.LinkedIn || '',
+                email: person.Email || '',
+                company: person.Company || companyName,
+                jobTitle: person.Title || '',
+                location: '',
+                dateAdded: new Date().toISOString(),
+                status: 'Not Contacted',
+              };
+              if (jobTitleValue && isValidJobTitle(jobTitleValue)) {
+                rp.associatedJobTitle = jobTitleValue;
+              }
+              if (jobPostingUrl) rp.associatedJobUrl = jobPostingUrl;
+              if (person._cohort) rp.cohort = person._cohort;
+              if (person._cohort_reason) rp.cohortReason = person._cohort_reason;
+              firebaseRecruiters.push(rp);
+            }
+          }
 
           console.log('📋 Converted to Firebase format:', JSON.stringify(firebaseRecruiters, null, 2));
 
@@ -484,26 +521,43 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
         console.log('⚠️ No hiring managers in response to save');
       }
 
-      // Show success message
-      const foundCount = response.hiringManagers?.length || 0;
-      const savedCount = response.hiringManagers?.length || 0;
+      // Show success message. Count reachablePeople toward "found" so the
+      // student sees the fallback cohort as a real answer rather than a
+      // dead-end. The tracker chip distinguishes actual HMs from adjacent
+      // reachable people.
+      const hmCount = response.hiringManagers?.length || 0;
+      const reachableCount = (response as any).reachablePeople?.length || 0;
+      const foundCount = hmCount + reachableCount;
+      const savedCount = foundCount;
       setManagersFound(foundCount);
+      setHmDirectFound(hmCount);
+      setReachableFound(reachableCount);
 
       if (foundCount > 0) {
         const sentCount = response.sentEmails?.length || 0;
         const draftCount = response.draftsCreated?.length || 0;
+        let title: string;
+        if (hmCount > 0 && reachableCount > 0) {
+          title = `Found ${hmCount} hiring manager${hmCount !== 1 ? 's' : ''} + ${reachableCount} reachable ${reachableCount === 1 ? 'contact' : 'contacts'}`;
+        } else if (hmCount > 0) {
+          title = `Found ${hmCount} hiring manager${hmCount !== 1 ? 's' : ''}!`;
+        } else {
+          title = `Found ${reachableCount} reachable ${reachableCount === 1 ? 'contact' : 'contacts'} at this company`;
+        }
         let description = `${savedCount} saved to tracker.`;
         if (sentCount > 0) {
           description = `${savedCount} saved to tracker. ${sentCount} ${sentCount === 1 ? 'email' : 'emails'} sent from your Gmail.`;
         } else if (draftCount > 0) {
           description = `${savedCount} saved to tracker. Draft emails saved to your Gmail.`;
+        } else if (hmCount === 0 && reachableCount > 0) {
+          description = `We couldn't confirm the exact hiring manager, so we pulled ${reachableCount} team leads or alumni you can reach out to instead.`;
         }
         toast({
-          title: `Found ${foundCount} hiring manager${foundCount !== 1 ? 's' : ''}!`,
+          title,
           description,
         });
       } else {
-        const fallbackMsg = (response as any).fallback_message || (response as any).fallbackMessage || "";
+        const fallbackMsg = (response as any).fallbackMessage || (response as any).fallback_message || "";
         toast({
           title: "No hiring managers found",
           description: fallbackMsg || "Try adjusting your search criteria or company name.",
@@ -1214,16 +1268,37 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
               <div className="w-16 h-16 bg-green-100 rounded-[3px] flex items-center justify-center mx-auto mb-4">
                 <CheckCircle className="w-10 h-10 text-green-600" />
               </div>
-              <h3 className="text-xl font-semibold text-[#0F172A] mb-1" style={{ fontFamily: "'Lora', Georgia, serif" }}>Found {managersFound} hiring manager{managersFound !== 1 ? 's' : ''}!</h3>
-              <p className="text-[#6B7280] mb-2">{jobTitle || 'Role'} at {company || 'Company'}</p>
-              <p className="text-sm text-[#6B7280] font-medium mb-6">Draft emails saved to your Gmail</p>
+              {hmDirectFound === 0 && reachableFound > 0 ? (
+                <>
+                  {/* Reachable-only path: we couldn't confirm the exact HM
+                      but pulled team leads / alumni. Explain that up front
+                      so the student doesn't think we failed. */}
+                  <h3 className="text-xl font-semibold text-[#0F172A] mb-1" style={{ fontFamily: "'Lora', Georgia, serif" }}>
+                    Found {reachableFound} reachable {reachableFound === 1 ? 'contact' : 'contacts'}
+                  </h3>
+                  <p className="text-[#6B7280] mb-3">{jobTitle || 'Role'} at {company || 'Company'}</p>
+                  <p className="text-sm text-[#374151] mb-6 leading-relaxed">
+                    We couldn't confirm the exact hiring manager for this posting, so we pulled the closest reachable people at the company instead — team leads, alumni from your school, or people running the relevant function.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-xl font-semibold text-[#0F172A] mb-1" style={{ fontFamily: "'Lora', Georgia, serif" }}>
+                    {reachableFound > 0
+                      ? `Found ${hmDirectFound} hiring manager${hmDirectFound !== 1 ? 's' : ''} + ${reachableFound} reachable`
+                      : `Found ${hmDirectFound} hiring manager${hmDirectFound !== 1 ? 's' : ''}!`}
+                  </h3>
+                  <p className="text-[#6B7280] mb-2">{jobTitle || 'Role'} at {company || 'Company'}</p>
+                  <p className="text-sm text-[#6B7280] font-medium mb-6">Draft emails saved to your Gmail</p>
+                </>
+              )}
 
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 <button
                   onClick={handleViewResults}
                   className="px-6 py-3 bg-[#3B82F6] text-white font-semibold rounded-[3px] hover:bg-[#2563EB] transition-all"
                 >
-                  View Hiring Managers →
+                  {hmDirectFound === 0 && reachableFound > 0 ? 'View contacts →' : 'View Hiring Managers →'}
                 </button>
                 <button
                   onClick={resetForm}

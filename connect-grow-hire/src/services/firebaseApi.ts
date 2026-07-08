@@ -157,6 +157,13 @@ export interface Recruiter {
   gmailThreadId?: string;
   pipelineStage?: string;
   emailSentAt?: string;
+  // Cohort labeling: explains WHY this person surfaced. Set on both direct
+  // hiring managers ("likely_hm" | "team_lead" | "adjacent") and reachable
+  // fallback contacts ("school_alum" | "reachable") so the UI can render a
+  // chip that answers the student's implicit question: "is this actually the
+  // hiring manager or just someone else at the company?"
+  cohort?: 'likely_hm' | 'team_lead' | 'adjacent' | 'school_alum' | 'reachable';
+  cohortReason?: string;
 }
 
 // ================================

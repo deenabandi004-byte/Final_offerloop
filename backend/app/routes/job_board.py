@@ -8570,6 +8570,40 @@ def find_hiring_manager_endpoint():
         generate_emails = data.get('generateEmails', True)
         create_drafts = data.get('createDrafts', True)
 
+        # Firecrawl seed: when the URL points at an ATS (Greenhouse/Lever/
+        # Workday/etc.), extract the posting and pull the `hiring_manager`
+        # field if the page names one. Run with an 8s budget so the median
+        # request is unaffected — no seed on timeout, just falls through to
+        # PDL discovery.
+        seed_hiring_manager_name = None
+        if job_url:
+            ats_hosts = (
+                "greenhouse.io", "lever.co", "myworkdayjobs.com",
+                "workday.com", "smartrecruiters.com", "ashbyhq.com",
+                "jobvite.com", "icims.com", "workable.com",
+            )
+            if any(host in job_url.lower() for host in ats_hosts):
+                try:
+                    from app.services.firecrawl_client import extract_job_posting
+                    from concurrent.futures import ThreadPoolExecutor as _TPE
+                    from concurrent.futures import TimeoutError as _FutureTimeout
+                    seed_start = time.time()
+                    with _TPE(max_workers=1) as pool:
+                        future = pool.submit(extract_job_posting, job_url)
+                        try:
+                            extracted = future.result(timeout=8.0)
+                        except _FutureTimeout:
+                            extracted = None
+                            logger.info(f"[FindHiringManager] Firecrawl seed timed out (>8s) for {job_url}")
+                    if extracted and extracted.get("hiring_manager"):
+                        seed_hiring_manager_name = str(extracted["hiring_manager"]).strip() or None
+                        logger.info(
+                            f"[FindHiringManager] Firecrawl seed found: '{seed_hiring_manager_name}' "
+                            f"in {time.time() - seed_start:.2f}s"
+                        )
+                except Exception as e:
+                    logger.warning(f"[FindHiringManager] Firecrawl seed failed for {job_url}: {e}")
+
         # Find hiring managers
         result = find_hiring_manager(
             company_name=company,
@@ -8584,6 +8618,7 @@ def find_hiring_manager_endpoint():
             resume_text=resume_text,
             role_type="hiring_manager",
             uid=user_id,
+            seed_hiring_manager_name=seed_hiring_manager_name,
         )
         
         # Check if we got results
@@ -8598,7 +8633,133 @@ def find_hiring_manager_endpoint():
         all_hiring_managers = result.get("hiringManagers", [])
         all_emails = result.get("emails", [])
         total_found = result.get("total_found", 0)
-        
+
+        # Reachable-people fallback. Fires only when the PDL result is
+        # genuinely weak — we don't want to spend alumni/Perplexity credits
+        # on every HM search. "Weak" means: no real hits (0 rows), OR only
+        # adjacent-cohort rows (execs / people-ops / exec assistants), OR
+        # we returned <= half of what the user asked for. That last check
+        # is the one that surfaces reachable people when we return e.g. 1
+        # HM for a max_results=3 ask.
+        #
+        # These entries are informational — no email verification, no
+        # credit charge to the user — so the student still sees "here's
+        # the person you should reach out to" even when we can't hand back
+        # a verified inbox.
+        reachable_people = []
+        try:
+            likely_hm_count = sum(
+                1 for m in all_hiring_managers
+                if m.get("_cohort") in ("likely_hm", "team_lead")
+            )
+            total_hm_count = len(all_hiring_managers)
+            need_fallback = (
+                total_hm_count == 0
+                or likely_hm_count == 0
+                or likely_hm_count < max(1, max_results_to_fetch // 2)
+            )
+            if need_fallback:
+                # Existing HMs we already return — deduplicate so the same
+                # person doesn't appear in both cohorts.
+                seen_names = {
+                    (
+                        (m.get("FirstName", "") or "").strip().lower(),
+                        (m.get("LastName", "") or "").strip().lower(),
+                    )
+                    for m in all_hiring_managers
+                }
+                fallback_slots = max_results_to_fetch - likely_hm_count
+
+                # (a) School alumni at the company — highest-signal warm
+                # intro path. Only fires if the user's profile has a school.
+                try:
+                    from app.services.alumni_discovery import discover_alumni
+                    tier = (user_data.get("subscriptionTier") or user_data.get("tier") or "free").lower()
+                    alumni_resp = discover_alumni(
+                        uid=user_id,
+                        job={
+                            "company": result.get("company_cleaned") or company,
+                            "title": job_title or "",
+                            "job_id": f"hm-fallback:{user_id}:{(result.get('company_cleaned') or company).lower()}:{(job_title or '').lower()}",
+                        },
+                        tier=tier,
+                        allow_drop_title=True,
+                    )
+                    if alumni_resp.get("ok") and alumni_resp.get("contacts"):
+                        for row in alumni_resp["contacts"][:fallback_slots]:
+                            key = (
+                                (row.get("first_name", "") or "").strip().lower(),
+                                (row.get("last_name", "") or "").strip().lower(),
+                            )
+                            if key in seen_names:
+                                continue
+                            seen_names.add(key)
+                            reachable_people.append({
+                                "FirstName": row.get("first_name", ""),
+                                "LastName": row.get("last_name", ""),
+                                "Title": row.get("title", ""),
+                                "Company": row.get("company", ""),
+                                "LinkedIn": row.get("linkedin_url", ""),
+                                "Email": row.get("email", ""),
+                                "College": row.get("school", ""),
+                                "_cohort": "school_alum",
+                                "_cohort_reason": (
+                                    f"Alum from your school at {result.get('company_cleaned') or company}"
+                                ),
+                                "_match_strength": row.get("match_strength", ""),
+                            })
+                except Exception as alumni_err:
+                    logger.info(f"[FindHiringManager] Alumni fallback skipped: {alumni_err}")
+
+                # (b) Perplexity-named team leads — used when we still need
+                # more slots. Live web search fills in even when PDL and
+                # alumni draw a blank.
+                remaining = fallback_slots - len(reachable_people)
+                if remaining > 0:
+                    try:
+                        from app.services.perplexity_client import discover_hiring_leads
+                        leads = discover_hiring_leads(
+                            company=result.get("company_cleaned") or company,
+                            job_title=job_title or "",
+                            location=location,
+                            department_hint=result.get("job_type_detected"),
+                            max_leads=remaining + 2,  # small buffer for dedup dropouts
+                        )
+                        for lead in leads:
+                            if len(reachable_people) >= fallback_slots:
+                                break
+                            name_parts = (lead.get("name") or "").strip().split(None, 1)
+                            first = name_parts[0] if name_parts else ""
+                            last = name_parts[1] if len(name_parts) > 1 else ""
+                            key = (first.lower(), last.lower())
+                            if key in seen_names or not first:
+                                continue
+                            seen_names.add(key)
+                            reachable_people.append({
+                                "FirstName": first,
+                                "LastName": last,
+                                "Title": lead.get("title", ""),
+                                "Company": result.get("company_cleaned") or company,
+                                "LinkedIn": lead.get("linkedin_url", ""),
+                                "Email": "",
+                                "_cohort": "reachable",
+                                "_cohort_reason": lead.get("reason") or (
+                                    f"Team lead at {result.get('company_cleaned') or company} "
+                                    f"per recent public sources"
+                                ),
+                            })
+                    except Exception as ppl_err:
+                        logger.info(f"[FindHiringManager] Perplexity lead discovery skipped: {ppl_err}")
+
+                if reachable_people:
+                    logger.info(
+                        f"[FindHiringManager] Reachable-people fallback added {len(reachable_people)} contacts "
+                        f"({sum(1 for r in reachable_people if r['_cohort'] == 'school_alum')} alumni, "
+                        f"{sum(1 for r in reachable_people if r['_cohort'] == 'reachable')} Perplexity leads)"
+                    )
+        except Exception as fallback_err:
+            logger.warning(f"[FindHiringManager] Reachable-people fallback error: {fallback_err}")
+
         # Results are already limited to max_results_to_fetch, but we still need to respect credits
         affordable_managers = all_hiring_managers[:max_affordable]
         
@@ -8756,6 +8917,7 @@ def find_hiring_manager_endpoint():
 
         response = {
             "hiringManagers": affordable_managers,
+            "reachablePeople": reachable_people,
             "emails": affordable_emails,
             "draftsCreated": drafts_created,
             "jobTypeDetected": result["job_type_detected"],
@@ -8763,9 +8925,21 @@ def find_hiring_manager_endpoint():
             "searchTitles": result.get("search_titles", []),
             "totalFound": total_found,
             "creditsCharged": credits_charged,
-            "creditsRemaining": new_balance
+            "creditsRemaining": new_balance,
         }
-        
+        # Only forward "try recruiters" style suggestions when we don't have
+        # any reachable people to show — they're the better answer.
+        if not reachable_people:
+            if result.get("suggestions"):
+                response["suggestions"] = result["suggestions"]
+            if result.get("fallback_message"):
+                response["fallbackMessage"] = result["fallback_message"]
+        elif result.get("fallback_message"):
+            # We still surface a message when it's the "adjacent roles" note
+            # (see recruiter_finder.find_hiring_manager tail) so the user
+            # knows why the cohort mix is what it is.
+            response["fallbackMessage"] = result["fallback_message"]
+
         return jsonify(response)
         
     except Exception as e:
@@ -8839,6 +9013,14 @@ def save_recruiters_to_tracker():
                 doc_data["associatedJobTitle"] = associated_job_title
             if associated_job_url:
                 doc_data["associatedJobUrl"] = associated_job_url
+            # Cohort labeling — carried through so the tracker chip renders
+            # for entries saved via the Chrome extension too.
+            cohort = r.get("_cohort") or r.get("cohort")
+            cohort_reason = r.get("_cohort_reason") or r.get("cohortReason")
+            if cohort:
+                doc_data["cohort"] = cohort
+            if cohort_reason:
+                doc_data["cohortReason"] = cohort_reason
             draft_info = draft_map.get(email.lower()) if email else None
             if draft_info:
                 if draft_info.get("draft_id"):

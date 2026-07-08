@@ -537,6 +537,23 @@ const RecruiterSpreadsheet: React.FC = () => {
     return 'Unknown Recruiter';
   };
 
+  const cohortMeta = (cohort?: string): { label: string; bg: string; fg: string } | null => {
+    switch (cohort) {
+      case 'likely_hm':
+        return { label: 'Likely HM', bg: '#DCFCE7', fg: '#166534' };
+      case 'team_lead':
+        return { label: 'Team lead', bg: '#DBEAFE', fg: '#1D4ED8' };
+      case 'school_alum':
+        return { label: 'Alum', bg: '#FEF3C7', fg: '#92400E' };
+      case 'reachable':
+        return { label: 'Reachable', bg: '#EDE9FE', fg: '#6D28D9' };
+      case 'adjacent':
+        return { label: 'Adjacent', bg: '#F1F5F9', fg: '#475569' };
+      default:
+        return null;
+    }
+  };
+
   const handleExportCsv = () => {
     if (!recruiters || recruiters.length === 0) {
       return;
@@ -815,7 +832,31 @@ const RecruiterSpreadsheet: React.FC = () => {
                             <Input value={recruiter.lastName} onChange={(e) => handleCellEdit(recruiter.id!, 'lastName', e.target.value)} onBlur={handleCellBlur} placeholder="Last" className="text-sm h-6 border-gray-300" style={{ fontFamily: mono }} />
                           </div>
                         ) : (
-                          <span style={{ fontSize: 12, fontWeight: 500, color: '#2a2a2a', cursor: 'default' }}>{getDisplayName(recruiter)}</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontSize: 12, fontWeight: 500, color: '#2a2a2a', cursor: 'default' }}>{getDisplayName(recruiter)}</span>
+                            {(() => {
+                              const meta = cohortMeta(recruiter.cohort);
+                              if (!meta) return null;
+                              return (
+                                <span
+                                  title={recruiter.cohortReason || meta.label}
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    padding: '1px 6px',
+                                    borderRadius: 3,
+                                    background: meta.bg,
+                                    color: meta.fg,
+                                    letterSpacing: 0.2,
+                                    textTransform: 'uppercase',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {meta.label}
+                                </span>
+                              );
+                            })()}
+                          </span>
                         )}
                       </td>
 

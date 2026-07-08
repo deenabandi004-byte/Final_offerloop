@@ -247,8 +247,22 @@ export interface FindRecruiterResponse {
   error?: string;
 }
 
+export interface ReachablePerson {
+  FirstName?: string;
+  LastName?: string;
+  Title?: string;
+  Company?: string;
+  LinkedIn?: string;
+  Email?: string;
+  College?: string;
+  _cohort?: 'school_alum' | 'reachable' | 'team_lead' | 'likely_hm' | 'adjacent';
+  _cohort_reason?: string;
+  _match_strength?: string;
+}
+
 export interface FindHiringManagerResponse {
   hiringManagers: Recruiter[];  // Reuse Recruiter interface (same structure)
+  reachablePeople?: ReachablePerson[];  // Fallback cohort (alumni + Perplexity leads) when we can't find the exact HM
   emails?: RecruiterEmail[];
   draftsCreated?: DraftCreated[];
   sentEmails?: SentEmail[];  // Present in send mode
@@ -258,6 +272,8 @@ export interface FindHiringManagerResponse {
   totalFound: number;
   creditsCharged: number;
   creditsRemaining: number;
+  fallbackMessage?: string;
+  suggestions?: Array<{ type: string; label: string; tab?: string; prefill?: Record<string, string> }>;
   error?: string;
 }
 

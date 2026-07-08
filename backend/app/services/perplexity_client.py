@@ -1191,6 +1191,126 @@ def get_market_context(
         return {}
 
 
+# ── Hiring lead discovery (fallback path) ─────────────────────────────────
+
+# Structured-output schema for discover_hiring_leads. Kept module-level so
+# Perplexity warms it once per process (schema prep is ~10-30s cold).
+_HIRING_LEADS_SCHEMA = {
+    "name": "hiring_leads",
+    "schema": {
+        "type": "object",
+        "properties": {
+            "leads": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "title": {"type": "string"},
+                        "linkedin_url": {"type": "string"},
+                        "reason": {"type": "string"},
+                    },
+                    "required": ["name", "title", "reason"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["leads"],
+        "additionalProperties": False,
+    },
+}
+
+
+def discover_hiring_leads(
+    company: str,
+    job_title: str,
+    location: str | None = None,
+    department_hint: str | None = None,
+    max_leads: int = 5,
+) -> list[dict]:
+    """Ask Perplexity to name real people leading the relevant team.
+
+    Used as a fallback discovery source when PDL returns 0 or only weak
+    matches — a student can then reach out to a named team lead / director
+    even when we can't identify the exact HM. Live web search means we get
+    people whose LinkedIn/press mentions are current, not stale PDL profiles.
+
+    Returns a list of dicts:
+        {name, title, linkedin_url (may be ""), reason}
+
+    Empty list on any failure — callers should treat this as a soft signal
+    and keep PDL results if they exist.
+    """
+    client = _get_client()
+    if not client or not company or not job_title:
+        return []
+
+    from app.services.enrichment_cache import get_cached, set_cached
+
+    cache_key = [
+        "hiring_leads",
+        company.lower(),
+        job_title.lower(),
+        (location or "").lower(),
+        (department_hint or "").lower(),
+    ]
+    cached = get_cached("hiring_leads", cache_key)
+    if cached:
+        return cached[:max_leads]
+
+    dept_line = f"Focus on the {department_hint} team." if department_hint else ""
+    loc_line = f"Location: {location}." if location else ""
+    prompt = (
+        f"Identify {max_leads} real, currently-employed people at {company} who a "
+        f"college student applying for a '{job_title}' role should reach out to. "
+        f"{dept_line} {loc_line} "
+        f"Prefer team leads, engineering/product/consulting managers, and "
+        f"directors of the relevant function over C-suite. For each person, "
+        f"return their full name, current title at {company}, LinkedIn URL if "
+        f"you can confirm one, and a one-sentence reason they are relevant. "
+        f"Only return people whose employment at {company} you can verify "
+        f"from recent public sources. Do not fabricate names."
+    )
+
+    try:
+        response = _chat_with_retry(
+            client,
+            model="sonar-pro",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={
+                "type": "json_schema",
+                "json_schema": _HIRING_LEADS_SCHEMA,
+            },
+        )
+        content = response.choices[0].message.content
+        parsed = _parse_json_response(content)
+        if isinstance(parsed, dict) and isinstance(parsed.get("leads"), list):
+            leads = []
+            for entry in parsed["leads"]:
+                if not isinstance(entry, dict):
+                    continue
+                name = (entry.get("name") or "").strip()
+                title = (entry.get("title") or "").strip()
+                if not name or not title:
+                    continue
+                # Reject obvious placeholder / anonymous entries.
+                lowered = name.lower()
+                if lowered in ("unknown", "n/a", "none", "hiring manager"):
+                    continue
+                leads.append({
+                    "name": name,
+                    "title": title,
+                    "linkedin_url": (entry.get("linkedin_url") or "").strip(),
+                    "reason": (entry.get("reason") or "").strip(),
+                })
+            set_cached("hiring_leads", cache_key, leads)
+            return leads[:max_leads]
+    except Exception:
+        logger.warning("discover_hiring_leads failed for %s / %s", company, job_title, exc_info=True)
+
+    return []
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 

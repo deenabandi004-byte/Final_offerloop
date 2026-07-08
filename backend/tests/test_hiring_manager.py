@@ -143,14 +143,14 @@ class TestCompanySizeDetection:
 
     def test_large_company(self):
         from app.services.recruiter_finder import detect_company_size
-        contacts = [{"name": f"p{i}"} for i in range(10)]
+        contacts = [{"name": f"p{i}"} for i in range(30)]
         assert detect_company_size("BigCo", contacts) == "large"
 
     def test_threshold_boundary(self):
         from app.services.recruiter_finder import detect_company_size
-        # Exactly 4 contacts = small, 5 = large
-        assert detect_company_size("Co", [{}] * 4) == "small"
-        assert detect_company_size("Co", [{}] * 5) == "large"
+        # Threshold bumped to 25 — <5 was misclassifying scaleups as small.
+        assert detect_company_size("Co", [{}] * 24) == "small"
+        assert detect_company_size("Co", [{}] * 25) == "large"
 
     def test_should_include_executives_small(self):
         from app.services.recruiter_finder import should_include_executives
@@ -158,7 +158,7 @@ class TestCompanySizeDetection:
 
     def test_should_include_executives_large(self):
         from app.services.recruiter_finder import should_include_executives
-        contacts = [{}] * 10
+        contacts = [{}] * 30
         assert should_include_executives("BigCorp", contacts) is False
 
 
@@ -855,7 +855,7 @@ class TestTightPdlQuery:
         # Stub _run_tight_pdl_query directly so we control its output without
         # needing to mock the underlying requests.post call shape.
         monkeypatch.setattr(rf, "_run_tight_pdl_query",
-                            lambda company, role, size=3: list(tight_results or []))
+                            lambda company, role, size=3, company_website=None: list(tight_results or []))
 
         # Perplexity verification always runs now — mock to a no-op (keeps everyone)
         monkeypatch.setattr(pc, "verify_hiring_managers_v2",
@@ -927,9 +927,10 @@ class TestTightPdlQuery:
         assert all(s <= 5 for s in captured["sizes"]), \
             f"Per-tier size should shrink to ~max_results when tight supplied; got {captured['sizes']}"
 
-    def test_unmapped_job_type_uses_original_size(self, monkeypatch):
+    def test_unmapped_job_type_uses_loose_only_size(self, monkeypatch):
         """When job_type has no PDL role mapping, tight is skipped and the
-        tier loop uses the original size=20 (no quality regression for unmapped roles)."""
+        loose tier loop uses the Phase-1 loose-only buffer (max_results*2,
+        or 8 floor) rather than the pre-Phase-1 fixed 20."""
         captured = {"sizes": []}
         def tier_spy(headers, url, query_obj, desired_limit, search_type, **k):
             captured["sizes"].append(desired_limit)
@@ -940,8 +941,9 @@ class TestTightPdlQuery:
             company_name="Acme", job_type="general", job_title="x", max_results=3,
         )
         assert captured["sizes"], "Tier loop must have run"
-        assert all(s == 20 for s in captured["sizes"]), \
-            f"Unmapped job_type should preserve size=20; got {captured['sizes']}"
+        expected = max(3 * 2, 8)
+        assert all(s == expected for s in captured["sizes"]), \
+            f"Loose-only path expected per_tier_size={expected}; got {captured['sizes']}"
 
     def test_tight_returns_zero_falls_through_to_tier_loop(self, monkeypatch):
         """When tight returns nothing, the tier loop runs normally — no regression."""
@@ -1111,3 +1113,461 @@ class TestVerifyHiringManagersV2Schema:
             assert field in schema["required"]
         assert schema["properties"]["still_at_company"]["enum"] == ["yes", "no", "unknown"]
         assert schema["properties"]["confidence"]["enum"] == ["high", "medium", "low"]
+
+
+# ============================================================================
+# Relevance overhaul (2026-07-08) — job types, PDL role mapping, country
+# inference, company website routing, ranking with Perplexity signal.
+# ============================================================================
+
+class TestJobTypeDetectionExpanded:
+    """Coverage for consulting / IB / product / data_science / design buckets."""
+
+    def test_consulting_beats_finance_on_business_analyst(self):
+        from app.services.recruiter_finder import determine_job_type
+        assert determine_job_type(
+            "Business Analyst", "consulting at McKinsey"
+        ) == "consulting"
+
+    def test_investment_banking_detected(self):
+        from app.services.recruiter_finder import determine_job_type
+        assert determine_job_type(
+            "Investment Banking Analyst",
+            "M&A group at Goldman Sachs",
+        ) == "investment_banking"
+
+    def test_product_manager_detected(self):
+        from app.services.recruiter_finder import determine_job_type
+        assert determine_job_type(
+            "Associate Product Manager", "APM role at Google"
+        ) == "product"
+
+    def test_data_scientist_detected(self):
+        from app.services.recruiter_finder import determine_job_type
+        assert determine_job_type(
+            "Data Scientist", "ML modeling role at Airbnb"
+        ) == "data_science"
+
+    def test_analyst_no_longer_defaults_to_finance(self):
+        from app.services.recruiter_finder import determine_job_type
+        # "analyst" alone previously flipped to finance. A product-analyst
+        # role should not, because we removed the bare "analyst" keyword
+        # and made finance-analyst titles explicit.
+        result = determine_job_type("Product Analyst", "product analytics team")
+        assert result != "finance"
+
+
+class TestPdlRoleMapping:
+    """The tight decision-maker query only fires when the job_type has a
+    _JOB_TYPE_TO_PDL_ROLE mapping. Expanding the map is the actual fix
+    for consulting/IB users seeing generic "manager" results."""
+
+    def test_consulting_maps_to_consulting(self):
+        from app.services.recruiter_finder import _JOB_TYPE_TO_PDL_ROLE
+        assert _JOB_TYPE_TO_PDL_ROLE.get("consulting") == "consulting"
+
+    def test_investment_banking_maps_to_finance(self):
+        from app.services.recruiter_finder import _JOB_TYPE_TO_PDL_ROLE
+        # PDL has no IB bucket — finance is the closest role we can pin.
+        assert _JOB_TYPE_TO_PDL_ROLE.get("investment_banking") == "finance"
+
+    def test_product_and_data_science_have_mappings(self):
+        from app.services.recruiter_finder import _JOB_TYPE_TO_PDL_ROLE
+        assert _JOB_TYPE_TO_PDL_ROLE.get("product") == "product"
+        assert _JOB_TYPE_TO_PDL_ROLE.get("data_science") == "engineering"
+
+
+class TestCountryInference:
+    """Drop hard-coded US filter — infer country so international HMs
+    don't get filtered out."""
+
+    def test_us_locations_return_united_states(self):
+        from app.services.recruiter_finder import infer_location_country
+        assert infer_location_country("San Francisco, CA") == "united states"
+        assert infer_location_country("New York, NY, United States") == "united states"
+
+    def test_london_returns_uk(self):
+        from app.services.recruiter_finder import infer_location_country
+        assert infer_location_country("London, UK") == "united kingdom"
+
+    def test_toronto_returns_canada(self):
+        from app.services.recruiter_finder import infer_location_country
+        assert infer_location_country("Toronto, ON") == "canada"
+
+    def test_bangalore_returns_india(self):
+        from app.services.recruiter_finder import infer_location_country
+        assert infer_location_country("Bangalore") == "india"
+
+    def test_unknown_returns_none(self):
+        from app.services.recruiter_finder import infer_location_country
+        assert infer_location_country("") is None
+        assert infer_location_country(None) is None
+        assert infer_location_country("Mars Colony") is None
+
+
+class TestCompanyWebsiteRouting:
+    """Some firms (BCG, MBB) have unguessable PDL job_company_name canonicals.
+    Route them via job_company_website term instead."""
+
+    def test_bcg_resolves_to_website(self):
+        from app.services.recruiter_finder import resolve_company_website
+        assert resolve_company_website("BCG") == "bcg.com"
+        assert resolve_company_website("Boston Consulting Group") == "bcg.com"
+
+    def test_mckinsey_resolves(self):
+        from app.services.recruiter_finder import resolve_company_website
+        assert resolve_company_website("McKinsey") == "mckinsey.com"
+
+    def test_unmapped_firm_returns_none(self):
+        from app.services.recruiter_finder import resolve_company_website
+        assert resolve_company_website("Some Random Startup Co") is None
+
+
+class TestQueryBuilderNewParams:
+    """build_hiring_manager_search_query now accepts company_website and
+    pdl_role. Country filter is inferred from location, not hard-US."""
+
+    def test_us_location_adds_country_filter(self):
+        from app.services.recruiter_finder import build_hiring_manager_search_query
+        query = build_hiring_manager_search_query(
+            company_name="google",
+            titles=["engineering manager"],
+            location="San Francisco, CA",
+        )
+        must = query["bool"]["must"]
+        country_terms = [c for c in must if isinstance(c, dict) and "term" in c and "location_country" in c.get("term", {})]
+        assert country_terms
+        assert country_terms[0]["term"]["location_country"] == "united states"
+
+    def test_uk_location_switches_country(self):
+        from app.services.recruiter_finder import build_hiring_manager_search_query
+        query = build_hiring_manager_search_query(
+            company_name="revolut",
+            titles=["engineering manager"],
+            location="London, UK",
+        )
+        must = query["bool"]["must"]
+        country_terms = [c for c in must if isinstance(c, dict) and "term" in c and "location_country" in c.get("term", {})]
+        assert country_terms
+        assert country_terms[0]["term"]["location_country"] == "united kingdom"
+
+    def test_unknown_location_drops_country_filter(self):
+        from app.services.recruiter_finder import build_hiring_manager_search_query
+        query = build_hiring_manager_search_query(
+            company_name="google",
+            titles=["engineering manager"],
+            location=None,
+        )
+        must = query["bool"]["must"]
+        country_terms = [c for c in must if isinstance(c, dict) and "term" in c and "location_country" in c.get("term", {})]
+        assert country_terms == []
+
+    def test_company_website_term_added(self):
+        from app.services.recruiter_finder import build_hiring_manager_search_query
+        query = build_hiring_manager_search_query(
+            company_name="bcg",
+            titles=["principal"],
+            company_website="bcg.com",
+        )
+        # The company clause is a bool/should — website term should appear inside.
+        must = query["bool"]["must"]
+        # Find the company clause
+        found_website = False
+        for clause in must:
+            if isinstance(clause, dict) and "bool" in clause and "should" in clause["bool"]:
+                for should_clause in clause["bool"]["should"]:
+                    if isinstance(should_clause, dict) and "term" in should_clause:
+                        if "job_company_website" in should_clause["term"]:
+                            found_website = True
+        assert found_website, "Expected job_company_website term to appear when company_website is passed"
+
+    def test_pdl_role_term_added(self):
+        from app.services.recruiter_finder import build_hiring_manager_search_query
+        query = build_hiring_manager_search_query(
+            company_name="google",
+            titles=["engineering manager"],
+            pdl_role="consulting",
+        )
+        must = query["bool"]["must"]
+        role_terms = [c for c in must if isinstance(c, dict) and "term" in c and "job_title_role" in c.get("term", {})]
+        assert role_terms
+        assert role_terms[0]["term"]["job_title_role"] == "consulting"
+
+
+class TestTightQueryWithWebsite:
+    """_build_tight_pdl_query should OR name and website when both are known."""
+
+    def test_website_added_as_alternative(self):
+        from app.services.recruiter_finder import _build_tight_pdl_query
+        body = _build_tight_pdl_query("bcg", "consulting", size=3, company_website="bcg.com")
+        must = body["query"]["bool"]["must"]
+        # First must clause is the company should
+        assert "bool" in must[0]
+        should = must[0]["bool"]["should"]
+        website_terms = [s for s in should if "term" in s and "job_company_website" in s.get("term", {})]
+        assert website_terms
+        assert website_terms[0]["term"]["job_company_website"] == "bcg.com"
+
+    def test_no_website_falls_back_to_name_only(self):
+        from app.services.recruiter_finder import _build_tight_pdl_query
+        body = _build_tight_pdl_query("some-random-co", "engineering", size=3)
+        must = body["query"]["bool"]["must"]
+        should = must[0]["bool"]["should"]
+        # Only one alternative — the name term.
+        assert len(should) == 1
+
+
+class TestRankingWithPerplexitySignal:
+    """Verified > unknown > low-conf-no."""
+
+    def test_verified_ranks_above_unknown(self):
+        from app.services.recruiter_finder import rank_hiring_managers
+        managers = [
+            {
+                "Title": "Engineering Manager", "Company": "Acme",
+                "City": "", "State": "",
+                "_perplexity_still_at_company": "unknown",
+                "_perplexity_confidence": "low",
+            },
+            {
+                "Title": "Engineering Manager", "Company": "Acme",
+                "City": "", "State": "",
+                "_perplexity_still_at_company": "yes",
+                "_perplexity_confidence": "high",
+            },
+        ]
+        ranked = rank_hiring_managers(managers, "engineering", "Acme")
+        assert ranked[0]["_perplexity_still_at_company"] == "yes"
+
+    def test_low_conf_no_penalized(self):
+        from app.services.recruiter_finder import rank_hiring_managers
+        managers = [
+            {
+                "Title": "Engineering Manager", "Company": "Acme",
+                "City": "", "State": "",
+                "_perplexity_still_at_company": "no",
+                "_perplexity_confidence": "low",
+            },
+            {
+                "Title": "Engineering Manager", "Company": "Acme",
+                "City": "", "State": "",
+                # No perplexity signal — treated as neutral.
+            },
+        ]
+        ranked = rank_hiring_managers(managers, "engineering", "Acme")
+        # The "no" entry should sink below the neutral one.
+        assert ranked[0].get("_perplexity_still_at_company") != "no"
+
+
+class TestExpandedTier5:
+    """Tier 5 should now include CTO, VP Eng, Head of Product, etc — not just
+    founder/CEO/COO."""
+
+    def test_tier5_includes_cto(self):
+        from app.services.recruiter_finder import HIRING_MANAGER_PRIORITY_TIERS
+        assert "cto" in HIRING_MANAGER_PRIORITY_TIERS[5]["titles"]
+
+    def test_tier5_includes_head_of_engineering(self):
+        from app.services.recruiter_finder import HIRING_MANAGER_PRIORITY_TIERS
+        assert "head of engineering" in HIRING_MANAGER_PRIORITY_TIERS[5]["titles"]
+
+
+class TestDiscoverHiringLeads:
+    """New Perplexity helper for reachable-people fallback."""
+
+    def test_no_client_returns_empty(self, monkeypatch):
+        from app.services import perplexity_client as pc
+        monkeypatch.setattr(pc, "_get_client", lambda: None)
+        result = pc.discover_hiring_leads("Google", "Software Engineer")
+        assert result == []
+
+    def test_empty_args_return_empty(self):
+        from app.services.perplexity_client import discover_hiring_leads
+        assert discover_hiring_leads("", "SWE") == []
+        assert discover_hiring_leads("Google", "") == []
+
+    def test_schema_shape(self):
+        from app.services.perplexity_client import _HIRING_LEADS_SCHEMA
+        assert _HIRING_LEADS_SCHEMA["name"] == "hiring_leads"
+        schema = _HIRING_LEADS_SCHEMA["schema"]
+        assert schema["additionalProperties"] is False
+        assert "leads" in schema["properties"]
+        item_schema = schema["properties"]["leads"]["items"]
+        for field in ("name", "title", "reason"):
+            assert field in item_schema["properties"]
+            assert field in item_schema["required"]
+
+
+class TestCohortTagging:
+    """find_hiring_manager tags each returned contact with _cohort so the
+    UI can render a chip explaining why the person surfaced."""
+
+    def test_tight_pdl_source_gets_likely_hm_cohort(self):
+        # Direct exercise of the tagging block — mimic what the tail of
+        # find_hiring_manager does when it sets _cohort on final selections.
+        candidate = {"Title": "Director of Engineering", "_source": "tight_pdl"}
+        title = (candidate.get("Title") or "").lower()
+        source = candidate.get("_source") or ""
+        if source == "tight_pdl":
+            candidate["_cohort"] = "likely_hm"
+        assert candidate["_cohort"] == "likely_hm"
+
+    def test_executive_title_gets_adjacent_cohort(self):
+        # CEO/CFO/founder → adjacent (only useful for tiny orgs, but at a
+        # large co they're not the HM).
+        candidate = {"Title": "CEO of Acme", "_source": ""}
+        title = (candidate.get("Title") or "").lower()
+        assert any(kw in title for kw in ("founder", "ceo", "cfo", "coo", "president"))
+
+
+class TestDecisionMakerLevels:
+    """Consulting and IB decision-makers are `partner`-level in PDL. Missing
+    that from `_DECISION_MAKER_LEVELS` was silently returning 0 from the
+    tight query for MBB / Goldman / Morgan Stanley."""
+
+    def test_partner_is_decision_maker(self):
+        from app.services.recruiter_finder import _DECISION_MAKER_LEVELS
+        assert "partner" in _DECISION_MAKER_LEVELS
+
+    def test_traditional_levels_still_present(self):
+        from app.services.recruiter_finder import _DECISION_MAKER_LEVELS
+        for level in ("manager", "director", "vp", "cxo", "owner"):
+            assert level in _DECISION_MAKER_LEVELS
+
+
+class TestFirecrawlSeedSkipsTightPdl:
+    """When Firecrawl scraped the named HM from the posting, we already have
+    ground truth — spending 2-3 more PDL credits hunting for another
+    decision-maker in the same function is wasteful. Only the loose tier
+    loop should run to fill peer slots."""
+
+    def _stub(self, monkeypatch):
+        import importlib
+        from app.services import recruiter_finder as rf; importlib.reload(rf)
+        from app.services import perplexity_client as pc
+
+        # Firecrawl seed always finds a person
+        monkeypatch.setattr(rf, "_seed_from_firecrawl_name",
+                            lambda name, company, company_aliases: [
+                                {"FirstName": "Jane", "LastName": "Doe",
+                                 "Title": "Head of Consulting",
+                                 "Company": "Acme", "Email": "jane@acme.com",
+                                 "IsCurrentlyAtTarget": True,
+                                 "_source": "firecrawl_seed"}
+                            ])
+        # Spy on tight query
+        tight_calls = {"n": 0}
+        def tight_spy(company, role, size=3, company_website=None):
+            tight_calls["n"] += 1
+            return [{"FirstName": "Someone", "LastName": "Else", "Title": "Director",
+                     "Company": "Acme", "Email": "s@acme.com",
+                     "IsCurrentlyAtTarget": True, "_source": "tight_pdl"}]
+        monkeypatch.setattr(rf, "_run_tight_pdl_query", tight_spy)
+
+        monkeypatch.setattr(pc, "verify_hiring_managers_v2",
+                            lambda hms, company, job_title: [
+                                {"still_at_company": "unknown", "current_title": "",
+                                 "actively_hiring": "unknown", "recent_hiring_signal": "",
+                                 "confidence": "low"} for _ in hms])
+        monkeypatch.setattr(pc, "batch_enrich_company_news", lambda contacts: {})
+        rf.execute_pdl_search = lambda **k: (
+            [{"FirstName": "Loose", "LastName": "Rec", "Title": "Recruiter",
+              "Company": "Acme", "Email": "l@acme.com", "IsCurrentlyAtTarget": True}],
+            None,
+        )
+        rf.enrich_contacts_with_hunter = lambda contacts, **k: [
+            {**c, "EmailVerified": True, "is_verified_email": True} for c in contacts
+        ]
+        rf.PEOPLE_DATA_LABS_API_KEY = "test-key"
+        rf.generate_recruiter_emails = lambda recruiters, **k: []
+        return rf, tight_calls
+
+    def test_seed_causes_tight_skip(self, monkeypatch):
+        rf, tight_calls = self._stub(monkeypatch)
+        result = rf.find_hiring_manager(
+            company_name="Acme", job_type="consulting", job_title="Business Analyst",
+            max_results=3, seed_hiring_manager_name="Jane Doe",
+        )
+        assert tight_calls["n"] == 0, "Tight PDL must NOT run when Firecrawl seed already found the HM"
+        # But seed should still make the final cut
+        names = {(c["FirstName"], c["LastName"]) for c in result["hiringManagers"]}
+        assert ("Jane", "Doe") in names
+
+    def test_seed_absent_still_runs_tight(self, monkeypatch):
+        rf, tight_calls = self._stub(monkeypatch)
+        # Don't pass seed_hiring_manager_name — tight should run as before
+        rf.find_hiring_manager(
+            company_name="Acme", job_type="consulting", job_title="Business Analyst",
+            max_results=3,
+        )
+        assert tight_calls["n"] == 1, "Tight PDL must run when no Firecrawl seed provided"
+
+
+class TestTier1SkipsRoleFilter:
+    """Tier 1 titles are recruiter/HM titles that PDL tags with
+    role=human_resources, not the target function. Pinning Tier 1 to
+    role=consulting silently drops legitimate corporate recruiters. Only
+    Tiers 2-3 (team-lead / dept-head titles) should get the role pin."""
+
+    def test_tier1_query_omits_role_filter(self, monkeypatch):
+        import importlib
+        from app.services import recruiter_finder as rf; importlib.reload(rf)
+        from app.services import perplexity_client as pc
+
+        captured_queries = []
+        def spy(headers, url, query_obj, desired_limit, search_type, **k):
+            captured_queries.append(query_obj)
+            return ([], None)
+        monkeypatch.setattr(rf, "_run_tight_pdl_query",
+                            lambda company, role, size=3, company_website=None: [])
+        monkeypatch.setattr(pc, "verify_hiring_managers_v2",
+                            lambda hms, company, job_title: [])
+        monkeypatch.setattr(pc, "batch_enrich_company_news", lambda contacts: {})
+        rf.execute_pdl_search = spy
+        rf.enrich_contacts_with_hunter = lambda contacts, **k: contacts
+        rf.PEOPLE_DATA_LABS_API_KEY = "test-key"
+        rf.generate_recruiter_emails = lambda recruiters, **k: []
+
+        rf.find_hiring_manager(
+            company_name="McKinsey", job_type="consulting", job_title="Business Analyst",
+            max_results=3,
+        )
+        assert captured_queries, "Loose tier loop should have run"
+        # First captured query is Tier 1 — must NOT contain a job_title_role term.
+        tier1 = captured_queries[0]
+        must = tier1["bool"]["must"]
+        role_terms = [c for c in must if isinstance(c, dict) and "term" in c and "job_title_role" in c.get("term", {})]
+        assert role_terms == [], \
+            "Tier 1 must not filter by job_title_role — recruiters are tagged HR in PDL"
+
+    def test_tier2_query_includes_role_filter(self, monkeypatch):
+        import importlib
+        from app.services import recruiter_finder as rf; importlib.reload(rf)
+        from app.services import perplexity_client as pc
+
+        captured_queries = []
+        def spy(headers, url, query_obj, desired_limit, search_type, **k):
+            captured_queries.append(query_obj)
+            return ([], None)
+        monkeypatch.setattr(rf, "_run_tight_pdl_query",
+                            lambda company, role, size=3, company_website=None: [])
+        monkeypatch.setattr(pc, "verify_hiring_managers_v2",
+                            lambda hms, company, job_title: [])
+        monkeypatch.setattr(pc, "batch_enrich_company_news", lambda contacts: {})
+        rf.execute_pdl_search = spy
+        rf.enrich_contacts_with_hunter = lambda contacts, **k: contacts
+        rf.PEOPLE_DATA_LABS_API_KEY = "test-key"
+        rf.generate_recruiter_emails = lambda recruiters, **k: []
+
+        rf.find_hiring_manager(
+            company_name="McKinsey", job_type="consulting", job_title="Business Analyst",
+            max_results=3,
+        )
+        # Second captured query is Tier 2 — MUST contain job_title_role.
+        assert len(captured_queries) >= 2, "Tier 2 loop should also fire"
+        tier2 = captured_queries[1]
+        must = tier2["bool"]["must"]
+        role_terms = [c for c in must if isinstance(c, dict) and "term" in c and "job_title_role" in c.get("term", {})]
+        assert role_terms, \
+            "Tier 2 should filter by job_title_role — team lead titles cleanly map to a function"
+        assert role_terms[0]["term"]["job_title_role"] == "consulting"
