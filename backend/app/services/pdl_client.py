@@ -2932,10 +2932,10 @@ def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:
         else:
             must.append({"exists": {"field": "job_title"}})
     elif retry_level == 3:
-        # Retry 3: no title filter (any role at company + school)
-        pass
-    elif retry_level == 3:
-        # Retry 3: no title, no location (handled below)
+        # Retry 3: no title, no location — company + school only. (A duplicated
+        # elif once shadowed this intent and rung 3 silently KEPT the location
+        # filter, contradicting the docstring and the retry log line; caught by
+        # test_26/test_61 in 2026-07 loose-end cleanup.)
         pass
     elif retry_level == 4:
         # Retry 4: re-introduce broadened title (school × role family, no company)
@@ -2950,8 +2950,8 @@ def build_query_from_prompt(parsed_prompt: dict, retry_level: int = 0) -> dict:
         # Retry 5: school-only floor — any reachable alum
         pass
 
-    # ---- Location block (skip when retry_level >= 4) ----
-    if retry_level < 4:
+    # ---- Location block (dropped from rung 3 up, per the retry ladder) ----
+    if retry_level < 3:
         locations = parsed_prompt.get("locations") or []
         location_str = (locations[0] if locations else "").strip() if locations else ""
         if location_str:

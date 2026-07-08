@@ -93,7 +93,11 @@ def db():
 # ============================================================================
 
 def _now():
-    return datetime(2026, 5, 22, 12, 0, tzinfo=timezone.utc)
+    # Real clock, not a frozen date: the code under test compares timestamps
+    # against datetime.now(), so a pinned _now() ages — "3 days ago" seeded
+    # against a May snapshot read as 48 days by July and crossed the no-reply
+    # threshold (found in the 2026-07 loose-end cleanup).
+    return datetime.now(timezone.utc)
 
 
 def _put(db, uid: str, coll: str, doc_id: str, data: dict) -> None:

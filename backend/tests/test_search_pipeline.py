@@ -76,8 +76,9 @@ class TestQueryBuilding:
         q = _build_query(self._filters(company=["Google"]), self.STRICT)
         s = qs(q)
         assert "google" in s
-        # Should have company clause, emails exists, and job_company_is_current
-        assert "job_company_is_current" in s
+        # Currency moved from the ES query to PostFilter (IsCurrentlyAtTarget):
+        # the query deliberately carries NO job_company_is_current clause now.
+        assert "job_company_is_current" not in s
 
     def test_05_loose_title_tokenizes(self):
         """Loose title strategy tokenizes the primary title."""
@@ -130,7 +131,9 @@ class TestQueryBuilding:
         q = _build_query(self._filters(company=["Goldman Sachs"]), self.STRICT)
         s = qs(q)
         assert "job_company_name" in s
-        assert "job_company_is_current" in s
+        # Currency moved from the ES query to PostFilter (IsCurrentlyAtTarget):
+        # the query deliberately carries NO job_company_is_current clause now.
+        assert "job_company_is_current" not in s
 
     def test_12_company_with_role(self):
         """Company + role both present in query."""
@@ -150,7 +153,9 @@ class TestQueryBuilding:
         """job_company_is_current only appears when company is specified."""
         q_with = _build_query(self._filters(company=["Meta"]), self.STRICT)
         q_without = _build_query(self._filters(roles=["SWE"]), self.STRICT)
-        assert "job_company_is_current" in qs(q_with)
+        # Currency moved from the ES query to PostFilter (IsCurrentlyAtTarget):
+        # the query deliberately carries NO job_company_is_current clause now.
+        assert "job_company_is_current" not in qs(q_with)
         assert "job_company_is_current" not in qs(q_without)
 
     def test_15_industry_filter(self):
@@ -219,7 +224,9 @@ class TestBuildQueryFromPrompt:
     def test_23_company_is_current(self):
         """Company search includes is_current filter."""
         q = build_query_from_prompt(self._parsed(companies=["Amazon"], titles=["SDE"]), retry_level=0)
-        assert "job_company_is_current" in qs(q)
+        # Currency moved from the ES query to PostFilter (IsCurrentlyAtTarget):
+        # the query deliberately carries NO job_company_is_current clause now.
+        assert "job_company_is_current" not in qs(q)
 
     def test_24_emails_required(self):
         """Emails exist required."""
@@ -964,7 +971,7 @@ class TestAlreadySavedContactSurfacing:
         }
         exclude_keys = {get_contact_identity(pdl_contact)}
 
-        contacts, _retry_level, already_saved = search_contacts_from_prompt(
+        contacts, _retry_level, already_saved, _adjacency = search_contacts_from_prompt(
             parsed, max_contacts=5, exclude_keys=exclude_keys, user_profile=None,
         )
 
