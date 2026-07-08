@@ -180,4 +180,6 @@ class TestTimelineHappyPath:
         assert data["startDate"] == "2026-09-01"
         assert data["targetDeadline"] == "2027-06-01"
 
-        mock_deduct.assert_called_once_with("test-user-1", 10, "timeline_generation")
+        # Charge must track config TIMELINE_CREDITS (doubled 10 -> 20 on 2026-06-10)
+        from app.config import TIMELINE_CREDITS
+        mock_deduct.assert_called_once_with("test-user-1", TIMELINE_CREDITS, "timeline_generation")

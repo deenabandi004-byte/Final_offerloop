@@ -78,15 +78,16 @@ def test_general_knowledge_section_encodes_negative_rules():
 
 
 def test_general_knowledge_section_has_few_shot_examples():
-    """At least three of the five worked examples ship in the prompt, each
-    showing a Scout: response (the line the model is meant to imitate)."""
+    """At least three of the worked examples ship in the prompt, each showing
+    a Scout response line (the line the model is meant to imitate). The
+    few-shots now use the structured 'Scout (answer text):' / 'Scout (cta):'
+    format instead of the old bare 'Scout:' prefix."""
     prompt = _build_static_system_prompt()
-    # Scout: prefixes in the few-shot block. Count loosely; the exact number
-    # can change if we tune the few-shots, but well below 3 means we broke
-    # the section.
-    scout_lines = re.findall(r"^Scout: ", prompt, flags=re.M)
+    # Count loosely; the exact number can change if we tune the few-shots,
+    # but well below 3 means we broke the section.
+    scout_lines = re.findall(r"^Scout \(answer text\): ", prompt, flags=re.M)
     assert len(scout_lines) >= 3, (
-        f"only {len(scout_lines)} few-shot Scout: lines in the prompt")
+        f"only {len(scout_lines)} few-shot 'Scout (answer text):' lines in the prompt")
 
 
 # ===========================================================================

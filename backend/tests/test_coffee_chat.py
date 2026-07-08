@@ -432,6 +432,9 @@ class TestFetchComprehensiveResearch:
             "industry_trends": [],
         }
 
+    # SerpAPI fallback is now gated behind ENABLE_SERPAPI_FALLBACK (off by
+    # default) — tests exercising the fallback path must enable the flag.
+    @patch.dict("os.environ", {"ENABLE_SERPAPI_FALLBACK": "1"})
     @patch("app.services.perplexity_client.PERPLEXITY_API_KEY", "")
     @patch("app.services.coffee_chat.SERPAPI_KEY", "test-key")
     @patch("app.services.coffee_chat.GoogleSearch")
@@ -463,6 +466,8 @@ class TestFetchComprehensiveResearch:
         assert len(result["company_news"]) > 0 or len(result["company_overview"]) > 0
         assert mock_search_cls.call_count == 4  # 4 parallel searches
 
+    # Flag on so this actually exercises the fallback (not the disabled gate).
+    @patch.dict("os.environ", {"ENABLE_SERPAPI_FALLBACK": "1"})
     @patch("app.services.perplexity_client.PERPLEXITY_API_KEY", "")
     @patch("app.services.coffee_chat.SERPAPI_KEY", "test-key")
     @patch("app.services.coffee_chat.GoogleSearch")
@@ -484,6 +489,8 @@ class TestFetchComprehensiveResearch:
         assert result["company_news"] == []
         assert result["company_overview"] == []
 
+    # Same as above — fallback path requires ENABLE_SERPAPI_FALLBACK.
+    @patch.dict("os.environ", {"ENABLE_SERPAPI_FALLBACK": "1"})
     @patch("app.services.perplexity_client.PERPLEXITY_API_KEY", "")
     @patch("app.services.coffee_chat.SERPAPI_KEY", "test-key")
     @patch("app.services.coffee_chat.GoogleSearch")
@@ -503,6 +510,8 @@ class TestFetchComprehensiveResearch:
         combined = " ".join(all_queries)
         assert str(current_year) in combined
 
+    # Flag on so this actually exercises the fallback (not the disabled gate).
+    @patch.dict("os.environ", {"ENABLE_SERPAPI_FALLBACK": "1"})
     @patch("app.services.perplexity_client.PERPLEXITY_API_KEY", "")
     @patch("app.services.coffee_chat.SERPAPI_KEY", "test-key")
     @patch("app.services.coffee_chat.GoogleSearch")

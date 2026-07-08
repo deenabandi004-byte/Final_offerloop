@@ -2,7 +2,6 @@
 Tests for contact import CSV parsing, validation, column mapping, and dedup logic.
 Tests the pure functions without requiring Firebase/Firestore.
 """
-import os
 import pytest
 
 # Import the functions under test
@@ -19,14 +18,57 @@ from app.routes.contact_import import (
 )
 from app.utils.exceptions import ValidationError
 
-TEST_CSV_DIR = os.path.join(os.path.dirname(__file__), 'test_csvs')
+# Fixture CSVs are embedded inline: the on-disk tests/test_csvs/ directory was
+# never committed (root .gitignore has *.csv), so file-based fixtures broke on
+# every fresh clone. Contents reconstruct exactly what each test asserts.
+TEST_CSVS = {
+    'valid_basic.csv': (
+        "First Name,Last Name,Email,LinkedIn URL,Company,Job Title,College,Location,Phone\n"
+        "Alice,Smith,alice@google.com,https://linkedin.com/in/alicesmith,Google,Engineer,Stanford,\"Mountain View, CA\",555-0001\n"
+        "Bob,Jones,bob@meta.com,https://linkedin.com/in/bobjones,Meta,Analyst,USC,\"Los Angeles, CA\",555-0002\n"
+        "Carol,Williams,carol@amazon.com,https://linkedin.com/in/carolw,Amazon,PM,Michigan,\"Seattle, WA\",555-0003\n"
+        "Dave,Brown,dave@apple.com,https://linkedin.com/in/daveb,Apple,Designer,NYU,\"Cupertino, CA\",555-0004\n"
+        "Eve,Davis,eve@netflix.com,https://linkedin.com/in/eved,Netflix,Recruiter,UCLA,\"Los Gatos, CA\",555-0005\n"
+    ),
+    'no_data.csv': "First Name,Last Name,Email,Company\n",
+    'bom_utf8.csv': (
+        "﻿First Name,Last Name,Email\n"
+        "José,García,jose@example.com\n"
+        "Zoë,Müller,zoe@example.com\n"
+    ),
+    'whitespace.csv': (
+        "First Name,Last Name,Email,Company\n"
+        "  Alice  ,  Smith ,  alice@google.com  ,  Google \n"
+    ),
+    'alternate_headers.csv': (
+        "fname,surname,e-mail,linkedin profile,organization,role,university,city,state,mobile\n"
+        "Alice,Smith,alice@example.com,https://linkedin.com/in/alicesmith,Acme,Engineer,Harvard,Boston,MA,555-0001\n"
+    ),
+    'invalid_rows.csv': (
+        "First Name,Last Name,Email,Company\n"
+        "Alice,Smith,alice@example.com,Google\n"       # VALID (name + email)
+        ",,,\n"                                        # INVALID (all empty)
+        ",,,Acme\n"                                    # INVALID (company only)
+        "Bob,,bob@example.com,Meta\n"                  # VALID (email)
+        ",Jones,,Amazon\n"                             # INVALID (last name only)
+        "Charlie,Brown,,Peanuts\n"                     # VALID (both names)
+    ),
+    'duplicates_case.csv': (
+        "First Name,Last Name,Email,LinkedIn URL,Company\n"
+        "Alice,Smith,alice@google.com,,Google\n"                            # created
+        "Alice,Smith,ALICE@GOOGLE.COM,,Google\n"                            # dup (email case)
+        "Alice,Smith,alice@google.com,,Google\n"                            # dup (exact email)
+        "Bob,Jones,,https://linkedin.com/in/bobjones,Meta\n"                # created
+        "Bob,Jones,,https://LinkedIn.com/in/BobJones,Meta\n"                # dup (linkedin case)
+        "Carol,Williams,carol@amazon.com,,Amazon\n"                         # created
+        "Carol,Williams,,https://linkedin.com/in/carolw,Amazon\n"           # dup (name+company)
+    ),
+}
 
 
 def _read_csv(filename):
-    """Helper to read and parse a test CSV file."""
-    path = os.path.join(TEST_CSV_DIR, filename)
-    with open(path, 'r', encoding='utf-8-sig') as f:
-        content = f.read()
+    """Helper to parse an embedded test CSV, mimicking the old utf-8-sig file read."""
+    content = TEST_CSVS[filename].encode('utf-8').decode('utf-8-sig')
     return parse_csv_content(content)
 
 

@@ -7,6 +7,12 @@ import os
 import pytest
 from unittest.mock import patch, MagicMock
 
+# The endpoint under test was intentionally deleted in commit 154362c1
+# (chore(cleanup) phase 5: "routes/recommendation_funnel.py (admin-only, no
+# admin UI)") but this test module was left behind. Skip the whole module —
+# safe to delete this file entirely.
+pytestmark = pytest.mark.skip(reason="/api/admin/recommendation-funnel removed in cleanup commit 154362c1")
+
 
 FAKE_ADMIN = {"uid": "admin-uid"}
 FAKE_NON_ADMIN = {"uid": "regular-uid"}

@@ -637,11 +637,12 @@ def test_scan_user_opt_out(mock_get_db, mock_healthcheck, mock_cleanup, mock_acq
 
     scan_and_generate_nudges()
 
-    # Healthcheck should be called with 0 nudges generated
+    # Healthcheck should be called with 0 nudges generated.
+    # The service passes counters as keyword args now (only db is positional).
     mock_healthcheck.assert_called_once()
-    args = mock_healthcheck.call_args[0]
-    assert args[1] == 0  # nudges_generated
-    assert args[2] == 1  # users_scanned
+    kwargs = mock_healthcheck.call_args.kwargs
+    assert kwargs["nudges_generated"] == 0
+    assert kwargs["users_scanned"] == 1
 
 
 @pytest.mark.unit

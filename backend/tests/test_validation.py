@@ -47,14 +47,21 @@ class TestContactSearchValidation:
     
     def test_batch_size_validation(self):
         """Test batch size limits"""
+        # Pins the schema's own cap (Field le=..., currently 15) so the test
+        # tracks the constant instead of a stale magic number.
+        field = ContactSearchRequest.model_fields["batchSize"]
+        max_batch = next(m.le for m in field.metadata if hasattr(m, "le"))
         data = {
             "jobTitle": "Engineer",
             "company": "Google",
             "location": "SF",
-            "batchSize": 15  # Exceeds max of 10
+            "batchSize": max_batch + 1  # Exceeds the schema maximum
         }
         with pytest.raises(ValidationError):
             validate_request(ContactSearchRequest, data)
+        # At the cap it must validate cleanly
+        data["batchSize"] = max_batch
+        assert validate_request(ContactSearchRequest, data)["batchSize"] == max_batch
 
 
 class TestFirmSearchValidation:

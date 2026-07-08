@@ -69,6 +69,9 @@ def test_run_pipeline_gates_before_write(monkeypatch):
 
 
 def test_run_fantastic_only_gates_before_write(monkeypatch):
+    # run_fantastic_only() sys.exit(2)s unless FJ_FULL_BACKFILL_ENABLED=true
+    # (intentional prod guard) — enable it here so the gate under test runs.
+    monkeypatch.setenv("FJ_FULL_BACKFILL_ENABLED", "true")
     normalized = [
         {"company": "Linear", "title": "Designer Intern",
          "posted_at": "2026-05-30T00:00:00Z", "description_raw": "design ux."},
