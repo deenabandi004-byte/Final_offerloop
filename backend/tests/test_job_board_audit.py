@@ -16,54 +16,66 @@ from unittest.mock import patch, MagicMock
 class TestCreditCostSync:
     """Frontend and backend credit constants must agree."""
 
-    def test_backend_cover_letter_cost_is_5(self):
+    def test_backend_cover_letter_cost_matches_config(self):
+        # Route sources from CREDIT_COSTS since 2026-07-07 — the hardcoded 5
+        # had missed the credit doubling (users saw 20, were charged 5).
         from app.routes.job_board import COVER_LETTER_CREDIT_COST
-        assert COVER_LETTER_CREDIT_COST == 5
+        from app.config import CREDIT_COSTS
+        assert COVER_LETTER_CREDIT_COST == CREDIT_COSTS["cover_letter"]
 
-    def test_backend_optimization_cost_is_20(self):
+    def test_backend_optimization_cost_matches_config(self):
         from app.routes.job_board import OPTIMIZATION_CREDIT_COST
-        assert OPTIMIZATION_CREDIT_COST == 20
+        from app.config import CREDIT_COSTS
+        assert OPTIMIZATION_CREDIT_COST == CREDIT_COSTS["resume_optimization"]
 
-    def test_backend_recruiter_cost_is_5(self):
-        from app.routes.job_board import RECRUITER_CREDIT_COST
-        assert RECRUITER_CREDIT_COST == 5
+    def test_backend_find_costs_match_config(self):
+        # Flat 5 was replaced by the per-flow config prices (10/6/4) on
+        # 2026-07-07 — web UI had displayed those while charging flat 5.
+        from app.routes.job_board import (
+            FIND_HM_CREDIT_COST, FIND_RECRUITER_CREDIT_COST, FIND_EMPLOYEE_CREDIT_COST,
+        )
+        from app.config import CREDIT_COSTS
+        assert FIND_HM_CREDIT_COST == CREDIT_COSTS["find_hiring_manager"]
+        assert FIND_RECRUITER_CREDIT_COST == CREDIT_COSTS["find_recruiter"]
+        assert FIND_EMPLOYEE_CREDIT_COST == CREDIT_COSTS["find_employee"]
 
-    def test_frontend_cover_letter_cost_matches_backend(self):
-        """Frontend COVER_LETTER_CREDIT_COST must equal backend (5)."""
+    @staticmethod
+    def _frontend_credit_cost(key):
+        """Read CREDIT_COSTS[key] from the frontend mirror in constants.ts.
+
+        The per-page constants in JobBoardPage.tsx were replaced by the shared
+        CREDIT_COSTS map in src/lib/constants.ts (mirror of backend config
+        CREDIT_COSTS) — this now pins display cost == charged cost via that map.
+        """
         import os
         frontend_path = os.path.join(
             os.path.dirname(__file__), '..', '..', 'connect-grow-hire',
-            'src', 'pages', 'JobBoardPage.tsx'
+            'src', 'lib', 'constants.ts'
         )
         if not os.path.exists(frontend_path):
             pytest.skip("Frontend file not found")
         with open(frontend_path) as f:
             content = f.read()
-        # Match: const COVER_LETTER_CREDIT_COST = <number>;
-        match = re.search(r'const\s+COVER_LETTER_CREDIT_COST\s*=\s*(\d+)', content)
-        assert match, "COVER_LETTER_CREDIT_COST not found in JobBoardPage.tsx"
-        frontend_cost = int(match.group(1))
+        # Match e.g.: cover_letter: 20,
+        match = re.search(rf'\b{key}\s*:\s*(\d+)', content)
+        assert match, f"CREDIT_COSTS.{key} not found in constants.ts"
+        return int(match.group(1))
+
+    def test_frontend_cover_letter_cost_matches_backend(self):
+        """Frontend CREDIT_COSTS.cover_letter must equal what the route charges."""
+        frontend_cost = self._frontend_credit_cost('cover_letter')
         from app.routes.job_board import COVER_LETTER_CREDIT_COST
         assert frontend_cost == COVER_LETTER_CREDIT_COST, (
             f"Frontend ({frontend_cost}) != Backend ({COVER_LETTER_CREDIT_COST})"
         )
 
     def test_frontend_optimization_cost_matches_backend(self):
-        """Frontend OPTIMIZATION_CREDIT_COST must equal backend (20)."""
-        import os
-        frontend_path = os.path.join(
-            os.path.dirname(__file__), '..', '..', 'connect-grow-hire',
-            'src', 'pages', 'JobBoardPage.tsx'
-        )
-        if not os.path.exists(frontend_path):
-            pytest.skip("Frontend file not found")
-        with open(frontend_path) as f:
-            content = f.read()
-        match = re.search(r'const\s+OPTIMIZATION_CREDIT_COST\s*=\s*(\d+)', content)
-        assert match, "OPTIMIZATION_CREDIT_COST not found in JobBoardPage.tsx"
-        frontend_cost = int(match.group(1))
+        """Frontend CREDIT_COSTS.resume_optimization must equal what the route charges."""
+        frontend_cost = self._frontend_credit_cost('resume_optimization')
         from app.routes.job_board import OPTIMIZATION_CREDIT_COST
-        assert frontend_cost == OPTIMIZATION_CREDIT_COST
+        assert frontend_cost == OPTIMIZATION_CREDIT_COST, (
+            f"Frontend ({frontend_cost}) != Backend ({OPTIMIZATION_CREDIT_COST})"
+        )
 
 
 # =============================================================================
@@ -466,8 +478,16 @@ class TestNormalizerSalaryDisabled:
         import sys, os
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
         from pipeline.normalizer import normalize_all
+        # normalize_all now also runs the quality gate (pipeline/quality_gate.py),
+        # which drops jobs with descriptions under 50 chars — the valid fixture
+        # needs a real description to survive it.
         raw_jobs = [
-            {"job_id": "1", "job_title": "Engineer", "employer_name": "Acme"},  # valid
+            {
+                "job_id": "1",
+                "job_title": "Engineer",
+                "employer_name": "Acme",
+                "job_description": "Build and maintain backend services for Acme's core platform team.",
+            },  # valid
             {"job_id": "2"},  # missing title and company
             {},  # completely empty
         ]

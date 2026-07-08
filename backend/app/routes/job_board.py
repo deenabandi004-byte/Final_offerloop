@@ -41,9 +41,21 @@ job_board_bp = Blueprint("job_board", __name__, url_prefix="/api/job-board")
 # CONSTANTS
 # =============================================================================
 
-OPTIMIZATION_CREDIT_COST = 20
-COVER_LETTER_CREDIT_COST = 5
-RECRUITER_CREDIT_COST = 5  # per recruiter or hiring manager
+# Sourced from the shared CREDIT_COSTS map — these were hardcoded at their
+# pre-doubling values (20/5) and missed the 2026-06-10 credit doubling, so
+# users saw 40/20 in the UI but were charged half/quarter of it (found by the
+# frontend/backend sync tests in test_job_board_audit.py, 2026-07-07).
+# config.py is the single source of truth; the names stay as local aliases so
+# the dozens of deduct/refund call sites below don't churn.
+from app.config import CREDIT_COSTS as _CREDIT_COSTS
+OPTIMIZATION_CREDIT_COST = _CREDIT_COSTS["resume_optimization"]
+COVER_LETTER_CREDIT_COST = _CREDIT_COSTS["cover_letter"]
+# Per-flow people-finding prices, from the same shared map. These were a flat
+# RECRUITER_CREDIT_COST = 5 while the web UI displayed (and config declared)
+# 10/6/4 — hiring managers undercharged, employees overcharged vs display.
+FIND_HM_CREDIT_COST = _CREDIT_COSTS["find_hiring_manager"]
+FIND_RECRUITER_CREDIT_COST = _CREDIT_COSTS["find_recruiter"]
+FIND_EMPLOYEE_CREDIT_COST = _CREDIT_COSTS["find_employee"]
 CACHE_DURATION_HOURS = 6  # How long to cache job results
 
 # Error Messages for Resume Optimization
@@ -7893,7 +7905,7 @@ def find_recruiter_endpoint():
                 "suggestion": "Please provide a company name, paste a job URL, or include the company name in the job description."
             }), 400
         
-        # Check user credits (minimum RECRUITER_CREDIT_COST for 1 contact)
+        # Check user credits (minimum FIND_RECRUITER_CREDIT_COST for 1 contact)
         db = get_db()
         if not db:
             return jsonify({"error": "Database not available"}), 500
@@ -7908,10 +7920,10 @@ def find_recruiter_endpoint():
         user_data = sanitize_firestore_data(user_data, depth=0, max_depth=20)
         current_credits = check_and_reset_credits(user_ref, user_data)
         
-        if current_credits < RECRUITER_CREDIT_COST:
+        if current_credits < FIND_RECRUITER_CREDIT_COST:
             return jsonify({
                 "error": "Insufficient credits",
-                "creditsRequired": RECRUITER_CREDIT_COST,
+                "creditsRequired": FIND_RECRUITER_CREDIT_COST,
                 "creditsAvailable": current_credits
             }), 402
         
@@ -7926,8 +7938,8 @@ def find_recruiter_endpoint():
             max_results_requested = 3
         max_results_requested = min(max(max_results_requested, 1), 4)
         
-        # Calculate how many recruiters user can afford (RECRUITER_CREDIT_COST per recruiter)
-        max_affordable = current_credits // RECRUITER_CREDIT_COST
+        # Calculate how many recruiters user can afford (FIND_RECRUITER_CREDIT_COST per recruiter)
+        max_affordable = current_credits // FIND_RECRUITER_CREDIT_COST
         # Use the minimum of what user requested and what they can afford
         max_results_to_fetch = min(max_results_requested, max_affordable)
         
@@ -7995,10 +8007,10 @@ def find_recruiter_endpoint():
         
         # Check if there are more available but user ran out of credits
         has_more = len(all_recruiters) > max_affordable or total_found > max_affordable
-        credits_needed_for_more = (len(all_recruiters) - max_affordable) * RECRUITER_CREDIT_COST if has_more else 0
+        credits_needed_for_more = (len(all_recruiters) - max_affordable) * FIND_RECRUITER_CREDIT_COST if has_more else 0
 
         # Deduct credits atomically BEFORE creating Gmail drafts (prevents TOCTOU)
-        credits_charged = RECRUITER_CREDIT_COST * len(affordable_recruiters)
+        credits_charged = FIND_RECRUITER_CREDIT_COST * len(affordable_recruiters)
         if credits_charged > 0:
             success, new_balance = deduct_credits_atomic(user_id, credits_charged, "find_recruiter")
             if not success:
@@ -8175,8 +8187,8 @@ def find_recruiter_endpoint():
         elif has_more and len(affordable_recruiters) == 0:
             response["hasMore"] = True
             response["moreAvailable"] = total_found
-            response["creditsNeededForMore"] = total_found * RECRUITER_CREDIT_COST
-            response["message"] = f"Found {total_found} recruiter(s) but you need {total_found * RECRUITER_CREDIT_COST} credits to view them. You currently have {current_credits} credits."
+            response["creditsNeededForMore"] = total_found * FIND_RECRUITER_CREDIT_COST
+            response["message"] = f"Found {total_found} recruiter(s) but you need {total_found * FIND_RECRUITER_CREDIT_COST} credits to view them. You currently have {current_credits} credits."
         
         return jsonify(response)
         
@@ -8377,7 +8389,7 @@ def find_employee_endpoint():
     doc (target_titles field); later clicks on the same job skip the LLM and go
     straight to PDL. The titles feed the shared find_recruiters pipeline via
     titles_override so email / draft / receipt logic is reused. Charges
-    RECRUITER_CREDIT_COST (5) per person returned.
+    FIND_EMPLOYEE_CREDIT_COST (5) per person returned.
 
     Request: { jobId?, company?, jobTitle?, jobDescription?, location?, maxResults? }
     Response mirrors /find-recruiter (people in the `recruiters` field).
@@ -8473,10 +8485,10 @@ def find_employee_endpoint():
         user_data = sanitize_firestore_data(user_data, depth=0, max_depth=20)
         current_credits = check_and_reset_credits(user_ref, user_data)
 
-        if current_credits < RECRUITER_CREDIT_COST:
+        if current_credits < FIND_EMPLOYEE_CREDIT_COST:
             return jsonify({
                 "error": "Insufficient credits",
-                "creditsRequired": RECRUITER_CREDIT_COST,
+                "creditsRequired": FIND_EMPLOYEE_CREDIT_COST,
                 "creditsAvailable": current_credits
             }), 402
 
@@ -8486,7 +8498,7 @@ def find_employee_endpoint():
         except (TypeError, ValueError):
             max_results_requested = 3
         max_results_requested = min(max(max_results_requested, 1), 5)
-        max_affordable = current_credits // RECRUITER_CREDIT_COST
+        max_affordable = current_credits // FIND_EMPLOYEE_CREDIT_COST
         max_results_to_fetch = min(max_results_requested, max_affordable)
 
         # Resume / contact for email generation.
@@ -8544,10 +8556,10 @@ def find_employee_endpoint():
             affordable_emails = [e for e in all_emails if e.get("to_email") in affordable_email_set]
 
         has_more = len(all_people) > max_affordable or total_found > max_affordable
-        credits_needed_for_more = (len(all_people) - max_affordable) * RECRUITER_CREDIT_COST if has_more else 0
+        credits_needed_for_more = (len(all_people) - max_affordable) * FIND_EMPLOYEE_CREDIT_COST if has_more else 0
 
         # Deduct credits atomically BEFORE creating Gmail drafts (prevents TOCTOU).
-        credits_charged = RECRUITER_CREDIT_COST * len(affordable_people)
+        credits_charged = FIND_EMPLOYEE_CREDIT_COST * len(affordable_people)
         if credits_charged > 0:
             success, new_balance = deduct_credits_atomic(user_id, credits_charged, "find_employee")
             if not success:
@@ -8926,7 +8938,7 @@ def find_hiring_manager_endpoint():
                 "suggestion": "Please provide a company name, paste a job URL, or include the company name in the job description."
             }), 400
         
-        # Check user credits (minimum RECRUITER_CREDIT_COST for 1 contact)
+        # Check user credits (minimum FIND_HM_CREDIT_COST for 1 contact)
         db = get_db()
         if not db:
             return jsonify({"error": "Database not available"}), 500
@@ -8941,10 +8953,10 @@ def find_hiring_manager_endpoint():
         user_data = sanitize_firestore_data(user_data, depth=0, max_depth=20)
         current_credits = check_and_reset_credits(user_ref, user_data)
         
-        if current_credits < RECRUITER_CREDIT_COST:
+        if current_credits < FIND_HM_CREDIT_COST:
             return jsonify({
                 "error": "Insufficient credits",
-                "creditsRequired": RECRUITER_CREDIT_COST,
+                "creditsRequired": FIND_HM_CREDIT_COST,
                 "creditsAvailable": current_credits
             }), 402
         
@@ -8955,8 +8967,8 @@ def find_hiring_manager_endpoint():
             max_results_requested = 3
         max_results_requested = min(max(max_results_requested, 1), 10)
         
-        # Calculate how many hiring managers user can afford (RECRUITER_CREDIT_COST per manager)
-        max_affordable = current_credits // RECRUITER_CREDIT_COST
+        # Calculate how many hiring managers user can afford (FIND_HM_CREDIT_COST per manager)
+        max_affordable = current_credits // FIND_HM_CREDIT_COST
         # Use the minimum of what user requested and what they can afford
         max_results_to_fetch = min(max_results_requested, max_affordable)
         
@@ -9021,7 +9033,7 @@ def find_hiring_manager_endpoint():
             affordable_emails = [e for e in all_emails if e.get("to_email") in affordable_manager_emails]
         
         # Deduct credits atomically BEFORE creating Gmail drafts (prevents TOCTOU)
-        credits_charged = RECRUITER_CREDIT_COST * len(affordable_managers)
+        credits_charged = FIND_HM_CREDIT_COST * len(affordable_managers)
         if credits_charged > 0:
             success, new_balance = deduct_credits_atomic(user_id, credits_charged, "find_hiring_manager")
             if not success:

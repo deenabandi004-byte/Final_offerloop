@@ -33,6 +33,14 @@ _URL_SUFFIX_TO_PLATFORM = (
     (".ashbyhq.com", "ashby"),
 )
 
+# ATS platforms we recognize but do NOT support: an FJ tag naming one of these
+# is a hard stop (the application genuinely lives there). Aggregators/job
+# boards are deliberately absent — those tags describe discovery, not hosting.
+_KNOWN_UNSUPPORTED_ATS = frozenset({
+    "workday", "taleo", "icims", "successfactors", "smartrecruiters",
+    "jobvite", "bamboohr", "workable", "recruitee", "teamtailor", "personio",
+})
+
 
 def detect_platform(job: dict) -> Optional[str]:
     """Return the normalized ats_platform if the job is eligible, else None.
@@ -55,6 +63,15 @@ def detect_platform(job: dict) -> Optional[str]:
     raw_platform = (job.get("ats_platform") or "").lower().strip()
     if raw_platform in SUPPORTED_AUTO_APPLY_ATS:
         return raw_platform
+    # A tag naming a real-but-unsupported ATS is AUTHORITATIVE: the job lives
+    # on that platform, so a greenhouse-looking job_id/apply_url is stale or
+    # wrong, and falling through would send the wrong form-filler at it (the
+    # docstring always promised this; the implementation fell through for
+    # every unsupported value — caught by test_ats_detector_real_job_ids).
+    # Aggregator/board sources ("indeed", "linkedin") still fall through:
+    # they're where the job was FOUND, not where the application lives.
+    if raw_platform in _KNOWN_UNSUPPORTED_ATS:
+        return None
 
     raw_domain = (job.get("ats_source_domain") or "").lower().strip()
     if raw_domain in _DOMAIN_TO_PLATFORM:

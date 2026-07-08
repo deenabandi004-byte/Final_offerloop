@@ -201,9 +201,12 @@ class TestRankingSystem:
 class TestCreditConstants:
     """Verify credit costs are consistent across route and service."""
 
-    def test_route_credit_cost_is_5(self):
-        from app.routes.job_board import RECRUITER_CREDIT_COST
-        assert RECRUITER_CREDIT_COST == 5
+    def test_route_credit_cost_matches_config(self):
+        # Flat RECRUITER_CREDIT_COST=5 became per-flow config prices
+        # (2026-07-07) — HM finds now charge what the UI displays.
+        from app.routes.job_board import FIND_HM_CREDIT_COST
+        from app.config import CREDIT_COSTS
+        assert FIND_HM_CREDIT_COST == CREDIT_COSTS["find_hiring_manager"]
 
     def test_find_recruiters_returns_correct_credit_calc(self):
         """Service should return credits_charged = 5 * count (not 15)."""
@@ -928,20 +931,24 @@ class TestTightPdlQuery:
             f"Per-tier size should shrink to ~max_results when tight supplied; got {captured['sizes']}"
 
     def test_unmapped_job_type_uses_original_size(self, monkeypatch):
-        """When job_type has no PDL role mapping, tight is skipped and the
-        tier loop uses the original size=20 (no quality regression for unmapped roles)."""
+        """When job_type has no PDL role mapping, tight is skipped and the tier
+        loop uses the full loose-path buffer — max(max_results*2, 8) since the
+        Phase 1 spend cap (f30ac61e) replaced the old fixed size=20 — never the
+        shrunken tight-path size."""
         captured = {"sizes": []}
         def tier_spy(headers, url, query_obj, desired_limit, search_type, **k):
             captured["sizes"].append(desired_limit)
             return ([], None)
         rf = self._setup(monkeypatch, job_type="general")  # 'general' is unmapped
         rf.execute_pdl_search = tier_spy
+        max_results = 3
         rf.find_hiring_manager(
-            company_name="Acme", job_type="general", job_title="x", max_results=3,
+            company_name="Acme", job_type="general", job_title="x", max_results=max_results,
         )
+        loose_size = max(max_results * 2, 8)  # mirrors per_tier_size in recruiter_finder.py
         assert captured["sizes"], "Tier loop must have run"
-        assert all(s == 20 for s in captured["sizes"]), \
-            f"Unmapped job_type should preserve size=20; got {captured['sizes']}"
+        assert all(s == loose_size for s in captured["sizes"]), \
+            f"Unmapped job_type should use the loose-path size={loose_size}; got {captured['sizes']}"
 
     def test_tight_returns_zero_falls_through_to_tier_loop(self, monkeypatch):
         """When tight returns nothing, the tier loop runs normally — no regression."""
