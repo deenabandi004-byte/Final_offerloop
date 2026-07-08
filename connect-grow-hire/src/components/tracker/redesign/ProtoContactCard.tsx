@@ -48,6 +48,7 @@ export function ProtoContactCard({ contact, isSelected, onSelect }: ProtoContact
     <button
       type="button"
       onClick={onSelect}
+      data-contact-id={contact.id}
       className={`contact-card${isSelected ? " selected" : ""}`}
     >
       <div className="contact-card-info">
@@ -71,7 +72,14 @@ export function ProtoContactCard({ contact, isSelected, onSelect }: ProtoContact
               </>
             )}
           </div>
-          <div className="contact-time">{timeAgo(contact.daysAgo)}</div>
+          <div className="contact-time">
+            {timeAgo(contact.daysAgo)}
+            {contact.source === "agent" && (
+              <span className="contact-source-badge" title="Discovered by a Loop">
+                Loop
+              </span>
+            )}
+          </div>
         </div>
       </div>
       <div className="status-pill">

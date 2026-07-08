@@ -1,7 +1,6 @@
 import { type ReactNode } from "react";
 
-// Single accordion section. Used by both ContactListAccordion (stage groups)
-// and CompanyGroupedList (per-company groups with a logo placeholder).
+// Single accordion section. Used by ContactListAccordion to render stage groups.
 
 interface GroupSectionProps {
   label: string;

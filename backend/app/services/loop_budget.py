@@ -26,14 +26,14 @@ logger = logging.getLogger(__name__)
 # reads from this dict directly via `from app.services.loop_budget import CREDIT_COSTS`.
 # Frontend mirror lives in LoopActivityFeed.tsx (CREDIT_COST_BY_TYPE) — keep in sync.
 CREDIT_COSTS = {
-    "contact": 9,          # find + draft via execute_find_and_draft  (was 15)
-    "hiring_manager": 13,  # find + draft via execute_find_hiring_managers  (was 20)
-    "job": 1,              # execute_find_jobs (per saved job)  (was 2)
-    "company": 1,          # execute_discover_companies (per saved company)  (was 2)
+    "contact": 10,         # find + draft + search via execute_find_and_draft (matches CREDIT_COSTS['find_contact'])
+    "hiring_manager": 13,  # find + draft via execute_find_hiring_managers
+    "job": 1,              # execute_find_jobs (per saved job)
+    "company": 1,          # execute_discover_companies (per saved company)
 }
 
 # Bundled per-person cost shown in the Loop wizard. Reflects the typical
-# cycle mix calibrated against estimate_cycle_cost() — contact (9) plus
+# cycle mix calibrated against estimate_cycle_cost() — contact (10) plus
 # the amortized share of HM (13), job (1×~5), and company (1×~3) lookups
 # that fire per cycle. Used by loop_service.create_loop() to derive
 # creditBudgetPerWeek from the user's weeklyTarget so the wizard can be
@@ -42,9 +42,9 @@ CREDIT_COSTS = {
 # Mirrored in connect-grow-hire/src/components/agent/AgentSetupInline.tsx —
 # keep in sync.
 BUNDLED_COST_PER_PERSON = {
-    "people": 12,  # 9 contact + ~3 amortized HM/job/company per outreach
+    "people": 13,  # 10 contact + ~3 amortized HM/job/company per outreach
     "roles":  6,   # job-driven; fewer per-person contact spends
-    "both":   10,  # half-and-half blend
+    "both":   11,  # half-and-half blend
 }
 
 # Safety buffer applied to the derived weekly budget so cycle-to-cycle

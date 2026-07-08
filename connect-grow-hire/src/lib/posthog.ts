@@ -7,12 +7,25 @@ if (typeof window !== 'undefined') {
   if (posthogKey && posthogHost) {
     posthog.init(posthogKey, {
       api_host: posthogHost,
+      defaults: '2026-05-30',
 
-      autocapture: false,        // 🚫 no noisy click tracking
-      capture_pageview: false,   // 🚫 no automatic pageviews
+      autocapture: true,
+      capture_pageview: true,
       capture_pageleave: true,
 
       persistence: 'localStorage',
+
+      // Session replay: project-level toggle lives in PostHog UI
+      // (Project Settings → Replay → Record user sessions). Without that,
+      // these options are inert.
+      session_recording: {
+        // Offerloop forms hold emails, names, resumes — mask every input by
+        // default. Devs can opt specific elements OUT with data-ph-no-mask.
+        maskAllInputs: true,
+        // Mark sensitive non-input text with data-private="true" to mask it.
+        maskTextSelector: '[data-private="true"]',
+        recordCrossOriginIframes: false,
+      },
     })
   } else {
     console.warn('[PostHog] Missing environment variables. PostHog will not be initialized.')

@@ -22,6 +22,8 @@ import { CompletenessGauge } from '@/components/scout/CompletenessGauge';
 import { ActiveStrategyCard } from '@/components/scout/ActiveStrategyCard';
 import { SUGGESTED_QUESTIONS, SCOUT_CHIPS_BY_PAGE } from '@/data/scout-knowledge';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
+// Tour demo orchestration — local addition, not in loops-setup-v2.
+import { useTour } from '@/contexts/TourContext';
 import { toast } from '@/hooks/use-toast';
 import { ScoutApproveCard } from '@/components/ScoutApproveCard';
 import {
@@ -117,6 +119,7 @@ export function ScoutSidePanel() {
   const { user } = useFirebaseAuth();
   const {
     isPanelOpen,
+    openPanel,
     closePanel,
     searchHelpContext,
     searchHelpResponse,
@@ -125,6 +128,11 @@ export function ScoutSidePanel() {
     pendingMessage,
     clearPendingMessage,
   } = useScout();
+  // Tour demo orchestration — local addition, not in loops-setup-v2.
+  // `demoSurface === 'scout'` means the onboarding tour reached the Ask-Scout
+  // step; the effect below seeds a synthetic demo thread while it's active.
+  const { demoSurface } = useTour();
+  const scoutDemoActive = demoSurface === 'scout';
   const panelRef = useRef<HTMLDivElement>(null);
   const [isLoadingSearchHelp, setIsLoadingSearchHelp] = useState(false);
 
@@ -148,6 +156,7 @@ export function ScoutSidePanel() {
     loadChat,
     isLoadingChat,
     appendSyntheticAssistant,
+    appendSyntheticUser,
     requestBriefing,
   } = useScoutChat(location.pathname);
 
@@ -233,11 +242,17 @@ export function ScoutSidePanel() {
   // first turn lands and the title generation finishes).
   useEffect(() => {
     if (!isPanelOpen) return;
+    // Tour demo orchestration — local addition, not in loops-setup-v2.
+    // Suppress the real chat-history refetch while the seeded demo is active
+    // so the user's actual chats don't bleed into the tour's demo thread.
+    if (scoutDemoActive) return;
     void refreshChats();
-  }, [isPanelOpen, refreshChats]);
+  }, [isPanelOpen, refreshChats, scoutDemoActive]);
 
   useEffect(() => {
     if (!isPanelOpen) return;
+    // Tour demo orchestration — local addition, not in loops-setup-v2.
+    if (scoutDemoActive) return;
     // Small debounce: the backend writes the title asynchronously after the
     // turn responds, so wait briefly before refetching so we pick the new
     // title up on the same render that surfaced the chat_id.
@@ -245,7 +260,7 @@ export function ScoutSidePanel() {
       void refreshChats();
     }, 1500);
     return () => clearTimeout(t);
-  }, [chatId, isPanelOpen, refreshChats]);
+  }, [chatId, isPanelOpen, refreshChats, scoutDemoActive]);
 
   const handleSidebarChatClick = useCallback(
     async (id: string) => {
@@ -263,6 +278,40 @@ export function ScoutSidePanel() {
   const handleNewChatClick = useCallback(() => {
     startNewChat();
   }, [startNewChat]);
+
+  // ── Tour Scout demo orchestration ──────────────────────────────────────
+  // Local addition, NOT in loops-setup-v2 — re-ported on top of the branch
+  // overwrite (depends on appendSyntheticUser, also re-added to useScoutChat).
+  // When the tour reaches the Ask-Scout step, open the panel programmatically
+  // and seed a two-turn strategist conversation about reaching Mark Cuban.
+  // The seed uses the appendSyntheticUser / appendSyntheticAssistant helpers
+  // (purely local, never persisted), and the sidebar history refetch is gated
+  // above so the user's real chat list won't pop in alongside the demo.
+  // Cleanup closes the panel and clears the seeded thread.
+  useEffect(() => {
+    if (!scoutDemoActive) return;
+
+    // Open the panel if it isn't already, and start from a clean thread so
+    // the demo isn't mixed with a real in-progress chat.
+    openPanel();
+    clearChat();
+    appendSyntheticUser('I want to talk to Mark Cuban');
+    appendSyntheticAssistant(
+      "Smart goal. Mark's reachable but the angle has to be sharp. Here's how I'd run this:\n\n" +
+      "1. Map the path. I'll surface mutual LinkedIn connections with bias toward Shark Tank investors, Cost Plus Drugs operators, and Mavericks-adjacent execs.\n\n" +
+      "2. Pick the channel. Skip the public Mavs email (zero signal). Target a referral through someone he's engaged with in the last 30 days.\n\n" +
+      "3. Frame the ask. One concrete idea aligned with what he's publicly focused on right now, kept under five sentences.\n\n" +
+      "Want me to start mapping connections?"
+    );
+
+    return () => {
+      // Wipe the seeded thread and close the panel. clearChat is local-only
+      // (setMessages([]) + setChatId(null)), so no backend write fires.
+      clearChat();
+      closePanel();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scoutDemoActive]);
 
   // -------------------------------------------------------------------------
   // Navigate execution + the auto-execute effect

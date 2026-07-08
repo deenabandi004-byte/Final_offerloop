@@ -14,6 +14,44 @@ import json
 
 users_bp = Blueprint('users', __name__, url_prefix='/api/users')
 
+
+def _sync_newsletter_subscriber(uid: str, user_ref, incoming_updates: dict) -> None:
+    """Push the user's segmentation attributes to Beehiiv after onboarding
+    completes. Skipped if the user opted out of the newsletter or Beehiiv
+    is not configured. Best-effort — never raises."""
+    from app.services.beehiiv_client import upsert_subscriber
+
+    snap = user_ref.get()
+    data = (snap.to_dict() or {}) if snap.exists else {}
+    email = data.get("email")
+    if not email:
+        return
+    if data.get("newsletterSubscribed") is False:
+        return
+
+    # Prefer incoming values (freshly submitted), fall back to stored ones.
+    school = incoming_updates.get("school") or data.get("school")
+    industries = incoming_updates.get("targetIndustries") or data.get("targetIndustries") or []
+    primary_industry = industries[0] if industries else ""
+    class_year = (
+        data.get("classYear")
+        or data.get("graduationYear")
+        or (data.get("professionalInfo") or {}).get("graduationYear")
+        or ""
+    )
+    tier = data.get("subscriptionTier") or data.get("tier") or "free"
+
+    upsert_subscriber(
+        email,
+        custom_fields={
+            "school": school or "",
+            "target_industry": primary_industry,
+            "class_year": str(class_year),
+            "tier": tier,
+        },
+        utm_source="onboarding",
+    )
+
 # =============================================================================
 # PHASE 5: Job-Relevant Fields That Trigger Recomputation
 # =============================================================================
@@ -281,7 +319,7 @@ def update_user_preferences():
 def log_onboarding_event():
     """Log an onboarding step event (viewed or completed).
 
-    Request body: { "event": "viewed"|"completed", "step": "profile"|"academics"|"goals"|"location", "skipped": false }
+    Request body: { "event": "viewed"|"completed", "step": "source"|"confirm"|"direction"|"trial", "skipped": false }
     """
     try:
         uid = request.firebase_user["uid"]
@@ -291,7 +329,13 @@ def log_onboarding_event():
         skipped = bool(data.get("skipped", False))
 
         valid_events = {"viewed": "onboarding_step_viewed", "completed": "onboarding_step_completed"}
-        valid_steps = {"welcome", "profile", "academics", "goals", "location"}
+        # New 5-step flow: source/confirm/direction/trial. Legacy step names kept
+        # so historical/in-flight clients don't 400.
+        valid_steps = {
+            "profile", "source", "manual", "intent", "track", "trial",
+            "confirm", "direction",  # transitional names
+            "welcome", "academics", "goals", "location",  # legacy
+        }
 
         if event not in valid_events:
             return jsonify({"error": f"Invalid event: {event}"}), 400
@@ -410,7 +454,244 @@ def confirm_structured_profile():
         except Exception:
             pass
 
+        # Beehiiv newsletter sync — do this after profile confirm because
+        # that's when we finally have school + industry + class year for
+        # segmentation. Skipped silently if user opted out or Beehiiv is
+        # not configured.
+        try:
+            _sync_newsletter_subscriber(uid, user_ref, updates)
+        except Exception:
+            pass
+
+        # Stamp profileConfirmedAt (one-shot). Powers Phase 2 lifecycle
+        # campaign triggers: onboarding drop-off (fires if signup > 24h and
+        # this is still null) and first-search activation (fires 48h after
+        # this stamps if no first search yet).
+        try:
+            from app.services.lifecycle_signals import stamp_profile_confirmed
+            stamp_profile_confirmed(uid)
+        except Exception:
+            pass
+
         return jsonify({"ok": True, "updatedFields": list(provenance_updates.keys())}), 200
     except Exception as e:
         print(f"[ProfileConfirm] Error for uid={uid}: {e}")
         return jsonify({"error": "Failed to update profile"}), 500
+
+
+# =============================================================================
+# Newsletter opt-in (called at onboarding completion)
+# =============================================================================
+
+@users_bp.route('/newsletter-opt-in', methods=['POST', 'OPTIONS'])
+@require_firebase_auth
+def newsletter_opt_in():
+    """
+    Set newsletterSubscribed on the user doc and (if opting in) push the
+    subscriber to Beehiiv with segmentation attributes.
+
+    Body: {
+        "subscribed": true,
+        "school": "USC",              // optional, defaults to stored value
+        "target_industry": "consulting",
+        "class_year": "2027"
+    }
+    """
+    if request.method == 'OPTIONS':
+        return ('', 204)
+
+    uid = request.firebase_user.get("uid")
+    if not uid:
+        return jsonify({"error": "uid required"}), 401
+
+    data = request.get_json(silent=True) or {}
+    subscribed = bool(data.get("subscribed", True))
+
+    db = get_db()
+    user_ref = db.collection("users").document(uid)
+    user_ref.set({"newsletterSubscribed": subscribed}, merge=True)
+
+    if not subscribed:
+        # Also remove from Beehiiv so they don't get the next issue.
+        try:
+            snap = user_ref.get()
+            email = (snap.to_dict() or {}).get("email") if snap.exists else None
+            if email:
+                from app.services.beehiiv_client import unsubscribe
+                unsubscribe(email)
+        except Exception:
+            pass
+        return jsonify({"ok": True, "subscribed": False}), 200
+
+    # Opt-in: push segmentation attributes to Beehiiv.
+    try:
+        snap = user_ref.get()
+        stored = (snap.to_dict() or {}) if snap.exists else {}
+        email = stored.get("email")
+        if not email:
+            return jsonify({"ok": True, "subscribed": True, "reason": "no_email"}), 200
+
+        from app.services.beehiiv_client import upsert_subscriber
+        upsert_subscriber(
+            email,
+            custom_fields={
+                "school": data.get("school") or stored.get("school") or "",
+                "target_industry": data.get("target_industry") or "",
+                "class_year": str(data.get("class_year") or stored.get("classYear") or ""),
+                "tier": stored.get("subscriptionTier") or stored.get("tier") or "free",
+            },
+            utm_source="onboarding",
+        )
+    except Exception as e:
+        print(f"[NewsletterOptIn] Beehiiv sync failed for uid={uid}: {e}")
+
+    return jsonify({"ok": True, "subscribed": True}), 200
+
+
+# =============================================================================
+# Email preferences center (Account Settings)
+# =============================================================================
+
+DEFAULT_EMAIL_PREFS = {
+    "productTips": True,       # onboarding drip + feature discovery
+    "recruitingPlaybook": True,  # weekly/bi-weekly newsletter (mirrors newsletterSubscribed)
+    "weeklyRecap": True,        # Sunday summary of user's own activity
+    "activityDigest": True,     # agent daily digest (System A via user's Gmail)
+}
+EMAIL_PREF_KEYS = set(DEFAULT_EMAIL_PREFS.keys())
+
+
+@users_bp.route('/email-preferences', methods=['GET', 'PATCH', 'OPTIONS'])
+@require_firebase_auth
+def email_preferences():
+    """Read or update the user's granular email preferences.
+
+    GET  → { preferences: {productTips, recruitingPlaybook, weeklyRecap, activityDigest} }
+    PATCH body: partial dict of the same shape. Booleans only.
+    """
+    if request.method == 'OPTIONS':
+        return ('', 204)
+
+    uid = request.firebase_user.get("uid")
+    if not uid:
+        return jsonify({"error": "uid required"}), 401
+
+    db = get_db()
+    user_ref = db.collection("users").document(uid)
+
+    if request.method == 'GET':
+        snap = user_ref.get()
+        stored = (snap.to_dict() or {}) if snap.exists else {}
+        raw_prefs = stored.get("emailPreferences") or {}
+        # Fall back to legacy newsletterSubscribed for recruitingPlaybook so
+        # existing users' opt-out state is respected.
+        if "recruitingPlaybook" not in raw_prefs and "newsletterSubscribed" in stored:
+            raw_prefs = {**raw_prefs, "recruitingPlaybook": bool(stored["newsletterSubscribed"])}
+        prefs = {**DEFAULT_EMAIL_PREFS, **{k: v for k, v in raw_prefs.items() if k in EMAIL_PREF_KEYS}}
+        return jsonify({"preferences": prefs}), 200
+
+    # PATCH
+    data = request.get_json(silent=True) or {}
+    incoming = {k: bool(v) for k, v in data.items() if k in EMAIL_PREF_KEYS and isinstance(v, bool)}
+    if not incoming:
+        return jsonify({"error": "no valid preference fields"}), 400
+
+    snap = user_ref.get()
+    stored = (snap.to_dict() or {}) if snap.exists else {}
+    current = stored.get("emailPreferences") or {}
+    merged = {**current, **incoming}
+    updates = {"emailPreferences": merged}
+
+    # Mirror recruitingPlaybook ↔ newsletterSubscribed so the lifecycle
+    # scanner + Beehiiv sync agree with the prefs center.
+    if "recruitingPlaybook" in incoming:
+        updates["newsletterSubscribed"] = incoming["recruitingPlaybook"]
+        try:
+            email = stored.get("email")
+            if email:
+                from app.services.beehiiv_client import upsert_subscriber, unsubscribe as beehiiv_unsub
+                if incoming["recruitingPlaybook"]:
+                    tier = stored.get("subscriptionTier") or stored.get("tier") or "free"
+                    upsert_subscriber(email, custom_fields={"tier": tier}, reactivate=True)
+                else:
+                    beehiiv_unsub(email)
+        except Exception as e:
+            print(f"[EmailPrefs] Beehiiv sync failed for uid={uid}: {e}")
+
+    user_ref.set(updates, merge=True)
+    return jsonify({"preferences": {**DEFAULT_EMAIL_PREFS, **merged}}), 200
+
+
+# =============================================================================
+# Pro Free Trial — Wave 3
+# =============================================================================
+# See `backend/app/services/trial_service.py` for the full policy + lifecycle.
+# - 14 days, no credit card required, one trial per account lifetime
+# - 300 credits/day daily allocation (no rollover, anti-skim)
+# - At expiry, auto-downgrade to Free tier on next authenticated request
+# =============================================================================
+
+from app.services.trial_service import start_trial, get_trial_status, apply_trial_expiry
+
+
+@users_bp.route('/start-trial', methods=['POST'])
+@require_firebase_auth
+def start_pro_trial():
+    """Activate the one-time 14-day Pro free trial. No credit card required.
+
+    Returns:
+      200 + {ok, trial_ends_at, daily_credits, duration_days} on success
+      409 + {error: 'trial_already_used' | 'already_subscribed'} when ineligible
+      404 + {error: 'user_not_found'} when user doc missing
+    """
+    user_id = request.firebase_user.get('uid')
+    if not user_id:
+        return jsonify({'error': 'unauthenticated'}), 401
+
+    result = start_trial(user_id)
+    if not result.get('ok'):
+        err = result.get('error', 'unknown')
+        if err == 'user_not_found':
+            return jsonify(result), 404
+        if err in ('trial_already_used', 'already_subscribed'):
+            return jsonify(result), 409
+        return jsonify(result), 500
+
+    return jsonify(result), 200
+
+
+@users_bp.route('/trial-status', methods=['GET'])
+@require_firebase_auth
+def get_pro_trial_status():
+    """Return the user's trial state — used by TrialBanner.tsx to show days +
+    daily credits remaining. Also lazily handles trial expiry transition: if
+    the trial has expired but we haven't processed it yet, this call also
+    runs the auto-downgrade to Free.
+    """
+    user_id = request.firebase_user.get('uid')
+    if not user_id:
+        return jsonify({'error': 'unauthenticated'}), 401
+
+    db = get_db()
+    user_ref = db.collection('users').document(user_id)
+    snap = user_ref.get()
+    if not snap.exists:
+        return jsonify({'error': 'user_not_found'}), 404
+    user_data = snap.to_dict() or {}
+
+    status = get_trial_status(user_data)
+
+    # Lazy expiry processing — flip to Free if needed
+    if status.get('is_expired_unprocessed'):
+        apply_trial_expiry(user_id)
+        # Re-read to surface the new state
+        snap = user_ref.get()
+        user_data = snap.to_dict() or {}
+        status = get_trial_status(user_data)
+
+    return jsonify({
+        'ok': True,
+        'status': status,
+        'has_trial_used': bool(user_data.get('trialUsedAt')),
+        'current_tier': user_data.get('subscriptionTier') or user_data.get('tier') or 'free',
+    }), 200

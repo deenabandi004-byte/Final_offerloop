@@ -14,6 +14,7 @@ from .app.routes.gmail_oauth import gmail_oauth_bp
 from .app.routes.emails import emails_bp
 from .app.routes.contacts import contacts_bp
 from .app.routes.runs import runs_bp
+from .app.routes.runs_similar import runs_similar_bp
 from .app.routes.enrichment import enrichment_bp
 from .app.routes.resume import resume_bp
 from .app.routes.coffee_chat_prep import coffee_chat_bp
@@ -28,6 +29,7 @@ from .app.routes.search_history import search_history_bp
 from .app.routes.parse_prompt import parse_prompt_bp
 from .app.routes.contact_import import contact_import_bp
 from .app.routes.job_board import job_board_bp
+from .app.routes.auto_apply import auto_apply_bp
 from .app.routes.alumni_discovery_routes import alumni_discovery_bp
 from .app.routes.scout_assistant import scout_assistant_bp, scout_admin_bp
 from .app.routes.linkedin_import import linkedin_import_bp
@@ -45,6 +47,18 @@ from .app.routes.agent import agent_bp
 from .app.routes.loop_notifications import loop_notifications_bp
 from .app.routes.loops import loops_bp
 from .app.routes.metrics import metrics_bp
+from .app.routes.referrals import referrals_bp
+from .app.routes.interview_prep_public import interview_prep_public_bp
+from .app.routes.cover_letter_public import cover_letter_public_bp
+from .app.routes.resume_workshop_public import resume_workshop_public_bp
+from .app.routes.meeting_prep_public import meeting_prep_public_bp
+from .app.routes.find_hiring_manager_public import find_hiring_manager_public_bp
+from .app.routes.find_companies_public import find_companies_public_bp
+from .app.routes.find_jobs_public import find_jobs_public_bp
+from .app.routes.find_people_public import find_people_public_bp
+from .app.routes.shares import shares_bp
+from .app.routes.lifecycle import lifecycle_bp
+from .app.routes.beehiiv_webhook import beehiiv_webhook_bp
 from .app.extensions import init_app_extensions
 
 def create_app() -> Flask:
@@ -58,6 +72,34 @@ def create_app() -> Flask:
         static_folder=STATIC_DIR,
         static_url_path=""
     )
+
+    # --- 410 Gone for pruned dead SEO pages ---
+    # These pages (old firm-name-swapped templates with zero clicks) were
+    # permanently removed on 2026-06-15 and dropped from the sitemap. Serving
+    # 410 (not 404) tells Google to deindex them. Earners are NOT in this list.
+    # Registered before the prerender middleware so crawlers get the 410 itself.
+    PRUNED_PATHS = set()
+    try:
+        _pruned_file = os.path.join(os.path.dirname(__file__), "app", "seo_pruned_urls.txt")
+        with open(_pruned_file, "r", encoding="utf-8") as _pf:
+            PRUNED_PATHS = {ln.strip().rstrip("/") for ln in _pf if ln.strip() and not ln.startswith("#")}
+        app.logger.info(f"Loaded {len(PRUNED_PATHS)} pruned (410) SEO paths")
+    except FileNotFoundError:
+        app.logger.warning("seo_pruned_urls.txt not found; 410 pruning inactive")
+
+    @app.before_request
+    def gone_pruned_pages():
+        if request.method != "GET":
+            return None
+        if (request.path.rstrip("/") or "/") in PRUNED_PATHS:
+            resp = make_response(
+                "<!doctype html><title>410 Gone</title>"
+                "<h1>410 Gone</h1><p>This page has been permanently removed.</p>"
+            )
+            resp.status_code = 410
+            resp.mimetype = "text/html"
+            return resp
+        return None
 
     # --- Prerender.io middleware for bot crawlers (SEO/AEO) ---
     PRERENDER_TOKEN = os.environ.get("PRERENDER_TOKEN")
@@ -175,7 +217,9 @@ def create_app() -> Flask:
     app.register_blueprint(emails_bp)
     app.register_blueprint(linkedin_import_bp)  # Register before contacts_bp to avoid route conflicts
     app.register_blueprint(contacts_bp)
+    app.register_blueprint(shares_bp)
     app.register_blueprint(runs_bp)
+    app.register_blueprint(runs_similar_bp)
     app.register_blueprint(enrichment_bp)
     app.register_blueprint(resume_bp)
     app.register_blueprint(coffee_chat_bp)
@@ -190,6 +234,7 @@ def create_app() -> Flask:
     app.register_blueprint(parse_prompt_bp)
     app.register_blueprint(contact_import_bp)
     app.register_blueprint(job_board_bp)
+    app.register_blueprint(auto_apply_bp)
     app.register_blueprint(alumni_discovery_bp)
     app.register_blueprint(scout_assistant_bp)
     app.register_blueprint(scout_admin_bp)
@@ -207,6 +252,29 @@ def create_app() -> Flask:
     app.register_blueprint(loops_bp)
     app.register_blueprint(loop_notifications_bp)
     app.register_blueprint(metrics_bp)
+    app.register_blueprint(referrals_bp)
+    app.register_blueprint(interview_prep_public_bp)
+    app.register_blueprint(cover_letter_public_bp)
+    app.register_blueprint(resume_workshop_public_bp)
+    app.register_blueprint(meeting_prep_public_bp)
+    app.register_blueprint(find_hiring_manager_public_bp)
+    app.register_blueprint(find_companies_public_bp)
+    app.register_blueprint(find_jobs_public_bp)
+    app.register_blueprint(find_people_public_bp)
+    app.register_blueprint(lifecycle_bp)         # /api/lifecycle/tick + unsubscribe
+    app.register_blueprint(beehiiv_webhook_bp)   # /api/beehiiv/webhook (inbound unsub sync)
+
+    # --- MCP server (anonymous IP-based, mounts /mcp + /api/mcp/health) ---
+    # Skippable for local dev: the MCP mount refuses to boot against the prod
+    # Firestore project from a non-prod env, so DISABLE_MCP=1 lets a developer
+    # run the rest of the app locally without it.
+    if os.getenv("DISABLE_MCP") != "1":
+        from .app.mcp_server.flask_mount import register_mcp_blueprint
+        register_mcp_blueprint(app)
+
+    # --- /claim?token=xyz attribution landing for MCP paywall ---
+    from .app.routes.claim import claim_bp
+    app.register_blueprint(claim_bp)
 
     # --- Debug route to check frontend build (dev only) ---
     @app.route('/api/debug/frontend')
@@ -259,6 +327,19 @@ def create_app() -> Flask:
     @app.route('/llms.txt')
     def llms():
         return send_from_directory(app.static_folder, 'llms.txt', mimetype='text/plain')
+
+    # Domain verification token for the OpenAI ChatGPT Apps directory.
+    # Returned at the .well-known path OpenAI's submission flow expects.
+    @app.route('/.well-known/openai-apps-challenge')
+    def openai_apps_challenge():
+        token = os.environ.get(
+            'OPENAI_APPS_CHALLENGE_TOKEN',
+            'kMyLrHsGzLSj1Of8pzrzlHuLKo9cXWhMbDnWF8rhgOA',
+        )
+        resp = make_response(token, 200)
+        resp.headers['Content-Type'] = 'text/plain; charset=utf-8'
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
 
     # --- 404 handler for SPA (catches all unmatched routes) ---
     @app.errorhandler(404)

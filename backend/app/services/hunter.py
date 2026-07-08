@@ -582,9 +582,14 @@ def find_email_with_hunter(first_name: str, last_name: str, domain: str, api_key
                      fallback after a single miss.
 
     Returns:
-        Tuple of (email, score) or (None, 0) if not found
-        email: Found email address or None
-        score: Confidence score (0-100) or 0
+        Tuple of (email, score)
+          - (email, score) on a confident hit (score >= 70)
+          - (None, score)  on a low-confidence hit (Hunter has data but score < 70)
+          - (None, 0)      on a real "no data" miss
+          - (None, -1)     when Hunter rate-limited us (Phase 2.5 sentinel).
+                           Callers MUST NOT fall through to pattern synthesis
+                           on this case — pattern guesses on a rate-limit are
+                           the #2 source of bounces.
     """
     import time
     finder_start = time.time()
@@ -628,7 +633,18 @@ def find_email_with_hunter(first_name: str, last_name: str, domain: str, api_key
                     continue
                 else:
                     print(f"[Hunter Email Finder] ❌ Rate limited after {max_retries} attempts")
-                    return None, 0
+                    # Phase 2.5: -1 sentinel tells the caller we were rate
+                    # limited, so it skips pattern synthesis instead of
+                    # shipping an invented address.
+                    try:
+                        from app.utils.metrics_events import log_event
+                        log_event(None, "hunter_rate_limited", {
+                            "endpoint": "email_finder",
+                            "domain": domain,
+                        })
+                    except Exception:
+                        pass
+                    return None, -1
             
             if response.status_code != 200:
                 print(f"[Hunter Email Finder] ⚠️ Error response: {response.status_code}")
@@ -1651,6 +1667,8 @@ def batch_verify_emails_for_contacts(contacts: list, target_company: str = None)
 
         # T2: Hunter Email Finder. Returns (email, score) where email is None
         # if score < 70 OR no match. Hunter does NOT charge on no-match.
+        # score == -1 sentinel means Hunter rate-limited us (Phase 2.5).
+        finder_rate_limited = False
         if domain and first_name and last_name:
             try:
                 finder_email, finder_score = find_email_with_hunter(first_name, last_name, domain)
@@ -1659,8 +1677,16 @@ def batch_verify_emails_for_contacts(contacts: list, target_company: str = None)
                 if finder_email and finder_score >= RISKY_FINDER_SCORE:
                     # Usable but flag as not-verified so caller can decide
                     return i, {'email': finder_email, 'verified': False, 'source': 'hunter_finder_risky', 'score': finder_score}
+                if finder_score == -1:
+                    finder_rate_limited = True
             except Exception as e:
                 print(f"[BatchEmailVerification] Hunter Email Finder failed for contact {i}: {e}")
+
+        # Phase 2.5: if Hunter was rate-limited, stop here — do NOT synthesize a
+        # pattern guess. Pattern guesses on a 429 silently inflate the bounce
+        # rate because the user thinks Hunter cleared the address.
+        if finder_rate_limited:
+            return i, {'email': None, 'verified': False, 'source': None, 'score': 0, 'reason': 'hunter_rate_limited'}
 
         # T3: Pattern synthesis from cached domain pattern (unverified)
         if domain and domain in domain_patterns:
@@ -1711,7 +1737,12 @@ def batch_verify_emails_for_contacts(contacts: list, target_company: str = None)
                     if nb_result == neverbounce_client.RESULT_VALID:
                         return idx, {**r, "source": "neverbounce_verified", "verified": True, "score": max(int(r.get("score") or 0), 90)}
                     if nb_result in (neverbounce_client.RESULT_ACCEPT_ALL, neverbounce_client.RESULT_CATCHALL):
-                        return idx, {**r, "source": "neverbounce_acceptall", "verified": False, "score": max(int(r.get("score") or 0), 60)}
+                        # Phase 2.3: catch-all domains accept everything at SMTP
+                        # but silently drop or bounce later. Treat them as
+                        # invalid for draft purposes — better to surface the
+                        # contact with no email than to ship a guess that
+                        # routes to /dev/null.
+                        return idx, {"email": None, "verified": False, "source": None, "score": 0}
                     if nb_result == neverbounce_client.RESULT_INVALID:
                         # Drop invalid emails entirely — don't draft to a dead inbox
                         return idx, {"email": None, "verified": False, "source": None, "score": 0}

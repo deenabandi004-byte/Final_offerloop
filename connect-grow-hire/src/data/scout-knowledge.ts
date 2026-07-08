@@ -14,10 +14,10 @@ export const PAGES = {
     route: "/home",
     name: "Home / Dashboard",
     description: "Your central hub for tracking networking progress, managing emails, and planning your recruiting timeline.",
-    tabs: ["Dashboard", "Outbox", "Calendar"],
+    tabs: ["Dashboard", "Inbox", "Calendar"],
     features: [
       "Activity statistics and progress tracking",
-      "Email thread management in Outbox",
+      "Email thread management in Inbox",
       "Personalized recruiting calendar and timeline"
     ],
     keywords: ["home", "dashboard", "main", "start", "overview", "stats", "activity"]
@@ -36,7 +36,7 @@ export const PAGES = {
       "Import contacts from CSV or manually",
       "Resume matching for better personalization (Pro+)"
     ],
-    creditCost: "15 credits per contact",
+    creditCost: "10 credits per contact",
     keywords: ["contact", "search", "find", "people", "professionals", "network", "networking", "email", "outreach", "connect"]
   },
 
@@ -65,7 +65,7 @@ export const PAGES = {
       "View search history",
       "Scout assistant for refined searches"
     ],
-    creditCost: "5 credits per firm",
+    creditCost: "10 credits per firm",
     keywords: ["firm", "company", "companies", "business", "employer", "find companies", "search firms"]
   },
 
@@ -99,7 +99,7 @@ export const PAGES = {
       "PDF download of prep materials",
       "Saved preps in library"
     ],
-    creditCost: "15 credits per prep",
+    creditCost: "30 credits per prep",
     keywords: ["coffee chat", "prep", "preparation", "networking", "informational", "interview", "questions", "talking points"]
   },
 
@@ -144,7 +144,7 @@ export const PAGES = {
 
   outbox: {
     route: "/home?tab=outbox",
-    name: "Outbox",
+    name: "Inbox",
     description: "Manage your email threads and track responses. View drafts, sent emails, and replies. Use the calendar and networking tabs to stay organized.",
     features: [
       "View all email threads",
@@ -152,7 +152,7 @@ export const PAGES = {
       "Regenerate suggested replies",
       "Open emails in Gmail"
     ],
-    keywords: ["outbox", "emails", "drafts", "sent", "replies", "threads", "messages"]
+    keywords: ["inbox", "outbox", "emails", "drafts", "sent", "replies", "threads", "messages"]
   }
 } as const;
 
@@ -179,7 +179,7 @@ export const FEATURES = {
       "Connect Gmail first to save email drafts automatically",
       "Pro users can upload a resume for better email personalization"
     ],
-    creditCost: 15,
+    creditCost: 10,
     creditUnit: "per contact"
   },
 
@@ -268,7 +268,7 @@ export const WORKFLOWS = {
       "Connect Gmail in Account Settings (if not done)",
       "Go to Contact Search",
       "Enter job title, company, and location",
-      "Select batch size (1-30 contacts)",
+      "Select batch size (1-15 contacts)",
       "Click Search",
       "Review the contacts and generated emails",
       "Emails are saved to Gmail drafts automatically",
@@ -346,12 +346,12 @@ export const WORKFLOWS = {
 
 export const CREDIT_SYSTEM = {
   costs: {
-    contactSearch: { amount: 15, unit: "per contact" },
-    firmSearch: { amount: 5, unit: "per firm" },
-    coffeeChatPrep: { amount: 15, unit: "per prep" },
-    resumeOptimization: { amount: 10, unit: "per optimization" },
-    coverLetter: { amount: 10, unit: "per letter" },
-    recruiterSearch: { amount: 15, unit: "per search" }
+    contactSearch: { amount: 10, unit: "per contact" },
+    firmSearch: { amount: 10, unit: "per firm" },
+    coffeeChatPrep: { amount: 30, unit: "per prep" },
+    resumeOptimization: { amount: 40, unit: "per optimization" },
+    coverLetter: { amount: 20, unit: "per letter" },
+    recruiterSearch: { amount: 6, unit: "per search" }
   },
 
   tiers: {
@@ -391,10 +391,10 @@ export const CREDIT_SYSTEM = {
       price: "$34.99/month",
       credits: 3000,
       maxCredits: 3000,
-      maxContactsPerSearch: 30,
+      maxContactsPerSearch: 15,
       features: [
         "3,000 monthly credits",
-        "Up to 30 contacts per search",
+        "Up to 15 contacts per search",
         "All Pro features",
         "Unlimited Coffee Chat Prep",
         "Advanced analytics"
@@ -407,8 +407,8 @@ export const CREDIT_SYSTEM = {
     "Each action costs a specific number of credits",
     "Credits reset monthly based on your subscription date",
     "Free tier: 300 credits/month",
-    "Pro tier: 1,500 credits/month",
-    "Elite tier: 3,000 credits/month",
+    "Pro tier: 2,000 credits/month",
+    "Elite tier: 5,000 credits/month",
     "Unused credits don't roll over",
     "You can see your remaining credits in the sidebar"
   ]
@@ -438,7 +438,7 @@ export const TROUBLESHOOTING = {
       "Check your credits in the sidebar",
       "Go to Pricing to upgrade your plan",
       "Credits reset monthly - check your reset date",
-      "Pro ($9.99) gives 1,500 credits, Elite ($34.99) gives 3,000"
+      "Pro ($14.99) gives 2,000 credits, Elite ($34.99) gives 5,000"
     ]
   },
 

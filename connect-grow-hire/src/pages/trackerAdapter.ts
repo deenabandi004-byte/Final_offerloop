@@ -8,18 +8,19 @@ import { daysBetween } from "@/lib/formatters";
 
 // ── Prototype's domain model (from network-tracker.html) ─────────────────────
 
-export const PROTO_STAGES = ["saved", "contacted", "connected", "interviewing", "offer"] as const;
+export const PROTO_STAGES = ["saved", "drafted", "contacted", "connected", "interviewing", "offer"] as const;
 export type ProtoStage = (typeof PROTO_STAGES)[number];
 
 export const PROTO_STAGE_LABELS: Record<ProtoStage, string> = {
   saved: "Saved",
+  drafted: "Drafted",
   contacted: "Contacted",
   connected: "Connected",
   interviewing: "Interviewing",
   offer: "Offer",
 };
 
-export type ProtoSegment = "people" | "companies" | "hiringManagers" | "archived";
+export type ProtoSegment = "people" | "hiringManagers";
 
 // Display-only chip rendered on each card. Derived from real state but does
 // not drive any behavior in PR1.
@@ -52,6 +53,9 @@ export interface ProtoContact {
   // archived. Drives Archive ↔ Unarchive in the detail header and gates which
   // segment a contact appears under.
   archivedAt: string | null;
+  // Provenance — "agent" for Loop-discovered contacts, "" for manual. Drives
+  // the inline "Loop" badge on the people card.
+  source: string;
 }
 
 // ── 11-stage backend → 5-stage prototype (read-side bucketing only) ──────────
@@ -74,6 +78,8 @@ export function protoStageToBackend(stage: ProtoStage): PipelineStage {
   switch (stage) {
     case "saved":
       return "new";
+    case "drafted":
+      return "draft_created";
     case "contacted":
       return "email_sent";
     case "connected":
@@ -89,8 +95,12 @@ function stageOnlyMap(s: PipelineStage | null | undefined): ProtoStage | null {
   switch (s) {
     case "new":
       return "saved";
+    // draft_created / draft_deleted: email body written, never sent. Lives in
+    // its own bucket between Saved and Contacted so the user can spot
+    // un-sent drafts without scrolling past sent ones.
     case "draft_created":
     case "draft_deleted":
+      return "drafted";
     case "email_sent":
     case "waiting_on_reply":
       return "contacted";
@@ -146,19 +156,18 @@ function deriveRole(title: string, company: string): string {
 
 // ── Single-thread translation ────────────────────────────────────────────────
 
-// Per-contact Clearbit URL derived from this contact's own email. Used by
-// the people-card inline logo. Null when the contact uses a personal email
-// (gmail / yahoo / etc.) — we never ship a personal domain to Clearbit.
+// Per-contact logo URL derived from this contact's own email. Used by the
+// people-card inline logo. Null when the contact uses a personal email
+// (gmail / yahoo / etc.), we never ship a personal domain to the favicon
+// service.
 //
-// This is intentionally narrower than the company-tab's group-level
-// pickCompanyDomain. A contact on personal email shows no inline logo on
-// their people card even when a colleague's work-domain email gives the
-// company tab a real logo. Logged as a follow-up to make consistent if the
-// divergence reads as buggy in practice.
+// Was logo.clearbit.com before 2025-12-08; that provider was retired and
+// now fails with ERR_NAME_NOT_RESOLVED. Mirrors CompanyLogo's LOGO_SOURCE
+// helper so a future swap to img.logo.dev is two parallel edits.
 function buildContactLogoFallbackUrl(email: string): string | null {
   const d = emailDomain(email);
   if (!d || PERSONAL_EMAIL_DOMAINS.has(d)) return null;
-  return `https://logo.clearbit.com/${d}`;
+  return `https://www.google.com/s2/favicons?domain=${d}&sz=128`;
 }
 
 export function outboxThreadToProto(t: OutboxThread): ProtoContact {
@@ -184,6 +193,7 @@ export function outboxThreadToProto(t: OutboxThread): ProtoContact {
       : TERMINAL_LABELS[t.pipelineStage ?? ""] ?? "—",
     companyLogoFallbackUrl: buildContactLogoFallbackUrl(t.email || ""),
     archivedAt: t.archivedAt ?? null,
+    source: t.source || "",
   };
 }
 
@@ -192,7 +202,7 @@ export function outboxThreadToProto(t: OutboxThread): ProtoContact {
 export type GroupedByStage = Record<ProtoStage, ProtoContact[]>;
 
 function emptyByStage(): GroupedByStage {
-  return { saved: [], contacted: [], connected: [], interviewing: [], offer: [] };
+  return { saved: [], drafted: [], contacted: [], connected: [], interviewing: [], offer: [] };
 }
 
 // Default-view accordion source. Terminal contacts (stage=null) are excluded.
@@ -228,41 +238,3 @@ function emailDomain(email: string): string | null {
   return domain;
 }
 
-// Pick the best work-email domain across a company's contacts. Returns null
-// when every contact uses a personal email so the logo component can fall
-// through to name-guess Clearbit instead of leaking a personal domain.
-function pickCompanyDomain(contacts: ProtoContact[]): string | null {
-  for (const c of contacts) {
-    const d = emailDomain(c.email);
-    if (d && !PERSONAL_EMAIL_DOMAINS.has(d)) return d;
-  }
-  return null;
-}
-
-export interface CompanyGroup {
-  company: string;
-  contacts: ProtoContact[];
-  // Best work-domain available across the group's contacts, derived from
-  // their email addresses. Null when no contact has a work-domain email.
-  // Consumed by CompanyLogo as the email-derived Clearbit URL source.
-  domain: string | null;
-}
-
-// Companies view re-groups the same staged dataset by company. Terminal
-// contacts are excluded for the same reason as groupedByStage.
-export function groupedByCompany(contacts: ProtoContact[]): CompanyGroup[] {
-  const byCompany = new Map<string, ProtoContact[]>();
-  for (const c of contacts) {
-    if (!c.stage) continue;
-    const key = (c.company || "Unknown").trim();
-    if (!byCompany.has(key)) byCompany.set(key, []);
-    byCompany.get(key)!.push(c);
-  }
-  return Array.from(byCompany.entries())
-    .map(([company, list]) => ({
-      company,
-      contacts: list,
-      domain: pickCompanyDomain(list),
-    }))
-    .sort((a, b) => a.company.localeCompare(b.company));
-}

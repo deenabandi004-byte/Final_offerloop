@@ -715,3 +715,194 @@ def cap_per_company(jobs: list[dict], max_per_company: int = 3) -> list[dict]:
             result.append(job)
             counts[company_key] += 1
     return result
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: composite signals + natural bucket assignment
+# ---------------------------------------------------------------------------
+# Reads the active profile from job_ranking_config and composes four signals
+# (relevance, landability, pipeline, discovery) into a single composite that
+# replaces match_score. Default config weights are { relevance: 1.0, others:
+# 0.0 } so the composite reduces to relevance exactly and match_score is
+# numerically unchanged. Bucket tags are emitted unconditionally for
+# telemetry but the renderer ignores them while render_mode is "legacy".
+#
+# Hard-drop on landability < hard_drop.landability_below replaces the old
+# level + location gates (intent_gates.apply_intent_gates is patched to
+# skip those when landability_below > 0).
+
+import logging as _logging
+_logger = _logging.getLogger(__name__)
+
+
+def _normalize_company_slug(name) -> str:
+    """Same shape as discovery._normalize_company. Duplicated to avoid an
+    upstream import dependency on the discovery reader."""
+    if not isinstance(name, str):
+        return ""
+    return _re.sub(r"[^a-z0-9]+", "", name.lower())
+
+
+def fetch_discovery_scores_chunked(
+    slugs: list, chunk_size: int = 100
+) -> dict:
+    """Batched read of company_signals via Firestore BatchGetDocuments.
+
+    Uses Client.get_all(refs) not where("__name__", "in", chunk) so we
+    do not hit the 10/30 cap on `in` queries. Chunks at 100 refs per call
+    to stay safely under the ~4MB gRPC message size limit.
+
+    Returns {slug: discovery_score}. Companies with no entry are absent
+    from the result (caller treats them as None).
+    """
+    try:
+        from app.extensions import get_db
+    except Exception:
+        return {}
+    db = get_db()
+    if db is None:
+        return {}
+    unique = sorted({s for s in slugs if isinstance(s, str) and s})
+    if not unique:
+        return {}
+    out: dict = {}
+    for i in range(0, len(unique), chunk_size):
+        chunk = unique[i:i + chunk_size]
+        refs = [db.collection("company_signals").document(s) for s in chunk]
+        try:
+            for snap in db.get_all(refs):
+                if not snap.exists:
+                    continue
+                data = snap.to_dict() or {}
+                score = data.get("discovery_score")
+                if isinstance(score, int):
+                    out[snap.id] = score
+        except Exception as e:
+            _logger.warning("discovery batch read failed: %s", e)
+            continue
+    return out
+
+
+def score_signals_and_bucket(
+    job: dict, intent: dict, profile: dict, relevance
+) -> dict:
+    """
+    Compute four signals + natural bucket + composite for one job.
+
+    Returns:
+      {
+        "signals":   {"relevance": int|None, "landability": int,
+                      "pipeline": int, "discovery": int|None},
+        "bucket":    "strong" | "reach" | "hidden",
+        "composite": int | None,
+        "drop":      bool,
+      }
+    """
+    from app.utils.landability import score_landability
+    from app.utils.discovery import get_discovery_score
+
+    lab = score_landability(job, intent, profile)["score"]
+    disc = get_discovery_score(job.get("company") or "")
+    pipe = 0  # phase 1: pipeline signal stays zero
+
+    signals = {
+        "relevance":   int(relevance) if relevance is not None else None,
+        "landability": int(lab),
+        "pipeline":    pipe,
+        "discovery":   int(disc) if disc is not None else None,
+    }
+
+    # Natural bucket assignment (config-driven thresholds)
+    assign = profile.get("bucket_assignment", {}) or {}
+    reach_below = int(assign.get("reach_when_landability_below", 45))
+    hidden_disc_above = int(assign.get("hidden_when_discovery_above", 70))
+    hidden_pipe_above = int(assign.get("hidden_when_pipeline_above", 50))
+
+    if lab < reach_below:
+        bucket = "reach"
+    elif (
+        disc is not None
+        and disc >= hidden_disc_above
+        and pipe >= hidden_pipe_above
+    ):
+        bucket = "hidden"
+    else:
+        bucket = "strong"
+
+    # Composite = weighted avg of non-null signals using this bucket's weights
+    weights = (profile.get("within_bucket_weights", {}) or {}).get(bucket, {}) or {}
+    num = 0.0
+    den = 0.0
+    for k, v in signals.items():
+        if v is None:
+            continue
+        w = float(weights.get(k, 0.0))
+        if w <= 0:
+            continue
+        num += v * w
+        den += w
+    composite = int(round(num / den)) if den > 0 else None
+
+    # Hard drops (gated implicitly by landability_below > 0 in the config)
+    hd = profile.get("hard_drop", {}) or {}
+    lab_floor = int(hd.get("landability_below", 0))
+    rel_floor = int(hd.get("relevance_below", 0))
+
+    drop = False
+    if lab_floor > 0 and lab < lab_floor:
+        drop = True
+    if rel_floor > 0 and signals["relevance"] is not None and signals["relevance"] < rel_floor:
+        drop = True
+
+    return {
+        "signals":   signals,
+        "bucket":    bucket,
+        "composite": composite,
+        "drop":      drop,
+    }
+
+
+def attach_signals_and_buckets(
+    jobs: list, profile: dict, user_profile: dict,
+    relevance_by_id=None,
+) -> list:
+    """
+    Compute signals + bucket + composite for each job, drop hard-drops,
+    attach signals/bucket/composite onto each surviving job dict.
+
+    relevance_by_id: optional map {job_id: relevance_int|None}. When
+    provided, used as the relevance signal. When omitted, each job's
+    existing match_score is treated as relevance.
+
+    match_score on the returned jobs is REPLACED by composite (which
+    equals relevance exactly under phase-1 weights). When composite is
+    None (e.g. no resume), match_score is left as-is.
+    """
+    from app.utils.intent_gates import build_user_intent
+    from app.utils.discovery import prime_cache
+
+    if not jobs:
+        return []
+
+    intent = build_user_intent(user_profile or {})
+
+    # Pre-fetch discovery for unique companies in one BatchGetDocuments call
+    slugs = [_normalize_company_slug(j.get("company") or "") for j in jobs]
+    discovery_map = fetch_discovery_scores_chunked(slugs)
+    if discovery_map:
+        prime_cache(discovery_map)
+
+    out = []
+    for job in jobs:
+        rel = (relevance_by_id or {}).get(job.get("job_id"))
+        if rel is None and relevance_by_id is None:
+            rel = job.get("match_score")
+        result = score_signals_and_bucket(job, intent, profile, rel)
+        if result["drop"]:
+            continue
+        job["signals"] = result["signals"]
+        job["bucket"] = result["bucket"]
+        if result["composite"] is not None:
+            job["match_score"] = result["composite"]
+        out.append(job)
+    return out

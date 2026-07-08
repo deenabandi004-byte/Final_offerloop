@@ -1,0 +1,42 @@
+name: Lifecycle Email Tick
+
+# Drives the entire lifecycle email system. Every campaign in
+# backend/app/services/lifecycle_emails.py fires from this cron.
+#
+# Cadence: every 30 minutes. Some campaigns use narrow send windows (welcome
+# drip Day 0 is a 6-hour window from signup; weekly win report is 18:00-22:00
+# UTC on Sundays; Pro monthly recap is 15:00-19:00 UTC on the 1st). At 30-min
+# frequency we land at least 8 ticks inside every 4-hour window and at least
+# 12 inside every 6-hour window, so no user misses their send.
+#
+# Cost: idempotent per (uid, campaign, step) via the `lifecycle_email_log`
+# collection, so re-firing inside a window is cheap (each user's re-check is
+# an already_sent lookup, no email).
+#
+# LIFECYCLE_CRON_SECRET must be set as a GitHub Actions secret and match the
+# same env var on the Render web service.
+
+on:
+  schedule:
+    - cron: '0,30 * * * *'
+  workflow_dispatch:
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Hit lifecycle tick
+        env:
+          LIFECYCLE_CRON_SECRET: ${{ secrets.LIFECYCLE_CRON_SECRET }}
+        run: |
+          if [ -z "$LIFECYCLE_CRON_SECRET" ]; then
+            echo "::error::LIFECYCLE_CRON_SECRET is not set in repo secrets"
+            exit 1
+          fi
+          curl -sS -X POST \
+            -H "X-Cron-Secret: $LIFECYCLE_CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            --max-time 240 \
+            --fail-with-body \
+            https://offerloop.ai/api/lifecycle/tick

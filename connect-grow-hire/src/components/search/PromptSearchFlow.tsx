@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { Loader2, Sparkles, Search } from 'lucide-react';
+import { Loader2, Search } from 'lucide-react';
 import { apiService, type PromptSearchResponse } from '@/services/api';
 import { useToast } from '@/hooks/use-toast';
 
@@ -45,7 +45,7 @@ export const PromptSearchFlow: React.FC<PromptSearchFlowProps> = ({
   const maxBatchSize = useMemo(() => {
     // Get tier-specific max contacts: free=3, pro=8, elite=15
     const tierMax = userTier === 'free' ? 3 : userTier === 'pro' ? 8 : 15;
-    const creditMax = Math.floor((userCredits ?? 0) / 15);
+    const creditMax = Math.floor((userCredits ?? 0) / 10);
     return Math.min(tierMax, creditMax);
   }, [userTier, userCredits]);
 
@@ -121,7 +121,6 @@ export const PromptSearchFlow: React.FC<PromptSearchFlowProps> = ({
       <Card className="w-full">
         <CardHeader>
           <CardTitle className="text-xl flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" />
             Prompt Search
           </CardTitle>
           <p className="text-sm text-muted-foreground">

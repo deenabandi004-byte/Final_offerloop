@@ -26,6 +26,8 @@ from app.services.loop_budget import (
 from app.services.loop_fleet_summary import (
     get_fleet_feed,
     get_fleet_weekly_summary,
+    get_found_counts_by_loop,
+    get_loop_live_stats,
     get_suggested_loops,
 )
 from app.services.loop_service import (
@@ -131,6 +133,16 @@ def _user_tier() -> str:
 def list_user_loops():
     uid = request.firebase_user["uid"]
     loops = list_loops(uid)
+    # Attach per-Loop found counts (this week + all-time) so each LoopCard can
+    # show weekly progress against its target AND cumulative progress — the
+    # latter keeps the Monday weekly-reset from reading like nothing happened.
+    # One contacts scan for the whole fleet, bucketed by loopId.
+    found_counts = get_found_counts_by_loop(uid)
+    for lp in loops:
+        c = found_counts.get(lp.get("id", ""), {})
+        lp["weekContactsFound"] = c.get("week", 0)
+        lp["liveContactsFound"] = c.get("all", 0)
+        lp["liveDraftsWaiting"] = c.get("drafts", 0)
     return jsonify({"loops": loops, "limits": get_loop_limits(uid, _user_tier())})
 
 
@@ -186,7 +198,39 @@ def create_user_loop():
                 "limits": limits,
             }), 402
         return jsonify({"error": msg}), 400
-    return jsonify(loop), 201
+
+    # Auto-start the Loop immediately. Idle-on-create was a vestige of
+    # the old "review before deploy" wizard; the V2 wizard collects the
+    # brief, the cadence (from tier default), and the approval mode in
+    # one shot, so there's nothing left for the student to confirm. If
+    # start fails (e.g. brief_required, though we just wrote one), the
+    # creation still succeeds but we surface the failure on the response
+    # so the wizard can show "Saved but didn't start" instead of a
+    # cheerful "Deployed!" toast (S2.4 in the loops audit).
+    auto_start_error = None
+    try:
+        started = start_loop(
+            uid, loop["id"], app=current_app._get_current_object(),
+        )
+        if started:
+            loop = started
+    except Exception as start_err:
+        logger.exception(
+            "POST /loops: auto-start failed for uid=%s loop=%s",
+            uid, loop.get("id"),
+        )
+        auto_start_error = type(start_err).__name__
+
+    response_body = dict(loop)
+    if auto_start_error:
+        # Distinct from `error` (which would imply the whole create failed).
+        # Wizard reads autoStartError and downgrades the success toast.
+        response_body["autoStartError"] = auto_start_error
+        response_body["autoStartMessage"] = (
+            "Loop saved, but the first run didn't start. "
+            "Tap Run it now from the fleet view."
+        )
+    return jsonify(response_body), 201
 
 
 @loops_bp.route("/<loop_id>", methods=["GET"])
@@ -196,6 +240,9 @@ def get_user_loop(loop_id):
     loop = get_loop(uid, loop_id)
     if not loop:
         return jsonify({"error": "not_found"}), 404
+    # Live Found/Emailed/Replied from actual contact records — the detail-page
+    # funnel reads this instead of the drift-prone totalContactsFound counters.
+    loop["liveStats"] = get_loop_live_stats(uid, loop_id)
     return jsonify(loop)
 
 
@@ -225,7 +272,7 @@ def patch_user_loop(loop_id):
         parsed, _status = parse_brief(data["briefText"])
         data["briefParsed"] = parsed
 
-    loop = update_loop(uid, loop_id, data)
+    loop = update_loop(uid, loop_id, data, tier=_user_tier())
     if not loop:
         return jsonify({"error": "not_found"}), 404
     return jsonify(loop)

@@ -3,9 +3,11 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
+import { useCreditsView } from "@/hooks/useCreditsView";
 import { useScout } from "@/contexts/ScoutContext";
+import { useTour } from "@/contexts/TourContext";
 import {
-  Linkedin, Loader2, Sparkles, ArrowRight, ArrowUp,
+  Linkedin, Loader2, ArrowRight, ArrowUp,
   User, Check, CheckCircle,
   FileText, Upload, Mail, Inbox, AlertCircle, X, ExternalLink, ChevronRight, Lock, Send
 } from "lucide-react";
@@ -16,7 +18,7 @@ import { apiService, BACKEND_URL, isErrorResponse, type EmailTemplate, getEmailT
 import { firebaseApi } from "../services/firebaseApi";
 import type { Contact as ContactApi } from '../services/firebaseApi';
 import { toast } from "@/hooks/use-toast";
-import { TIER_CONFIGS } from "@/lib/constants";
+import { TIER_CONFIGS, CREDIT_COSTS } from "@/lib/constants";
 import { logActivity, generateContactSearchSummary } from "@/utils/activityLogger";
 import { EliteGateModal } from "@/components/EliteGateModal";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
@@ -223,13 +225,15 @@ const StripeTabs: React.FC<StripeTabsProps> = ({ activeTab, onTabChange, tabs })
 };
 
 // Find People default batch size per tier (where the slider initially sits).
-// Free's default equals its max (5), so the Free slider sits at its maximum.
-const PEOPLE_BATCH_DEFAULTS: Record<"free" | "pro" | "elite", number> = { free: 5, pro: 10, elite: 20 };
+// Defaults sit at each tier's max so users get the full batch by default.
+const PEOPLE_BATCH_DEFAULTS: Record<"free" | "pro" | "elite", number> = { free: 3, pro: 8, elite: 15 };
 
 const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; parentEmailTemplate?: EmailTemplate | null; isDevPreview?: boolean }> = ({ embedded = false, hideSubTabs = false, parentEmailTemplate, isDevPreview = false }) => {
   const { user: authUser, checkCredits, updateCredits } = useFirebaseAuth();
   const user = isDevPreview ? DEV_MOCK_USER as any : authUser;
   const { openPanelWithSearchHelp } = useScout();
+  const { demoSurface } = useTour();
+  const peopleDemoActive = demoSurface === 'people';
   const navigate = useNavigate();
   const routerLocation = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -240,6 +244,8 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
     email: "user@example.com",
     tier: "free" as "free" | "pro" | "elite",
   };
+  // Trial-aware credit balance for display (daily pool during a trial).
+  const creditsView = useCreditsView();
 
   const userTier: "free" | "pro" | "elite" = useMemo(() => {
     // Use the actual tier from the user object, default to "free"
@@ -357,6 +363,121 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
     successful_drafts: number;
     total_contacts: number;
   } | null>(null);
+
+  // ── Tour demo state ──────────────────────────────────────────────────────
+  // When the product tour reaches the Find People step it sets `demoSurface`
+  // to 'people'. This effect runs a fully local demo: types the example query
+  // into the prompt state, flashes a short "Searching…" hold, then seeds a
+  // single inert card. Every state write here is to the same setters the real
+  // search uses, so the visual matches a real result exactly — but no API
+  // call is ever made. The cleanup return wipes every piece of demo residue
+  // (query, results, searching flags, the landing-page handoff localStorage
+  // key) so the page is bone-clean the moment the tour advances or aborts.
+  const PEOPLE_DEMO_QUERY = 'founder of offerloop';
+  // Three inert demo cards — the Offerloop founding team. Each carries
+  // `demo: true`, which the per-card action handlers in the results map
+  // (Copy email, etc.) already guard against, so all three render fully
+  // styled but every action no-ops uniformly.
+  const PEOPLE_DEMO_CARDS = [
+    {
+      demo: true as const,
+      FirstName: 'Nick',
+      LastName: 'Wittig',
+      JobTitle: 'Cofounder',
+      Company: 'Offerloop',
+      Email: 'nickwittig@offerloop.ai',
+      emailSubject: 'Coffee chat about Offerloop',
+      emailBody:
+        "Hi Nick,\n\nI came across Offerloop and love the take on AI-driven networking for students. I'd love to learn how you've thought about positioning the product for the college-recruiting use case.\n\nWould you be open to a 20-minute call next week?\n\nBest,\n[Your name]",
+    },
+    {
+      demo: true as const,
+      FirstName: 'Rylan',
+      LastName: 'Bohnett',
+      JobTitle: 'CMO',
+      Company: 'Offerloop',
+      Email: 'rylan@offerloop.ai',
+      emailSubject: 'Quick question about Offerloop',
+      emailBody:
+        "Hi Rylan,\n\nI've been following Offerloop's launch and the storytelling stands out. I'd love to hear how you've thought about reaching college students at scale.\n\nWould you be open to a 20-minute call next week?\n\nBest,\n[Your name]",
+    },
+    {
+      demo: true as const,
+      FirstName: 'Deena',
+      LastName: 'Bandi',
+      JobTitle: 'CTO',
+      Company: 'Offerloop',
+      Email: 'deena@offerloop.ai',
+      emailSubject: 'A quick chat about Offerloop',
+      emailBody:
+        "Hi Deena,\n\nOfferloop's product caught my eye — the agent layer over the contact graph feels novel. I'd love to learn how you've architected it for the scale you're seeing.\n\nWould you be open to a 20-minute call next week?\n\nBest,\n[Your name]",
+    },
+  ];
+
+  useEffect(() => {
+    if (!peopleDemoActive) return;
+    let cancelled = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const TYPE_DELAY_MS = 32;
+    const SEARCHING_HOLD_MS = 1500;
+    const POST_TYPE_PAUSE_MS = 250;
+
+    // Reset to a clean slate before the animation begins.
+    setSearchPrompt('');
+    setLastResults([]);
+    setSearchComplete(false);
+    setIsSearching(false);
+    setProgressValue(0);
+
+    // Type one character per tick into the real `searchPrompt` state. Safe
+    // because nothing watches `searchPrompt` to fire a search.
+    for (let i = 1; i <= PEOPLE_DEMO_QUERY.length; i++) {
+      timers.push(
+        setTimeout(() => {
+          if (cancelled) return;
+          setSearchPrompt(PEOPLE_DEMO_QUERY.slice(0, i));
+        }, i * TYPE_DELAY_MS),
+      );
+    }
+
+    const typingDoneAt = PEOPLE_DEMO_QUERY.length * TYPE_DELAY_MS + POST_TYPE_PAUSE_MS;
+    timers.push(
+      setTimeout(() => {
+        if (cancelled) return;
+        setIsSearching(true);
+        setProgressValue(45);
+      }, typingDoneAt),
+    );
+    timers.push(
+      setTimeout(() => {
+        if (cancelled) return;
+        setIsSearching(false);
+        setProgressValue(100);
+        setLastResults(PEOPLE_DEMO_CARDS);
+        setSearchComplete(true);
+      }, typingDoneAt + SEARCHING_HOLD_MS),
+    );
+
+    return () => {
+      cancelled = true;
+      timers.forEach(clearTimeout);
+      setSearchPrompt('');
+      setLastResults([]);
+      setIsSearching(false);
+      setSearchComplete(false);
+      setProgressValue(0);
+      try {
+        if (typeof window !== 'undefined') {
+          window.localStorage.removeItem('offerloop_pending_query');
+        }
+      } catch {
+        // ignore — private mode / disabled storage
+      }
+    };
+    // PEOPLE_DEMO_QUERY and PEOPLE_DEMO_CARDS are stable literals; only the
+    // active flag drives this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [peopleDemoActive]);
   const hasResults = lastResults.length > 0 || alreadySavedResults.length > 0;
 
   // Auto-scroll to success state after search completes
@@ -562,12 +683,10 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
   }, [previewSwap, searchPrompt]);
 
   const maxBatchSize = useMemo(() => {
-    // Per-tier slider ceiling. Elite raised to 30 (the per-search cap); Pro/Free
-    // stay at their prior values.
-    const tierMax = userTier === 'free' ? 5 : userTier === 'pro' ? 15 : 30;
-    const creditMax = Math.floor((effectiveUser.credits ?? 0) / 5);
+    const tierMax = userTier === 'free' ? 3 : userTier === 'pro' ? 8 : 15;
+    const creditMax = Math.floor(creditsView.balance / 10);
     return Math.min(tierMax, creditMax);
-  }, [userTier, effectiveUser.credits]);
+  }, [userTier, creditsView.balance]);
 
   useEffect(() => {
     if (batchSize > maxBatchSize) {
@@ -1195,11 +1314,42 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
       }
 
       if (data.status === 'ok') {
-        // Use the message from backend, or construct one based on the response
-        const successMessage = data.message || `Successfully imported ${data.contact.full_name}!`;
-        setLinkedInSuccess(successMessage);
-        setLinkedInUrl(''); // Clear the input field
-        setLinkedInLastDraftUrl(data.gmail_draft_url || null);
+        const c = data.contact || {};
+        // Build a card in the same shape the Find People results render, then
+        // route it through the unified results display (lastResults) so the
+        // imported person gets the same card + action buttons (Open Gmail
+        // drafts / Tracker / View in Spreadsheet) as a normal search.
+        const cardContact = {
+          firstName: c.firstName || '',
+          lastName: c.lastName || '',
+          FirstName: c.firstName || '',
+          LastName: c.lastName || '',
+          Title: c.jobTitle || '',
+          jobTitle: c.jobTitle || '',
+          Company: c.company || '',
+          company: c.company || '',
+          Email: c.email || '',
+          email: c.email || '',
+          LinkedIn: c.linkedinUrl || c.linkedin_url || normalizedUrl,
+          linkedinUrl: c.linkedinUrl || c.linkedin_url || normalizedUrl,
+          emailSubject: c.emailSubject || '',
+          emailBody: c.emailBody || '',
+          gmailDraftUrl: c.gmailDraftUrl || data.gmail_draft_url || '',
+          warmth_label: c.warmth_label || '',
+          warmth_tier: c.warmth_tier || '',
+          warmth_signals: c.warmth_signals || [],
+        };
+
+        setLinkedInSuccess(null);        // don't show the old success banner
+        setLinkedInLastDraftUrl(null);
+        setLastResults([cardContact]);
+        setAlreadySavedResults([]);
+        setResultMessage('');
+        setSearchSuggestions([]);
+        setSearchBroadened(false);
+        setSearchComplete(true);
+        setLinkedInUrl('');               // clear the input field
+        setSearchPrompt('');
 
         // Update credits if provided
         if (data.credits_remaining !== undefined && updateCredits) {
@@ -1210,7 +1360,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
         const emailFound = data.email_found !== false; // Default to true if not specified
         const draftCreated = data.draft_created === true;
 
-        let toastDescription = `${data.contact.full_name} added to your contacts`;
+        let toastDescription = `${c.full_name || 'Contact'} added to your contacts`;
         if (draftCreated) {
           toastDescription += ' with a draft email.';
         } else if (!emailFound) {
@@ -1222,8 +1372,13 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
         toast({
           title: "Contact Imported!",
           description: toastDescription,
-          variant: emailFound && draftCreated ? "default" : "default",
         });
+
+        if (draftCreated) {
+          trackFeatureActionCompleted('email_generation', 'draft_created', true, {
+            results_count: 1,
+          });
+        }
       } else {
         setLinkedInError(data.message || 'Failed to import contact');
       }
@@ -1237,6 +1392,11 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
 
   // Search handler (prompt-based, single flow for all tiers)
   const handleSearch = async (confirmedSend = false) => {
+    // Hard short-circuit while the tour's demo is active on this surface.
+    // Catches every trigger path — form submit, button click, the
+    // pendingAutoSearch chip path — with a single guard. No API call fires.
+    if (peopleDemoActive) return;
+
     if (!searchPrompt.trim()) {
       toast({
         title: "Enter a search",
@@ -1301,7 +1461,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
         setProgressValue(0);
         toast({
           title: "Insufficient Credits",
-          description: `You have ${currentCredits} credits. You need at least 5 credits to search.`,
+          description: `You have ${currentCredits} credits. You need at least 10 credits to search.`,
           variant: "destructive",
         });
         return;
@@ -1469,14 +1629,10 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
         setSearchComplete(true);
       }
 
-      // TODO(#13): PostHog was reset and never re-configured. This event fired
-      // into a void. Rewire through /api/metrics/events or replacement analytics
-      // system per https://github.com/deenabandi004-byte/Final_offerloop/issues/13
-      // <ORIGINAL CALL COMMENTED BELOW>
-      // trackFeatureActionCompleted('contact_search', 'search', true, {
-      //   results_count: result.contacts.length,
-      //   credits_spent: creditsUsed,
-      // });
+      trackFeatureActionCompleted('contact_search', 'search', true, {
+        results_count: result.contacts.length,
+        credits_spent: creditsUsed,
+      });
 
       if (user?.uid && result.contacts.length > 0) {
         try {
@@ -1519,9 +1675,9 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
         // copy matches what the API contract promises (and gives the user a
         // specific next step: open them in the network or broaden the search).
         toast({
-          title: "Already in your tracker",
+          title: "Already in your inbox",
           description: backendMessage
-            || `All ${savedCount} matching contact(s) are already in your tracker. Open them in your network, or broaden your search to find new people.`,
+            || `All ${savedCount} matching contact(s) are already in your inbox. Open them in your network, or broaden your search to find new people.`,
           duration: 7000,
         });
       } else if ((result as any)?.mode === "send") {
@@ -1550,7 +1706,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
         toast({
           title: sentCount > 0 ? "Emails sent" : draftedFallback > 0 ? "Routed to drafts" : "Contacts Found!",
           description: sentCount > 0
-            ? `Sent ${sentCount} ${sentCount === 1 ? "email" : "emails"}.${fallbackLine} Track replies in your Outbox.`
+            ? `Sent ${sentCount} ${sentCount === 1 ? "email" : "emails"}.${fallbackLine} Track replies in your Inbox.`
             : draftedFallback > 0
               ? `No sends went out.${fallbackLine} Review and send from Gmail.`
               : `Found ${newCount} contacts, but no emails could be sent. Check your Gmail connection.`,
@@ -1560,8 +1716,8 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
         toast({
           title: "Contacts Found!",
           description: savedCount > 0
-            ? `Found ${newCount + savedCount} contacts (${newCount} new, ${savedCount} already saved) — view in your Outbox.`
-            : `Found ${newCount} contacts — view them in your Outbox to start outreach.`,
+            ? `Found ${newCount + savedCount} contacts (${newCount} new, ${savedCount} already saved) — view in your Inbox.`
+            : `Found ${newCount} contacts — view them in your Inbox to start outreach.`,
           duration: 5000,
         });
       }
@@ -1786,7 +1942,6 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
             }}
           >
             <div className="flex items-center gap-3">
-              <Sparkles className="w-4 h-4 text-[var(--accent, #4A60A8)]" />
               <span className="text-sm text-[#6B7280]">
                 Targeting <span className="font-medium text-[#0F172A]">{currentFitContext.job_title}</span> at {currentFitContext.company || 'target companies'}
               </span>
@@ -1996,7 +2151,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                   // Native placeholder is intentionally empty — the typewriter overlay below
                   // owns ALL placeholder rendering (focused or not), so we don't double-show.
                   placeholder={undefined}
-                  disabled={isSearching || linkedInLoading}
+                  disabled={isSearching || linkedInLoading || peopleDemoActive}
                   style={{
                     width: '100%',
                     border: 'none',
@@ -2243,9 +2398,11 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                   background: '#FAFAF8', border: '1px solid #E5E3DE', borderRadius: 4,
                   fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: '#111418',
                 }}>
-                  {batchSize * 5} credits
+                  {batchSize * CREDIT_COSTS.find_contact} credits
                 </span>
-                <span style={{ color: '#8A8F97' }}>of {effectiveUser.credits ?? 0}</span>
+                <span style={{ color: '#8A8F97' }}>
+                  of {creditsView.balance.toLocaleString()}
+                </span>
               </div>
             </div>
           </div>
@@ -2428,9 +2585,9 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                 {lastResults.length + alreadySavedResults.length} {(lastResults.length + alreadySavedResults.length) === 1 ? 'result' : 'results'} found
               </div>
               <span style={{ fontSize: 11, color: '#94A3B8' }}>
-                {lastResults.length > 0 ? `${lastResults.length} new: saved to your tracker automatically` : ''}
+                {lastResults.length > 0 ? `${lastResults.length} new: saved to your inbox automatically` : ''}
                 {lastResults.length > 0 && alreadySavedResults.length > 0 ? ' · ' : ''}
-                {alreadySavedResults.length > 0 ? `${alreadySavedResults.length} already in your tracker` : ''}
+                {alreadySavedResults.length > 0 ? `${alreadySavedResults.length} already in your inbox` : ''}
               </span>
             </div>
 
@@ -2741,6 +2898,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                           size="sm"
                           onClick={(e) => {
                             e.stopPropagation();
+                            if (c.demo) return;
                             const text = `Subject: ${c.emailSubject || ''}\n\n${c.emailBody || ''}`;
                             navigator.clipboard.writeText(text);
                             toast({ description: 'Email copied to clipboard' });
@@ -2767,7 +2925,7 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
                 }}>
                   <div style={{ flex: 1, height: 1, background: '#E2E8F0' }} />
                   <span style={{ fontSize: 10, color: '#94A3B8', fontWeight: 500, whiteSpace: 'nowrap' }}>
-                    Already in your tracker
+                    Already in your inbox
                   </span>
                   <div style={{ flex: 1, height: 1, background: '#E2E8F0' }} />
                 </div>
@@ -2866,11 +3024,25 @@ const ContactSearchPage: React.FC<{ embedded?: boolean; hideSubTabs?: boolean; p
               )}
               <ResultActionButton
                 variant="secondary"
-                onClick={() => navigate('/tracker')}
+                onClick={() => {
+                  // Deep-link the just-drafted contact so the tracker expands
+                  // its (collapsed-by-default) group, selects it, and refetches
+                  // fresh. Navigate straight to /outbox: routing via /tracker
+                  // hits a <Navigate replace> that would drop the route state.
+                  const drafted = lastResults.find(
+                    (c: any) => (c.gmailDraftUrl || c.emailSubject || c.emailBody) && (c.Email || c.email)
+                  );
+                  const anyWithEmail = lastResults.find((c: any) => c.Email || c.email);
+                  const focusEmail =
+                    (drafted && (drafted.Email || drafted.email)) ||
+                    (anyWithEmail && (anyWithEmail.Email || anyWithEmail.email)) ||
+                    undefined;
+                  navigate('/outbox', { state: { focusEmail, segment: 'people' } });
+                }}
                 className="flex-1"
               >
                 <Inbox className="w-3.5 h-3.5" />
-                Tracker
+                Inbox
               </ResultActionButton>
               <ResultActionButton
                 variant="secondary"

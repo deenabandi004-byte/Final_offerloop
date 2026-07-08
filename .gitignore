@@ -92,3 +92,11 @@ connect-grow-hire/dist/
 /mid-*.png
 # Local zip archives at repo root
 /*.zip
+design-reference/
+
+# Claude Code worktrees
+.claude/worktrees/
+
+# --- PII / outreach lists — never commit real user emails ---
+outreach/
+backend/scripts/mcp_announce_to_field.txt

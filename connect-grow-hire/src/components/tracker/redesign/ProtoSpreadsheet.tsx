@@ -27,7 +27,6 @@ interface ProtoSpreadsheetProps {
   bookmarkedIds: Set<string>;
   onToggleBookmark: (id: string) => void;
   onDraft: (id: string) => void;
-  onArchive: (id: string) => void;
 }
 
 const SortArrow = () => (
@@ -52,7 +51,6 @@ export function ProtoSpreadsheet({
   bookmarkedIds,
   onToggleBookmark,
   onDraft,
-  onArchive,
 }: ProtoSpreadsheetProps) {
   const sortedContacts = useMemo(() => {
     if (!sort) return contacts;
@@ -143,12 +141,6 @@ export function ProtoSpreadsheet({
                             <path d="M12.83 14.5L8.17 11.83L3.5 14.5V3.83C3.5 3.10 4.10 2.5 4.83 2.5H11.5C12.23 2.5 12.83 3.10 12.83 3.83V14.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
                           </svg>
                         </button>
-                        <button type="button" className="action-icon" data-tooltip="Archive" aria-label="Archive" onClick={() => onArchive(c.id)}>
-                          <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <rect x="2.5" y="4" width="11" height="9" rx="1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                            <line x1="2" y1="6" x2="14" y2="6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </button>
                       </div>
                     </td>
                   </tr>
@@ -170,12 +162,9 @@ export function ProtoSpreadsheet({
           </button>
           <button
             type="button"
-            className={`segment-pill${activeSegment === "companies" ? " active" : ""}`}
-            onClick={() => onSelectSegment("companies")}
+            className={`segment-pill${activeSegment === "hiringManagers" ? " active" : ""}`}
+            onClick={() => onSelectSegment("hiringManagers")}
           >
-            Companies
-          </button>
-          <button type="button" className="segment-pill" disabled title="Coming in a later PR">
             Hiring Managers
           </button>
         </div>

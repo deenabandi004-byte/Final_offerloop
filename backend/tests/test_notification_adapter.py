@@ -177,3 +177,42 @@ def test_email_passes_optional_headers(monkeypatch):
         headers={"List-Unsubscribe": "<https://example.com/unsub>"},
     )
     assert captured["payload"]["headers"]["List-Unsubscribe"] == "<https://example.com/unsub>"
+
+
+def test_email_from_override_wins_over_config(monkeypatch):
+    """Per-call from_email replaces config.RESEND_FROM_EMAIL in the payload."""
+    captured = {}
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        captured["payload"] = json
+        return _mock_response(200, {"id": "ok"})
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    send(
+        Channel.EMAIL,
+        recipient="user@example.com",
+        subject="x",
+        html_body="x",
+        text_body="x",
+        from_email="Deena from Offerloop <sid@offerloop.ai>",
+    )
+    assert captured["payload"]["from"] == "Deena from Offerloop <sid@offerloop.ai>"
+
+
+def test_email_uses_config_from_when_no_override(monkeypatch):
+    """When from_email is omitted, adapter falls back to config.RESEND_FROM_EMAIL."""
+    captured = {}
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        captured["payload"] = json
+        return _mock_response(200, {"id": "ok"})
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    send(
+        Channel.EMAIL,
+        recipient="user@example.com",
+        subject="x",
+        html_body="x",
+        text_body="x",
+    )
+    assert captured["payload"]["from"] == "test@example.com"

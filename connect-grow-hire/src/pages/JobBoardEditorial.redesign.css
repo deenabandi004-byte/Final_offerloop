@@ -641,10 +641,10 @@
 
 /* Detail body */
 .jb-detail-body {
-  padding: 24px 28px;
+  padding: 16px 28px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 14px;
 }
 .jb-detail-section h3 {
   font-size: 11px;
@@ -689,14 +689,14 @@
 .jb-fp {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   font-family: var(--font-body);
 }
 .jb-fp-eyebrow {
   font-size: 11px;
   font-weight: 700;
   color: var(--ink-3);
-  margin: 0 0 8px;
+  margin: 0;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -822,6 +822,46 @@
   cursor: not-allowed;
 }
 .jb-fp-cta svg { color: #F3F3F6; }
+
+/* Two actions side by side, each roughly half the panel width. flex-wrap with a
+   min basis means the columns drop to stacked when the detail pane is too narrow
+   to fit both, so this responds to the pane width rather than the viewport. */
+.jb-fp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 16px;
+}
+.jb-fp-col {
+  flex: 1 1 200px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+/* Pin the button block to the bottom of its column so the two CTAs share one
+   baseline even though the right column is taller (it carries the slider). */
+.jb-fp-col-action {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* The shared .slider-custom is a transparent track + white thumb, invisible on
+   this white panel. Scoped to .jb-fp: give it a dark navy thumb (with a white
+   ring so it stays visible over the navy filled track). The filled track itself
+   is set inline per value in FindPeoplePanel. */
+.jb-fp .slider-custom::-webkit-slider-thumb {
+  background: var(--ink-2);
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px var(--ink-2);
+}
+.jb-fp .slider-custom::-moz-range-thumb {
+  background: var(--ink-2);
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px var(--ink-2);
+}
 
 /* ============================================================
    SaveSearchModal + MoreFiltersPanel overlays
@@ -1088,10 +1128,11 @@
   font-weight: 400;
 }
 .jb-drawer-pill.active {
-  border: 1.5px solid var(--slate);
-  background: var(--slate-soft);
-  color: var(--slate);
+  border: 1.5px solid #4C62A8;
+  background: #4C62A8;
+  color: #ffffff;
   font-weight: 500;
+  border-radius: 9999px;
 }
 .jb-drawer-check {
   display: flex;
@@ -1102,7 +1143,7 @@
 .jb-drawer-check-box {
   width: 20px;
   height: 20px;
-  border-radius: var(--radius-sm);
+  border-radius: 50%;
   border: 2px solid var(--ink-9);
   background: var(--surface);
   display: flex;
@@ -1112,8 +1153,8 @@
   cursor: pointer;
 }
 .jb-drawer-check-box.on {
-  border: 2px solid var(--slate);
-  background: var(--slate);
+  border: 2px solid #4C62A8;
+  background: #4C62A8;
 }
 .jb-drawer-check-label {
   font-size: 14px;
@@ -1174,6 +1215,30 @@
   text-align: center;
   color: var(--ink-5);
   font-size: 14px;
+}
+
+/* Friendly note shown above the skeleton list while the feed loads. */
+.jb-loading-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 16px 8px;
+  text-align: center;
+  color: var(--ink-4);
+  font-size: 13px;
+}
+.jb-loading-note .spin {
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--line-soft, #E2E8F0);
+  border-top-color: var(--ink-4, #94A3B8);
+  border-radius: 50%;
+  animation: jb-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes jb-spin {
+  to { transform: rotate(360deg); }
 }
 
 /* ============================================================

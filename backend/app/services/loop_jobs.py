@@ -16,6 +16,43 @@ from datetime import datetime, timezone
 logger = logging.getLogger(__name__)
 
 
+def _write_loop_counters_with_retry(loop_ref, updates: dict, loop_id: str) -> None:
+    # Two failure modes look the same as "Exception" but mean very different
+    # things. NotFound = user deleted the Loop mid-cycle; counters are gone
+    # for good but the cycle's contacts/jobs/drafts still saved to their own
+    # subcollections. Anything else (most often grpc RemoteDisconnected on
+    # the SA token refresh) is transient — one retry fixes it ~always.
+    import time
+    from google.api_core import exceptions as gax
+
+    for attempt in (1, 2):
+        try:
+            loop_ref.update(updates)
+            return
+        except gax.NotFound as e:
+            logger.info(
+                "Loop %s deleted mid-cycle; counter update skipped "
+                "(cycle results saved to subcollections). err=%s",
+                loop_id, e,
+            )
+            return
+        except Exception as e:
+            if attempt == 1:
+                logger.warning(
+                    "Loop %s counter update attempt %d failed (will retry): %s",
+                    loop_id, attempt, e,
+                )
+                time.sleep(0.5)
+                continue
+            logger.error(
+                "Loop %s counter update FAILED after retry; Loop totals are "
+                "stale but cycle results are persisted. Run "
+                "scripts/backfill_loop_counters.py to reconcile. err=%s",
+                loop_id, e,
+            )
+            return
+
+
 def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> dict:
     """RQ worker entrypoint: run one Loop cycle end-to-end.
 
@@ -34,6 +71,7 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
     later we'll need a cycle-level guard.
     """
     import uuid as _uuid
+    from firebase_admin import firestore as _fs
     from google.cloud.firestore_v1 import Increment
 
     from app.extensions import get_db
@@ -65,10 +103,11 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
 
     loop = loop_doc.to_dict() or {}
     bp = loop.get("briefParsed") or {}
-    # Old Loop docs predate loopMode — default to "people" to preserve today's
-    # behavior. loop_service writes "people" on create, so this default only
-    # fires for pre-Slice-1 records.
-    loop_mode = loop.get("loopMode") or "people"
+    # Default mirrors the wizard's "both" — every Loop pursues networking +
+    # job-search. Old loop_service default was "people"; new default is
+    # "both" (loop_service._loop_defaults updated alongside). This fallback
+    # only fires for pre-V2 docs that never persisted loopMode at all.
+    loop_mode = loop.get("loopMode") or "both"
     synthetic_config = {
         **DEFAULT_AGENT_CONFIG,
         "briefText": loop.get("briefText", ""),
@@ -101,12 +140,76 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
 
     try:
         result = _run_cycle(uid, synthetic_config, cycle_id=cycle_id)
-    except Exception:
+    except Exception as cycle_err:
+        # Distinguish "planner can't run" (config issue, recoverable by
+        # ops) from a generic cycle crash. The planner-unavailable case
+        # gets a specific pauseReason so the user sees a real status
+        # instead of an ambiguous "idle".
+        from app.services.agent_planner import PlannerUnavailableError
+
+        is_planner_unavailable = isinstance(cycle_err, PlannerUnavailableError)
         logger.exception("run_loop_cycle_job: _run_cycle crashed uid=%s loop=%s", uid, loop_id)
         try:
-            loop_ref.update({"status": "idle"})
+            if is_planner_unavailable:
+                loop_ref.update({
+                    "status": "paused",
+                    "pauseReason": "planner_unavailable",
+                    "lastCycleError": _fs.DELETE_FIELD,
+                })
+            else:
+                # Generic crash: surface via the lastCycleError banner, not
+                # via pauseReason — a crashed Loop is "Errored", not "Paused".
+                # Clear any stale pauseReason so the user sees one canonical
+                # phase (Errored) instead of "Paused" + an unrelated reason.
+                loop_ref.update({
+                    "status": "idle",
+                    "lastCycleError": str(cycle_err)[:300],
+                    "pauseReason": _fs.DELETE_FIELD,
+                })
         except Exception:
             pass
+
+        # Also push a notification so the user actually finds out (S2.3).
+        # Wrapped — if the bell write fails, the cycle's real status flip
+        # above is already saved.
+        #
+        # NOTE: do NOT add `from datetime import datetime, timezone` here.
+        # `datetime` is already imported at module scope; re-importing it
+        # inside this function makes it a function-local name, which then
+        # raises UnboundLocalError at the module-scope use below (line 197
+        # `now_iso = datetime.now(...)`) even when this branch never runs.
+        try:
+            from app.services.loop_notifications import write_loop_run_notification
+
+            failure_kind = "planner_unavailable" if is_planner_unavailable else "cycle_error"
+            failure_snippet = (
+                "Your Loop couldn't plan its next moves — check Settings or contact support."
+                if is_planner_unavailable
+                else "Your Loop hit an unexpected error mid-cycle. Try Run it now from the fleet view."
+            )
+            write_loop_run_notification(
+                uid=uid,
+                db=db,
+                items=[{
+                    "kind": "loop_run",
+                    "failureKind": failure_kind,
+                    "loopId": loop_id,
+                    "cycleId": cycle_id,
+                    "contactId": f"loop:{loop_id}",
+                    "contactName": loop.get("name") or "Untitled Loop",
+                    "loopName": loop.get("name") or "Untitled Loop",
+                    "company": "",
+                    "snippet": failure_snippet,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "read": False,
+                }],
+            )
+        except Exception:
+            logger.exception(
+                "Failure-notification write failed (non-fatal) uid=%s loop=%s",
+                uid, loop_id,
+            )
+
         # Release the concurrency lock so the next scheduler tick can
         # actually run this Loop — without this, a crashed cycle would
         # leave cycleRunning=True until STALE_LOCK_AFTER_MINUTES elapsed.
@@ -151,6 +254,11 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
         # the cycle if the final update lands.
         "cycleRunning": False,
         "cycleStartedAt": None,
+        # A clean cycle wipes any prior pause reason / error banner the user
+        # might still see on the detail page. The rate-limit branch below
+        # re-sets pauseReason if we're tripping the 3-strike threshold.
+        "pauseReason": _fs.DELETE_FIELD,
+        "lastCycleError": _fs.DELETE_FIELD,
     }
 
     # Rate-limit 3-strike: if THIS cycle hit a rate limit anywhere, bump the
@@ -173,13 +281,52 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
         # Clean cycle resets the streak.
         updates["consecutiveRateLimitCycles"] = 0
 
+    _write_loop_counters_with_retry(loop_ref, updates, loop_id)
+
+    # Surface a single "Loop ran" notification per cycle into the user's
+    # in-app bell. Independent of LOOPS_ALERT_EMAILS_ENABLED — this is the
+    # in-product surface, not outbound email. Failures here never
+    # propagate; the cycle's real work is already saved.
     try:
-        loop_ref.update(updates)
-    except Exception as e:
-        logger.info(
-            "Loop %s vanished mid-cycle (likely deleted by user); "
-            "skipping counter update. err=%s",
-            loop_id, e,
+        from app.services.loop_notifications import (
+            assess_cycle_results,
+            write_loop_run_notification,
+        )
+        items = assess_cycle_results(
+            loop_id=loop_id,
+            loop_name=loop.get("name") or "Untitled Loop",
+            cycle_id=cycle_id,
+            result=result,
+        )
+        if items:
+            write_loop_run_notification(uid=uid, items=items, db=db)
+    except Exception:
+        logger.exception(
+            "Loop run notification failed (non-fatal) uid=%s loop=%s cycle=%s",
+            uid, loop_id, cycle_id,
+        )
+
+    # Surface a single "Loop ran" notification per cycle into the user's
+    # in-app bell. Independent of LOOPS_ALERT_EMAILS_ENABLED — this is the
+    # in-product surface, not outbound email. Failures here never
+    # propagate; the cycle's real work is already saved.
+    try:
+        from app.services.loop_notifications import (
+            assess_cycle_results,
+            write_loop_run_notification,
+        )
+        items = assess_cycle_results(
+            loop_id=loop_id,
+            loop_name=loop.get("name") or "Untitled Loop",
+            cycle_id=cycle_id,
+            result=result,
+        )
+        if items:
+            write_loop_run_notification(uid=uid, items=items, db=db)
+    except Exception:
+        logger.exception(
+            "Loop run notification failed (non-fatal) uid=%s loop=%s cycle=%s",
+            uid, loop_id, cycle_id,
         )
 
     return {

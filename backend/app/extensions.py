@@ -176,6 +176,13 @@ def require_firebase_auth(fn):
                     decoded = fb_auth.verify_id_token(id_token, clock_skew_seconds=5)
                     request.firebase_user = decoded
                     print("[Auth] Token verified")
+                    # Lifecycle signal: fire-and-forget lastActiveAt stamp.
+                    # In-process TTL cache prevents write-flooding.
+                    try:
+                        from app.services.lifecycle_signals import touch_last_active
+                        touch_last_active(decoded.get('uid'))
+                    except Exception:
+                        pass
                     break  # Success, exit retry loop
                 except ValueError as ve:
                     # Firebase Admin SDK not initialized error or invalid token format
@@ -314,6 +321,16 @@ def require_tier(allowed_tiers):
                 # Check if user's tier is allowed
                 if tier not in allowed_tiers:
                     tier_names = ', '.join([t.capitalize() for t in allowed_tiers])
+                    try:
+                        from app.utils.posthog_client import track_event
+                        track_event(user_id, 'feature_gated', {
+                            'feature': request.endpoint,
+                            'path': request.path,
+                            'required_tier': allowed_tiers,
+                            'current_tier': tier,
+                        })
+                    except Exception:
+                        pass
                     return jsonify({
                         'error': 'Upgrade required',
                         'message': f'This feature requires {tier_names} subscription',
@@ -358,6 +375,16 @@ def get_rate_limit_key():
     # Exempt coffee chat prep status polling (GET /api/coffee-chat-prep/<id>)
     if (request.method == 'GET' and
         _re.match(r'^/api/coffee-chat-prep/[^/]+$', request.path)):
+        return None
+
+    # Exempt MCP server routes: they enforce their own per-IP limits
+    # via app.mcp_server.rate_limit.MCPRateLimit, and double-throttling
+    # via Flask-Limiter would silently block legitimate MCP traffic.
+    # /claim is the post-paywall signup landing; we never want to
+    # rate-limit a conversion event.
+    if (request.path == '/mcp'
+            or request.path == '/api/mcp/health'
+            or request.path == '/claim'):
         return None
     
     # For authenticated requests, use user ID instead of IP address
@@ -424,11 +451,18 @@ def init_app_extensions(app: Flask):
             "expose_headers": ["Content-Type", "Authorization"]
         }
     else:
-        # Production: only production domains (set CORS_ORIGINS env var to
-        # "https://offerloop.ai" on Render)
+        # Production: production domains + localhost (localhost is harmless in
+        # prod since it can't be reached from real users, and including it
+        # means `python3 wsgi.py` works without needing FLASK_ENV=development).
         prod_origins = [
             "https://offerloop.ai",
             "https://www.offerloop.ai",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
+            "http://localhost:8081",
+            "http://127.0.0.1:8081",
         ]
         all_origins = list(set(prod_origins + allowed_origins))
         cors_config = {

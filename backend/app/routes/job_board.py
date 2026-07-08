@@ -26,6 +26,7 @@ from app.services.auth import deduct_credits_atomic, refund_credits_atomic, chec
 from app.services.openai_client import get_async_openai_client, get_openai_client
 from app.services.ats_scorer import calculate_ats_score
 from app.services.recruiter_finder import find_recruiters, determine_job_type, find_hiring_manager
+from app.utils.users import get_outreach_email
 from app.services.resume_optimizer_v2 import optimize_resume_v2 as run_resume_optimization
 from app.services.resume_capabilities import get_capabilities
 from app.services.pdf_builder import generate_cover_letter_pdf
@@ -7949,7 +7950,7 @@ def find_recruiter_endpoint():
         resume_linkedin = user_resume.get('contact', {}).get('linkedin', '') if isinstance(user_resume.get('contact'), dict) else ''
         user_contact = {
             "name": user_resume.get('name', user_data.get('displayName', '')),
-            "email": user_data.get('email', ''),
+            "email": get_outreach_email(user_data),
             "phone": resume_phone or user_data.get('phone', ''),
             "linkedin": resume_linkedin or user_data.get('linkedin', '')
         }
@@ -8193,6 +8194,411 @@ def find_recruiter_endpoint():
         
     except Exception as e:
         logger.error(f"[FindRecruiter] Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+def derive_employee_titles(job_title: str, company: str, job_description: str = "") -> List[str]:
+    """
+    Use OpenAI to derive 3 to 5 peer / teammate job titles worth a coffee chat on
+    the team behind a posting (the Find People flow). Excludes recruiter / HR and
+    people-manager titles (those have their own buttons) and the posting's own
+    junior / intern level. Returns a bounded, de-duplicated list, or [] when the
+    model is unavailable or returns nothing usable (the caller handles fallback).
+
+    Mirrors the OpenAI usage pattern in extract_job_details_with_openai.
+    """
+    try:
+        client = get_openai_client()
+        if not client:
+            logger.info("[FindEmployee] OpenAI client not available for title derivation")
+            return []
+
+        truncated_desc = (job_description or "")[:4000]
+        prompt = f"""A student wants to network with the right people on the team behind this job posting before applying. Identify the individual contributors and adjacent teammates they should reach out to for a coffee chat.
+
+Company: {company}
+Posting title: {job_title}
+Job description:
+{truncated_desc or "(no description provided)"}
+
+Return 3 to 5 specific job titles of likely teammates and adjacent individual contributors worth a coffee chat. Rules:
+- EXCLUDE recruiter, talent acquisition, HR, sourcing, and "people" titles.
+- EXCLUDE people-manager titles (anything with Manager, Director, Head, VP, Chief, or President).
+- EXCLUDE the posting's own intern / junior level so you do not just return more people at the level being hired. Example: for a "Data Science Intern", return "Data Scientist", "Senior Data Scientist", "Data Engineer", "Machine Learning Engineer", NOT "Data Science Intern".
+- Prefer current individual-contributor titles in the same and directly adjacent functions.
+
+Return ONLY a valid JSON object, no markdown, no code blocks, in this exact format:
+{{"titles": ["Title One", "Title Two", "Title Three"]}}"""
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You map a job posting to the individual-contributor teammates a student should network with. Return only valid JSON with no explanation or markdown."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=200,
+            temperature=0.2
+        )
+
+        result_text = response.choices[0].message.content.strip()
+        if '```' in result_text:
+            result_text = result_text.split('```')[1]
+            if result_text.startswith('json'):
+                result_text = result_text[4:]
+            result_text = result_text.strip()
+
+        import json
+        json_match = re.search(r'\{.*\}', result_text, re.DOTALL)
+        parsed = json.loads(json_match.group() if json_match else result_text)
+
+        raw_titles = parsed.get("titles", []) if isinstance(parsed, dict) else []
+        cleaned: List[str] = []
+        seen = set()
+        for t in raw_titles:
+            if not isinstance(t, str):
+                continue
+            t = t.strip()
+            key = t.lower()
+            if t and key not in seen and key not in ('null', 'none', 'n/a'):
+                seen.add(key)
+                cleaned.append(t)
+        return cleaned[:5]
+    except Exception as e:
+        logger.error(f"[FindEmployee] Title derivation failed: {e}")
+        return []
+
+
+def _fallback_employee_titles(job_title: str) -> List[str]:
+    """
+    Heuristic fallback when LLM title derivation is unavailable: strip the
+    junior / intern qualifiers from the posting title to get a broader base role.
+    Returns a single base title, or [] if nothing usable remains.
+    """
+    if not job_title:
+        return []
+    base = job_title
+    for token in ["Intern", "Internship", "Co-op", "Coop", "Junior", "Jr.", "Jr",
+                  "Entry Level", "Entry-Level", "New Grad", "New Graduate", "Trainee"]:
+        base = re.sub(rf"\b{re.escape(token)}\b", "", base, flags=re.IGNORECASE)
+    base = re.sub(r"\s+", " ", base).strip(" -,/")
+    return [base] if len(base) >= 2 else []
+
+
+def _create_gmail_drafts_for_emails(user_id: str, user_data: Dict, emails_to_draft: List[Dict]) -> List[Dict]:
+    """
+    Create Gmail drafts (with resume attachment) for a list of generated emails
+    and return [{recruiter_email, draft_id, draft_url}]. Factored out of the inline
+    /find-recruiter draft logic for reuse by /find-employee. Best-effort: a per
+    email failure never aborts the batch, and a missing Gmail connection is a
+    no-op rather than an error.
+    """
+    drafts_created: List[Dict] = []
+    if not emails_to_draft:
+        return drafts_created
+
+    from app.services.gmail_client import _load_user_gmail_creds, get_gmail_service_for_user
+    from app.services.gmail_client import download_resume_from_url
+    import base64
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.base import MIMEBase
+    from email import encoders
+
+    gmail_creds = _load_user_gmail_creds(user_id)
+    if not gmail_creds:
+        logger.info(f"[FindEmployee] Gmail not connected for user {user_id}, skipping drafts")
+        return drafts_created
+
+    resume_url = user_data.get('resumeURL') or user_data.get('resumeUrl')
+    resume_content = None
+    resume_filename = None
+    if resume_url:
+        try:
+            resume_content, resume_filename = download_resume_from_url(resume_url)
+            stored_filename = user_data.get('resumeFileName')
+            if stored_filename:
+                resume_filename = stored_filename
+        except Exception as e:
+            logger.error(f"[FindEmployee] Failed to download resume: {e}")
+
+    gmail_service = get_gmail_service_for_user(user_data.get('email'), user_id=user_id)
+    if not gmail_service:
+        logger.info("[FindEmployee] Gmail service not available")
+        return drafts_created
+
+    email_re = re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
+    for email_data in emails_to_draft:
+        try:
+            to_email = email_data.get("to_email")
+            if not to_email or not email_re.match(to_email):
+                continue
+            to_name = (email_data.get("to_name", "") or "").replace('"', '').replace('\n', '').replace('\r', '')
+            subject = email_data.get("subject", "")
+            body_html = email_data.get("body", "")
+            body_plain = email_data.get("plain_body", "")
+
+            message = MIMEMultipart('mixed')
+            message['to'] = f'"{to_name}" <{to_email}>' if to_name else to_email
+            message['subject'] = subject
+
+            alt = MIMEMultipart('alternative')
+            alt.attach(MIMEText(body_plain, 'plain'))
+            alt.attach(MIMEText(body_html, 'html'))
+            message.attach(alt)
+
+            if resume_content and resume_filename:
+                part = MIMEBase('application', 'pdf')
+                part.set_payload(resume_content)
+                encoders.encode_base64(part)
+                part.add_header('Content-Disposition', f'attachment; filename="{resume_filename}"')
+                message.attach(part)
+
+            raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
+            draft = gmail_service.users().drafts().create(userId='me', body={'message': {'raw': raw_message}}).execute()
+            draft_id = draft['id']
+
+            try:
+                profile = gmail_service.users().getProfile(userId='me').execute()
+                connected_email = profile.get('emailAddress', '')
+            except Exception:
+                connected_email = user_data.get('email', '')
+
+            draft_url = (
+                f"https://mail.google.com/mail/?authuser={connected_email}#draft/{draft_id}"
+                if connected_email else f"https://mail.google.com/mail/u/0/#draft/{draft_id}"
+            )
+            drafts_created.append({"recruiter_email": to_email, "draft_id": draft_id, "draft_url": draft_url})
+        except Exception as e:
+            logger.error(f"[FindEmployee] Failed to create draft for {email_data.get('to_email')}: {e}")
+
+    return drafts_created
+
+
+@job_board_bp.route("/find-employee", methods=["POST"])
+@require_firebase_auth
+@require_tier(['pro', 'elite'])
+def find_employee_endpoint():
+    """
+    Find peers / teammates (individual contributors) on the team behind a job
+    posting, for coffee-chat networking. Distinct from /find-recruiter (recruiters)
+    and /find-hiring-manager (the manager).
+
+    Target titles are derived once per job by an LLM and cached on the shared job
+    doc (target_titles field); later clicks on the same job skip the LLM and go
+    straight to PDL. The titles feed the shared find_recruiters pipeline via
+    titles_override so email / draft / receipt logic is reused. Charges
+    RECRUITER_CREDIT_COST (5) per person returned.
+
+    Request: { jobId?, company?, jobTitle?, jobDescription?, location?, maxResults? }
+    Response mirrors /find-recruiter (people in the `recruiters` field).
+    """
+    try:
+        user_id = request.firebase_user.get('uid')
+        data = request.get_json(force=True, silent=True) or {}
+
+        # Daily cap mirrors the other discovery endpoints (PDL + Hunter spend).
+        if not _check_user_rate_limit(user_id, "find-employee-daily", "100 per day"):
+            return jsonify({
+                "error": "Daily limit reached",
+                "message": "You've used Find People 100 times today. Try again tomorrow."
+            }), 429
+
+        job_id = data.get('jobId')
+        company = data.get('company')
+        job_title = data.get('jobTitle', '')
+        job_description = data.get('jobDescription', '')
+        job_type = data.get('jobType')
+        location = data.get('location')
+
+        db = get_db()
+        if not db:
+            return jsonify({"error": "Database not available"}), 500
+
+        # Pull description / title / company and any cached target titles from the
+        # shared job doc (server-trusted). The feed strips description_raw, so the
+        # doc is the source of truth for the posting prose.
+        cached_titles = None
+        job_doc_ref = None
+        if job_id:
+            job_doc_ref = db.collection("jobs").document(job_id)
+            job_doc = job_doc_ref.get()
+            if job_doc.exists:
+                jd = job_doc.to_dict() or {}
+                if not job_description:
+                    job_description = (jd.get("description_raw") or "").strip()
+                if not job_title:
+                    job_title = jd.get("title") or job_title
+                if not company:
+                    company = jd.get("company") or company
+                ct = jd.get("target_titles")
+                if isinstance(ct, list):
+                    valid = [t.strip() for t in ct if isinstance(t, str) and t.strip()]
+                    if valid:
+                        cached_titles = valid
+
+        # Normalize / validate company (mirrors /find-recruiter).
+        invalid_company_names = {
+            'job type', 'job details', 'job description', 'job title', 'job location',
+            'employer', 'company', 'organization', 'corporation',
+            'n/a', 'null', 'none', '', 'full-time', 'part-time', 'contract',
+            'remote', 'hybrid', 'on-site', 'location', 'details', 'description'
+        }
+        if company and company.lower().strip() in invalid_company_names:
+            company = None
+        elif company:
+            company = normalize_company_name(company)
+
+        if not company:
+            return jsonify({
+                "error": "Company name is required",
+                "suggestion": "Open this job from the board so we can read its company."
+            }), 400
+
+        # Resolve target titles: cached -> LLM (then cache) -> heuristic fallback.
+        titles = cached_titles
+        if not titles:
+            titles = derive_employee_titles(job_title, company, job_description)
+            if titles and job_doc_ref is not None:
+                try:
+                    job_doc_ref.update({
+                        "target_titles": titles,
+                        "target_titles_at": datetime.now(timezone.utc),
+                    })
+                except Exception as cache_err:
+                    logger.warning(f"[FindEmployee] target_titles cache write failed job={job_id}: {cache_err}")
+        if not titles:
+            titles = _fallback_employee_titles(job_title)
+        if not titles:
+            return jsonify({
+                "error": "Couldn't infer who to reach for this role. Try again."
+            }), 422
+
+        # Credits.
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+        if not user_doc.exists:
+            return jsonify({"error": "User not found"}), 404
+
+        user_data = user_doc.to_dict()
+        user_data = sanitize_firestore_data(user_data, depth=0, max_depth=20)
+        current_credits = check_and_reset_credits(user_ref, user_data)
+
+        if current_credits < RECRUITER_CREDIT_COST:
+            return jsonify({
+                "error": "Insufficient credits",
+                "creditsRequired": RECRUITER_CREDIT_COST,
+                "creditsAvailable": current_credits
+            }), 402
+
+        # Requested count: 1..5, capped by affordability.
+        try:
+            max_results_requested = int(data.get('maxResults', 3))
+        except (TypeError, ValueError):
+            max_results_requested = 3
+        max_results_requested = min(max(max_results_requested, 1), 5)
+        max_affordable = current_credits // RECRUITER_CREDIT_COST
+        max_results_to_fetch = min(max_results_requested, max_affordable)
+
+        # Resume / contact for email generation.
+        user_resume = user_data.get('resumeParsed', {})
+        resume_text = user_data.get('resumeText', '')
+        resume_phone = user_resume.get('contact', {}).get('phone', '') if isinstance(user_resume.get('contact'), dict) else ''
+        resume_linkedin = user_resume.get('contact', {}).get('linkedin', '') if isinstance(user_resume.get('contact'), dict) else ''
+        user_contact = {
+            "name": user_resume.get('name', user_data.get('displayName', '')),
+            "email": get_outreach_email(user_data),
+            "phone": resume_phone or user_data.get('phone', ''),
+            "linkedin": resume_linkedin or user_data.get('linkedin', '')
+        }
+        generate_emails = data.get('generateEmails', True)
+        create_drafts = data.get('createDrafts', True)
+
+        # Search via the shared pipeline with our derived titles.
+        result = find_recruiters(
+            company_name=company,
+            job_type=job_type,
+            job_title=job_title,
+            job_description=job_description,
+            location=location,
+            max_results=max_results_to_fetch,
+            generate_emails=generate_emails,
+            user_resume=user_resume,
+            user_contact=user_contact,
+            resume_text=resume_text,
+            titles_override=titles,
+            role_type="employee",
+        )
+
+        if result.get("error"):
+            return jsonify({
+                "error": result["error"],
+                "recruiters": [],
+                "requestedCount": max_results_requested,
+                "foundCount": 0,
+                "creditsCharged": 0
+            }), 500
+
+        all_people = result.get("recruiters", [])
+        all_emails = result.get("emails", [])
+        total_found = result.get("total_found", 0)
+        affordable_people = all_people[:max_affordable]
+
+        affordable_emails = []
+        if all_emails:
+            affordable_email_set = set()
+            for r in affordable_people:
+                if r.get("Email") and r.get("Email") != "Not available":
+                    affordable_email_set.add(r.get("Email"))
+                if r.get("WorkEmail") and r.get("WorkEmail") != "Not available":
+                    affordable_email_set.add(r.get("WorkEmail"))
+            affordable_emails = [e for e in all_emails if e.get("to_email") in affordable_email_set]
+
+        has_more = len(all_people) > max_affordable or total_found > max_affordable
+        credits_needed_for_more = (len(all_people) - max_affordable) * RECRUITER_CREDIT_COST if has_more else 0
+
+        # Deduct credits atomically BEFORE creating Gmail drafts (prevents TOCTOU).
+        credits_charged = RECRUITER_CREDIT_COST * len(affordable_people)
+        if credits_charged > 0:
+            success, new_balance = deduct_credits_atomic(user_id, credits_charged, "find_employee")
+            if not success:
+                return jsonify({
+                    "error": "Insufficient credits",
+                    "creditsRequired": credits_charged,
+                    "creditsAvailable": 0
+                }), 402
+        else:
+            new_balance = current_credits
+
+        drafts_created = []
+        if create_drafts and affordable_emails:
+            drafts_created = _create_gmail_drafts_for_emails(user_id, user_data, affordable_emails)
+
+        response = {
+            "recruiters": affordable_people,
+            "emails": affordable_emails,
+            "draftsCreated": drafts_created,
+            "jobTypeDetected": result.get("job_type_detected", job_type or "general"),
+            "companyCleaned": result.get("company_cleaned", company),
+            "searchTitles": titles[:5],
+            "targetTitles": titles[:5],
+            "totalFound": total_found,
+            "requestedCount": max_results_requested,
+            "foundCount": len(affordable_people),
+            "creditsCharged": credits_charged,
+            "creditsRemaining": new_balance,
+            "message": result.get("message"),
+        }
+        if has_more and len(affordable_people) > 0:
+            response["hasMore"] = True
+            response["moreAvailable"] = len(all_people) - max_affordable
+            response["creditsNeededForMore"] = credits_needed_for_more
+
+        return jsonify(response)
+
+    except Exception as e:
+        logger.error(f"[FindEmployee] Error: {str(e)}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
@@ -8573,7 +8979,7 @@ def find_hiring_manager_endpoint():
         resume_linkedin = user_resume.get('contact', {}).get('linkedin', '') if isinstance(user_resume.get('contact'), dict) else ''
         user_contact = {
             "name": user_resume.get('name', user_data.get('displayName', '')),
-            "email": user_data.get('email', ''),
+            "email": get_outreach_email(user_data),
             "phone": resume_phone or user_data.get('phone', ''),
             "linkedin": resume_linkedin or user_data.get('linkedin', '')
         }
@@ -8758,6 +9164,50 @@ def find_hiring_manager_endpoint():
                             })
 
                             logger.info(f"[FindHiringManager] Created Gmail draft for {to_email}")
+
+                            # Log this manually drafted hiring manager into the
+                            # outbox tracker at DRAFT time, matching Find People,
+                            # so they appear in /outbox. Routed through the shared
+                            # builder via upsert_hm_outbox_contact so this path and
+                            # the agent / Loop HM path write the identical shape
+                            # (inOutbox + isHiringManager, dedup on lowercased
+                            # email, conservative merge on re-draft). The
+                            # recruiters/* save in save-recruiters is unchanged;
+                            # this write is purely additive. Own try/except so a
+                            # Firestore hiccup never gets logged as a
+                            # draft-creation failure.
+                            try:
+                                from app.services.outbox_service import upsert_hm_outbox_contact
+                                hm_first = (manager.get("FirstName") or manager.get("firstName") or manager.get("first_name") or "").strip()
+                                hm_last = (manager.get("LastName") or manager.get("lastName") or manager.get("last_name") or "").strip()
+                                if not hm_first and not hm_last and to_name:
+                                    name_parts = to_name.split()
+                                    hm_first = name_parts[0]
+                                    hm_last = " ".join(name_parts[1:])
+                                now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+                                today = datetime.now().strftime("%m/%d/%Y")
+                                upsert_hm_outbox_contact(
+                                    db,
+                                    user_id,
+                                    first_name=hm_first,
+                                    last_name=hm_last,
+                                    email=to_email,
+                                    company=(manager.get("Company") or manager.get("company") or company or "").strip(),
+                                    job_title=(manager.get("Title") or manager.get("title") or manager.get("jobTitle") or manager.get("job_title") or "").strip(),
+                                    linkedin_url=(manager.get("LinkedIn") or manager.get("linkedin") or manager.get("linkedinUrl") or manager.get("linkedin_url") or "").strip(),
+                                    email_subject=subject,
+                                    # Store the plain-text body in Firestore. The HTML
+                                    # version (body_html) is only for the Gmail MIME part
+                                    # above; the tracker renders emailBody as text.
+                                    email_body=body_plain,
+                                    gmail_draft_id=draft_id,
+                                    gmail_draft_url=draft_url,
+                                    now_iso=now_iso,
+                                    today=today,
+                                )
+                                logger.info(f"[FindHiringManager] Logged outbox contact for {to_email}")
+                            except Exception as outbox_err:
+                                logger.error(f"[FindHiringManager] Outbox contact upsert failed for {to_email}: {outbox_err}")
 
                         except Exception as e:
                             logger.error(f"[FindHiringManager] Failed to create draft for {email_data.get('to_email')}: {e}")

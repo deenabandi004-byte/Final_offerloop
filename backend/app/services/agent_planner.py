@@ -15,7 +15,7 @@ from app.config import CLAUDE_API_KEY
 
 logger = logging.getLogger(__name__)
 
-PLANNER_MODEL = "claude-sonnet-4-20250514"
+PLANNER_MODEL = "claude-sonnet-4-6"
 MAX_ACTIONS_PER_CYCLE = 10
 
 VALID_ACTIONS = frozenset({
@@ -157,12 +157,25 @@ def _build_prompt(config: dict, user_data: dict, pipeline_state: dict, market_co
     industries = _safe_chip_list(config.get("targetIndustries", []))
     roles = _safe_chip_list(config.get("targetRoles", []))
     locations = _safe_chip_list(config.get("targetLocations", []))
-    weekly_target = config.get("weeklyContactTarget", 5)
+    # Two field names exist for the same number — the legacy
+    # singleton config uses `weeklyContactTarget`, the Loop doc stores
+    # `weeklyTarget`. loop_jobs.py maps the latter onto the former for
+    # synthetic_config, but any caller that forgets (legacy run_now,
+    # scripts) would hit the planner default of 5 regardless of the
+    # student's tier-derived target. Read both — Loop field wins on a tie.
+    weekly_target = (
+        config.get("weeklyTarget")
+        or config.get("weeklyContactTarget")
+        or 5
+    )
     prefer_alumni = bool(config.get("preferAlumni", True))
     follow_up_enabled = bool(config.get("followUpEnabled", True))
     follow_up_days = config.get("followUpDays", 7)
-    raw_mode = config.get("loopMode") or "people"
-    loop_mode = raw_mode if raw_mode in VALID_LOOP_MODES else "people"
+    # Default mirrors the wizard + loop_service: every Loop runs both
+    # pipelines unless explicitly downgraded. Old "people" default left
+    # the planner emitting fewer find_jobs actions than the loop wanted.
+    raw_mode = config.get("loopMode") or "both"
+    loop_mode = raw_mode if raw_mode in VALID_LOOP_MODES else "both"
     raw_blocklist = config.get("blocklist", {}) or {}
     blocklist = {
         "companies": _safe_chip_list(raw_blocklist.get("companies", [])),
@@ -407,11 +420,25 @@ def _build_market_section(market_context: dict) -> str:
     return "\n".join(sections) + "\n"
 
 
+class PlannerUnavailableError(RuntimeError):
+    """Raised when the planner can't be invoked at all (missing API key,
+    client init failure). Distinct from a Claude call that ran and
+    returned bad JSON — that's handled inside _parse_plan with a fallback.
+
+    Caller (loop_jobs.run_loop_cycle_job) catches this specifically and
+    pauses the Loop with pauseReason='planner_unavailable' instead of
+    silently letting the safety-net synthesize actions with no LLM
+    intelligence (which was S2.5 in the loops audit)."""
+
+
 def _call_claude(prompt: str) -> str:
     """Call Claude API for planning."""
     if not CLAUDE_API_KEY:
-        logger.warning("CLAUDE_API_KEY not set — returning empty plan")
-        return "[]"
+        logger.error(
+            "Planner: CLAUDE_API_KEY not set — cycles cannot plan intelligently. "
+            "Set CLAUDE_API_KEY or the Loop will pause with planner_unavailable.",
+        )
+        raise PlannerUnavailableError("CLAUDE_API_KEY not configured")
 
     import anthropic
 

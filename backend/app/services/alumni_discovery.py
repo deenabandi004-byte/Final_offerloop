@@ -720,14 +720,11 @@ def discover_alumni(
     # ---- Build exclusion set (defense in depth) ------------------------
     exclude_keys: set = set()
     try:
-        from app.routes.runs import _get_cached_exclusion_list, _build_exclusion_data_from_firestore
+        from app.routes.runs import _build_exclusion_data_from_firestore
         from app.extensions import get_db
-        excl = _get_cached_exclusion_list(uid)
-        if not excl:
-            db = get_db()
-            if db:
-                excl = _build_exclusion_data_from_firestore(db, uid)
-        if excl:
+        db = get_db()
+        if db:
+            excl = _build_exclusion_data_from_firestore(db, uid)
             exclude_keys = excl.get("identity_set") or set()
     except Exception as e:
         # Exclusion is defense-in-depth; PDL-side dedup still works without it.

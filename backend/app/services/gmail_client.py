@@ -640,6 +640,65 @@ def get_latest_message_from_thread(gmail_service, thread_id, sent_to_email=None)
         return None
 
 
+def get_full_thread_chain(gmail_service, thread_id, sent_to_email=None, user_email=None):
+    """
+    Fetch every message in a Gmail thread with bodies decoded, returned
+    oldest -> newest. Used by the outbox thread-view endpoint so the panel can
+    render the actual conversation instead of the latest-snippet fallback.
+
+    Each message dict:
+        messageId, sender (raw From header), isFromRecipient (bool, matched on
+        sent_to_email), isFromUser (bool, matched on user_email), sentAt (ISO
+        UTC string), subject, body (extract_message_body output — signature and
+        quoted-reply stripping is desirable for clean chain display).
+    """
+    try:
+        thread = gmail_service.users().threads().get(
+            userId='me',
+            id=thread_id,
+            format='full',
+        ).execute()
+    except Exception as e:
+        print(f"Error fetching full thread chain {thread_id}: {e}")
+        raise
+
+    messages = thread.get('messages', []) or []
+    chain = []
+    for msg in messages:
+        headers = msg.get('payload', {}).get('headers', []) or []
+        from_header = next((h.get('value', '') for h in headers if (h.get('name') or '').lower() == 'from'), '')
+        subject = next((h.get('value', '') for h in headers if (h.get('name') or '').lower() == 'subject'), '')
+
+        is_from_recipient = bool(sent_to_email) and sent_to_email.lower() in (from_header or '').lower()
+        is_from_user = bool(user_email) and user_email.lower() in (from_header or '').lower()
+
+        sent_at = None
+        ts = msg.get('internalDate')
+        if ts:
+            try:
+                sent_at = datetime.utcfromtimestamp(int(ts) / 1000).isoformat() + "Z"
+            except Exception:
+                pass
+
+        # Full body for display — pass max_length=None so we don't truncate.
+        body = extract_message_body(msg, max_length=None)
+
+        chain.append({
+            'messageId': msg.get('id'),
+            'sender': from_header,
+            'isFromRecipient': is_from_recipient,
+            'isFromUser': is_from_user,
+            'sentAt': sent_at,
+            'subject': subject,
+            'body': body,
+        })
+
+    # Sort oldest -> newest by sentAt (internalDate); messages already arrive
+    # in this order from Gmail but sort defensively in case of edge cases.
+    chain.sort(key=lambda m: m.get('sentAt') or '')
+    return chain
+
+
 def sync_thread_message(gmail_service, thread_id, sent_to_email=None, user_email=None):
     """
     Sync the latest message from a Gmail thread and return message snippet with status.
@@ -969,10 +1028,149 @@ def get_gmail_service_for_user(user_email, user_id=None):
         return None
 
 
+def _select_recipient_email(contact):
+    """Pick the best recipient address for a contact.
+
+    Preference order: work email, then generic email, then personal email.
+    Returns (email, source) or (None, None) when no usable address exists.
+    Shared by the draft path and the send path so both target the same inbox.
+    """
+    if contact.get('WorkEmail') and contact['WorkEmail'] != 'Not available' and '@' in contact['WorkEmail']:
+        return contact['WorkEmail'], 'WorkEmail'
+    if contact.get('Email') and '@' in contact['Email'] and not contact['Email'].endswith('@domain.com'):
+        return contact['Email'], 'Email'
+    if contact.get('PersonalEmail') and contact['PersonalEmail'] != 'Not available' and '@' in contact['PersonalEmail']:
+        return contact['PersonalEmail'], 'PersonalEmail'
+    return None, None
+
+
+def _build_outreach_mime(recipient_email, gmail_account_email, email_subject, email_body,
+                         user_info=None, resume_content=None, resume_filename=None, resume_url=None):
+    """Build the multipart outreach message (HTML body, signature, resume attachment).
+
+    This is the single source of truth for outreach email content. Both
+    create_gmail_draft_for_user (draft) and send_gmail_email_for_user (send)
+    call it, so a draft and a send produce byte-for-byte identical email,
+    including the resume attachment. email_subject and email_body are expected
+    to already be cleaned by the caller.
+    """
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.base import MIMEBase
+    from email import encoders
+
+    # Create multipart message
+    message = MIMEMultipart('mixed')
+    message['to'] = recipient_email
+    message['subject'] = email_subject
+    # Use the actual Gmail account email as the "from" address
+    message['from'] = gmail_account_email
+
+    # Add body (HTML if user_info provided, plain text otherwise)
+    if user_info:
+        # Create HTML email with professional signature
+        user_name = user_info.get('name', '[Your Name]')
+        user_email_addr = user_info.get('email', '')
+        user_phone = user_info.get('phone', '')
+        user_linkedin = user_info.get('linkedin', '')
+
+        # Build contact signature FIRST
+        contact_parts = []
+        if user_email_addr:
+            contact_parts.append(f'<a href="mailto:{user_email_addr}" style="color: #2563eb; text-decoration: none;">{user_email_addr}</a>')
+        if user_phone:
+            contact_parts.append(f'<span>{user_phone}</span>')
+        if user_linkedin:
+            linkedin_clean = user_linkedin.replace('https://', '').replace('http://', '').replace('www.', '')
+            contact_parts.append(f'<a href="{user_linkedin}" style="color: #2563eb; text-decoration: none;">{linkedin_clean}</a>')
+
+        contact_html = ' · '.join(contact_parts) if contact_parts else ''
+
+        # Convert line breaks to <br> tags for Gmail
+        email_body = email_body.strip()
+        email_body_html = email_body.replace('\n\n', '<br><br>').replace('\n', '<br>')
+
+        # Simple HTML wrapper
+        html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+* {{ margin: 0 !important; padding: 0 !important; text-indent: 0 !important; }}
+</style>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+             line-height: 1.6; color: #1f2937; margin-left: -8px !important;">
+<div style="white-space: pre-wrap; margin: 0 !important; padding: 0 !important;">
+{email_body_html}
+</div>
+</body>
+</html>"""
+        message.attach(MIMEText(html_content, 'html', 'utf-8'))
+    else:
+        # Plain text fallback
+        message.attach(MIMEText(email_body, 'plain', 'utf-8'))
+
+    # Attach resume if available
+    # Prefer pre-downloaded resume_content over resume_url to avoid redundant downloads
+    if resume_content:
+        print(f"[GmailClient] Attaching resume: {resume_filename or 'resume.pdf'}")
+        try:
+            filename = resume_filename or "resume.pdf"
+
+            import mimetypes
+            mime_type, _ = mimetypes.guess_type(filename)
+            if mime_type and '/' in mime_type:
+                main_type, sub_type = mime_type.split('/', 1)
+            else:
+                main_type, sub_type = 'application', 'pdf'
+
+            attachment = MIMEBase(main_type, sub_type)
+            attachment.set_payload(resume_content)
+            encoders.encode_base64(attachment)
+            attachment.add_header('Content-Disposition', f'attachment; filename="{filename}"')
+            message.attach(attachment)
+            print(f"[GmailClient] Resume attached successfully")
+
+        except Exception as resume_error:
+            print(f"[GmailClient] Could not attach resume: {resume_error}")
+            import traceback
+            traceback.print_exc()
+            # Continue without resume - don't fail the entire message
+    elif resume_url:
+        # Fallback: download from URL if resume_content not provided (for backward compatibility)
+        print(f"[GmailClient] Attaching resume from URL")
+        resume_content, filename = download_resume_from_url(resume_url)
+        if resume_content:
+            try:
+                import mimetypes as _mt
+                _mime, _ = _mt.guess_type(filename)
+                if _mime and '/' in _mime:
+                    main_type, sub_type = _mime.split('/', 1)
+                else:
+                    main_type, sub_type = 'application', 'pdf'
+
+                attachment = MIMEBase(main_type, sub_type)
+                attachment.set_payload(resume_content)
+                encoders.encode_base64(attachment)
+                attachment.add_header('Content-Disposition', f'attachment; filename="{filename}"')
+                message.attach(attachment)
+                print(f"[GmailClient] Resume attached successfully")
+            except Exception as resume_error:
+                print(f"[GmailClient] Could not attach resume: {resume_error}")
+                import traceback
+                traceback.print_exc()
+                # Continue without resume - don't fail the entire message
+        else:
+            print(f"[GmailClient] Failed to download resume from URL - skipping attachment")
+
+    return message
+
+
 def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free', user_email=None, resume_url=None, resume_content=None, resume_filename=None, user_info=None, user_id=None):
     """
     Create Gmail draft in the user's account with optional resume attachment and HTML formatting
-    
+
     Args:
         contact: Contact dictionary
         email_subject: Email subject line
@@ -985,21 +1183,16 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         user_info: User profile information
         user_id: User ID for Gmail credentials
     """
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
-    from email.mime.base import MIMEBase
-    from email import encoders
-    
     # Import clean_email_text from utils (will be created)
     from app.utils.contact import clean_email_text
-    
+
     try:
         # Clean the email subject and body FIRST
         email_subject = clean_email_text(email_subject)
         email_body = clean_email_text(email_body)
-        
+
         gmail_service = get_gmail_service_for_user(user_email, user_id=user_id)
-        
+
         if not gmail_service:
             print(f"[GmailClient] Gmail unavailable - creating mock draft")
             return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}"
@@ -1010,134 +1203,64 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         except Exception as profile_error:
             print(f"[GmailClient] Could not get Gmail profile: {profile_error}")
             gmail_account_email = user_email or os.getenv("DEFAULT_FROM_EMAIL", "noreply@offerloop.ai")
-        
+
         print(f"[GmailClient] Creating {tier.capitalize()} Gmail draft for contact {contact.get('FirstName', 'Unknown')}")
 
-        # Get the best available email address — prefer work/verified over personal
-        recipient_email = None
-        source = None
-
-        if contact.get('WorkEmail') and contact['WorkEmail'] != 'Not available' and '@' in contact['WorkEmail']:
-            recipient_email = contact['WorkEmail']
-            source = 'WorkEmail'
-        elif contact.get('Email') and '@' in contact['Email'] and not contact['Email'].endswith('@domain.com'):
-            recipient_email = contact['Email']
-            source = 'Email'
-        elif contact.get('PersonalEmail') and contact['PersonalEmail'] != 'Not available' and '@' in contact['PersonalEmail']:
-            recipient_email = contact['PersonalEmail']
-            source = 'PersonalEmail'
-
+        # Pick the best recipient address (work/verified preferred over personal).
+        recipient_email, source = _select_recipient_email(contact)
         print(f"[GmailDraft] Recipient for {contact.get('FirstName')} {contact.get('LastName')}: selected={recipient_email} (source={source}) | WorkEmail={contact.get('WorkEmail', 'n/a')} | Email={contact.get('Email', 'n/a')} | PersonalEmail={contact.get('PersonalEmail', 'n/a')}")
-        
+
         if not recipient_email:
             print(f"[GmailClient] No valid email found for contact - creating mock draft")
             return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}_no_email"
-        
-        # Create multipart message
-        message = MIMEMultipart('mixed')
-        message['to'] = recipient_email
-        message['subject'] = email_subject
-        # Use the actual Gmail account email as the "from" address
-        message['from'] = gmail_account_email
-        
-        # Add body (HTML if user_info provided, plain text otherwise)
-        if user_info:
-            # Create HTML email with professional signature
-            user_name = user_info.get('name', '[Your Name]')
-            user_email_addr = user_info.get('email', '')
-            user_phone = user_info.get('phone', '')
-            user_linkedin = user_info.get('linkedin', '')
-            
-            # Build contact signature FIRST
-            contact_parts = []
-            if user_email_addr:
-                contact_parts.append(f'<a href="mailto:{user_email_addr}" style="color: #2563eb; text-decoration: none;">{user_email_addr}</a>')
-            if user_phone:
-                contact_parts.append(f'<span>{user_phone}</span>')
-            if user_linkedin:
-                linkedin_clean = user_linkedin.replace('https://', '').replace('http://', '').replace('www.', '')
-                contact_parts.append(f'<a href="{user_linkedin}" style="color: #2563eb; text-decoration: none;">{linkedin_clean}</a>')
-            
-            contact_html = ' · '.join(contact_parts) if contact_parts else ''
-            
-            # Convert line breaks to <br> tags for Gmail
-            email_body = email_body.strip()
-            email_body_html = email_body.replace('\n\n', '<br><br>').replace('\n', '<br>')
-            
-            # Simple HTML wrapper
-            html_content = f"""<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<style>
-* {{ margin: 0 !important; padding: 0 !important; text-indent: 0 !important; }}
-</style>
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-             line-height: 1.6; color: #1f2937; margin-left: -8px !important;">
-<div style="white-space: pre-wrap; margin: 0 !important; padding: 0 !important;">
-{email_body_html}
-</div>
-</body>
-</html>"""
-            message.attach(MIMEText(html_content, 'html', 'utf-8'))
-        else:
-            # Plain text fallback
-            message.attach(MIMEText(email_body, 'plain', 'utf-8'))
-        
-        # Attach resume if available
-        # Prefer pre-downloaded resume_content over resume_url to avoid redundant downloads
-        if resume_content:
-            print(f"[GmailClient] Attaching resume: {resume_filename or 'resume.pdf'}")
-            try:
-                filename = resume_filename or "resume.pdf"
-                
-                import mimetypes
-                mime_type, _ = mimetypes.guess_type(filename)
-                if mime_type and '/' in mime_type:
-                    main_type, sub_type = mime_type.split('/', 1)
-                else:
-                    main_type, sub_type = 'application', 'pdf'
-                
-                attachment = MIMEBase(main_type, sub_type)
-                attachment.set_payload(resume_content)
-                encoders.encode_base64(attachment)
-                attachment.add_header('Content-Disposition', f'attachment; filename="{filename}"')
-                message.attach(attachment)
-                print(f"[GmailClient] Resume attached successfully")
 
-            except Exception as resume_error:
-                print(f"[GmailClient] Could not attach resume: {resume_error}")
-                import traceback
-                traceback.print_exc()
-                # Continue without resume - don't fail the entire draft
-        elif resume_url:
-            # Fallback: download from URL if resume_content not provided (for backward compatibility)
-            print(f"[GmailClient] Attaching resume from URL")
-            resume_content, filename = download_resume_from_url(resume_url)
-            if resume_content:
-                try:
-                    import mimetypes as _mt
-                    _mime, _ = _mt.guess_type(filename)
-                    if _mime and '/' in _mime:
-                        main_type, sub_type = _mime.split('/', 1)
-                    else:
-                        main_type, sub_type = 'application', 'pdf'
-                    
-                    attachment = MIMEBase(main_type, sub_type)
-                    attachment.set_payload(resume_content)
-                    encoders.encode_base64(attachment)
-                    attachment.add_header('Content-Disposition', f'attachment; filename="{filename}"')
-                    message.attach(attachment)
-                    print(f"[GmailClient] Resume attached successfully")
-                except Exception as resume_error:
-                    print(f"[GmailClient] Could not attach resume: {resume_error}")
-                    import traceback
-                    traceback.print_exc()
-                    # Continue without resume - don't fail the entire draft
-            else:
-                print(f"[GmailClient] Failed to download resume from URL - skipping attachment")
-        
+        # Phase 2.4: suppression gate. If this address has bounced before
+        # (per-user OR globally), skip the draft. Returns a sentinel matching
+        # the existing "no_email" shape so downstream callers treat it as
+        # "no real draft" without crashing.
+        try:
+            from app.services.suppression import is_suppressed
+            if is_suppressed(user_id, recipient_email):
+                print(f"[GmailClient] SUPPRESSED — skipping draft for {recipient_email} (previous bounce)")
+                return f"suppressed_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}"
+        except Exception as supp_err:
+            # Suppression lookup must never block sending a draft.
+            print(f"[GmailClient] Suppression check failed (proceeding with draft): {supp_err}")
+
+        # Phase 3c: per-contact low-confidence gate. Same intent as Phase 2.2's
+        # batch-level email_quality gate in agent_actions.execute_find_and_draft,
+        # but here at the chokepoint so it catches Find People + contact_import
+        # + linkedin_import + referral paths too. Only fires when EmailSource is
+        # explicitly low-confidence — manual contacts (no EmailSource) are
+        # unaffected.
+        LOW_CONFIDENCE_SOURCES = {
+            "pattern",
+            "domain_generated",
+            "pdl_fallback",
+            "hunter_finder_risky",
+            "neverbounce_acceptall",
+        }
+        email_source = (contact.get("EmailSource") or "").strip()
+        if email_source and email_source in LOW_CONFIDENCE_SOURCES:
+            print(
+                f"[GmailClient] LOW-CONFIDENCE source={email_source} — skipping draft "
+                f"for {recipient_email} (contact surfaces, no Gmail draft)"
+            )
+            return f"low_confidence_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}"
+
+        # Build the multipart message (HTML body, signature, resume attachment),
+        # shared with the send path so drafts and sends are identical.
+        message = _build_outreach_mime(
+            recipient_email=recipient_email,
+            gmail_account_email=gmail_account_email,
+            email_subject=email_subject,
+            email_body=email_body,
+            user_info=user_info,
+            resume_content=resume_content,
+            resume_filename=resume_filename,
+            resume_url=resume_url,
+        )
+
         # Create the draft
         raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
         
@@ -1200,6 +1323,105 @@ def create_gmail_draft_for_user(contact, email_subject, email_body, tier='free',
         import traceback
         traceback.print_exc()
         return f"mock_{tier}_draft_{contact.get('FirstName', 'unknown').lower()}"
+
+
+def find_sent_thread_for_recipient(user_email, user_id, recipient_email, subject=None):
+    """Look up the most recent sent Gmail thread addressed to a recipient.
+
+    Used to backfill gmailThreadId on Loop-found contacts whose email was
+    sent (manually from the tracker, or via an older code path that didn't
+    stamp the thread id). Once stamped, the activity feed's Draft button
+    deep-links to the exact thread instead of falling back to a compose URL
+    or the tracker.
+
+    Returns {thread_id, message_id} on a match, else None.
+    """
+    if not recipient_email:
+        return None
+    try:
+        service = get_gmail_service_for_user(user_email, user_id=user_id)
+        if not service:
+            return None
+        q = f'in:sent to:{recipient_email}'
+        if subject:
+            clean = subject.replace('"', '').strip()
+            if clean:
+                q += f' subject:"{clean}"'
+        resp = service.users().messages().list(userId='me', q=q, maxResults=1).execute()
+        messages = resp.get('messages') or []
+        if not messages:
+            return None
+        return {
+            'thread_id': messages[0].get('threadId') or '',
+            'message_id': messages[0].get('id') or '',
+        }
+    except Exception as e:
+        print(f"[GmailClient] find_sent_thread_for_recipient failed for {recipient_email}: {e}")
+        return None
+
+
+def find_draft_for_recipient(user_email, user_id, recipient_email, subject=None):
+    """Look up an existing Gmail draft addressed to a specific recipient.
+
+    Used to backfill gmailDraftUrl on Loop-found contacts whose draft was
+    created before the (id/url → draft_id/draft_url) field-name bug was
+    fixed in agent_actions.py. Same compose URL shape that
+    create_gmail_draft_for_user returns, so the activity feed can deep-link
+    to the exact draft (matching Find People spreadsheet behavior).
+
+    Returns {draft_id, message_id, draft_url, thread_id} on a match, else None.
+    """
+    if not recipient_email:
+        return None
+    try:
+        service = get_gmail_service_for_user(user_email, user_id=user_id)
+        if not service:
+            return None
+        # Gmail search query — narrow to drafts addressed to this recipient.
+        # Subject is included when available to disambiguate multiple drafts
+        # to the same person (e.g. an initial outreach + a follow-up).
+        q = f'in:drafts to:{recipient_email}'
+        if subject:
+            # Strip quotes from the subject so the Gmail query parser doesn't
+            # see unbalanced ones. Surround the whole thing in quotes for an
+            # exact phrase match.
+            clean = subject.replace('"', '').strip()
+            if clean:
+                q += f' subject:"{clean}"'
+        resp = service.users().messages().list(userId='me', q=q, maxResults=5).execute()
+        messages = resp.get('messages') or []
+        if not messages:
+            return None
+        # Take the first match. message.id is the underlying message; threadId
+        # is the conversation. We need draft_id too — fetch the message to
+        # confirm it's actually a draft and to get the draft envelope.
+        message_id = messages[0].get('id')
+        thread_id = messages[0].get('threadId')
+        if not message_id:
+            return None
+        # Locate the draft envelope by listing drafts and matching message id.
+        # drafts.list returns up to 500 at a time; for users with thousands of
+        # drafts this would need pagination, but the common case fits in one
+        # page.
+        draft_id = ''
+        try:
+            drafts_resp = service.users().drafts().list(userId='me', maxResults=500).execute()
+            for d in drafts_resp.get('drafts') or []:
+                if (d.get('message') or {}).get('id') == message_id:
+                    draft_id = d.get('id') or ''
+                    break
+        except Exception:
+            pass
+        draft_url = f"https://mail.google.com/mail/u/0/#drafts?compose={message_id}"
+        return {
+            'draft_id': draft_id,
+            'message_id': message_id,
+            'draft_url': draft_url,
+            'thread_id': thread_id or '',
+        }
+    except Exception as e:
+        print(f"[GmailClient] find_draft_for_recipient failed for {recipient_email}: {e}")
+        return None
 
 
 # ISSUE 3 FIX: Parallel Gmail draft creation with rate limiting
@@ -1282,6 +1504,159 @@ def create_drafts_parallel(contacts_with_emails, resume_bytes=None, resume_filen
                 with results_lock:
                     results.append((item.get('index', 0), None, str(e)))
     
+    # Sort results by index to maintain order
+    results.sort(key=lambda x: x[0])
+    return [result for _, result, _ in results]
+
+
+def send_gmail_email_for_user(contact, email_subject, email_body, tier='free', user_email=None, resume_url=None, resume_content=None, resume_filename=None, user_info=None, user_id=None):
+    """Send an outreach email from the user's Gmail account.
+
+    This is the shared send path: it builds the exact same message as the draft
+    path (via _build_outreach_mime, resume attachment included) and calls
+    messages().send() instead of drafts().create(). A future "send from tracker"
+    feature should call this function rather than reimplementing send logic.
+
+    Mirrors create_gmail_draft_for_user's signature so the parallel wrapper is a
+    drop-in counterpart to create_drafts_parallel.
+
+    Returns a dict {message_id, thread_id, recipient_email} on success, or a
+    "mock_..." string when Gmail is unavailable or no recipient address exists
+    (same sentinel convention as the draft path, so callers can skip it).
+    """
+    from app.utils.contact import clean_email_text
+
+    try:
+        # Clean the email subject and body FIRST
+        email_subject = clean_email_text(email_subject)
+        email_body = clean_email_text(email_body)
+
+        gmail_service = get_gmail_service_for_user(user_email, user_id=user_id)
+
+        if not gmail_service:
+            print(f"[GmailClient] Gmail unavailable - cannot send, returning mock")
+            return f"mock_{tier}_send_{contact.get('FirstName', 'unknown').lower()}"
+
+        # Get the actual Gmail account email (might be shared account)
+        try:
+            gmail_account_email = gmail_service.users().getProfile(userId='me').execute().get('emailAddress')
+        except Exception as profile_error:
+            print(f"[GmailClient] Could not get Gmail profile: {profile_error}")
+            gmail_account_email = user_email or os.getenv("DEFAULT_FROM_EMAIL", "noreply@offerloop.ai")
+
+        print(f"[GmailClient] Sending {tier.capitalize()} email for contact {contact.get('FirstName', 'Unknown')}")
+
+        # Pick the best recipient address (work/verified preferred over personal).
+        recipient_email, source = _select_recipient_email(contact)
+        print(f"[GmailSend] Recipient for {contact.get('FirstName')} {contact.get('LastName')}: selected={recipient_email} (source={source})")
+
+        if not recipient_email:
+            print(f"[GmailClient] No valid email found for contact - cannot send, returning mock")
+            return f"mock_{tier}_send_{contact.get('FirstName', 'unknown').lower()}_no_email"
+
+        # Build the same multipart message the draft path builds.
+        message = _build_outreach_mime(
+            recipient_email=recipient_email,
+            gmail_account_email=gmail_account_email,
+            email_subject=email_subject,
+            email_body=email_body,
+            user_info=user_info,
+            resume_content=resume_content,
+            resume_filename=resume_filename,
+            resume_url=resume_url,
+        )
+
+        raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
+
+        try:
+            send_result = gmail_service.users().messages().send(userId='me', body={'raw': raw_message}).execute()
+        except Exception as api_error:
+            print(f"[GmailClient] Gmail API error sending message: {api_error}")
+            import traceback
+            traceback.print_exc()
+            raise  # Re-raise so the outer handler can catch token-expiry, etc.
+
+        message_id = send_result.get('id')
+        thread_id = send_result.get('threadId')
+        print(f"[GmailClient] Sent {tier.capitalize()} email {message_id} (thread {thread_id})")
+
+        return {
+            'message_id': message_id,
+            'thread_id': thread_id,
+            'recipient_email': recipient_email,
+        }
+
+    except Exception as e:
+        print(f"[GmailClient] {tier.capitalize()} Gmail send failed: {e}")
+        import traceback
+        traceback.print_exc()
+        raise  # Re-raise so the caller can handle token expiry and surface failures
+
+
+def send_emails_parallel(contacts_with_emails, resume_bytes=None, resume_filename=None, user_info=None, user_id=None, tier='free', user_email=None, resume_url=None):
+    """Send all outreach emails in parallel with rate limiting.
+
+    Counterpart to create_drafts_parallel: same arguments and ordering
+    guarantees, but each item is sent (not drafted) via send_gmail_email_for_user.
+
+    Returns a list (aligned with contacts_with_emails order) of dicts with
+    {message_id, thread_id, recipient_email}, or "mock_..." strings / None on
+    per-item failure.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import threading
+
+    if not contacts_with_emails:
+        return []
+
+    # When resume_bytes not provided but resume_url is set, download once for all sends
+    if resume_bytes is None and resume_url:
+        try:
+            resume_bytes, downloaded_filename = download_resume_from_url(resume_url)
+            if resume_bytes and not resume_filename:
+                resume_filename = downloaded_filename
+        except Exception as e:
+            print(f"⚠️ Could not download resume from URL in send_emails_parallel: {e}")
+
+    max_workers = min(5, len(contacts_with_emails))
+    results = []
+    results_lock = threading.Lock()
+
+    def send_single(item):
+        """Send a single email with resume attached when available."""
+        try:
+            contact = item['contact']
+            email_subject = item['email_subject']
+            email_body = item['email_body']
+
+            result = send_gmail_email_for_user(
+                contact, email_subject, email_body, tier, user_email,
+                None,  # resume_url (deprecated, resume_bytes preferred)
+                resume_bytes,
+                resume_filename,
+                user_info,
+                user_id
+            )
+            return item.get('index', 0), result, None
+        except Exception as e:
+            return item.get('index', 0), None, str(e)
+
+    print(f"[GmailClient] Sending {len(contacts_with_emails)} emails in parallel (max {max_workers} concurrent)")
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_item = {
+            executor.submit(send_single, item): item
+            for item in contacts_with_emails
+        }
+        for future in as_completed(future_to_item):
+            item = future_to_item[future]
+            try:
+                index, result, error = future.result()
+                with results_lock:
+                    results.append((index, result, error))
+            except Exception as e:
+                with results_lock:
+                    results.append((item.get('index', 0), None, str(e)))
+
     # Sort results by index to maintain order
     results.sort(key=lambda x: x[0])
     return [result for _, result, _ in results]
@@ -1451,3 +1826,129 @@ def create_drafts_batch(contacts_with_emails, gmail_service, resume_bytes=None, 
     
     # Return results in order
     return [results.get(str(i), {'error': 'Missing result', 'draft_id': None}) for i in range(len(contacts_with_emails))]
+
+
+# ============================================================================
+# Auto-apply verification code lookup
+# ============================================================================
+# Greenhouse (and a few other ATSes) gate submit behind a per-tenant email
+# verification step: after the form POSTs, they email an N-character code
+# the candidate has to paste back into the form to actually complete the
+# submission. This helper polls the candidate's Gmail for that code so the
+# auto-apply runner can paste it programmatically.
+#
+# Verified against Temelio Greenhouse (2026-06-18 dogfood): sender is
+# no-reply@greenhouse.io, body contains the code on its own line as an
+# 8-char alphanumeric string, code is single-use + time-limited.
+
+def search_for_verification_code(
+    uid: str,
+    *,
+    sender_pattern: str = "from:greenhouse.io",
+    code_regex: str = r"\b[A-Za-z0-9]{8}\b",
+    since_epoch_seconds: int = 0,
+    max_wait_seconds: int = 60,
+    poll_interval_seconds: int = 5,
+):
+    """Poll the user's Gmail for an ATS verification code.
+
+    Args:
+        uid: Offerloop user id; their Gmail OAuth creds must be on file.
+        sender_pattern: Gmail search operator narrowing the inbox (e.g.
+            "from:greenhouse.io" or "from:no-reply@greenhouse.io").
+        code_regex: Regex with at least one capturing group OR a whole match
+            that yields the code. The first non-empty match is returned.
+        since_epoch_seconds: Filter to messages received after this Unix
+            timestamp. Use the submit-click timestamp so old codes don't
+            get picked up. Gmail's after: operator is day-granular, so we
+            also filter strict-inequality on internalDate after the fetch.
+        max_wait_seconds: Total poll budget.
+        poll_interval_seconds: Sleep between polls.
+
+    Returns:
+        The extracted code string, or None if no matching email arrived in
+        the poll window or the user has no Gmail creds.
+
+    Failure modes:
+        - User never connected Gmail -> returns None immediately
+        - Token expired and refresh failed -> returns None
+        - Email arrives but the body doesn't match the regex -> returns None
+          (the caller falls back to user-facing needs_verification UX)
+    """
+    import re
+    import time as _time
+
+    creds = _load_user_gmail_creds(uid)
+    if not creds:
+        return None
+    try:
+        service = _gmail_service(creds)
+    except Exception:
+        return None
+
+    # Gmail's after: takes a Unix timestamp (seconds). Use the day-bucket
+    # of since_epoch_seconds as the query filter; then strict-greater-than
+    # on internalDate afterward.
+    # Don't use `after:` operator — Gmail's API search index lags 30-60s
+    # behind inbox delivery, and `after:` is day-granular anyway. Pull the
+    # most recent N messages from the sender and post-filter by
+    # internalDate (which IS millisecond-precise and updated synchronously
+    # with delivery).
+    q = sender_pattern
+
+    pattern = re.compile(code_regex)
+    deadline = _time.time() + max_wait_seconds
+    poll_n = 0
+
+    while _time.time() < deadline:
+        poll_n += 1
+        try:
+            resp = service.users().messages().list(
+                userId="me", q=q, maxResults=10,
+            ).execute()
+        except Exception as exc:
+            print(f"[gmail.code] poll {poll_n} list failed: {exc}", flush=True)
+            _time.sleep(poll_interval_seconds)
+            continue
+
+        messages = resp.get("messages") or []
+        print(f"[gmail.code] poll {poll_n}: {len(messages)} candidate messages "
+              f"(filter: internalDate > {since_epoch_seconds * 1000})", flush=True)
+
+        for i, msg_ref in enumerate(messages):
+            try:
+                msg = service.users().messages().get(
+                    userId="me", id=msg_ref["id"], format="full",
+                ).execute()
+            except Exception as exc:
+                print(f"[gmail.code]   msg {i} fetch failed: {exc}", flush=True)
+                continue
+
+            try:
+                internal_ms = int(msg.get("internalDate") or 0)
+            except (TypeError, ValueError):
+                internal_ms = 0
+            internal_age_sec = (since_epoch_seconds * 1000 - internal_ms) / 1000.0
+            if since_epoch_seconds and internal_ms <= since_epoch_seconds * 1000:
+                print(f"[gmail.code]   msg {i} skipped — too old (Δ={internal_age_sec:.0f}s before submit)",
+                      flush=True)
+                continue
+
+            body = extract_message_body(msg, max_length=4000) or ""
+            matches = list(pattern.finditer(body))
+            print(f"[gmail.code]   msg {i} fresh (Δ={-internal_age_sec:.0f}s after submit), "
+                  f"body {len(body)} chars, {len(matches)} regex match(es)", flush=True)
+            if not matches:
+                # Surface the body once so we can see what the parser produced;
+                # caller will iterate on the regex.
+                print(f"[gmail.code]   msg {i} body preview: {body[:300]!r}", flush=True)
+            for match in matches:
+                code = match.group(1) if match.groups() else match.group(0)
+                if code:
+                    print(f"[gmail.code] CODE FOUND on poll {poll_n}: {code!r}", flush=True)
+                    return code
+
+        _time.sleep(poll_interval_seconds)
+
+    print(f"[gmail.code] no code found after {poll_n} polls", flush=True)
+    return None
