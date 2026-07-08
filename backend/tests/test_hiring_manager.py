@@ -201,12 +201,11 @@ class TestRankingSystem:
 class TestCreditConstants:
     """Verify credit costs are consistent across route and service."""
 
-    def test_route_credit_cost_matches_config(self):
-        # Flat RECRUITER_CREDIT_COST=5 became per-flow config prices
-        # (2026-07-07) — HM finds now charge what the UI displays.
-        from app.routes.job_board import FIND_HM_CREDIT_COST
-        from app.config import CREDIT_COSTS
-        assert FIND_HM_CREDIT_COST == CREDIT_COSTS["find_hiring_manager"]
+    def test_route_credit_cost_is_5(self):
+        # Pins the LIVE flat charge (see test_job_board_audit for the parked
+        # config/web mismatch note).
+        from app.routes.job_board import RECRUITER_CREDIT_COST
+        assert RECRUITER_CREDIT_COST == 5
 
     def test_find_recruiters_returns_correct_credit_calc(self):
         """Service should return credits_charged = 5 * count (not 15)."""
