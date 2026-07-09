@@ -72,9 +72,73 @@ def write_jobs(normalized_jobs: list[dict]) -> dict:
         written += len(chunk)
         logger.info("  Batch write: %d jobs committed", len(chunk))
 
+    # Embed newly-written jobs so Firestore vector search has them ready.
+    # Fail-soft: embedding failure never fails the write; the on-demand
+    # embed path in embedding_ranker will catch stragglers, and the
+    # backfill script covers anything both miss.
+    embed_count = _embed_new_jobs_batch(list(new_jobs.values()))
+    if embed_count:
+        logger.info("  Embedded %d newly-written jobs at ingest", embed_count)
+
     result = {"written": written, "skipped_duplicates": skipped, "total": total}
     logger.info("Write complete: %s", result)
     return result
+
+
+def _embed_new_jobs_batch(new_jobs: list[dict]) -> int:
+    """Compute embeddings for newly-written jobs and upsert into
+    job_embeddings collection with filter attrs mirrored so Firestore
+    vector search prefilters work.
+
+    Batched: OpenAI batch-embed handles up to 2048 inputs per call; we
+    chunk at 500 to keep memory pressure low and align with the
+    embedding_ranker's EMBED_BATCH_SIZE budget. Never raises.
+    """
+    if not new_jobs:
+        return 0
+
+    try:
+        from backend.app.utils.embedding_ranker import (
+            _embed_batch,
+            _job_text,
+            EMBEDDING_DIM,
+        )
+        from backend.app.services.vector_store import upsert_job_embedding
+    except Exception as e:
+        logger.warning("embed-at-ingest: imports failed: %s", e)
+        return 0
+
+    CHUNK = 500
+    total_embedded = 0
+    for start in range(0, len(new_jobs), CHUNK):
+        chunk = new_jobs[start : start + CHUNK]
+        texts = [_job_text(j) for j in chunk]
+
+        try:
+            embs = _embed_batch(texts)
+        except Exception as e:
+            logger.warning("embed-at-ingest: batch failed: %s", e)
+            continue
+
+        for job, emb in zip(chunk, embs):
+            if not emb or not isinstance(emb, list) or len(emb) != EMBEDDING_DIM:
+                continue
+            jid = job.get("job_id")
+            if not jid:
+                continue
+            ok = upsert_job_embedding(
+                jid,
+                emb,
+                filter_attrs={
+                    "expired": bool(job.get("expired", False)),
+                    "career_domain": job.get("career_domain"),
+                    "source": job.get("source"),
+                },
+            )
+            if ok:
+                total_embedded += 1
+
+    return total_embedded
 
 
 def mark_expired_jobs(fj_ids: list[str]) -> dict:
@@ -121,6 +185,16 @@ def mark_expired_jobs(fj_ids: list[str]) -> dict:
         batch.commit()
         marked += len(chunk)
         logger.info("  Expired-mark batch: %d jobs flagged", len(chunk))
+
+    # Mirror expired flag onto the job_embeddings collection so Firestore
+    # vector search's expired=false prefilter continues to exclude them.
+    if targets:
+        try:
+            from backend.app.services.vector_store import mark_expired as _mark_vec_expired
+            vec_marked = _mark_vec_expired(list(targets))
+            logger.info("  Mirrored expired=true onto %d embedding docs", vec_marked)
+        except Exception as e:
+            logger.warning("Failed to mirror expired flag into job_embeddings: %s", e)
 
     result = {
         "marked": marked,

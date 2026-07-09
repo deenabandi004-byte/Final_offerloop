@@ -6430,10 +6430,22 @@ def fetch_personalized_jobs(
 
     Plan: docs/JOB_BOARD_ELEVATION_PLAN.md Phase 1.
     """
-    from app.services.job_serving import fetch_jobs_from_firestore
+    from app.services.job_serving import (
+        fetch_jobs_from_firestore,
+        fetch_jobs_from_firestore_personalized,
+    )
     from app.services.job_ranker_signals import load_user_signals
 
-    pool_jobs, pool_meta = fetch_jobs_from_firestore()
+    # Phase 2: personalized vector-retrieved pool when the user has a
+    # preference vector; otherwise falls back to recency-ordered pool.
+    # RANKER_MODE=rules env var forces the recency path (kill switch).
+    intent_contract_for_pool = user_profile.get("_intent_contract") or {}
+    career_domain_for_pool = intent_contract_for_pool.get("career_domain") if isinstance(intent_contract_for_pool, dict) else None
+    pool_jobs, pool_meta = fetch_jobs_from_firestore_personalized(
+        uid=user_id,
+        user_profile=user_profile,
+        career_domain=career_domain_for_pool,
+    )
 
     # Phase 2: drop jobs the user has explicitly dismissed before any other
     # processing. Cheap negative signal — they told us they don't want this

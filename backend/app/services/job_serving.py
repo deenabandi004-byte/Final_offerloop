@@ -242,3 +242,111 @@ def fetch_jobs_from_firestore(
         len(jobs), len(raw_docs), skipped_expired, skipped_invalid,
     )
     return jobs, metadata
+
+
+def fetch_jobs_from_firestore_personalized(
+    uid: str,
+    user_profile: dict,
+    pool_size: int = DEFAULT_POOL_SIZE,
+    lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+    career_domain: Optional[str] = None,
+) -> Tuple[List[dict], dict]:
+    """Vector-search personalized pool with automatic fallback to recency query.
+
+    Flow:
+      1. Read RANKER_MODE env var. If 'rules'/'legacy', skip vector path.
+      2. Compose user preference vector from Phase 1 signals.
+      3. Firestore vector search returns top-pool_size job_ids.
+      4. Hydrate to full job dicts, preserve nearest-neighbor order.
+      5. Fall back to fetch_jobs_from_firestore() on any failure.
+
+    The returned metadata dict includes 'serving_source' so /job-board's
+    logs and API response can distinguish 'vector' vs 'recency' pools —
+    useful for the RANKER_MODE A/B and for debugging user reports.
+    """
+    from backend.app.services.retrieve_and_rank import get_ranker_mode
+
+    if get_ranker_mode() != "embedding":
+        jobs, meta = fetch_jobs_from_firestore(pool_size, lookback_days)
+        meta["serving_source"] = "recency_fallback_ranker_mode_rules"
+        return jobs, meta
+
+    if not uid:
+        jobs, meta = fetch_jobs_from_firestore(pool_size, lookback_days)
+        meta["serving_source"] = "recency_no_uid"
+        return jobs, meta
+
+    try:
+        from backend.app.services.user_preference_vector import get_preference_vector
+        from backend.app.services.vector_store import find_nearest_job_ids
+    except Exception as e:
+        logger.warning("[JobServing] vector imports failed: %s", e)
+        jobs, meta = fetch_jobs_from_firestore(pool_size, lookback_days)
+        meta["serving_source"] = "recency_fallback_import_error"
+        return jobs, meta
+
+    db = get_db()
+    if not db:
+        return [], {"error": "firestore_unavailable", "pool_size": 0,
+                    "serving_source": "unavailable"}
+
+    user_vec = get_preference_vector(uid, user_profile, db=db)
+    if not user_vec:
+        # User hasn't finished cold-start onboarding — no vector yet.
+        jobs, meta = fetch_jobs_from_firestore(pool_size, lookback_days)
+        meta["serving_source"] = "recency_no_preference_vector"
+        return jobs, meta
+
+    job_ids = find_nearest_job_ids(
+        user_vec,
+        top_k=pool_size,
+        career_domain=career_domain,
+        db=db,
+    )
+    if not job_ids:
+        jobs, meta = fetch_jobs_from_firestore(pool_size, lookback_days)
+        meta["serving_source"] = "recency_vector_empty"
+        return jobs, meta
+
+    # Hydrate in nearest-neighbor order.
+    order_index = {jid: i for i, jid in enumerate(job_ids)}
+    hydrated: List[dict] = []
+    skipped_expired = 0
+    skipped_invalid = 0
+    CHUNK = 400
+    for i in range(0, len(job_ids), CHUNK):
+        chunk = job_ids[i : i + CHUNK]
+        refs = [db.collection("jobs").document(jid) for jid in chunk]
+        try:
+            docs = db.get_all(refs)
+        except Exception as e:
+            logger.warning("[JobServing] hydrate get_all failed: %s", e)
+            continue
+        for snap in docs:
+            if not snap.exists:
+                continue
+            data = snap.to_dict() or {}
+            if data.get("expired"):
+                skipped_expired += 1
+                continue
+            mapped = _firestore_to_job_dict(data)
+            if mapped is None:
+                skipped_invalid += 1
+                continue
+            hydrated.append(mapped)
+
+    hydrated.sort(key=lambda j: order_index.get(j.get("id") or j.get("job_id"), 10_000))
+
+    metadata = {
+        "pool_size": len(hydrated),
+        "raw_docs": len(job_ids),
+        "skipped_expired": skipped_expired,
+        "skipped_invalid": skipped_invalid,
+        "lookback_days": lookback_days,
+        "serving_source": "vector",
+    }
+    logger.info(
+        "[JobServing] Vector pool: %d active jobs (nearest=%d, expired=%d, invalid=%d)",
+        len(hydrated), len(job_ids), skipped_expired, skipped_invalid,
+    )
+    return hydrated, metadata
