@@ -212,6 +212,38 @@ The day the real endpoint speaks this shape, the mapper is deleted — the UI
 doesn't change. Anything the brain can't fill yet (scope options, say-text
 quality) degrades gracefully: a generic scope card, a templated say line.
 
+## v1.2 — THE BRAIN LANDED (2026-07-09, staging/mobile-field)
+
+`POST /api/mobile/scout/ask` with `action: "ask"` now runs the real brain
+(`handle_chat(surface="mobile")`, translator `_scout_ask_brain` in
+`backend/app/routes/mobile.py`). Request: `{ask, askId, action: "ask",
+conversationId?}` → response: this contract's `{say, actions[], askId}` plus
+`conversationId` (the brain's persisted chat thread — send it back on the
+next turn for multi-turn memory). The three legacy RPC actions (`classify`,
+`find_contacts`, `draft_outreach`) are untouched; the app migrates at its
+own pace (Phase 2).
+
+Implementation notes:
+- **Additive action type `navigate`** — `params: {route, prefill, label}`.
+  The brain's navigate tool and cta chips arrive as this action; app maps
+  the route through its translator (unknown types drop safely today).
+- Receipts arriving as typed actions: `find_contacts` /
+  `find_hiring_managers` (results.kind "contacts", items may carry `email`
+  when the paid search revealed one), `draft_outreach` (drafted names +
+  contactId), `meeting_prep` (jobRef → existing prep polling),
+  `auto_apply` (jobRef).
+- `error.code` mapping live: insufficient_credits, gmail_disconnected,
+  cap_reached (also covers tier gates), no_results. Clarify-shaped brain
+  states (COUNT_REQUIRED etc.) stay conversational in `say` — the brain
+  asks one tightening question, answer it via conversationId.
+- askId idempotency via the swipe_idempotency store (key `scoutask-<askId>`).
+- Mobile turns exclude `discover_companies` + `generate_cover_letter`
+  (credit spends with no app surface) and are never promoted into the
+  shared web answer caches.
+- `confirmedAction` round-trip: NOT yet implemented server-side — v1
+  reversible actions run immediately per the execution rule, and the
+  count-clarify gates spend. Build it when the app starts sending it.
+
 ## Pricing (blessed 2026-07-08)
 
 Search-only people preview stays **uncharged** (no emails shown, cap 5,

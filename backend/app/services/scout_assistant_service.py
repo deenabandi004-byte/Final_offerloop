@@ -810,6 +810,16 @@ class ScoutAssistantService:
     DEFAULT_MODEL = os.getenv("SCOUT_MODEL", "gpt-5-mini")
     UTILITY_MODEL = os.getenv("SCOUT_UTILITY_MODEL", "gpt-4.1-mini")
 
+    # Tools never offered on surface="mobile" turns: both spend credits on
+    # workflows the app has no screen to render (no firm-search UI, no
+    # cover-letter surface). Everything else - contacts, drafts, preps,
+    # jobs, auto-apply, company intel, workflow reads, strategy memory -
+    # stays available; free prose-shaped tools degrade fine in chat.
+    MOBILE_EXCLUDED_TOOLS = frozenset({
+        "discover_companies",
+        "generate_cover_letter",
+    })
+
     @staticmethod
     def _chat_params(model: str, *, temperature: float, max_tokens: int) -> Dict[str, Any]:
         """Per-family Chat Completions params.
@@ -863,8 +873,17 @@ class ScoutAssistantService:
         uid: Optional[str] = None,
         chat_id: Optional[str] = None,
         event_emitter: Optional[Any] = None,
+        surface: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Handle one chat turn.
+
+        surface="mobile" is the app dialect (SCOUT-ACTION-CONTRACT translator
+        in routes/mobile.py): credit-spending tools whose receipts the app
+        cannot render are excluded from the tool set, the helper-result trail
+        rides back on the envelope as tool_results (the translator turns them
+        into typed contract actions), and the turn is never promoted into the
+        shared answer/navigate caches (it ran with a reduced tool set, so its
+        answers must not be served to web users).
 
         Scout answers by calling exactly one tool (navigate / answer / clarify).
         The result is a structured dict the frontend approve flow consumes; see
@@ -1049,6 +1068,8 @@ class ScoutAssistantService:
         try:
             tool_call, usage, helper_calls, helper_results = await self._call_scout_tools(
                 messages, tool_context, event_emitter=event_emitter,
+                exclude_tools=(
+                    self.MOBILE_EXCLUDED_TOOLS if surface == "mobile" else None),
             )
             intent = await self._await_intent(intent_task)
             # Plan rendering data (Change 5): when this turn wrote a strategy,
@@ -1081,10 +1102,18 @@ class ScoutAssistantService:
                 or tool_context.get("strategy_touched")
                 or tool_context.get("workflow_state_touched")
             )
-            self._populate_caches(
-                tool_call, message, embedding, uid,
-                allow_answer_cache=allow_answer_cache,
-            )
+            if surface == "mobile":
+                # Mobile turns run with a reduced tool set; their answers
+                # (e.g. "I can't do cover letters here") must never be
+                # promoted into the caches shared with web users. The
+                # translator needs the raw helper trail to build typed
+                # contract actions, so it rides back on the envelope.
+                result["tool_results"] = helper_results
+            else:
+                self._populate_caches(
+                    tool_call, message, embedding, uid,
+                    allow_answer_cache=allow_answer_cache,
+                )
             # If the strategy helpers wrote a new active strategy this turn,
             # stamp it on the current chat so the sidebar's strategy dot
             # reflects the swap. Reuse the plan_payload we already pulled when
@@ -1411,6 +1440,7 @@ class ScoutAssistantService:
         messages: List[Dict[str, Any]],
         context: Optional[Dict[str, Any]] = None,
         event_emitter: Optional[Any] = None,
+        exclude_tools: Optional[set] = None,
     ) -> Tuple[Dict[str, Any], Dict[str, int], List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Run one Scout turn and return (terminal tool, usage, helper_calls, helper_results).
 
@@ -1449,7 +1479,8 @@ class ScoutAssistantService:
                 client.chat.completions.create(
                     model=self.DEFAULT_MODEL,
                     messages=convo,
-                    tools=to_openai_tools(terminal_only=final_step),
+                    tools=to_openai_tools(
+                        terminal_only=final_step, exclude=exclude_tools),
                     tool_choice="required",
                     parallel_tool_calls=False,
                     **self._chat_params(self.DEFAULT_MODEL, temperature=0.3, max_tokens=600),

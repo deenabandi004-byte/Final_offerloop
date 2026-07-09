@@ -839,13 +839,26 @@ HELPER_TOOL_NAMES = {t["name"] for t in HELPER_TOOLS}
 TOOL_NAMES = {t["name"] for t in SCOUT_TOOLS}
 
 
-def to_openai_tools(terminal_only: bool = False) -> List[Dict[str, Any]]:
+def to_openai_tools(
+    terminal_only: bool = False,
+    exclude: Optional[set] = None,
+) -> List[Dict[str, Any]]:
     """Tool set in OpenAI function-tool format.
 
     terminal_only=True returns just navigate/answer/clarify; the caller uses it
     on the final step to force the turn to end on a terminal tool.
+
+    exclude drops helper tools by name for surfaces that cannot render their
+    receipts (the mobile dialect excludes credit-spending workflows the app
+    has no screen for). Terminal tools are never excludable - every turn must
+    still end on one.
     """
     tools = TERMINAL_TOOLS if terminal_only else SCOUT_TOOLS
+    if exclude and not terminal_only:
+        tools = [
+            t for t in tools
+            if t["name"] in TERMINAL_TOOL_NAMES or t["name"] not in exclude
+        ]
     return [
         {
             "type": "function",

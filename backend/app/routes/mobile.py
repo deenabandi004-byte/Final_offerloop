@@ -837,8 +837,18 @@ def scout_ask():
     ask_id = (data.get('askId') or '').strip()
     action = (data.get('action') or '').strip()
     params = data.get('params') or {}
-    if not ask or len(ask) > 500 or action not in ('find_contacts', 'draft_outreach', 'classify'):
+    if not ask or len(ask) > 500 or action not in ('find_contacts', 'draft_outreach', 'classify', 'ask'):
         return jsonify({'error': 'Bad request'}), 400
+
+    if action == 'ask':
+        # Phase 1 (2026-07-09): the real brain behind the contract envelope.
+        # handle_chat(surface="mobile") runs the full tool loop
+        # (find_contacts, draft_outreach_emails, run_meeting_prep,
+        # auto_apply_to_job, workflow reads...) and _scout_ask_contract
+        # translates its envelope into SCOUT-ACTION-CONTRACT
+        # {say, actions[], askId}. The three legacy RPC actions below stay
+        # untouched: the app in the field still calls them.
+        return _scout_ask_brain(db, ask, ask_id, data)
 
     if action == 'classify':
         # The intelligence layer for ANY ask: LLM classification with the
@@ -936,6 +946,265 @@ def scout_ask():
         }] if items else []),
         'askId': ask_id,
     }), 200
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 (2026-07-09): the real Scout brain behind /scout/ask action='ask'.
+# One brain, two dialects - handle_chat serves web verbatim; this translator
+# owns the mobile dialect (docs/SCOUT-ACTION-CONTRACT.md).
+# ---------------------------------------------------------------------------
+
+# Per-uid sliding-window throttle for brain turns (same shape and budget as
+# the web /chat backstop: 20/min, 200/hr). Separate dict from transcription
+# so a voice ask (transcribe + ask) doesn't double-bill one budget.
+_ask_hits: dict = {}
+_ASK_PER_MIN = 20
+_ASK_PER_HOUR = 200
+
+
+def _ask_rate_limited(uid: str) -> bool:
+    import time as _t
+    from collections import deque as _deque
+    now = _t.time()
+    dq = _ask_hits.get(uid)
+    if dq is None:
+        dq = _deque()
+        _ask_hits[uid] = dq
+    while dq and now - dq[0] > 3600:
+        dq.popleft()
+    if len(dq) >= _ASK_PER_HOUR:
+        return True
+    if sum(1 for t in dq if now - t <= 60) >= _ASK_PER_MIN:
+        return True
+    dq.append(now)
+    if len(_ask_hits) > 5000:
+        for k in [k for k, v in _ask_hits.items() if not v or now - v[-1] > 3600]:
+            _ask_hits.pop(k, None)
+    return False
+
+
+# Brain error codes -> the contract's error enum (SCOUT-ACTION-CONTRACT.md
+# Errors section). Codes with no user affordance on the app (CONSENT_REQUIRED,
+# COUNT_REQUIRED, CONTACT_NOT_FOUND...) are deliberately unmapped: the brain
+# already speaks them conversationally in `say`, which is the whole point of
+# its never-dead-end error contract.
+_ASK_ERROR_CODES = {
+    'INSUFFICIENT_CREDITS': 'insufficient_credits',
+    'GMAIL_NOT_CONNECTED': 'gmail_disconnected',
+    'LIMIT_REACHED': 'cap_reached',
+    'TIER_REQUIRED': 'cap_reached',
+}
+
+# Zero-result receipts from these tools surface as error.no_results so the
+# app can add its widen-the-search affordance.
+_ASK_SEARCH_TOOLS = ('find_contacts', 'find_hiring_managers')
+
+
+def _ask_contact_items(rows) -> list:
+    """Brain contact/manager receipts -> contract card items (camelCase)."""
+    items = []
+    for c in rows or []:
+        if not isinstance(c, dict):
+            continue
+        name = (c.get('name') or '').strip()
+        if not name:
+            continue
+        item = {
+            'name': name,
+            'title': c.get('title') or '',
+            'company': c.get('company') or '',
+            'linkedinUrl': c.get('linkedin_url') or c.get('linkedinUrl') or '',
+        }
+        if c.get('email'):
+            item['email'] = c['email']
+        if c.get('contact_id'):
+            item['contactId'] = c['contact_id']
+        items.append(item)
+    return items
+
+
+def _ask_action(type_: str, params: dict, *, job_ref=None, results=None) -> dict:
+    return {
+        'type': type_,
+        'params': params,
+        'needsConfirm': False,
+        'jobRef': job_ref,
+        'results': results,
+    }
+
+
+def _scout_ask_contract(env: dict, ask_id: str) -> dict:
+    """Translate the brain's web envelope into the contract envelope.
+
+    Input: handle_chat's {tool, message, navigate, cta, chat_id,
+    tool_results:[{name, result}]}. Output: {say, actions[], askId,
+    conversationId, error?}. Execution receipts become typed actions with
+    results/jobRef in the SAME response (the contract's reversible-actions
+    rule); navigation and cta chips become an additive 'navigate' action
+    (documented contract extension - the app drops unknown types today and
+    learns to render this one in Phase 2).
+    """
+    say = (env.get('message') or '').strip()
+    actions: list = []
+    error = None
+
+    for tr in (env.get('tool_results') or []):
+        if not isinstance(tr, dict):
+            continue
+        name = tr.get('name')
+        res = tr.get('result')
+        if not isinstance(res, dict):
+            continue
+        code = res.get('code')
+        if code and error is None and code in _ASK_ERROR_CODES:
+            error = {
+                'code': _ASK_ERROR_CODES[code],
+                'detail': str(res.get('error') or '')[:200],
+            }
+        if name in _ASK_SEARCH_TOOLS:
+            rows = res.get('contacts') if name == 'find_contacts' else res.get('managers')
+            items = _ask_contact_items(rows)
+            if items:
+                actions.append(_ask_action(
+                    name,
+                    {'company': res.get('company') or ''},
+                    results={'kind': 'contacts', 'items': items},
+                ))
+            elif res.get('count') == 0 and not code and error is None:
+                error = {'code': 'no_results', 'detail': ''}
+        elif name == 'draft_outreach_emails':
+            drafted = res.get('drafted') or []
+            items = [
+                {
+                    'name': d.get('name') or '',
+                    'title': '',
+                    'company': d.get('company') or '',
+                    'contactId': d.get('contact_id') or '',
+                }
+                for d in drafted
+                if isinstance(d, dict) and d.get('name')
+            ]
+            if items:
+                actions.append(_ask_action(
+                    'draft_outreach',
+                    {'count': len(items)},
+                    results={'kind': 'contacts', 'items': items},
+                ))
+        elif name == 'run_meeting_prep':
+            if res.get('started') and res.get('prep_id'):
+                actions.append(_ask_action(
+                    'meeting_prep',
+                    {'contact_name': res.get('contact_name') or ''},
+                    job_ref={'kind': 'meeting_prep', 'id': res['prep_id']},
+                ))
+        elif name == 'auto_apply_to_job' and not code:
+            job_id = res.get('job_id') or res.get('jobId') or res.get('id') or ''
+            if job_id:
+                actions.append(_ask_action(
+                    'auto_apply', {},
+                    job_ref={'kind': 'auto_apply', 'id': str(job_id)},
+                ))
+
+    nav = env.get('navigate') if env.get('tool') == 'navigate' else None
+    cta = env.get('cta')
+    if nav and nav.get('route'):
+        actions.append(_ask_action('navigate', {
+            'route': nav['route'],
+            'prefill': nav.get('prefill') or {},
+            'label': (nav.get('reasoning') or '')[:80],
+        }))
+    elif isinstance(cta, dict) and cta.get('route'):
+        actions.append(_ask_action('navigate', {
+            'route': cta['route'],
+            'prefill': cta.get('prefill') or {},
+            'label': (cta.get('label') or '')[:80],
+        }))
+
+    payload = {
+        'say': say,
+        'actions': actions,
+        'askId': ask_id,
+        'conversationId': env.get('chat_id'),
+    }
+    if error:
+        payload['error'] = error
+    return payload
+
+
+def _scout_ask_brain(db, ask: str, ask_id: str, data: dict):
+    """action='ask': one full brain turn, contract envelope out.
+
+    askId idempotency rides the swipe_idempotency store (the contract names
+    it as the pattern to reuse): a replayed ask returns the stored response
+    verbatim instead of re-running a credit-spending turn.
+    """
+    from app.services import swipe_idempotency as idem
+    from app.utils.async_runner import run_async
+    from app.services.scout_assistant_service import scout_assistant_service
+
+    uid = request.firebase_user['uid']
+    if _ask_rate_limited(uid):
+        return jsonify({'error': 'Rate limit exceeded. Try again shortly.'}), 429
+
+    idem_key = f'scoutask-{ask_id}' if ask_id and idem.valid_swipe_id(f'scoutask-{ask_id}') else None
+    if idem_key:
+        outcome, stored = idem.claim(db, uid, idem_key)
+        if outcome == 'completed' and stored:
+            payload, status = idem.replay_response(stored)
+            return jsonify(payload), status
+        if outcome != 'run':
+            return jsonify({
+                'say': 'Still working on that one - give me a second.',
+                'actions': [], 'askId': ask_id,
+            }), 200
+
+    # Profile bits for the brain's live-context block. Best-effort: a missing
+    # or malformed user doc degrades to defaults, never a 500.
+    user_name, tier, credits, max_credits = 'there', 'free', 0, 300
+    try:
+        prof = (db.collection('users').document(uid).get().to_dict()) or {}
+        if isinstance(prof, dict):
+            user_name = str(prof.get('name') or prof.get('firstName')
+                            or (request.firebase_user or {}).get('name') or 'there')
+            tier = str(prof.get('subscriptionTier') or prof.get('tier') or 'free').lower()
+            credits = int(prof.get('credits') or 0)
+            max_credits = int(prof.get('maxCredits') or 300)
+    except Exception:
+        pass
+    try:
+        from app.routes.scout_assistant import _fetch_user_context
+        user_context = _fetch_user_context(uid) or {}
+    except Exception:
+        user_context = {}
+
+    conversation_id = (data.get('conversationId') or '').strip() or None
+    try:
+        env = run_async(scout_assistant_service.handle_chat(
+            message=ask,
+            conversation_history=[],
+            current_page='/dashboard',
+            user_name=user_name,
+            tier=tier,
+            credits=credits,
+            max_credits=max_credits,
+            user_context=user_context,
+            uid=uid,
+            chat_id=conversation_id,
+            surface='mobile',
+        ))
+        payload = _scout_ask_contract(env or {}, ask_id)
+        if idem_key:
+            idem.complete(db, uid, idem_key, payload, 200)
+        return jsonify(payload), 200
+    except Exception as exc:
+        print(f'[ScoutAskBrain] turn failed: {type(exc).__name__}: {exc}')
+        if idem_key:
+            idem.fail(db, uid, idem_key)
+        return jsonify({
+            'say': "That one tripped me up - mind trying it again?",
+            'actions': [], 'askId': ask_id,
+            'error': {'code': 'internal', 'detail': ''},
+        }), 200
 
 
 # ---------------------------------------------------------------------------
