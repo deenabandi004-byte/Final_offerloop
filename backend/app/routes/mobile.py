@@ -936,3 +936,158 @@ def scout_ask():
         }] if items else []),
         'askId': ask_id,
     }), 200
+
+
+# ---------------------------------------------------------------------------
+# Voice overhaul P2: server-side transcription (steady-forging-popcorn plan)
+# ---------------------------------------------------------------------------
+
+# Per-uid sliding-window throttle for audio transcription (same shape as
+# resume.py's _parse_rate_limited, keyed by uid — this route is authed).
+_transcribe_hits: dict = {}
+_TRANSCRIBE_PER_MIN = 20
+_TRANSCRIBE_PER_HOUR = 200
+
+
+def _transcribe_rate_limited(uid: str) -> bool:
+    import time as _t
+    from collections import deque as _deque
+    now = _t.time()
+    dq = _transcribe_hits.get(uid)
+    if dq is None:
+        dq = _deque()
+        _transcribe_hits[uid] = dq
+    while dq and now - dq[0] > 3600:
+        dq.popleft()
+    if len(dq) >= _TRANSCRIBE_PER_HOUR:
+        return True
+    if sum(1 for t in dq if now - t <= 60) >= _TRANSCRIBE_PER_MIN:
+        return True
+    dq.append(now)
+    if len(_transcribe_hits) > 5000:
+        for k in [k for k, v in _transcribe_hits.items() if not v or now - v[-1] > 3600]:
+            _transcribe_hits.pop(k, None)
+    return False
+
+
+def _wav_duration_seconds(data: bytes) -> float:
+    """Duration from the WAV header — never assume a sample rate (iOS may
+    ignore the 16kHz hint and emit 44.1k). Non-WAV (.caf) or unparsable
+    headers return 0.0 and rely on the byte cap alone."""
+    try:
+        if len(data) < 44 or data[:4] != b'RIFF' or data[8:12] != b'WAVE':
+            return 0.0
+        import struct
+        # Walk chunks to find fmt then data (don't assume canonical layout).
+        pos = 12
+        byte_rate = 0
+        data_size = 0
+        while pos + 8 <= len(data):
+            cid = data[pos:pos + 4]
+            size = struct.unpack('<I', data[pos + 4:pos + 8])[0]
+            if cid == b'fmt ':
+                byte_rate = struct.unpack('<I', data[pos + 16:pos + 20])[0]
+            elif cid == b'data':
+                data_size = size
+                break
+            pos += 8 + size + (size % 2)
+        if byte_rate <= 0:
+            return 0.0
+        return (data_size or max(0, len(data) - pos - 8)) / float(byte_rate)
+    except Exception:
+        return 0.0
+
+
+@mobile_bp.route('/scout/transcribe-ask', methods=['POST'])
+@require_firebase_auth
+def scout_transcribe_ask():
+    """Voice overhaul P2 (steady-forging-popcorn plan): one round trip that
+    turns the RAW audio of an ask into an understanding. Apple's on-device
+    ASR mangles firm names unboundedly (Moelis arrived as Molly's / Molise /
+    Mose in one field evening); here the audio is transcribed server-side
+    with a firm-vocabulary biasing prompt, then classified by the same cached
+    intent brain as action='classify'.
+
+    Transcription and classification stay two separable calls on purpose —
+    when the real brain lands behind SCOUT-ACTION-CONTRACT.md, this route
+    becomes "transcribe, then call the brain" with the envelope unchanged.
+
+    Degrades, never dies: any transcription failure falls back to the
+    client-provided Apple transcript (transcript_source='apple') so the
+    caller still gets a classification from one round trip.
+    """
+    import io
+    import json as _json
+    import time as _t
+
+    from app.services.firm_vocabulary import transcription_prompt
+    from app.services.metering import log_transcription_usage
+    from app.services.openai_client import get_openai_client
+    from app.services.scout_intent import classify_scout_ask
+
+    db = get_db()
+    if db is None:
+        return jsonify({'error': 'Database unavailable'}), 503
+    uid = request.firebase_user['uid']
+    if _transcribe_rate_limited(uid):
+        return jsonify({'error': 'Too many requests'}), 429
+
+    ask_id = (request.form.get('askId') or '').strip()[:80]
+    apple_transcript = (request.form.get('apple_transcript') or '').strip()[:500]
+    try:
+        hints = _json.loads(request.form.get('hint_companies') or '[]')
+        hints = [str(h)[:60] for h in hints[:25] if h]
+    except Exception:
+        hints = []
+
+    f = request.files.get('audio')
+    filename = (f.filename or '') if f else ''
+    if not f or not filename.lower().endswith(('.wav', '.caf')):
+        return jsonify({'error': 'Bad or missing audio file'}), 400
+    data = f.read()
+    if not data or len(data) > 10 * 1024 * 1024:
+        return jsonify({'error': 'Audio too large'}), 400
+    duration = _wav_duration_seconds(data)
+    if duration > 90:
+        return jsonify({'error': 'Audio too long'}), 400
+
+    transcript = apple_transcript
+    source = 'apple'
+    client = get_openai_client()
+    model = 'gpt-4o-mini-transcribe'
+    if client is not None:
+        t0 = _t.time()
+        try:
+            resp = client.audio.transcriptions.create(
+                model=model,
+                file=('ask.wav', io.BytesIO(data)),
+                language='en',
+                prompt=transcription_prompt(hints),
+                response_format='json',
+                timeout=6,
+            )
+            text = (getattr(resp, 'text', '') or '').strip()
+            if text:
+                transcript = text[:500]
+                source = 'audio'
+            log_transcription_usage(
+                model, getattr(resp, 'usage', None),
+                latency_ms=int((_t.time() - t0) * 1000), status='ok',
+            )
+        except Exception as e:
+            log_transcription_usage(
+                model, None,
+                latency_ms=int((_t.time() - t0) * 1000),
+                status='error', error_msg=f'{type(e).__name__}',
+            )
+
+    if not transcript:
+        return jsonify({'error': 'No transcript available'}), 400
+
+    classification = classify_scout_ask(db, transcript)
+    return jsonify({
+        'askId': ask_id,
+        'transcript': transcript,
+        'transcript_source': source,
+        'classification': classification,
+    }), 200

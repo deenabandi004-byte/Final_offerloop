@@ -84,6 +84,13 @@ LLM_RATES: Dict[str, Dict[str, float]] = {
     "gpt-4":                   {"input": 30.00, "cached_input": 30.00, "output": 60.00},
     "text-embedding-3-small":  {"input": 0.02,  "cached_input": 0.02,  "output": 0.0},
     "text-embedding-3-large":  {"input": 0.13,  "cached_input": 0.13,  "output": 0.0},
+    # Audio transcription (voice overhaul P2). Audio input bills ~$6/$3 per 1M
+    # audio tokens; the small text-prompt share bills lower, so metering all
+    # input at the audio rate over-counts by fractions of a cent — fine.
+    # These MUST sit above the "gpt-4o"/"gpt-4o-mini" prefixes in match length
+    # (longest-prefix wins) or audio calls would bill at chat rates.
+    "gpt-4o-mini-transcribe":  {"input": 3.00,  "cached_input": 3.00,  "output": 5.00},
+    "gpt-4o-transcribe":       {"input": 6.00,  "cached_input": 6.00,  "output": 10.00},
     # Anthropic (Claude). Cache reads bill at ~0.1x input.
     "claude-sonnet-4":         {"input": 3.00,  "cached_input": 0.30,  "output": 15.00},
     "claude-3-5-sonnet":       {"input": 3.00,  "cached_input": 0.30,  "output": 15.00},
@@ -198,6 +205,23 @@ def log_llm_usage(
         ).start()
     except Exception as meter_err:  # noqa: BLE001 - metering must never break a call
         logger.warning("LLM metering failed: %s", meter_err)
+
+
+def log_transcription_usage(
+    model: str,
+    usage: Any,
+    *,
+    latency_ms: int = 0,
+    status: str = "ok",
+    error_msg: Optional[str] = None,
+) -> None:
+    """Meter one audio-transcription call. Audio bypasses the chat.completions
+    auto-meter patch, so the transcribe route calls this explicitly on both
+    success and failure paths. Transcription responses carry
+    input_tokens/output_tokens, which the Anthropic-shaped extractor in
+    _tokens_from_usage already reads; this wrapper exists so the route has one
+    obvious call and audio-specific fields can be added later."""
+    log_llm_usage("openai", model, usage, latency_ms=latency_ms, status=status, error_msg=error_msg)
 
 
 # ---------------------------------------------------------------------------

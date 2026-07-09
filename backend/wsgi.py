@@ -61,6 +61,11 @@ def create_app() -> Flask:
         static_url_path=""
     )
 
+    # Global request-body ceiling (was unbounded). Largest legit upload today
+    # is a resume (storage rules cap 10MB) and voice-ask audio (~1MB); contact
+    # imports self-cap at 5MB. Werkzeug 413s anything bigger before buffering.
+    app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+
     # --- Response compression (Phase 3, instant-feel) ---
     # Nothing was compressed before: the mobile inbox poll (~213KB of JSON)
     # and the web tracker (~410KB) went over the wire raw. gzip cuts JSON
