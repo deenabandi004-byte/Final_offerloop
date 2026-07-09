@@ -96,7 +96,7 @@ def test_01_imperative_navigate_job_board(scout_client):
 def test_02_imperative_navigate_contact_search_credit_cost(scout_client):
     status, data = _chat(scout_client, "take me to contact search")
     assert status == 200, data
-    nav = _assert_navigate(data, "/contact-search")
+    nav = _assert_navigate(data, "/find")
     assert nav["user_was_imperative"] is True, data
     # The frontend needs the actual credit cost to warn the user before the
     # search spends credits.
@@ -107,25 +107,35 @@ def test_02_imperative_navigate_contact_search_credit_cost(scout_client):
 
 
 # Case 3 -------------------------------------------------------------------
-def test_03_inferred_navigate_contact_search_with_prefill(scout_client):
+# Scout overhaul: find-people executes in-chat via find_contacts instead of
+# navigating. The count rule (the user must name a quantity before credits
+# are spent) means a count-less ask gets a clarify asking how many.
+def test_03_find_people_without_count_clarifies(scout_client):
     status, data = _chat(scout_client, "find product managers at Stripe in SF")
     assert status == 200, data
-    nav = _assert_navigate(data, "/contact-search")
-    prefill = nav["prefill"]
-    for key in ("job_title", "company", "location"):
-        assert key in prefill and prefill[key], f"missing prefill {key}: {prefill}"
-    assert nav["user_was_imperative"] is False, data
+    assert data["tool"] == "clarify", (
+        f"count-less find-people must clarify for a count, got {data['tool']}: {data}"
+    )
+    msg = (data["message"] or "").lower()
+    assert any(w in msg for w in ("how many", "count", "number", "3", "few")), (
+        f"clarify should ask for a count: {data['message']!r}"
+    )
 
 
 # Case 4 -------------------------------------------------------------------
-def test_04_meeting_prep_missing_linkedin_url_clarifies(scout_client):
+def test_04_meeting_prep_missing_contact_stays_graceful(scout_client):
     status, data = _chat(
         scout_client, "I have a coffee chat with someone at Stripe tomorrow"
     )
     assert status == 200, data
-    # meeting-prep requires linkedin_url, which was not provided.
-    assert data["tool"] == "clarify", (
-        f"expected clarify (meeting-prep needs linkedin_url), got {data['tool']}: {data}"
+    # Scout overhaul: meeting prep executes in-chat (run_meeting_prep). With
+    # no contact named the model must clarify who, or answer gracefully when
+    # the prep service reports an error - never the harness error fallback.
+    assert data["tool"] in ("clarify", "answer"), data
+    msg = data["message"] or ""
+    assert msg, "empty message"
+    assert "having a moment" not in msg.lower(), (
+        f"turn degraded to the error fallback: {msg!r}"
     )
 
 
@@ -153,14 +163,20 @@ def test_07_greeting_answers(scout_client):
 
 
 # Case 8 -------------------------------------------------------------------
-def test_08_already_on_page_navigate(scout_client):
+# Scout overhaul: even on the find page itself, a count-less find-people ask
+# stays in-chat and clarifies for a count instead of re-navigating.
+def test_08_find_people_on_find_page_clarifies_count(scout_client):
     status, data = _chat(
-        scout_client, "find engineers at Google", current_page="/contact-search"
+        scout_client, "find engineers at Google", current_page="/find"
     )
     assert status == 200, data
-    nav = _assert_navigate(data, "/contact-search")
-    assert nav["already_on_page"] is True, data
-    assert nav["prefill"].get("company"), f"expected company prefill: {nav}"
+    assert data["tool"] == "clarify", (
+        f"count-less find-people must clarify for a count, got {data['tool']}: {data}"
+    )
+    msg = (data["message"] or "").lower()
+    assert any(w in msg for w in ("how many", "count", "number", "3", "few")), (
+        f"clarify should ask for a count: {data['message']!r}"
+    )
 
 
 # Case 9 -------------------------------------------------------------------
@@ -176,17 +192,20 @@ def test_09_vague_request_no_hallucinated_route(scout_client):
 
 
 # Case 10 ------------------------------------------------------------------
-def test_10_low_credits_navigate_surfaces_cost(scout_client):
+# Scout overhaul: execution moved in-chat, so the pre-spend protection for a
+# count-less ask is the count clarify (credit checks then run inside
+# find_contacts itself at execution time).
+def test_10_low_credits_find_people_clarifies_before_spend(scout_client):
     status, data = _chat(
         scout_client, "find people at Google", user_info={"credits": 10}
     )
     assert status == 200, data
-    nav = _assert_navigate(data, "/contact-search")
-    assert nav.get("credit_spending") is True, data
-    # Frontend needs the number to warn a low-credit user.
-    assert "credit_cost" in nav, (
-        f"credit_cost integer not surfaced for a low-credit user: {nav}"
+    assert data["tool"] == "clarify", (
+        f"count-less find-people must clarify before any spend, got "
+        f"{data['tool']}: {data}"
     )
+    # No spend can have happened on a clarify turn.
+    assert "credits_charged" not in data, data
 
 
 # Case 11 ------------------------------------------------------------------
@@ -257,7 +276,7 @@ def test_14_chat_first_interview_strategy_answers_not_navigate(scout_client):
 def test_15_explicit_command_still_navigates(scout_client):
     status, data = _chat(scout_client, "take me to cover letter")
     assert status == 200, data
-    _assert_navigate(data, "/write/cover-letter")
+    _assert_navigate(data, "/cover-letter")
 
 
 # Case 16 ------------------------------------------------------------------

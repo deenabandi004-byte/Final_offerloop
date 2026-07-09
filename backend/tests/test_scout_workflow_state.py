@@ -93,10 +93,9 @@ def db():
 # ============================================================================
 
 def _now():
-    # Real clock, not a frozen date: the code under test compares timestamps
-    # against datetime.now(), so a pinned _now() ages — "3 days ago" seeded
-    # against a May snapshot read as 48 days by July and crossed the no-reply
-    # threshold (found in the 2026-07 loose-end cleanup).
+    # Real clock, not a frozen date: workflow_state derives day counts
+    # (no_reply_Nd stall flags) against datetime.now(), so a frozen fixture
+    # clock silently ages every seeded timestamp as the calendar advances.
     return datetime.now(timezone.utc)
 
 
