@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any, Dict
 
+from app.services.firm_vocabulary import classifier_vocab_block
 from app.services.openai_client import get_openai_client
 
 _FS_COLLECTION = "scout_intent_cache"
@@ -35,6 +36,8 @@ _SYSTEM = """You classify a college student's spoken ask for a networking app. T
 - meeting_prep: prep for a coffee chat / meeting.
 - question: anything conversational — advice, how-tos, questions about using the app.
 Voice transcripts contain recognition errors: silently fix obvious ones (company names, 'manners'→'managers') and put the FIXED text in cleaned_ask.
+""" + classifier_vocab_block() + """
+Spoken firm names arrive phonetically mangled — 'Molly's', 'Molise', 'Mose', and 'mo ellis' are all Moelis; 'ever core' is Evercore; 'set Evercore' means 'at Evercore'. When a token where a company belongs (role + at/with/for + X) phonetically resembles a known firm, output the canonical firm name in company and cleaned_ask and set repaired=true. Only repair when the ENTIRE company mention is the near-miss: if it carries extra words naming a different real business ('Molly's Cupcakes') or the role/context clearly isn't professional networking ('baristas at'), keep the user's words verbatim with repaired=false. If nothing on the list is phonetically close, keep verbatim with repaired=false — NEVER substitute a firm that isn't phonetically close to what they said.
 Rules: a role + company noun-phrase ("2 analysts at Bain") is draft_outreach. "show me / who works at" is find_people. Job-hunting phrasings ("find me a PM role") are find_jobs even when phrased as questions. When they want emails SENT, still draft_outreach with wants_send=true. Count capped at 5, default 1. Leave fields empty when absent — NEVER invent a company or location the user didn't say."""
 
 _TOOL = {
@@ -54,8 +57,9 @@ _TOOL = {
                 "hiring_manager": {"type": "boolean", "description": "True when they target hiring managers/recruiters."},
                 "wants_send": {"type": "boolean"},
                 "job_query": {"type": "string", "description": "For find_jobs: the role words to match against job titles, shorthand expanded (pm -> product manager)."},
+                "repaired": {"type": "boolean", "description": "True when company/role was corrected from a likely speech-recognition error rather than taken verbatim."},
             },
-            "required": ["intent", "cleaned_ask", "role", "company", "location", "count", "hiring_manager", "wants_send", "job_query"],
+            "required": ["intent", "cleaned_ask", "role", "company", "location", "count", "hiring_manager", "wants_send", "job_query", "repaired"],
         },
     },
 }
@@ -65,7 +69,7 @@ def _empty(ask: str, error: str = "") -> Dict[str, Any]:
     out = {
         "intent": "question", "cleaned_ask": ask, "role": "", "company": "",
         "location": "", "count": 1, "hiring_manager": False,
-        "wants_send": False, "job_query": "",
+        "wants_send": False, "job_query": "", "repaired": False,
     }
     if error:
         out["error"] = error
@@ -75,7 +79,11 @@ def _empty(ask: str, error: str = "") -> Dict[str, Any]:
 def classify_scout_ask(db, ask: str) -> Dict[str, Any]:
     """Classify one ask. Never raises — on any failure returns intent
     'question' with an error field so the app falls back gracefully."""
-    key = hashlib.md5(ask.lower().strip().encode()).hexdigest()
+    # "v2|" salt: the vocabulary + repaired-field prompt obsoletes every entry
+    # written by the v1 prompt — poisoned classifications of garbled asks must
+    # never be served for their 14-day TTL. Each garbled variant ("Molly's",
+    # "Molise") is its own tiny entry; that's fine.
+    key = hashlib.md5(("v2|" + ask.lower().strip()).encode()).hexdigest()
 
     with _mem_lock:
         hit = _mem_cache.get(key)
@@ -120,6 +128,12 @@ def classify_scout_ask(db, ask: str) -> Dict[str, Any]:
             result[f] = str(result.get(f) or "").strip()
         result["hiring_manager"] = bool(result.get("hiring_manager"))
         result["wants_send"] = bool(result.get("wants_send"))
+        result["repaired"] = bool(result.get("repaired"))
+        # Deterministic guard: a company the user said verbatim was not
+        # repaired, whatever the model claims — spurious repaired flags cost
+        # the user a needless confirm card.
+        if result["company"] and result["company"].lower() in ask.lower():
+            result["repaired"] = False
         if not result["cleaned_ask"]:
             result["cleaned_ask"] = ask
     except Exception as e:
