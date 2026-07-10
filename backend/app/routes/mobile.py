@@ -767,13 +767,16 @@ def scout_active_jobs():
     db = get_db()
     uid = request.firebase_user['uid']
     items = []
+    # Shared zombie cutoff for BOTH kinds (hoisted out of the draft-jobs try
+    # so the auto-apply filter never sees an undefined name if that block
+    # fails early).
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=8)
     try:
         draft_jobs = (
             db.collection('users').document(uid).collection('draftJobs')
             .where('status', 'in', ['queued', 'running'])
             .limit(10).stream()
         )
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=8)
         for d in draft_jobs:
             x = d.to_dict() or {}
             # Zombie filter: jobs that died mid-run keep status 'running'
@@ -799,6 +802,22 @@ def scout_active_jobs():
         )
         for d in aa:
             x = d.to_dict() or {}
+            # Same zombie filter as draft jobs (it was missing here): a
+            # browserless session that dies mid-fill leaves status 'running'
+            # / stage 'filling_form' forever — Rylan's tab showed a wall of
+            # weeks-old "Applying:" cards the day re-hydration learned to
+            # render this kind (2026-07-09). Fields are snake_case and may
+            # be ISO strings on this collection; coerce before comparing.
+            ts = x.get('updated_at') or x.get('created_at')
+            if isinstance(ts, str):
+                try:
+                    ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                except ValueError:
+                    ts = None
+            if ts is not None and ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            if not ts or ts < cutoff:
+                continue
             items.append({
                 'jobRef': {'kind': 'auto_apply', 'id': d.id},
                 'title': f"Applying: {x.get('job_title') or 'a job'} · {x.get('company') or ''}"[:80],
