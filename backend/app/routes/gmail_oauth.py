@@ -16,6 +16,26 @@ from ..extensions import require_firebase_auth
 # surface="mobile" in the state doc; the callback bounces here instead of the
 # website so the user returns to the app with Gmail connected.
 MOBILE_RETURN_URL = "offerloop://gmail-connected"
+
+
+def _callback_uri_for_request() -> str:
+    """The OAuth callback on the host actually serving this request.
+
+    The mobile app talks to the staging service, so the callback must run on
+    staging (where the surface=mobile bounce lives) — NOT the prod URL that
+    OAUTH_REDIRECT_URI auto-detects to. Derive it from the request host so the
+    flow is self-consistent; fall back to the configured constant for the web.
+    Whatever this returns must be registered in the Google client's authorized
+    redirect URIs.
+    """
+    try:
+        base = request.host_url.rstrip("/")  # e.g. https://offerloop-staging.onrender.com
+        # Force https (Render terminates TLS; host_url may report http internally)
+        if base.startswith("http://"):
+            base = "https://" + base[len("http://"):]
+        return f"{base}/api/google/oauth/callback"
+    except Exception:
+        return OAUTH_REDIRECT_URI
 from app.services.gmail_client import _gmail_client_config, _save_user_gmail_creds, _load_user_gmail_creds, _gmail_service
 from ..extensions import get_db
 
@@ -105,6 +125,7 @@ def google_oauth_start():
         "uid": uid,
         "email": user_email,
         "surface": surface,
+        "redirect_uri": _callback_uri_for_request(),
         "created": datetime.utcnow(),
         "expires": datetime.utcnow() + timedelta(minutes=15)
     }
@@ -118,7 +139,7 @@ def google_oauth_start():
 
     # Build OAuth URL with all required scopes
     CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
-    REDIRECT_URI = OAUTH_REDIRECT_URI
+    REDIRECT_URI = _callback_uri_for_request()
     AUTH_BASE = "https://accounts.google.com/o/oauth2/v2/auth"
 
     # Use GMAIL_SCOPES constant for consistency
@@ -207,6 +228,7 @@ def google_oauth_callback():
     # Extract UID and expected email from state
     uid = None
     expected_email_from_state = None
+    state_data = None
     if state:
         try:
             sdoc = db.collection("oauth_state").document(state).get()
@@ -238,7 +260,9 @@ def google_oauth_callback():
     try:
         # 1) Exchange code for tokens
         flow = Flow.from_client_config(_gmail_client_config(), scopes=GMAIL_SCOPES)
-        flow.redirect_uri = OAUTH_REDIRECT_URI
+        # Match the redirect_uri used at start (stored in state); Google rejects
+        # a token exchange whose redirect_uri differs from the auth request.
+        flow.redirect_uri = (state_data.get("redirect_uri") if state_data else None) or _callback_uri_for_request()
         flow.fetch_token(code=code)
         creds = flow.credentials
 
