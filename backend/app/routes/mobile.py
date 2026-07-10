@@ -826,6 +826,37 @@ def scout_active_jobs():
             })
     except Exception:
         pass
+    try:
+        # Meeting preps started from Scout chat (run_meeting_prep) — the last
+        # jobRef kind the contract names. Preps finish in ~60s, so the same
+        # 8-minute cutoff doubles as the zombie filter for docs whose worker
+        # thread died mid-build. Timestamps on this collection are ISO strings.
+        preps = (
+            db.collection('users').document(uid).collection('coffee-chat-preps')
+            .where('status', '==', 'processing')
+            .limit(5).stream()
+        )
+        for d in preps:
+            x = d.to_dict() or {}
+            ts = x.get('updatedAt') or x.get('createdAt')
+            if isinstance(ts, str):
+                try:
+                    ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                except ValueError:
+                    ts = None
+            if ts is not None and ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            if not ts or ts < cutoff:
+                continue
+            name = (x.get('contactName') or '').strip()
+            items.append({
+                'jobRef': {'kind': 'meeting_prep', 'id': d.id},
+                'title': (f'Meeting prep: {name}' if name else 'Building your meeting prep')[:80],
+                'stageLabel': x.get('stageLabel') or '',
+                'startedAt': x.get('createdAt'),
+            })
+    except Exception:
+        pass
     return jsonify({'items': items}), 200
 
 
