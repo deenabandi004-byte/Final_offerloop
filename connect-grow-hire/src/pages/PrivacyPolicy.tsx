@@ -57,7 +57,7 @@ const PrivacyPolicy = () => {
                 Privacy Policy
               </h1>
               <p className="text-gray-500 text-sm mb-8">
-                <strong>Last Updated:</strong> 06.22.26
+                <strong>Last Updated:</strong> 07.09.26
               </p>
 
               {/* Content */}
@@ -120,6 +120,12 @@ const PrivacyPolicy = () => {
                   <strong>Gmail data (if you connect Gmail).</strong> Connecting Gmail is optional. If you do, we
                   describe exactly what we access, store, and process in <strong>Section 6 (Google user data and
                   Gmail)</strong>.
+                </p>
+                <p className="text-gray-600">
+                  <strong>Voice data (Offerloop app).</strong> When you use voice features in the Offerloop app,
+                  transcription starts on your device; short audio clips may also be sent securely to Offerloop's
+                  servers to transcribe your request more accurately. Clips are processed to fulfill your request
+                  and are not retained. Voice data is never used for advertising and never sold.
                 </p>
                 <p className="text-gray-600">
                   <strong>Payment information.</strong> Subscriptions are processed by Stripe. We do not receive or
@@ -236,7 +242,7 @@ const PrivacyPolicy = () => {
                   <li><strong>Perplexity, Firecrawl</strong> — live search and web extraction for jobs, companies, and verification.</li>
                   <li><strong>Stripe</strong> — payment processing.</li>
                   <li><strong>Resend</strong> — sending our service and lifecycle emails to you.</li>
-                  <li><strong>PostHog</strong> — product analytics (keyed to an anonymous user ID; we do not send your name or email).</li>
+                  <li><strong>PostHog</strong> — product usage analytics, associated with your account identifier, used only to improve the product; never used for advertising and never sold.</li>
                   <li><strong>beehiiv</strong> — our newsletter and related attribution.</li>
                   <li><strong>Render</strong> — application hosting.</li>
                 </ul>
@@ -340,6 +346,11 @@ const PrivacyPolicy = () => {
                   We use cookies and local storage to keep you signed in, remember preferences, and run product
                   analytics (PostHog). We do not use third-party advertising or cross-site tracking cookies. You can
                   control cookies in your browser settings, though some features may not work without them.
+                </p>
+                <p className="text-gray-600">
+                  On our website and in the Offerloop app, we collect product usage analytics (via PostHog)
+                  associated with your account identifier to understand how the Services are used and to improve
+                  the product. This analytics data is not used for advertising, and we do not sell personal data.
                 </p>
 
                 <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">16. Third-party links</h2>
