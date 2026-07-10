@@ -10,6 +10,12 @@ from google_auth_oauthlib.flow import Flow
 
 from app.config import GMAIL_SCOPES, OAUTH_REDIRECT_URI, get_frontend_redirect_uri
 from ..extensions import require_firebase_auth
+
+# The Expo app finishes OAuth in an in-app auth session that closes only when
+# the browser lands on this custom scheme. The start route records
+# surface="mobile" in the state doc; the callback bounces here instead of the
+# website so the user returns to the app with Gmail connected.
+MOBILE_RETURN_URL = "offerloop://gmail-connected"
 from app.services.gmail_client import _gmail_client_config, _save_user_gmail_creds, _load_user_gmail_creds, _gmail_service
 from ..extensions import get_db
 
@@ -91,9 +97,14 @@ def google_oauth_start():
 
     # Store state in Firestore with user context
     # Increased expiration to 15 minutes to handle slow OAuth flows
+    surface = (request.args.get("surface") or "web").strip().lower()
+    if surface not in ("web", "mobile"):
+        surface = "web"
+
     state_data = {
         "uid": uid,
         "email": user_email,
+        "surface": surface,
         "created": datetime.utcnow(),
         "expires": datetime.utcnow() + timedelta(minutes=15)
     }
@@ -168,6 +179,18 @@ def google_oauth_callback():
     state = request.args.get("state")
     code = request.args.get("code")
 
+    # Where does this flow return to? Peek the state doc (read-only; the
+    # authoritative read + delete happens below) so every redirect path -
+    # including the early error returns - lands on the right surface.
+    _return_base = get_frontend_redirect_uri()
+    if state:
+        try:
+            _peek = db.collection("oauth_state").document(state).get()
+            if _peek.exists and ((_peek.to_dict() or {}).get("surface") == "mobile"):
+                _return_base = MOBILE_RETURN_URL
+        except Exception:
+            pass
+
     if not code:
         error = request.args.get("error")
         error_description = request.args.get("error_description", "")
@@ -175,7 +198,7 @@ def google_oauth_callback():
         # Check if user was denied access (not in test users list)
         if error == "access_denied" or (error_description and "not a test user" in error_description.lower()):
             print(f"[gmail_oauth] OAuth access denied: {error}")
-            redirect_url = get_frontend_redirect_uri()
+            redirect_url = _return_base
             redirect_url = f"{redirect_url}?gmail_error=not_test_user"
             return redirect(redirect_url)
         
@@ -209,7 +232,7 @@ def google_oauth_callback():
         # no state parameter — try to get UID from auth token, otherwise fail
         uid = (getattr(request, "firebase_user", {}) or {}).get("uid")
         if not uid:
-            redirect_url = get_frontend_redirect_uri()
+            redirect_url = _return_base
             return redirect(f"{redirect_url}?gmail_error=missing_state")
     
     try:
@@ -229,7 +252,7 @@ def google_oauth_callback():
         # downstream step would silently misbehave.
         if not gmail_email:
             print("[gmail_oauth] getProfile returned no emailAddress; aborting OAuth")
-            redirect_url = get_frontend_redirect_uri()
+            redirect_url = _return_base
             sep = "&" if "?" in redirect_url else "?"
             return redirect(f"{redirect_url}{sep}gmail_error=profile_missing_email")
 
@@ -257,7 +280,7 @@ def google_oauth_callback():
             user_email = gmail_email
 
         # Allow any Gmail account to be connected (users may use different email for sending)
-        redirect_url = get_frontend_redirect_uri()
+        redirect_url = _return_base
 
         # Build helper to append query params safely
         def add_param(url: str, key: str, value: str) -> str:
