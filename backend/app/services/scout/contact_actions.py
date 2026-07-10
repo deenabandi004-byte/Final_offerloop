@@ -59,6 +59,13 @@ def find_contacts_for_chat(
     company = (company or "").strip()
     if not company:
         return {**empty, "error": "company required", "code": "BAD_REQUEST"}
+    from app.services.industry_terms import is_industry_not_company, industry_rejection_message
+    if is_industry_not_company(company):
+        # An industry is a filter, never an employer (2026-07-09: PDL with
+        # company="investment banking" returned shells and dead profiles).
+        # The model relays the message and asks for a firm - never spends.
+        return {**empty, "error": industry_rejection_message(company),
+                "code": "INDUSTRY_NOT_COMPANY"}
     db = _db()
     if db is None:
         return {**empty, "error": "database unavailable", "code": "UNAVAILABLE"}

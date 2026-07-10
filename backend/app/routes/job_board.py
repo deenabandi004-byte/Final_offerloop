@@ -8857,6 +8857,19 @@ def find_hiring_manager_endpoint():
         if company and company.lower().strip() in invalid_company_names:
             logger.warning(f"[FindHiringManager] Rejecting invalid company name from request: '{company}'")
             company = None
+
+        # Industry-as-company guard (2026-07-09): company="investment
+        # banking" reached PDL and matched only shells/stale profiles -
+        # five junk drafts shipped. An industry is a filter, never an
+        # employer; fail fast with a next move instead of spending credits
+        # on garbage.
+        from app.services.industry_terms import is_industry_not_company, industry_rejection_message
+        if company and is_industry_not_company(company):
+            logger.warning(f"[FindHiringManager] Rejecting industry-as-company: '{company}'")
+            return jsonify({
+                "error": industry_rejection_message(company),
+                "code": "INDUSTRY_NOT_COMPANY",
+            }), 400
         elif company:
             # Normalize company name from user input
             company = normalize_company_name(company)
