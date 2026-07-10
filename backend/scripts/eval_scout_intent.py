@@ -40,6 +40,19 @@ NEGATIVE_CASES = [
     ("find me baristas at Molly's Cupcakes in Chicago", "Molly's Cupcakes"),
 ]
 
+# Targeting doctrine (2026-07-09, Rylan's rule of thumb): employees are the
+# default target — hiring_manager=true ONLY on an explicit hiring-manager /
+# recruiter ask. An industry is never a company.
+# (ask, want_hiring_manager, company_must_be_empty)
+DOCTRINE_CASES = [
+    ("find me five employees in the tech industry in Los Angeles", False, True),
+    ("draft five people in investment banking in LA", False, True),
+    ("find me people at Google", False, False),
+    ("draft 3 analysts at Moelis", False, False),
+    ("find five hiring managers in investment banking in Los Angeles", True, True),
+    ("draft two recruiters at Google", True, False),
+]
+
 
 def main() -> int:
     failures = []
@@ -64,8 +77,19 @@ def main() -> int:
             failures.append(ask)
         print(f"[{status}] NEG {ask!r} -> company={got!r} repaired={r.get('repaired')}")
 
-    print(f"\n{len(REPAIR_CASES) + len(NEGATIVE_CASES) - len(failures)}"
-          f"/{len(REPAIR_CASES) + len(NEGATIVE_CASES)} passed")
+    for ask, want_hm, company_empty in DOCTRINE_CASES:
+        r = classify_scout_ask(None, ask)
+        ok_hm = bool(r.get("hiring_manager")) is want_hm
+        ok_co = (not r.get("company")) if company_empty else True
+        status = "PASS" if (ok_hm and ok_co) else "FAIL"
+        if status == "FAIL":
+            failures.append(ask)
+        print(f"[{status}] DOC {ask!r} -> hm={r.get('hiring_manager')} "
+              f"company={r.get('company')!r} role={r.get('role')!r} "
+              f"(want hm={want_hm} company_empty={company_empty})")
+
+    total = len(REPAIR_CASES) + len(NEGATIVE_CASES) + len(DOCTRINE_CASES)
+    print(f"\n{total - len(failures)}/{total} passed")
     return 1 if failures else 0
 
 

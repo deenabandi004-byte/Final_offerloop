@@ -104,10 +104,14 @@ class TestRepairedCoercion:
 
 
 class TestCacheSalt:
-    def test_key_is_salted_v2(self):
+    def test_key_is_salted_current(self):
+        # v3 = targeting-doctrine prompt (2026-07-09): employees default,
+        # industry never a company. Older salts must never be read or
+        # written - their cached classifications are poisoned for the
+        # new prompt.
         ask = "find me two analysts at Molly's"
         v1_key = hashlib.md5(ask.lower().strip().encode()).hexdigest()
-        v2_key = hashlib.md5(("v2|" + ask.lower().strip()).encode()).hexdigest()
+        v2_key = hashlib.md5(("v3|" + ask.lower().strip()).encode()).hexdigest()
         assert v1_key != v2_key
 
         db = MagicMock()

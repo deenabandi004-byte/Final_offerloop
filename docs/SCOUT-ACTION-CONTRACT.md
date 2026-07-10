@@ -276,6 +276,31 @@ confirm regardless. Typed asks and taps are deliberate — instant. The brain
 should mirror this: when confidence in the parse is low and the action
 spends, prefer a clarify/confirm over execution.
 
+## Targeting doctrine (Rylan's rule of thumb, locked 2026-07-09)
+
+**Regular employees are ALWAYS the default target.** The database holds far
+more employees than recruiters — employee queries fill, recruiter queries
+starve. Enforced at every layer that decides who a people-ask targets:
+
+- `hiring_manager` / HM targeting fires ONLY when the user's own words say
+  "hiring manager", "recruiter", or "talent" — never inferred from breadth
+  ("find me five employees in the tech industry" is an EMPLOYEE ask).
+- Generic person words (employees, people, someone, anyone) mean employees;
+  the pipeline phrasing is "people on the team".
+- **An industry is a menu of firms, never a query.** "The tech industry" /
+  "investment banking" / "consulting" as target → the app answers broad with
+  broad: a firm-picker card of real firms in that industry, options carrying
+  the user's count/role/location so one tap runs a complete ask. No layer
+  ever sends an industry to PDL as an employer (INDUSTRY_NOT_COMPANY).
+- Suggestion chips lean employees; recruiter-flavored suggestions are never
+  defaults (explicit HM asks remain fully supported when the user reaches
+  for them).
+
+Enforced in: scout_intent classifier prompt (salt v3), the brain's
+find_hiring_managers tool description, the app's ask ladder + firm picker
+(client + server-code recovery), industry_terms.py on every people-search
+endpoint.
+
 ## Consent model (mobile) — noted divergence
 
 The mobile app ALWAYS confirms irreversible actions (receipt card). Web

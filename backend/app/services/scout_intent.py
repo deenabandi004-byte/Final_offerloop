@@ -38,7 +38,8 @@ _SYSTEM = """You classify a college student's spoken ask for a networking app. T
 Voice transcripts contain recognition errors: silently fix obvious ones (company names, 'manners'→'managers') and put the FIXED text in cleaned_ask.
 """ + classifier_vocab_block() + """
 Spoken firm names arrive phonetically mangled — 'Molly's', 'Molise', 'Mose', and 'mo ellis' are all Moelis; 'ever core' is Evercore; 'set Evercore' means 'at Evercore'. When a token where a company belongs (role + at/with/for + X) phonetically resembles a known firm, output the canonical firm name in company and cleaned_ask and set repaired=true. Only repair when the ENTIRE company mention is the near-miss: if it carries extra words naming a different real business ('Molly's Cupcakes') or the role/context clearly isn't professional networking ('baristas at'), keep the user's words verbatim with repaired=false. If nothing on the list is phonetically close, keep verbatim with repaired=false — NEVER substitute a firm that isn't phonetically close to what they said.
-Rules: a role + company noun-phrase ("2 analysts at Bain") is draft_outreach. "show me / who works at" is find_people. Job-hunting phrasings ("find me a PM role") are find_jobs even when phrased as questions. When they want emails SENT, still draft_outreach with wants_send=true. Count capped at 5, default 1. Leave fields empty when absent — NEVER invent a company or location the user didn't say."""
+Rules: a role + company noun-phrase ("2 analysts at Bain") is draft_outreach. "show me / who works at" is find_people. Job-hunting phrasings ("find me a PM role") are find_jobs even when phrased as questions. When they want emails SENT, still draft_outreach with wants_send=true. Count capped at 5, default 1. Leave fields empty when absent — NEVER invent a company or location the user didn't say.
+TARGETING DOCTRINE (product rule): regular employees are ALWAYS the default target — the database has far more employees than recruiters, so employee asks fill and recruiter asks starve. hiring_manager=true when and ONLY when the words "hiring manager", "recruiter", or "talent" appear in the ask — then it is true even if an industry or location is also named. "Employees", "people", "someone", or plain role words mean employees: hiring_manager=false. An INDUSTRY ("tech", "the tech industry", "investment banking", "consulting", "finance") is NEVER a company — leave company empty and keep the industry words in role or cleaned_ask so the app can offer real firms in that industry."""
 
 _TOOL = {
     "type": "function",
@@ -51,10 +52,10 @@ _TOOL = {
                 "intent": {"type": "string", "enum": list(_INTENTS)},
                 "cleaned_ask": {"type": "string", "description": "The ask with obvious speech-recognition errors fixed."},
                 "role": {"type": "string", "description": "Role/title words, e.g. 'IB analysts', 'hiring manager'. Empty if none."},
-                "company": {"type": "string", "description": "Company named, canonical spelling. Empty if none."},
+                "company": {"type": "string", "description": "Company named, canonical spelling. Empty if none. An industry (tech, banking, consulting) is NOT a company - leave empty."},
                 "location": {"type": "string", "description": "Location named. Empty if none."},
                 "count": {"type": "integer", "minimum": 1, "maximum": 5},
-                "hiring_manager": {"type": "boolean", "description": "True when they target hiring managers/recruiters."},
+                "hiring_manager": {"type": "boolean", "description": "True ONLY when the ask explicitly says hiring manager/recruiter/talent. Broad or employee asks are false — never inferred."},
                 "wants_send": {"type": "boolean"},
                 "job_query": {"type": "string", "description": "For find_jobs: the role words to match against job titles, shorthand expanded (pm -> product manager)."},
                 "repaired": {"type": "boolean", "description": "True when company/role was corrected from a likely speech-recognition error rather than taken verbatim."},
@@ -79,11 +80,11 @@ def _empty(ask: str, error: str = "") -> Dict[str, Any]:
 def classify_scout_ask(db, ask: str) -> Dict[str, Any]:
     """Classify one ask. Never raises — on any failure returns intent
     'question' with an error field so the app falls back gracefully."""
-    # "v2|" salt: the vocabulary + repaired-field prompt obsoletes every entry
-    # written by the v1 prompt — poisoned classifications of garbled asks must
-    # never be served for their 14-day TTL. Each garbled variant ("Molly's",
-    # "Molise") is its own tiny entry; that's fine.
-    key = hashlib.md5(("v2|" + ask.lower().strip()).encode()).hexdigest()
+    # Salt history: v2 = vocabulary + repaired-field prompt; v3 = the
+    # targeting-doctrine prompt (employees default, industry is
+    # never a company) obsoletes v2 entries — a cached hiring_manager=true
+    # for a broad ask must not be served for its 14-day TTL.
+    key = hashlib.md5(("v3|" + ask.lower().strip()).encode()).hexdigest()
 
     with _mem_lock:
         hit = _mem_cache.get(key)
