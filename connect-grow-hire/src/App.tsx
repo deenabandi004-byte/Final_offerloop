@@ -51,6 +51,7 @@ const TermsOfService = React.lazy(() => import("./pages/TermsOfService"));
 const AppFinishSignIn = React.lazy(() => import("./pages/AppFinishSignIn"));
 const AccountSettings = React.lazy(() => import("./pages/AccountSettings"));
 const ReferPage = React.lazy(() => import("./pages/ReferPage"));
+const ApplicationsPage = React.lazy(() => import("./pages/ApplicationsPage"));
 const Pricing = React.lazy(() => import("./pages/Pricing"));
 const DocumentationPage = React.lazy(() => import("./pages/DocumentationPage"));
 const JobBoardPage = React.lazy(() => import("./pages/JobBoardPage"));
@@ -367,6 +368,7 @@ const AppRoutes: React.FC = () => {
       <Route path="/coffee-chat-library" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoffeeChatLibrary /></Suspense></ProtectedRoute>} />
       <Route path="/account-settings" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AccountSettings /></Suspense></ProtectedRoute>} />
       <Route path="/refer" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ReferPage /></Suspense></ProtectedRoute>} />
+      <Route path="/applications" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ApplicationsPage /></Suspense></ProtectedRoute>} />
       <Route path="/pricing" element={<Suspense fallback={<PageLoader />}><Pricing /></Suspense>} />
       <Route path="/documentation" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><DocumentationPage /></Suspense></ProtectedRoute>} />
       <Route path="/payment-success" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><PaymentSuccess /></Suspense></ProtectedRoute>} />
