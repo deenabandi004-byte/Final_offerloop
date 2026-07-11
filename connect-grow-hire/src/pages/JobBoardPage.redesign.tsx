@@ -19,22 +19,24 @@
 // People CTA opens existing FindHumansModal.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { AppSidebar } from "@/components/AppSidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useCreditsView } from "@/hooks/useCreditsView";
-import { getAuth } from "firebase/auth";
 import {
   apiService,
-  BACKEND_URL,
   type FeedJob,
   type JobFeedResponse,
   type JobSearchParams,
   type SavedJob,
 } from "@/services/api";
 import { JobBoardSkeleton } from "@/components/JobBoardSkeleton";
+import { jobFeedQueryKey, JOB_FEED_STALE_MS } from "@/lib/jobFeedQuery";
+import { readScoutPrefillEnvelope, SCOUT_PREFILL_EVENT } from "@/lib/scoutBridge";
+import { JobBoardViewToggle, type JobBoardView } from "@/components/jobs/JobBoardViewToggle";
 import {
   FindHumansModal,
   type FindHumansJob,
@@ -142,41 +144,57 @@ const INITIAL_RENDER = 30;
 // transient failure can be retried.
 const descriptionCache = new Map<string, JobDescriptionState>();
 
-export const JobBoardPage: React.FC = () => {
+interface JobBoardPageProps {
+  // Supplied when hosted inside the Job Board tab so the board can render the
+  // List/Gallery toggle. Standalone use (no props) just hides the toggle.
+  view?: JobBoardView;
+  onViewChange?: (view: JobBoardView) => void;
+}
+
+export const JobBoardPage: React.FC<JobBoardPageProps> = ({ view = "list", onViewChange }) => {
   const { user, isLoading: authLoading } = useFirebaseAuth();
   const creditsView = useCreditsView();
 
-  // Stamp jobBoardVisitedAt on first mount so signed-in users are excluded
-  // from the Job Board discovery lifecycle campaign (#11). Fire-and-forget,
-  // backend one-shot stamp is idempotent so repeated mounts are cheap.
-  const jobBoardVisitStamped = useRef(false);
-  useEffect(() => {
-    if (authLoading) return;
-    if (!user) return;
-    if (jobBoardVisitStamped.current) return;
-    jobBoardVisitStamped.current = true;
-    (async () => {
-      try {
-        const auth = getAuth();
-        const firebaseUser = auth.currentUser;
-        if (!firebaseUser) return;
-        const token = await firebaseUser.getIdToken();
-        await fetch(`${BACKEND_URL}/api/lifecycle/job-board-view`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-        });
-      } catch {
-        // Fire-and-forget. Never surface a lifecycle capture error.
-      }
-    })();
-  }, [authLoading, user]);
-
   // ---- Server data --------------------------------------------------------
-  const [feed, setFeed] = useState<JobFeedResponse | null>(null);
-  const [feedLoading, setFeedLoading] = useState(true);
+  // The feed is fetched through React Query so navigating away from and back
+  // to /job-board serves the cached response instantly (staleTime 5min,
+  // matching the app default) instead of re-hitting the backend and re-showing
+  // the skeleton every time. The page previously used raw useState/useEffect
+  // and refetched the whole feed on every mount.
+  //
+  // The refresh button keeps its old semantics via refreshRef: when the user
+  // presses it we ask the backend to rotate the ranked slice (refresh=true)
+  // and surface the "Back to your top picks" wrap toast. A normal mount/
+  // background revalidation sends refresh=false.
+  const refreshRef = useRef(false);
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  const feedQuery = useQuery<JobFeedResponse>({
+    queryKey: jobFeedQueryKey(user?.uid),
+    enabled: !!user,
+    staleTime: JOB_FEED_STALE_MS,
+    queryFn: async () => {
+      const isRefresh = refreshRef.current;
+      refreshRef.current = false;
+      const data = await apiService.getJobFeed({ refresh: isRefresh });
+      // Refresh-rotation toast. The backend advances an offset into the
+      // user's cached ranked list on every refresh and signals feed_wrapped
+      // when that offset wraps back to the top. Show the user a brief notice
+      // so a wrap does not look like "nothing changed".
+      if (isRefresh && data.feed_wrapped) {
+        toast({
+          title: "Back to your top picks",
+          description:
+            "You have seen the freshest matches. Starting over from the top of your ranking.",
+        });
+      }
+      return data;
+    },
+  });
+  const feed = feedQuery.data ?? null;
+  // Show the skeleton only while there is no data yet (initial load) or during
+  // an explicit refresh-button press — NOT during a silent background
+  // revalidation, so a return visit with cached data paints immediately.
+  const feedLoading = (feedQuery.isPending && !!user) || isManualRefreshing;
   // Progressive render gate. False on each fresh load so the first paint is
   // capped to INITIAL_RENDER cards; flipped true on the next idle tick to
   // render the remainder.
@@ -185,6 +203,19 @@ export const JobBoardPage: React.FC = () => {
 
   // ---- Local UI state -----------------------------------------------------
   const [search, setSearch] = useState("");
+
+  // Scout prefill bridge: consume a /job-board query handoff into the search
+  // box (see BrowseJobsPage for the gallery-view twin).
+  useEffect(() => {
+    const applyFromBridge = () => {
+      const env = readScoutPrefillEnvelope("/job-board");
+      const q = env && (env.prefill.query || env.prefill.prompt || "").trim();
+      if (q) setSearch(q);
+    };
+    applyFromBridge();
+    window.addEventListener(SCOUT_PREFILL_EVENT, applyFromBridge);
+    return () => window.removeEventListener(SCOUT_PREFILL_EVENT, applyFromBridge);
+  }, []);
   // No chips active on first render. Earlier the chips defaulted to "all on"
   // because they were visual-only and the user had no way to "turn them on"
   // anyway; now that each chip narrows the query, we start neutral so the
@@ -221,16 +252,21 @@ export const JobBoardPage: React.FC = () => {
   // Top-level tab. "discover" = the existing Recent + Recommended view.
   // "saved" swaps the entire job list for the bookmarked bin, mirroring
   // the Outbox tab pattern (always-visible at the top of the page).
-  // "auto-submission" lists every auto-apply job (in-flight + done + failed).
-  // "needs-attention" lists jobs paused waiting on the user to answer a
-  // custom screening question we don't have an answer for.
+  // "applications" hosts the three auto-apply queues as sub-tabs:
+  //   all: every auto-apply job (in-flight + done + failed)
+  //   needs-answers: jobs paused waiting on the user to answer a custom
+  //     screening question we don't have an answer for
+  //   finish-browser: jobs waiting on an in-browser verification step
   const [activeJobTab, setActiveJobTab] = useState<
     | "discover"
     | "saved"
-    | "auto-submission"
-    | "needs-attention"
-    | "needs-verification"
+    | "applications"
   >("discover");
+  const [appsSubTab, setAppsSubTab] = useState<
+    | "all"
+    | "needs-answers"
+    | "finish-browser"
+  >("all");
 
   // Collapsible section state. Default: Recent collapsed, Recommended open
   // so the better-matching list is visible without scrolling. User's choice
@@ -287,33 +323,36 @@ export const JobBoardPage: React.FC = () => {
   }, [showAddDropdown]);
 
   // ---- Data loaders -------------------------------------------------------
-  const loadFeed = useCallback(async (refresh = false) => {
-    try {
-      setFeedLoading(true);
-      setRevealAll(false);
-      const data = await apiService.getJobFeed({ refresh });
-      setFeed(data);
-      // Refresh-rotation toast. The backend advances an offset into the
-      // user's cached ranked list on every refresh and signals feed_wrapped
-      // when that offset wraps back to the top. Show the user a brief
-      // notice so a wrap does not look like "nothing changed".
-      if (refresh && data.feed_wrapped) {
-        toast({
-          title: "Back to your top picks",
-          description: "You have seen the freshest matches. Starting over from the top of your ranking.",
-        });
+  // refetch is referentially stable in React Query v5, so the callback below
+  // keeps a stable identity.
+  const refetchFeed = feedQuery.refetch;
+  const loadFeed = useCallback(
+    async (refresh = false) => {
+      if (refresh) {
+        refreshRef.current = true;
+        setRevealAll(false);
+        setIsManualRefreshing(true);
       }
-    } catch (err) {
-      console.error("getJobFeed failed", err);
+      try {
+        await refetchFeed();
+      } finally {
+        if (refresh) setIsManualRefreshing(false);
+      }
+    },
+    [refetchFeed],
+  );
+
+  // Surface a toast on fetch failure (the error itself lives in feedQuery.error).
+  useEffect(() => {
+    if (feedQuery.isError) {
+      console.error("getJobFeed failed", feedQuery.error);
       toast({
         title: "Couldn't load jobs",
         description: "Try again in a moment.",
         variant: "destructive",
       });
-    } finally {
-      setFeedLoading(false);
     }
-  }, []);
+  }, [feedQuery.isError, feedQuery.error]);
 
   const loadSaved = useCallback(async () => {
     try {
@@ -325,11 +364,12 @@ export const JobBoardPage: React.FC = () => {
     }
   }, []);
 
+  // Feed itself is fetched by feedQuery (enabled on user). Only the saved-jobs
+  // list still needs an imperative load on mount.
   useEffect(() => {
     if (!user) return;
-    loadFeed();
     loadSaved();
-  }, [user, loadFeed, loadSaved]);
+  }, [user, loadSaved]);
 
   // ---- Adapter ------------------------------------------------------------
   const sections = useMemo(() => buildSectionedJobs(feed), [feed]);
@@ -416,6 +456,10 @@ export const JobBoardPage: React.FC = () => {
     if (!user) return;
     let cancelled = false;
     const refresh = async () => {
+      // Don't poll while the tab is backgrounded — these three endpoints add
+      // up to constant load over a session for state the user can't see. We
+      // catch up immediately on visibilitychange below.
+      if (document.hidden) return;
       try {
         const api = await import("@/services/api");
         const [na, nv, all] = await Promise.all([
@@ -437,10 +481,17 @@ export const JobBoardPage: React.FC = () => {
       }
     };
     refresh();
-    const id = window.setInterval(refresh, 8000);
+    // 30s (was 8s). The auto-apply queues are not real-time surfaces; an 8s
+    // cadence was constant background load while the user read the feed.
+    const id = window.setInterval(refresh, 30000);
+    const onVisible = () => {
+      if (!document.hidden) refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
       window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [user]);
 
@@ -663,12 +714,13 @@ export const JobBoardPage: React.FC = () => {
   //   1. Pro/Elite gate (frontend-side; backend rechecks).
   //   2. POST /submit directly (no prepare/modal step). The job lands in
   //      autoApplyJobs status="queued" and a background worker takes over.
-  //   3. Switch the active tab to "auto-submission" so the user sees the
-  //      in-flight card immediately. They can keep clicking Auto-apply on
+  //   3. The job shows up in the Applications tab (All applications sub-tab)
+  //      as an in-flight card. The user can keep clicking Auto-apply on
   //      other jobs while the background workers run.
   //   4. If the worker hits a question with no saved answer, it bails with
-  //      status="needs_attention" and the card moves to the Needs Attention
-  //      tab. The user resolves via NeedsAttentionDrawer; the worker resumes.
+  //      status="needs_attention" and the card moves to the Needs your
+  //      answers sub-tab. The user resolves via NeedsAttentionDrawer; the
+  //      worker resumes.
   //
   // The legacy prepare/modal flow is still wired (showReviewModal +
   // AutoApplyReviewModal) but no longer triggered by the default Auto-apply
@@ -889,10 +941,12 @@ export const JobBoardPage: React.FC = () => {
             <div className="jb-editorial">
               {/* ---- FilterBar (pinned) ---- */}
               <div className="jb-fb">
-                <div className="jb-fb-row">
-                  <div>
-                    <h1 className="jb-fb-title">Discover Opportunities</h1>
-                  </div>
+                <div
+                  className="jb-fb-row"
+                  style={{ display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 16, flexWrap: "wrap" }}
+                >
+                  <h1 className="jb-fb-title" style={{ margin: 0 }}>Browse all jobs</h1>
+                  {onViewChange && <JobBoardViewToggle view={view} onChange={onViewChange} />}
                 </div>
 
                 {/* Top-level tabs — Outbox-style segmented control */}
@@ -908,15 +962,14 @@ export const JobBoardPage: React.FC = () => {
                   {([
                     { id: "discover", label: "Discover", count: sections.recent.length + sections.recommended.length, dot: false },
                     { id: "saved", label: "Saved", count: savedJobs.length, dot: false },
-                    { id: "auto-submission", label: "Auto-submission", count: 0, dot: false },
-                    // Notification dot when there's actually work waiting on the user.
-                    { id: "needs-attention", label: "Needs attention", count: needsAttentionCount, dot: needsAttentionCount > 0 },
-                    // Finish-in-browser is now rare (the email-code path handles
-                    // most Greenhouse verification automatically). Hide the tab
-                    // entirely when empty so it doesn't clutter the header.
-                    ...(needsVerificationCount > 0
-                      ? [{ id: "needs-verification" as const, label: "Finish in browser", count: needsVerificationCount, dot: true }]
-                      : []),
+                    // One Applications tab; the three queues live inside it as
+                    // sub-tabs. Notification dot when work is waiting on the user.
+                    {
+                      id: "applications",
+                      label: "Applications",
+                      count: needsAttentionCount + needsVerificationCount,
+                      dot: needsAttentionCount + needsVerificationCount > 0,
+                    },
                   ] as const).map((t) => {
                     const isActive = activeJobTab === t.id;
                     return (
@@ -1142,18 +1195,85 @@ export const JobBoardPage: React.FC = () => {
 
               {/* ---- Body ---- */}
               {/* discover / saved: two-pane editorial layout.
-                  auto-submission / needs-attention: full-width queue view. */}
-              {activeJobTab === "auto-submission" ? (
+                  applications: full-width queue view with its own sub-tabs. */}
+              {activeJobTab === "applications" ? (
                 <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-                  <AutoSubmissionTab />
-                </div>
-              ) : activeJobTab === "needs-attention" ? (
-                <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-                  <NeedsAttentionTab />
-                </div>
-              ) : activeJobTab === "needs-verification" ? (
-                <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-                  <NeedsVerificationTab />
+                  {/* Sub-tabs: All / Needs your answers / Finish in browser */}
+                  <div style={{ display: "flex", gap: 8, padding: "14px 16px 2px", flexWrap: "wrap" }}>
+                    {([
+                      { id: "all", label: "All applications", count: 0, alert: false },
+                      { id: "needs-answers", label: "Needs your answers", count: needsAttentionCount, alert: true },
+                      { id: "finish-browser", label: "Finish in browser", count: needsVerificationCount, alert: false },
+                    ] as const).map((t) => {
+                      const isActive = appsSubTab === t.id;
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => setAppsSubTab(t.id)}
+                          aria-pressed={isActive}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 6,
+                            padding: "6px 14px",
+                            borderRadius: 999,
+                            fontSize: 13,
+                            fontWeight: isActive ? 600 : 500,
+                            fontFamily: "inherit",
+                            cursor: "pointer",
+                            border: `1px solid ${isActive ? "var(--brand-blue, #3B82F6)" : "var(--line, #E5E5E5)"}`,
+                            background: isActive ? "var(--brand-blue, #3B82F6)" : "var(--paper, #fff)",
+                            color: isActive ? "#fff" : "var(--ink-2, #475569)",
+                            transition: "background .15s, color .15s, border-color .15s",
+                          }}
+                        >
+                          {t.alert && (
+                            <span
+                              aria-hidden="true"
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                width: 14,
+                                height: 14,
+                                borderRadius: "50%",
+                                fontSize: 10,
+                                fontWeight: 700,
+                                lineHeight: 1,
+                                background: t.count > 0 ? "#EF4444" : (isActive ? "rgba(255,255,255,0.35)" : "#CBD5E1"),
+                                color: "#fff",
+                              }}
+                            >
+                              !
+                            </span>
+                          )}
+                          {t.label}
+                          {t.count > 0 && (
+                            <span
+                              style={{
+                                fontFamily: "'JetBrains Mono', monospace",
+                                fontSize: 10,
+                                padding: "1px 6px",
+                                borderRadius: 4,
+                                background: isActive ? "rgba(255,255,255,0.22)" : "var(--paper-2, #FAFBFF)",
+                                color: isActive ? "#fff" : "var(--ink-3, #94A3B8)",
+                              }}
+                            >
+                              {t.count}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {appsSubTab === "all" ? (
+                    <AutoSubmissionTab />
+                  ) : appsSubTab === "needs-answers" ? (
+                    <NeedsAttentionTab />
+                  ) : (
+                    <NeedsVerificationTab />
+                  )}
                 </div>
               ) : (
               <div className="jb-twopane">

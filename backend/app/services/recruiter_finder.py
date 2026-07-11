@@ -47,14 +47,21 @@ _JOB_TYPE_TO_PDL_ROLE = {
     "design": "design",
     "operations": "operations",
     "hr": "human_resources",
+    "consulting": "consulting",
+    "investment_banking": "finance",  # PDL has no IB bucket; finance is the closest
+    "data_science": "engineering",    # PDL groups DS/ML under engineering
+    "legal": "legal",
     # Deliberately unmapped (fall through to loose tier loop):
     #   "general" — too broad to map cleanly
     #   "intern"  — interns aren't a job_title_role; level handles this
 }
 
 # Seniority levels we consider hiring-decision-makers. Maps to PDL's
-# `job_title_levels` array enum.
-_DECISION_MAKER_LEVELS = ["manager", "director", "vp", "head", "cxo", "owner"]
+# `job_title_levels` array enum. `partner` is critical for consulting and
+# IB — partners are the actual hiring decision-makers at MBB / Goldman /
+# Morgan Stanley etc., and dropping them silently was making the tight
+# query return 0 for those firms.
+_DECISION_MAKER_LEVELS = ["manager", "director", "vp", "head", "cxo", "owner", "partner"]
 
 
 def _tight_target_for(max_results: int) -> int:
@@ -72,18 +79,30 @@ def _tight_target_for(max_results: int) -> int:
     return 3
 
 
-def _build_tight_pdl_query(company: str, pdl_role: str, size: int = 3) -> dict:
+def _build_tight_pdl_query(
+    company: str,
+    pdl_role: str,
+    size: int = 3,
+    company_website: Optional[str] = None,
+) -> dict:
     """Build PDL /person/search body that returns precise hiring decision-makers.
 
     Uses bool/must with term filters — the documented PDL query shape. Does
     NOT use multi_match or field boosting (PDL rejects both). Returns up to
     `size` profiles, costing `size` credits per HIT (0 on empty).
+
+    When `company_website` is supplied, we match on EITHER name OR website —
+    website is more reliable for firms with unguessable PDL canonicals
+    (BCG, MBB, etc.).
     """
+    company_should = [{"term": {"job_company_name": company.lower()}}]
+    if company_website:
+        company_should.append({"term": {"job_company_website": company_website.lower()}})
     return {
         "query": {
             "bool": {
                 "must": [
-                    {"term": {"job_company_name": company.lower()}},
+                    {"bool": {"should": company_should}},
                     {"term": {"job_title_role": pdl_role}},
                     {"exists": {"field": "linkedin_url"}},
                     {"terms": {"job_title_levels": _DECISION_MAKER_LEVELS}},
@@ -94,10 +113,15 @@ def _build_tight_pdl_query(company: str, pdl_role: str, size: int = 3) -> dict:
     }
 
 
-def _run_tight_pdl_query(company: str, pdl_role: str, size: int = 3) -> List[Dict]:
+def _run_tight_pdl_query(
+    company: str,
+    pdl_role: str,
+    size: int = 3,
+    company_website: Optional[str] = None,
+) -> List[Dict]:
     """Execute the tight PDL query and extract contacts. Empty list on miss/error."""
     from .pdl_client import extract_contact_from_pdl_person_enhanced
-    body = _build_tight_pdl_query(company, pdl_role, size)
+    body = _build_tight_pdl_query(company, pdl_role, size, company_website=company_website)
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
@@ -170,6 +194,14 @@ def _looks_like_person_name(s: str) -> bool:
     cleaned = s.strip()
     if not cleaned:
         return False
+    # Strip trailing role context from common separators. Firecrawl
+    # occasionally returns "Jane Doe (Head of Product)" or
+    # "Jane Doe - Engineering Manager" — same signal as the comma form.
+    for sep in ("(", " - ", " — ", " – ", " | ", ":"):
+        if sep in cleaned:
+            cleaned = cleaned.split(sep, 1)[0].strip()
+            if not cleaned:
+                return False
     # Strip trailing role context after a comma — "Jane Doe, CTO" -> "Jane Doe"
     if "," in cleaned:
         cleaned = cleaned.split(",", 1)[0].strip()
@@ -298,9 +330,46 @@ RECRUITER_TITLES_BY_JOB_TYPE = {
 }
 
 # Keywords that indicate job type
+# Keyword ordering matters in determine_job_type — earlier categories win
+# on token conflicts. Consulting/IB/DS/product need to beat generic
+# "analyst"/"associate"/"engineer" tokens that also appear in tech and
+# finance descriptions. Interns are handled first (highest priority) and
+# then we iterate this dict in order.
 JOB_TYPE_KEYWORDS = {
+    "consulting": [
+        "management consultant", "management consulting", "strategy consultant",
+        "strategy consulting", "consulting analyst", "consulting associate",
+        "business analyst", "generalist consultant", "associate consultant",
+        "engagement manager", "case team", "mckinsey", "bain", "bcg",
+        "deloitte consulting", "kearney", "accenture strategy",
+    ],
+    "investment_banking": [
+        "investment banking", "investment banker", "m&a analyst",
+        "leveraged finance", "equity capital markets", "debt capital markets",
+        "sales & trading", "sales and trading", "private equity",
+        "hedge fund", "portfolio manager", "goldman sachs", "j.p. morgan",
+        "jpmorgan investment", "morgan stanley investment", "evercore",
+        "lazard", "moelis", "centerview", "guggenheim partners",
+    ],
+    "product": [
+        "product manager", "product management", "apm", "associate product manager",
+        "product owner", "product lead", "principal product",
+        "senior product manager", "director of product", "vp product",
+        "vp of product", "head of product", "chief product officer",
+    ],
+    "data_science": [
+        "data scientist", "data science", "machine learning scientist",
+        "ml scientist", "ml researcher", "research scientist",
+        "quantitative researcher", "applied scientist", "ai scientist",
+        "data analyst", "analytics engineer", "business intelligence",
+    ],
+    "design": [
+        "product designer", "ux designer", "ui designer", "visual designer",
+        "interaction designer", "brand designer", "design lead", "design director",
+        "head of design", "user experience", "product design",
+    ],
     "engineering": [
-        "engineer", "developer", "software", "backend", "frontend", 
+        "engineer", "developer", "software", "backend", "frontend",
         "full stack", "fullstack", "devops", "sre", "infrastructure",
         "data engineer", "ml engineer", "machine learning", "platform",
         "systems", "embedded", "firmware", "mobile", "ios", "android",
@@ -314,9 +383,23 @@ JOB_TYPE_KEYWORDS = {
         "marketing", "brand", "content", "social media", "growth",
         "product marketing", "demand generation", "communications"
     ],
+    "operations": [
+        "operations manager", "chief of staff", "business operations",
+        "revops", "revenue operations", "supply chain", "logistics manager",
+        "program manager",
+    ],
     "finance": [
         "finance", "financial", "accounting", "accountant", "controller",
-        "treasury", "tax", "audit", "analyst"
+        "treasury", "tax", "audit", "financial analyst", "credit analyst",
+        "equity analyst", "risk analyst", "quant"
+    ],
+    "legal": [
+        "attorney", "counsel", "general counsel", "paralegal", "legal ops",
+        "compliance officer", "regulatory affairs",
+    ],
+    "hr": [
+        "human resources", "people operations", "talent acquisition",
+        "hr business partner", "hrbp", "chief people officer",
     ],
     "intern": [
         "intern", "internship", "co-op", "coop", "summer", "new grad",
@@ -394,21 +477,53 @@ HIRING_MANAGER_PRIORITY_TIERS = {
         "priority_range": (16, 18),
         "titles": [
             "founder",
+            "co-founder",
+            "cofounder",
             "ceo",
-            "coo"
+            "coo",
+            "cto",
+            "cfo",
+            "cpo",
+            "cro",
+            "chief people officer",
+            "chief revenue officer",
+            "vp engineering",
+            "vp product",
+            "vp of engineering",
+            "vp of product",
+            "head of engineering",
+            "head of product",
+            "head of design",
+            "head of data",
+            "head of operations",
+            "president"
         ],
         "base_score": 10
     }
 }
 
-# Job type to department manager mapping
+# Job type to department manager mapping. Titles here become the loose-tier
+# candidate pool when the tight PDL role query misses or isn't mapped. Keep
+# them specific — "manager" and "team manager" match everyone at a company
+# and drag noise into the top-N.
 DEPARTMENT_MANAGER_BY_JOB_TYPE = {
     "engineering": ["engineering manager", "software engineering manager", "tech manager", "development manager"],
     "sales": ["sales manager", "business development manager", "account manager"],
     "marketing": ["marketing manager", "brand manager", "growth manager"],
     "finance": ["finance manager", "accounting manager", "financial manager"],
-    "intern": ["university recruiter", "campus recruiter", "early career manager"],
-    "general": ["manager", "department manager", "team manager"]
+    "consulting": ["engagement manager", "principal", "partner", "associate partner", "senior manager", "project leader"],
+    "investment_banking": ["managing director", "vice president", "executive director", "associate", "director"],
+    "product": ["director of product", "vp product", "head of product", "principal product manager", "group product manager"],
+    "data_science": ["director of data", "head of data science", "manager, data science", "principal data scientist", "head of analytics"],
+    "design": ["design manager", "head of design", "director of design", "principal designer"],
+    "operations": ["operations manager", "director of operations", "vp operations", "chief of staff"],
+    "legal": ["general counsel", "deputy general counsel", "associate general counsel"],
+    "hr": ["hr manager", "head of people", "director of people", "vp of people"],
+    "intern": ["university recruiter", "campus recruiter", "early career manager", "early careers lead"],
+    # "general" is a deliberately narrow fallback — hitting bare "manager"
+    # dilutes results. Prefer functional heads that at least have decision
+    # authority somewhere in the org.
+    "general": ["head of talent", "head of recruiting", "director of talent acquisition", "senior recruiter"],
 }
 
 
@@ -445,6 +560,81 @@ COMPANY_ALIASES = {
     "blackstone": "Blackstone",
     "carlyle": "The Carlyle Group",
 }
+
+
+# Domain pin for firms where PDL's job_company_name canonical is unguessable
+# (e.g. BCG → "boston consulting group (bcg)", so match_phrase misses).
+# PDL's job_company_website field is a bare-domain keyword — reliable pin.
+# Keys must be lowercase, matched against both raw user input and cleaned
+# names. Only add entries here after confirming the domain PDL indexes.
+COMPANY_WEBSITES = {
+    "mckinsey": "mckinsey.com",
+    "mckinsey & company": "mckinsey.com",
+    "bcg": "bcg.com",
+    "boston consulting group": "bcg.com",
+    "bain": "bain.com",
+    "bain & company": "bain.com",
+    "deloitte": "deloitte.com",
+    "pwc": "pwc.com",
+    "pricewaterhousecoopers": "pwc.com",
+    "ey": "ey.com",
+    "ernst & young": "ey.com",
+    "kpmg": "kpmg.com",
+    "accenture": "accenture.com",
+    "goldman": "goldmansachs.com",
+    "goldman sachs": "goldmansachs.com",
+    "jp morgan": "jpmorgan.com",
+    "jpmorgan": "jpmorgan.com",
+    "jpmorgan chase": "jpmorgan.com",
+    "morgan stanley": "morganstanley.com",
+    "bofa": "bankofamerica.com",
+    "bank of america": "bankofamerica.com",
+    "citi": "citi.com",
+    "citigroup": "citi.com",
+    "barclays": "barclays.com",
+    "credit suisse": "credit-suisse.com",
+    "ubs": "ubs.com",
+    "evercore": "evercore.com",
+    "lazard": "lazard.com",
+    "moelis": "moelis.com",
+    "centerview": "centerview.com",
+    "guggenheim": "guggenheimpartners.com",
+    "google": "google.com",
+    "meta": "meta.com",
+    "facebook": "meta.com",
+    "amazon": "amazon.com",
+    "apple": "apple.com",
+    "microsoft": "microsoft.com",
+    "netflix": "netflix.com",
+    "uber": "uber.com",
+    "airbnb": "airbnb.com",
+    "stripe": "stripe.com",
+    "palantir": "palantir.com",
+    "citadel": "citadel.com",
+    "jane street": "janestreet.com",
+    "two sigma": "twosigma.com",
+    "blackrock": "blackrock.com",
+    "kkr": "kkr.com",
+    "blackstone": "blackstone.com",
+    "carlyle": "carlyle.com",
+}
+
+
+def resolve_company_website(company_name: str) -> Optional[str]:
+    """Return the PDL job_company_website domain for a mapped firm, else None.
+
+    Checks both raw and cleaned forms — user might type "BCG", "bcg",
+    "Boston Consulting Group", all should route to bcg.com.
+    """
+    if not company_name:
+        return None
+    lower = company_name.strip().lower()
+    if lower in COMPANY_WEBSITES:
+        return COMPANY_WEBSITES[lower]
+    cleaned = clean_company_name(company_name).lower()
+    if cleaned and cleaned in COMPANY_WEBSITES:
+        return COMPANY_WEBSITES[cleaned]
+    return None
 
 
 def _resolve_company_alias(company_name: str) -> list:
@@ -513,18 +703,20 @@ def build_recruiter_search_query(
             {"match": {"job_company_name": company_name}}
         ]
 
-    # Base query structure - NO location filter
+    # Base query structure - country inferred from location, no state/city.
     must_clauses = [
         {"bool": {"should": title_should}},
         {"bool": {"should": company_should}},
-        {"term": {"location_country": "united states"}}  # US only
     ]
+    inferred_country = infer_location_country(location)
+    if inferred_country:
+        must_clauses.append({"term": {"location_country": inferred_country}})
 
-    # Log location for informational purposes (not used for filtering)
+    # Log location for informational purposes (not used for city/state filtering)
     if location:
-        print(f"[RecruiterSearch] Location provided: '{location}' (NOT used for filtering - recruiters can be anywhere)")
+        print(f"[RecruiterSearch] Location='{location}' → country filter: {inferred_country or 'none'}")
     else:
-        print(f"[RecruiterSearch] No location provided - searching all US recruiters at company")
+        print(f"[RecruiterSearch] No location provided → country filter: none")
 
     query_obj = {
         "bool": {
@@ -535,6 +727,102 @@ def build_recruiter_search_query(
     print(f"[RecruiterSearch] Query: company={company_name}, aliases={company_aliases}, country=US, NO state/city filter")
 
     return query_obj
+
+
+# Rough country inference from a free-text location string.
+# Only used to swap the PDL `location_country` filter when the user's job is
+# clearly outside the US — we don't try to enumerate every country, we just
+# need to stop filtering US-only when the parsed location says otherwise.
+_COUNTRY_KEYWORDS = {
+    "united kingdom": "united kingdom",
+    "uk": "united kingdom",
+    "london": "united kingdom",
+    "manchester": "united kingdom",
+    "edinburgh": "united kingdom",
+    "dublin": "ireland",
+    "ireland": "ireland",
+    "canada": "canada",
+    "toronto": "canada",
+    "vancouver": "canada",
+    "montreal": "canada",
+    "ottawa": "canada",
+    "calgary": "canada",
+    "germany": "germany",
+    "berlin": "germany",
+    "munich": "germany",
+    "france": "france",
+    "paris": "france",
+    "netherlands": "netherlands",
+    "amsterdam": "netherlands",
+    "spain": "spain",
+    "madrid": "spain",
+    "barcelona": "spain",
+    "singapore": "singapore",
+    "hong kong": "hong kong",
+    "india": "india",
+    "bangalore": "india",
+    "bengaluru": "india",
+    "mumbai": "india",
+    "hyderabad": "india",
+    "delhi": "india",
+    "australia": "australia",
+    "sydney": "australia",
+    "melbourne": "australia",
+    "japan": "japan",
+    "tokyo": "japan",
+    "brazil": "brazil",
+    "sao paulo": "brazil",
+    "são paulo": "brazil",
+    "mexico": "mexico",
+    "united arab emirates": "united arab emirates",
+    "uae": "united arab emirates",
+    "dubai": "united arab emirates",
+    "abu dhabi": "united arab emirates",
+    "israel": "israel",
+    "tel aviv": "israel",
+    "south africa": "south africa",
+    "cape town": "south africa",
+    "johannesburg": "south africa",
+    "switzerland": "switzerland",
+    "zurich": "switzerland",
+    "geneva": "switzerland",
+}
+
+
+def infer_location_country(location_string: Optional[str]) -> Optional[str]:
+    """Best-effort country inference from free-text location.
+
+    Returns:
+        Lowercased PDL country string when we're confident it's non-US, or
+        "united states" when we spot US-only signals, or None when unclear.
+
+        Callers use None to mean "drop the country filter entirely" — better
+        to over-return than to filter out a real hiring manager because our
+        parser didn't recognize their city.
+    """
+    if not location_string:
+        return None
+    text = location_string.lower().strip()
+    if not text:
+        return None
+    # Explicit US markers dominate ambiguous state abbreviations.
+    if any(marker in text for marker in ("united states", "usa", " us,", ", us", " u.s.")):
+        return "united states"
+    for keyword, country in _COUNTRY_KEYWORDS.items():
+        if keyword in text:
+            return country
+    # Trailing ", XX" or ", XX " where XX is a US state abbreviation.
+    tail = re.search(r",\s*([a-z]{2})\b", text)
+    if tail:
+        abbrev = tail.group(1)
+        if abbrev in {
+            "al","ak","az","ar","ca","co","ct","de","fl","ga","hi","id","il","in",
+            "ia","ks","ky","la","me","md","ma","mi","mn","ms","mo","mt","ne","nv",
+            "nh","nj","nm","ny","nc","nd","oh","ok","or","pa","ri","sc","sd","tn",
+            "tx","ut","vt","va","wa","wv","wi","wy","dc",
+        }:
+            return "united states"
+    return None
 
 
 def parse_location_for_ranking(location_string: Optional[str]) -> tuple[Optional[str], Optional[str]]:
@@ -1058,16 +1346,15 @@ def search_by_titles(
         {"match": {"job_company_name": company_name}}
     ]
     
-    query_obj = {
-        "bool": {
-            "must": [
-                {"bool": {"should": title_should}},
-                {"bool": {"should": company_should}},
-                {"term": {"location_country": "united states"}}
-            ]
-        }
-    }
-    
+    must = [
+        {"bool": {"should": title_should}},
+        {"bool": {"should": company_should}},
+    ]
+    inferred_country = infer_location_country(location)
+    if inferred_country:
+        must.append({"term": {"location_country": inferred_country}})
+    query_obj = {"bool": {"must": must}}
+
     # Execute PDL search
     PDL_URL = f"{PDL_BASE_URL}/person/search"
     headers = {
@@ -1285,8 +1572,11 @@ def detect_company_size(company_name: str, all_contacts: List[Dict]) -> str:
     Returns:
         "small" or "large"
     """
-    # Heuristic: If we found very few people, likely a small company
-    if len(all_contacts) < 5:
+    # Heuristic: If we found very few people at the company, likely a small
+    # company. Threshold 25 empirically covers seed/Series-A shops where the
+    # actual HM often IS an exec, without flipping mid-size scaleups into the
+    # "surface CEO" bucket.
+    if len(all_contacts) < 25:
         return "small"
     
     # Otherwise assume large
@@ -1307,12 +1597,21 @@ def build_hiring_manager_search_query(
     company_name: str,
     titles: List[str],
     location: Optional[str] = None,
-    company_aliases: List[str] = None
+    company_aliases: List[str] = None,
+    company_website: Optional[str] = None,
+    pdl_role: Optional[str] = None,
 ) -> Dict:
     """
     Build PDL Elasticsearch query for hiring manager search.
 
-    Similar to build_recruiter_search_query but for hiring managers.
+    company_website: when set, adds a `job_company_website` term to the
+        company clause. PDL's `job_company_name` uses unguessable canonicals
+        for many firms (e.g. BCG → "boston consulting group (bcg)"), so the
+        website is a more reliable pin.
+    pdl_role: when set (from _JOB_TYPE_TO_PDL_ROLE), constrains candidates to
+        the matching functional role — stops "Ads Engineering Manager" from
+        surfacing on a Cloud SWE search and generic corporate recruiters
+        from appearing on a Product req.
     """
     # Build job title should clause
     title_should = []
@@ -1320,32 +1619,46 @@ def build_hiring_manager_search_query(
         title_should.append({"match_phrase": {"job_title": title}})
         title_should.append({"match": {"job_title": title}})
 
-    # Build company should clause — expand with aliases if available
-    if company_aliases and len(company_aliases) > 1:
-        company_should = []
+    # Build company should clause — expand with aliases + website if available
+    company_should = []
+    if company_website:
+        # Strip protocol/path so we pass PDL a bare domain.
+        website = re.sub(r"^https?://(www\.)?", "", company_website.strip().lower())
+        website = website.rstrip("/").split("/")[0]
+        if website:
+            company_should.append({"term": {"job_company_website": website}})
+    if company_aliases and len(company_aliases) > 0:
         for name in company_aliases:
             company_should.append({"match_phrase": {"job_company_name": name.lower()}})
             company_should.append({"match": {"job_company_name": name.lower()}})
     else:
-        company_should = [
-            {"match_phrase": {"job_company_name": company_name}},
-            {"match": {"job_company_name": company_name}}
-        ]
+        company_should.append({"match_phrase": {"job_company_name": company_name}})
+        company_should.append({"match": {"job_company_name": company_name}})
 
-    # Base query structure - NO location filter (like recruiters)
     must_clauses = [
         {"bool": {"should": title_should}},
         {"bool": {"should": company_should}},
-        {"term": {"location_country": "united states"}}  # US only
     ]
 
-    query_obj = {
-        "bool": {
-            "must": must_clauses
-        }
-    }
+    # Country filter: inferred from location; drop entirely if unclear so we
+    # don't strip out the actual local HM for international roles.
+    inferred_country = infer_location_country(location)
+    if inferred_country:
+        must_clauses.append({"term": {"location_country": inferred_country}})
 
-    print(f"[HiringManagerSearch] Query: company={company_name}, aliases={company_aliases}, titles={titles[:3]}...")
+    # Functional role pin — restricts candidate pool to the department a
+    # student is actually applying into. Only applied when we mapped a PDL
+    # role for the job_type; otherwise falls back to title-only matching.
+    if pdl_role:
+        must_clauses.append({"term": {"job_title_role": pdl_role}})
+
+    query_obj = {"bool": {"must": must_clauses}}
+
+    print(
+        f"[HiringManagerSearch] Query: company={company_name}, aliases={company_aliases}, "
+        f"website={company_website or 'none'}, pdl_role={pdl_role or 'none'}, "
+        f"country={inferred_country or 'none'}, titles={titles[:3]}..."
+    )
 
     return query_obj
 
@@ -1428,7 +1741,21 @@ def rank_hiring_managers(
         # +10 points for seniority indicators
         if any(word in title for word in ["senior", "lead", "head", "director", "vp"]):
             score += 10
-        
+
+        # Perplexity verification signal — verified > unknown > low-conf-no.
+        # Unknowns previously ranked identically to verified candidates, so a
+        # stale PDL profile could beat a real hit.
+        still = manager.get("_perplexity_still_at_company")
+        confidence = manager.get("_perplexity_confidence", "")
+        if still == "yes" and confidence == "high":
+            score += 25
+        elif still == "yes":
+            score += 15
+        elif still == "no":
+            # High-conf "no"s were already dropped upstream. Anything here
+            # is low-conf "no" — demote so real hits float above them.
+            score -= 20
+
         return score
     
     # Sort by score descending
@@ -1501,11 +1828,18 @@ def find_hiring_manager(
     if not cleaned_company:
         cleaned_company = company_name
 
+    # Resolve to PDL job_company_website when we have a mapping — bypasses
+    # PDL's unguessable name canonicals (BCG, MBB firms, etc.)
+    company_website = resolve_company_website(company_name) or resolve_company_website(cleaned_company)
+
     # Determine job type if not provided
     if not job_type:
         job_type = determine_job_type(job_title, job_description)
 
-    print(f"[HiringManagerFinder] Searching for hiring managers at {cleaned_company} for {job_type} role")
+    print(
+        f"[HiringManagerFinder] Searching for hiring managers at {cleaned_company} "
+        f"(website={company_website or 'none'}) for {job_type} role"
+    )
     
     # ✅ FIX: Build larger candidate pool for email verification prioritization
     # Calculate candidate pool size: max(10, max_results * 5)
@@ -1539,13 +1873,23 @@ def find_hiring_manager(
     # second (recruiters who reply). Together they give the user a richer
     # result set than either alone, while costing FAR less PDL when tight
     # supplies the precise candidates and the loose loop only tops up.
+    #
+    # Skip tight when the Firecrawl seed already succeeded: the seed IS the
+    # named HM from the actual posting, so spending 2-3 more PDL credits
+    # hunting for another decision-maker in the same function is redundant.
+    # The loose tier loop can supply team-lead peers instead.
     tight_pdl_used = False
     tight_pdl_count = 0
     tight_target = _tight_target_for(max_results)
     tight_pdl_role = _JOB_TYPE_TO_PDL_ROLE.get((job_type or "").lower())
-    if tight_pdl_role:
+    if tight_pdl_role and not firecrawl_seed_used:
         print(f"[HiringManagerFinder] Tight PDL query: company={cleaned_company}, role={tight_pdl_role}, size={tight_target}")
-        tight_results = _run_tight_pdl_query(cleaned_company, tight_pdl_role, size=tight_target)
+        tight_results = _run_tight_pdl_query(
+            cleaned_company,
+            tight_pdl_role,
+            size=tight_target,
+            company_website=company_website,
+        )
         if tight_results:
             tight_pdl_used = True
             tight_pdl_count = len(tight_results)
@@ -1555,6 +1899,8 @@ def find_hiring_manager(
             print(f"[HiringManagerFinder] Tight PDL returned {len(tight_results)} decision-makers")
         else:
             print(f"[HiringManagerFinder] Tight PDL returned 0 — full tier-loop fallback")
+    elif firecrawl_seed_used:
+        print(f"[HiringManagerFinder] Tight PDL skipped — Firecrawl seed already supplied named HM")
 
     # Tier-loop sizing.
     # - Tight path: tight PDL already supplied precise candidates, so the loose
@@ -1564,9 +1910,14 @@ def find_hiring_manager(
     #   max_results (typically 3-5) at the end. Phase 1 of the Job Board
     #   Elevation Plan shrinks this so the buffer is sized to the actual
     #   ranking + email-verification dropout rate, not to a fixed 20.
-    if tight_pdl_used:
-        pool_target = max_results               # tight already supplied best — just top up
-        per_tier_size = max(3, max_results - len(candidate_pool))  # don't over-fetch
+    if tight_pdl_used or firecrawl_seed_used:
+        # Tight or Firecrawl already supplied the precise HM candidate(s) —
+        # loose loop just tops up with team leads / recruiters. Shrunk size
+        # so we don't over-fetch. Slightly bigger floor (5) than the
+        # tight-only path (3) because the seed alone isn't as rich a cohort
+        # as tight's 1-3 decision-makers.
+        pool_target = max(max_results, len(candidate_pool) + 2)
+        per_tier_size = max(5, max_results - len(candidate_pool))
     else:
         # Keep enough buffer for ranking + Hunter dropouts (~50% verification
         # rate, plus a couple slots for Perplexity "no longer here" drops).
@@ -1596,12 +1947,23 @@ def find_hiring_manager(
         
         print(f"[HiringManagerFinder] Searching Tier {tier} with titles: {tier_titles[:3]}...")
         
-        # Build query for this tier
+        # Build query for this tier. Only Tiers 2-3 (team leads, dept heads,
+        # VPs, directors) get a functional-role pin — those are the roles
+        # PDL reliably tags with a job_title_role matching the requisition.
+        # Tier 1 (recruiters, hiring-manager titles) stays title-only because
+        # recruiters cross functions in PDL's tagging (a "Consulting
+        # Recruiter" at MBB is usually role=human_resources, not
+        # role=consulting) — role-pinning Tier 1 would silently drop them.
+        # Tiers 4-5 (referral sources, execs) also stay title-only for the
+        # same reason (a founder isn't tagged as "engineering" even at an
+        # engineering-heavy startup).
         query_obj = build_hiring_manager_search_query(
             company_name=cleaned_company.lower(),
             titles=tier_titles,
             location=location,
             company_aliases=company_names,
+            company_website=company_website,
+            pdl_role=tight_pdl_role if tier in (2, 3) else None,
         )
         
         # Execute PDL search
@@ -1712,6 +2074,7 @@ def find_hiring_manager(
                         perplexity_dropped += 1
                         continue
                     manager["_perplexity_verified"] = still_there == "yes"
+                    manager["_perplexity_still_at_company"] = still_there
                     manager["_perplexity_confidence"] = conf
                     manager["_actively_hiring"] = v.get("actively_hiring", "unknown")
                     signal = v.get("recent_hiring_signal", "")
@@ -1843,11 +2206,31 @@ def find_hiring_manager(
             seen_ids.add(k)
         
         verified_count = len([c for c in final_hiring_managers if (
-            c.get('EmailVerified', False) or 
+            c.get('EmailVerified', False) or
             c.get('is_verified_email', False) or
             c.get('email_verified', False)
         )])
         print(f"[HiringManagerFinder] Selected {len(final_hiring_managers)} contacts: {verified_count} verified, {len(final_hiring_managers) - verified_count} unverified")
+
+        # Tag each returned contact with a cohort label so the UI can explain
+        # WHY this person surfaced — critical when the exact HM isn't in
+        # public data and we're surfacing team leads instead. Priority:
+        # firecrawl_seed → likely_hm; tight_pdl → likely_hm;
+        # loose tier 1-3 (recruiter/team_lead/director) → team_lead;
+        # tier 4-5 (people ops, execs) → adjacent.
+        for contact in final_hiring_managers:
+            source = contact.get("_source") or ""
+            title_lower = (contact.get("Title") or "").lower()
+            if source.startswith("firecrawl_seed"):
+                contact["_cohort"] = "likely_hm"
+            elif source == "tight_pdl":
+                contact["_cohort"] = "likely_hm"
+            elif any(kw in title_lower for kw in ("founder", "ceo", "cfo", "coo", "president")):
+                contact["_cohort"] = "adjacent"
+            elif any(kw in title_lower for kw in ("people operations", "executive assistant", "chief of staff")):
+                contact["_cohort"] = "adjacent"
+            else:
+                contact["_cohort"] = "team_lead"
     
     # Generate emails if requested
     emails = []
@@ -1904,7 +2287,11 @@ def find_hiring_manager(
         },
     }
 
-    # Add fallback messaging when no results or only low-tier results
+    # Add fallback messaging when no results or when the returned cohort is
+    # dominated by adjacent-role people. Checking `_cohort` on the actual
+    # returned contacts is more honest than checking `highest_tier_used`,
+    # which fires whenever the search *walked* into Tier 4 even if the
+    # top-ranked people ended up being Tier 1-2 team leads.
     if not final_hiring_managers:
         result["fallback_message"] = f"No direct hiring managers found at {cleaned_company} for {job_type} roles. Consider searching for recruiters instead."
         result["suggestions"] = [{
@@ -1913,8 +2300,17 @@ def find_hiring_manager(
             "tab": "recruiters",
             "prefill": {"company": cleaned_company}
         }]
-    elif highest_tier_used >= 4:
-        result["fallback_message"] = f"Found {len(final_hiring_managers)} people in adjacent roles (People Operations, executives) who may influence hiring at {cleaned_company}."
+    else:
+        adjacent_count = sum(
+            1 for c in final_hiring_managers if c.get("_cohort") == "adjacent"
+        )
+        if adjacent_count >= len(final_hiring_managers) / 2:
+            result["fallback_message"] = (
+                f"We couldn't confirm the exact hiring manager. Returned "
+                f"{adjacent_count} people in adjacent roles (People Ops, "
+                f"executives, exec assistants) who may influence hiring "
+                f"at {cleaned_company}."
+            )
 
     return result
 
