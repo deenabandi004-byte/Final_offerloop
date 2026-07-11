@@ -434,6 +434,14 @@ def save_preferences():
         return jsonify({'error': 'no recognized preference fields'}), 400
 
     db.collection('users').document(uid).set(patch, merge=True)
+    # A feed-relevant edit (roles/industries/locations) must re-tune the feed.
+    # The write alone doesn't touch jobFeedCache, so the ranked deck would keep
+    # serving the stale slice for up to ~2h. Null the cache — same bust the
+    # ?ungated escape hatch does (jobs.py) — so the next GET /api/jobs/feed
+    # reranks against the new profile. referralSource doesn't affect ranking, so
+    # a referral-only POST doesn't trigger a rerank.
+    if any(k in patch for k in ('preferredLocations', 'targetRoles', 'industries')):
+        db.collection('users').document(uid).update({'jobFeedCache': None})
     return jsonify({'ok': True, **patch}), 200
 
 
