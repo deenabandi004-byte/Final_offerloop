@@ -1001,21 +1001,6 @@ const Pricing = () => {
             >
               Pricing
             </p>
-            <h1
-              style={{
-                fontFamily: "'Libre Baskerville', Georgia, serif",
-                fontSize: 'clamp(38px, 5.4vw, 58px)',
-                fontWeight: 400,
-                letterSpacing: '-0.015em',
-                color: C_FS.ink,
-                textAlign: 'center',
-                margin: '0 auto 18px',
-                lineHeight: 1.1,
-                maxWidth: 760,
-              }}
-            >
-              Plans that <Hl>pay for themselves</Hl>
-            </h1>
             <p
               style={{
                 fontFamily: "'Inter', sans-serif",
