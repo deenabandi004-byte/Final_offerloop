@@ -72,7 +72,82 @@ def _update_stage(prep_ref, stage, label, pct):
         pass
 
 
+# Hard wall-clock for the whole prep pipeline. Every external call in the path
+# is individually bounded (PDL 30s, Perplexity 35s, OpenAI 300s), but Firebase
+# Storage uploads and the long OpenAI retry tail are effectively unbounded, so
+# this guarantees the prep doc always reaches a terminal state (never stuck at
+# "building") within a usable window.
+COFFEE_CHAT_PREP_TIMEOUT_SECONDS = 300
+
+
 def process_coffee_chat_prep_background(
+    prep_id,
+    linkedin_url,
+    user_id,
+    resume_text,
+    extra_context=None,
+    user_profile=None,
+    credits_charged=COFFEE_CHAT_CREDITS,
+):
+    """Wall-clock guarded entry point for the prep worker.
+
+    Runs the real pipeline in a bounded executor. If any call hangs past
+    COFFEE_CHAT_PREP_TIMEOUT_SECONDS, the job is forced to a terminal
+    ``failed`` state and credits are refunded so the client stops polling.
+    """
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(
+        _process_coffee_chat_prep_impl,
+        prep_id,
+        linkedin_url,
+        user_id,
+        resume_text,
+        extra_context,
+        user_profile,
+        credits_charged,
+    )
+    try:
+        future.result(timeout=COFFEE_CHAT_PREP_TIMEOUT_SECONDS)
+    except concurrent.futures.TimeoutError:
+        logger.error(
+            f"Coffee chat prep {prep_id} exceeded {COFFEE_CHAT_PREP_TIMEOUT_SECONDS}s "
+            f"wall-clock; forcing terminal failed state"
+        )
+        # Refund credits — the run never produced a deliverable.
+        try:
+            refund_credits_atomic(user_id, credits_charged, "coffee_chat_prep_timeout")
+        except Exception as refund_err:
+            logger.error(f"Timeout refund error for {prep_id}: {refund_err}")
+        # Force a terminal state so the frontend stops showing "Prepping..." forever.
+        try:
+            db = get_db()
+            prep_ref = (
+                db.collection("users")
+                .document(user_id)
+                .collection("coffee-chat-preps")
+                .document(prep_id)
+            )
+            prep_ref.update({
+                "status": "failed",
+                "stage": "failed",
+                "stageLabel": "Timed out. Please try again.",
+                "progressPct": 100,
+                "error": "Prep timed out while researching. Please try again.",
+                "creditsRefunded": True,
+                "failedAt": datetime.now().isoformat(),
+                "completedAt": datetime.now().isoformat(),
+            })
+        except Exception as update_err:
+            logger.error(f"Failed to mark prep {prep_id} timed out: {update_err}")
+    except Exception as e:
+        # _impl handles its own failures; this is a last-resort guard.
+        logger.error(f"Coffee chat prep {prep_id} wrapper error: {e}")
+    finally:
+        # Never block on a hung worker thread; let it leak rather than stall.
+        executor.shutdown(wait=False)
+
+
+def _process_coffee_chat_prep_impl(
     prep_id,
     linkedin_url,
     user_id,
@@ -111,8 +186,11 @@ def process_coffee_chat_prep_background(
             prep_ref.update(
                 {
                     "status": "failed",
+                    "stage": "failed",
                     "error": "Could not enrich LinkedIn profile. Please check the URL and try again.",
                     "creditsRefunded": True,
+                    "failedAt": datetime.now().isoformat(),
+                    "completedAt": datetime.now().isoformat(),
                 }
             )
             return
@@ -295,7 +373,14 @@ def process_coffee_chat_prep_background(
 
         try:
             if prep_ref:
-                prep_ref.update({"status": "failed", "error": str(e), "creditsRefunded": True})
+                prep_ref.update({
+                    "status": "failed",
+                    "stage": "failed",
+                    "error": str(e),
+                    "creditsRefunded": True,
+                    "failedAt": datetime.now().isoformat(),
+                    "completedAt": datetime.now().isoformat(),
+                })
         except Exception as update_err:
             logger.error(f"Failed to update prep status to failed: {update_err}")
 

@@ -275,6 +275,7 @@ def _summarise_article(
             messages=[{"role": "user", "content": prompt}],
             max_tokens=120,
             temperature=0.4,
+            timeout=40,  # bound the call so a hung request can't stall the prep pipeline
         )
         summary = response.choices[0].message.content or ""
         summary = summary.strip()
@@ -354,6 +355,7 @@ def _generate_industry_overview(
             messages=[{"role": "user", "content": prompt}],
             max_tokens=120,
             temperature=0.5,
+            timeout=40,  # bound the call so a hung request can't stall the prep pipeline
         )
         result = (response.choices[0].message.content or "").strip()
         
