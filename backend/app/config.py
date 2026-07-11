@@ -422,7 +422,7 @@ CREDIT_COSTS = {
 # ========================================
 TIER_CONFIGS = {
     'free': {
-        'max_contacts': 3,   # Maximum contacts returned per search
+        'max_contacts': 10,  # App limit-model 2026-07-10 (staging only): free bumped 3→10
         'batch_size': 1,      # Maximum batch operations allowed (per audit spec)
         'min_contacts': 1,
         'fields': ['FirstName', 'LastName', 'LinkedIn', 'Email', 'Title', 'Company', 'City', 'State', 'College', 'Hometown'],
@@ -456,7 +456,7 @@ TIER_CONFIGS = {
         'max_auto_sends_per_day': 0,
     },
     'pro': {
-        'max_contacts': 8,   # Maximum contacts returned per search
+        'max_contacts': 15,  # App limit-model 2026-07-10 (staging only): pro bumped 8→15
         'batch_size': 5,      # Maximum batch operations allowed (per audit spec)
         'min_contacts': 1, 
         'fields': ['FirstName', 'LastName', 'LinkedIn', 'Email', 'Title', 'Company', 'City', 'State', 'College',

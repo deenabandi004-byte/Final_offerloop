@@ -340,17 +340,21 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
         max_contacts = batch_size if batch_size and 1 <= batch_size <= tier_max else tier_max
 
         # Outreach mode: "preview" (contacts only, no email, no draft),
-        # "draft" (generate email plus create Gmail draft, current behavior),
-        # or "send" (generate then send, Elite only, wired in a later chunk).
-        # Validated against tier here on the server. We never trust the client
-        # mode value: Free is clamped to preview, Pro to draft, Elite to send.
+        # "draft" (generate email plus create Gmail draft), or "send"
+        # (generate then send). APP LIMIT-MODEL (2026-07-10, staging/mobile
+        # only — NOT web/origin-main): every tier gets every mode. The mobile
+        # surface is limit-gated, not feature-gated — free experiences the full
+        # loop and is bounded by its credit budget (300 cr ≈ 30 drafts) plus the
+        # daily send cap below, not by locked features. Swipe/voice pacing makes
+        # the app hard to burn through, so this is safe. Do NOT merge this dict
+        # to main — web keeps its own preview/draft/send-by-tier economics.
         TIER_ALLOWED_MODES = {
-            "free": {"preview"},
-            "pro": {"preview", "draft"},
+            "free": {"preview", "draft", "send"},
+            "pro": {"preview", "draft", "send"},
             "elite": {"preview", "draft", "send"},
         }
-        allowed_modes = TIER_ALLOWED_MODES.get(user_tier, {"preview"})
-        default_mode = "preview" if user_tier == "free" else "draft"
+        allowed_modes = TIER_ALLOWED_MODES.get(user_tier, {"preview", "draft", "send"})
+        default_mode = "draft"
         requested_mode = (data.get("mode") or "").strip().lower()
         if requested_mode not in ("preview", "draft", "send"):
             requested_mode = default_mode

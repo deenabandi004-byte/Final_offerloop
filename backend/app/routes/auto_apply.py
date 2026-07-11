@@ -92,7 +92,7 @@ def _load_job(job_id: str) -> Dict[str, Any]:
 
 @auto_apply_bp.route("/api/job-board/auto-apply/prepare", methods=["POST"])
 @require_firebase_auth
-@require_tier(["pro", "elite"])
+@require_tier(["free", "pro", "elite"])
 def prepare_auto_apply():
     """Validate eligibility, load profile, return a preview payload the client
     renders in the review modal. Does NOT deduct credits — that happens on
@@ -170,7 +170,7 @@ def prepare_auto_apply():
 
 @auto_apply_bp.route("/api/job-board/auto-apply/<job_id>/submit", methods=["POST"])
 @require_firebase_auth
-@require_tier(["pro", "elite"])
+@require_tier(["free", "pro", "elite"])
 def submit_auto_apply(job_id: str):
     """Spawn the form-filler in a background thread, return an auto_apply_id
     the client polls for status. Body:
@@ -301,7 +301,7 @@ def submit_auto_apply(job_id: str):
     "/api/job-board/auto-apply/<auto_apply_id>/status", methods=["GET"]
 )
 @require_firebase_auth
-@require_tier(["pro", "elite"])
+@require_tier(["free", "pro", "elite"])
 def auto_apply_status(auto_apply_id: str):
     """Return the current autoApplyJobs doc so the modal can poll."""
     uid = request.firebase_user["uid"]
@@ -327,7 +327,7 @@ def auto_apply_status(auto_apply_id: str):
     "/api/job-board/auto-apply/<auto_apply_id>/resolve", methods=["POST"]
 )
 @require_firebase_auth
-@require_tier(["pro", "elite"])
+@require_tier(["free", "pro", "elite"])
 def resolve_needs_attention(auto_apply_id: str):
     """User answered some / all of the pending questions in the Needs Attention
     drawer. Body: { answers: { question_id: value, ... } }.
@@ -465,7 +465,7 @@ def resolve_needs_attention(auto_apply_id: str):
     "/api/job-board/auto-apply/needs-attention", methods=["GET"]
 )
 @require_firebase_auth
-@require_tier(["pro", "elite"])
+@require_tier(["free", "pro", "elite"])
 def list_needs_attention():
     """Return all autoApplyJobs docs for this user with status=needs_attention.
     Used by the Needs Attention tab in the job board."""
@@ -489,7 +489,7 @@ def list_needs_attention():
     "/api/job-board/auto-apply/needs-verification", methods=["GET"]
 )
 @require_firebase_auth
-@require_tier(["pro", "elite"])
+@require_tier(["free", "pro", "elite"])
 def list_needs_verification():
     """Return all autoApplyJobs docs for this user with status=needs_verification.
 
@@ -522,7 +522,7 @@ def list_needs_verification():
     "/api/job-board/auto-apply/<auto_apply_id>/mark-submitted", methods=["POST"]
 )
 @require_firebase_auth
-@require_tier(["pro", "elite"])
+@require_tier(["free", "pro", "elite"])
 def mark_submitted(auto_apply_id: str):
     """The user finished a needs_verification job in their own browser and
     is confirming they hit Submit. We transition the job to `submitted`
@@ -566,7 +566,7 @@ def mark_submitted(auto_apply_id: str):
     "/api/job-board/auto-apply/list", methods=["GET"]
 )
 @require_firebase_auth
-@require_tier(["pro", "elite"])
+@require_tier(["free", "pro", "elite"])
 def list_auto_apply_jobs():
     """Return autoApplyJobs for this user, optionally filtered by status.
     Used by the Auto-Submission tab: in-flight + submitted + failed mixed.
