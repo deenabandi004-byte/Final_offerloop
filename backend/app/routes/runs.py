@@ -208,10 +208,75 @@ def invalidate_contact_dedup_cache():
     return jsonify({"ok": True}), 200
 
 
-def _refund_and_release_failed_swipe(db, user_id, charged_amount, idem_swipe_id):
-    """Failure cleanup for prompt_search: give back the up-front credit charge
-    and release the idempotency claim so a retry can re-run. Best-effort —
-    never raises (we're already on an error path)."""
+# =============================================================================
+# Swipe reservation — cross-worker atomic dedup for the draft race
+# =============================================================================
+# THE RACE: execute_prompt_search reads a per-user "already contacted" exclusion
+# list, then spends ~6s drafting before it SAVES the picked contact to Firestore.
+# Two rapid swipes on the same company both read the stale exclusion (neither has
+# saved yet), both pick the same top PDL result, and both draft+save it — a
+# time-of-check/time-of-use race that is also cross-process (2 gunicorn workers),
+# so in-memory dedup can't catch it. FIX: atomically RESERVE each picked
+# contact's identity in Firestore BEFORE the slow drafting starts. Firestore's
+# .create() fails if the doc already exists, and that check-and-set is atomic
+# across workers, so a concurrent swipe that tries to reserve the same person
+# loses the race and skips them.
+
+def _swipe_reservation_key(contact: dict) -> str:
+    """Stable, Firestore-safe doc id for a contact's identity — a hash of the
+    same identity string used everywhere else for dedup (get_contact_identity)."""
+    import hashlib
+    std = {
+        "FirstName": contact.get("FirstName") or contact.get("firstName") or "",
+        "LastName": contact.get("LastName") or contact.get("lastName") or "",
+        "Email": contact.get("Email") or contact.get("email") or "",
+        "Company": contact.get("Company") or contact.get("company") or "",
+    }
+    identity = get_contact_identity(std)
+    return hashlib.sha1(identity.encode("utf-8")).hexdigest()
+
+
+def _reservation_ref(db, user_id: str, contact: dict):
+    return (db.collection("users").document(user_id)
+              .collection("_swipeReservations").document(_swipe_reservation_key(contact)))
+
+
+def _try_reserve_contact(db, user_id: str, contact: dict) -> bool:
+    """Atomically reserve one contact so a concurrent swipe excludes it.
+    Returns True if WE won the reservation (safe to draft this person), False if
+    another in-flight swipe already holds it (skip — it's a dup). Fails OPEN: any
+    reservation-store error logs and returns True, so a Firestore hiccup never
+    blocks a real swipe (matches the events_service .create() idempotency style)."""
+    try:
+        _reservation_ref(db, user_id, contact).create(
+            {"reservedAt": datetime.utcnow().isoformat() + "Z"}  # TODO: deprecated in Python 3.12
+        )
+        return True
+    except Exception as e:
+        # .create() raises AlreadyExists when another worker already reserved
+        # this identity — that's the in-flight dup we want to drop (return False).
+        msg = str(e).lower()
+        if "already_exists" in msg or "already exists" in msg:
+            return False
+        print(f"[Runs] swipe reservation error (failing open): {e}")
+        return True
+
+
+def _release_contact_reservation(db, user_id: str, contact: dict) -> None:
+    """Delete a reservation so a person the user never actually received isn't
+    permanently excluded from a future genuine swipe. Best-effort — never raises."""
+    try:
+        _reservation_ref(db, user_id, contact).delete()
+    except Exception:
+        traceback.print_exc()
+
+
+def _refund_and_release_failed_swipe(db, user_id, charged_amount, idem_swipe_id, reserved_contacts=None):
+    """Failure cleanup for prompt_search: give back the up-front credit charge,
+    release the idempotency claim so a retry can re-run, and release any swipe
+    reservations we took (the picked people were never delivered, so they must
+    not stay excluded). Best-effort — never raises (we're already on an error
+    path)."""
     if db and user_id and charged_amount:
         try:
             from app.services.auth import refund_credits_atomic
@@ -225,6 +290,9 @@ def _refund_and_release_failed_swipe(db, user_id, charged_amount, idem_swipe_id)
             swipe_idem.fail(db, user_id, idem_swipe_id)
         except Exception:
             traceback.print_exc()
+    if db and user_id and reserved_contacts:
+        for _c in reserved_contacts:
+            _release_contact_reservation(db, user_id, _c)
 
 
 @runs_bp.route("/prompt-search", methods=["POST"])
@@ -276,6 +344,9 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
     idem_swipe_id = None
     charged_amount = 0
     db = None
+    # Contacts we atomically reserved (see swipe-reservation note above). Tracked
+    # here so the outer except can release them if this swipe fails.
+    reserved_contacts = []
     try:
         db = get_db()
 
@@ -574,8 +645,28 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
             except Exception as e:
                 print(f"⚠️ Pre-generation dedup failed, continuing: {e}", flush=True)
 
-        # Trim to the originally requested count (whether or not dedup ran)
-        contacts = contacts[:max_contacts]
+        # Trim to the originally requested count (whether or not dedup ran) while
+        # atomically RESERVING each picked contact BEFORE the slow drafting starts,
+        # so a concurrent/rapid swipe on the same company can't pick the same
+        # person mid-flight (see the swipe-reservation note at module top). We walk
+        # the deduped candidates in PDL order and keep only the first
+        # `max_contacts` whose reservation succeeds; a candidate already reserved
+        # by an in-flight swipe is a dup, so we skip it and reach for the next one
+        # — that keeps a single-contact swipe returning SOMEONE even when the top
+        # pick is being drafted elsewhere. Fails open (see helper): a
+        # reservation-store outage degrades to the plain trim, never a crash.
+        if db and user_id:
+            selected = []
+            for c in contacts:
+                if len(selected) >= max_contacts:
+                    break
+                if _try_reserve_contact(db, user_id, c):
+                    reserved_contacts.append(c)
+                    selected.append(c)
+                # else: already reserved by a concurrent swipe — skip as a dup
+            contacts = selected
+        else:
+            contacts = contacts[:max_contacts]
 
         # The "found" beat carries the real people — the app can show the name
         # the moment we know it ("Found Sarah Kim at Adyen — researching…").
@@ -614,10 +705,13 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
                     credits_remaining = remaining
                 else:
                     # Balance changed since the pre-check (e.g. a parallel swipe
-                    # spent it). Fail clean before any drafts exist.
+                    # spent it). Fail clean before any drafts exist — and release
+                    # the reservations we just took so these people aren't blocked.
                     if idem_swipe_id:
                         from app.services import swipe_idempotency as swipe_idem
                         swipe_idem.fail(db, user_id, idem_swipe_id)
+                    for _c in reserved_contacts:
+                        _release_contact_reservation(db, user_id, _c)
                     return ({
                         "error": "Insufficient credits",
                         "credits_needed": credits_amount,
@@ -1169,6 +1263,12 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
                 if idem_swipe_id:
                     from app.services import swipe_idempotency as swipe_idem
                     swipe_idem.complete(db, user_id, idem_swipe_id, expired_response, status_code=401)
+                # Contacts weren't saved (we bail before the save block), so
+                # release their reservations — the user must reconnect Gmail and
+                # re-swipe, and these people must be reachable when they do.
+                if db and user_id:
+                    for _c in reserved_contacts:
+                        _release_contact_reservation(db, user_id, _c)
                 return (expired_response), 401
             print(f"[Runs] Gmail draft error (prompt-search): {gmail_error}")
 
@@ -1177,6 +1277,9 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
             print(f"[Runs] Prompt-search: skipping Firestore save")
         # Credits were already deducted up front (right after the contact list
         # was finalized) — credits_used / credits_remaining carry down from there.
+        # Reservation keys for contacts that actually got saved. Defined before
+        # the save try so the release-unsaved step below always has it.
+        saved_reservation_keys = set()
         if db and user_id:
             try:
                 print(f"💾 Saving {len(contacts)} contacts to Firestore (prompt-search)...")
@@ -1286,6 +1389,10 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
                     # firebase-admin .add() returns (update_time, DocumentReference)
                     new_contact_id = _add_res[1].id if isinstance(_add_res, (tuple, list)) and len(_add_res) > 1 else None
                     saved_count += 1
+                    # This person is now in Firestore, so the normal exclusion
+                    # dedup covers them — keep their reservation (redundant but
+                    # harmless), and don't release it below.
+                    saved_reservation_keys.add(_swipe_reservation_key(contact))
                     if notify_draft_ready and new_contact_id:
                         draft_ready_items.append({
                             "contactId": new_contact_id,
@@ -1311,6 +1418,16 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
                         traceback.print_exc()
             except Exception as save_error:
                 print(f"⚠️ Error saving contacts (prompt-search): {save_error}")
+                traceback.print_exc()
+
+            # Release reservations for any picked contact that did NOT get saved
+            # (a late dup skipped in the save loop, or a save that failed) so we
+            # never permanently block a person the user never actually received.
+            try:
+                for _c in reserved_contacts:
+                    if _swipe_reservation_key(_c) not in saved_reservation_keys:
+                        _release_contact_reservation(db, user_id, _c)
+            except Exception:
                 traceback.print_exc()
 
         # Metrics: log email_generated per contact with email (outside save block
@@ -1407,12 +1524,12 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
             swipe_idem.complete(db, user_id, idem_swipe_id, response_data)
         return response_data, 200
     except (OfferloopException, InsufficientCreditsError, ExternalAPIError):
-        _refund_and_release_failed_swipe(db, user_id, charged_amount, idem_swipe_id)
+        _refund_and_release_failed_swipe(db, user_id, charged_amount, idem_swipe_id, reserved_contacts)
         raise
     except Exception as e:
         print(f"Prompt-search error: {e}")
         traceback.print_exc()
-        _refund_and_release_failed_swipe(db, user_id, charged_amount, idem_swipe_id)
+        _refund_and_release_failed_swipe(db, user_id, charged_amount, idem_swipe_id, reserved_contacts)
         raise OfferloopException(f"Prompt search failed: {str(e)}", error_code="PROMPT_SEARCH_ERROR")
 
 
