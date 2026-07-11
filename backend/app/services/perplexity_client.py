@@ -76,9 +76,19 @@ def _get_client():
         return None
     if _client is None:
         from openai import OpenAI
+        # Perplexity enrichment is best-effort and runs inside the draft-job
+        # pool (draft_jobs.py, 3 workers). The OpenAI SDK defaults to a 600s
+        # timeout — one slow/hung Perplexity call would pin a pool worker for
+        # 10 minutes, well past the 4-min stale-job watchdog, and a few of
+        # them jam every slot (the field "Couldn't draft" pile-up, 2026-07-10).
+        # Cap per call so a hang raises APITimeoutError and the pipeline's own
+        # error path frees the worker + refunds. 35s is far above Sonar's
+        # normal 3-8s latency, so it only bites genuine hangs.
         _client = OpenAI(
             api_key=PERPLEXITY_API_KEY,
             base_url="https://api.perplexity.ai",
+            timeout=35.0,
+            max_retries=1,
         )
     return _client
 
