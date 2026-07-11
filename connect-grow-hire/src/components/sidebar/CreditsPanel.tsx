@@ -127,34 +127,29 @@ export function CreditsPanel({ remaining, total, onUpgrade, isTrialing = false, 
   const theme = THEMES[tierFor(pct)];
 
   return (
-    <div className={`rounded-xl border p-3.5 ${theme.wrap}`}>
-      <div className="mb-2.5 flex items-center justify-between">
-        <span className={`text-[10px] font-medium uppercase tracking-wider ${theme.label}`}>
-          Credits left
-        </span>
-        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${theme.pill}`}>
-          {Math.round(pct)}%
-        </span>
-      </div>
-
-      <div className="mb-2.5 flex items-baseline gap-1.5">
-        <span className="text-[19px] font-medium tracking-tight text-slate-50">
+    <div className={`rounded-xl border p-3 ${theme.wrap}`}>
+      <div className="mb-1.5 flex items-baseline gap-1.5">
+        <span className="text-[17px] font-medium leading-none tracking-tight text-slate-50">
           {safeRemaining.toLocaleString()}
         </span>
-        <span className="text-[11px] text-slate-500">of {total.toLocaleString()}</span>
+        <span className="text-[11px] text-slate-400">of {total.toLocaleString()} credits</span>
       </div>
-
-      <div className="mb-3.5 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
-        <div
-          className={`h-full rounded-full bg-gradient-to-r transition-all duration-500 ${theme.bar}`}
-          style={{ width: `${Math.max(2, pct)}%` }}
-        />
+      <div className="mb-2.5 flex items-center gap-2">
+        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
+          <div
+            className={`h-full rounded-full bg-gradient-to-r transition-all duration-500 ${theme.bar}`}
+            style={{ width: `${Math.max(2, pct)}%` }}
+          />
+        </div>
+        <span className={`rounded-full px-1.5 py-0.5 text-[9.5px] font-medium leading-none ${theme.pill}`}>
+          {Math.round(pct)}%
+        </span>
       </div>
 
       <button
         type="button"
         onClick={onUpgrade}
-        className={`flex w-full items-center justify-center gap-1.5 rounded-[10px] bg-gradient-to-br py-2.5 text-[13px] font-medium text-white transition-transform duration-150 hover:-translate-y-px active:translate-y-0 ${theme.btn}`}
+        className={`flex w-full items-center justify-center gap-1.5 rounded-[10px] bg-gradient-to-br py-2 text-[12.5px] font-medium text-white transition-transform duration-150 hover:-translate-y-px active:translate-y-0 ${theme.btn}`}
       >
         <Zap className={`h-3.5 w-3.5 ${theme.bolt}`} />
         {theme.cta}
