@@ -18,6 +18,11 @@ import { IS_DEV_PREVIEW, DEV_MOCK_USER } from "@/lib/devPreview";
 import { getUniversityShortName } from "@/lib/universityUtils";
 import { PersonalizationStrip } from "@/components/personalization/PersonalizationStrip";
 import { TrialBanner } from "@/components/TrialBanner";
+import { FindFilterRail } from "@/components/find/FindFilterRail";
+import {
+  FindTab, PeopleFilters, CompanyFilters, EMPTY_PEOPLE_FILTERS, EMPTY_COMPANY_FILTERS,
+  peopleFiltersActive, companyFiltersActive,
+} from "@/types/findFilters";
 
 const ContactSearchPage = React.lazy(() => import("./ContactSearchPage"));
 const FirmSearchPage = React.lazy(() => import("./FirmSearchPage"));
@@ -27,8 +32,6 @@ const TABS = [
   { id: "companies", label: "Companies", mobileLabel: "Companies", icon: Building2 },
   { id: "hiring-managers", label: "Hiring Managers", mobileLabel: "Hiring", icon: UserCheck },
 ] as const;
-
-type FindTab = (typeof TABS)[number]["id"];
 
 function resolveTab(raw: string | null): FindTab {
   if (raw === "people") return "people";
@@ -246,6 +249,25 @@ const FindPage: React.FC = () => {
   const [schoolLoaded, setSchoolLoaded] = useState(false);
   const [forceRefresh, setForceRefresh] = useState(0);
 
+  // Filter-rail state. Nonce bumps ONLY on user edits (not on parse-populate),
+  // signalling the embedded search page to re-run with overrides. An edit that
+  // clears every dimension resets instead of re-searching (backend would 400).
+  const [peopleFilters, setPeopleFilters] = useState<PeopleFilters>(EMPTY_PEOPLE_FILTERS);
+  const [peopleFiltersNonce, setPeopleFiltersNonce] = useState(0);
+  const [companyFilters, setCompanyFilters] = useState<CompanyFilters>(EMPTY_COMPANY_FILTERS);
+  const [companyFiltersNonce, setCompanyFiltersNonce] = useState(0);
+
+  const handlePeopleFiltersChange = (f: PeopleFilters) => {
+    setPeopleFilters(f);
+    if (peopleFiltersActive(f)) setPeopleFiltersNonce((n) => n + 1);
+    else setPeopleFiltersNonce(0); // cleared → fresh state, no re-search
+  };
+  const handleCompanyFiltersChange = (f: CompanyFilters) => {
+    setCompanyFilters(f);
+    if (companyFiltersActive(f)) setCompanyFiltersNonce((n) => n + 1);
+    else setCompanyFiltersNonce(0);
+  };
+
   // Load user university + first name
   useEffect(() => {
     if (!user?.uid) return;
@@ -316,6 +338,26 @@ const FindPage: React.FC = () => {
     flashTab();
   };
 
+  // Query handed off from the Getting Started launcher (/find?tab=..&q=..).
+  // Captured once, then stripped from the URL so it does not re-fire. Because
+  // both search pages stay mounted behind the toggle, we pass it only to the
+  // tab it targets so the hidden page never consumes it.
+  const [launchQuery, setLaunchQuery] = useState<{ tab: FindTab; q: string } | null>(null);
+  useEffect(() => {
+    const q = searchParams.get("q");
+    if (q && q.trim()) {
+      setLaunchQuery({ tab: resolveTab(searchParams.get("tab")), q });
+      const next = new URLSearchParams(searchParams);
+      next.delete("q");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
+  const peopleInitialQuery =
+    launchQuery && launchQuery.tab === "people" ? launchQuery.q : undefined;
+  const companiesInitialQuery =
+    launchQuery && launchQuery.tab === "companies" ? launchQuery.q : undefined;
+
   const isCompaniesTab = activeTab === "companies";
 
   // No-school empty state
@@ -349,14 +391,18 @@ const FindPage: React.FC = () => {
 
           {/* Scrollable page body */}
           <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", position: "relative" }}>
-            {/* Mountains as full-page backdrop. Same atmospheric treatment as
-                the Loops surface — anchored bottom-center, soft top fade so
-                the page bg stays readable above the fold. */}
+            {/* Mountains as a top-anchored backdrop behind the hero/search only.
+                Sits as an upper band that fades in at the top and fades out before
+                the results area, so a successful search renders on clean page bg
+                rather than over the mountain ridge. */}
             <div
               aria-hidden
               style={{
                 position: "absolute",
-                inset: 0,
+                top: 0,
+                left: 0,
+                right: 0,
+                height: "88vh",
                 pointerEvents: "none",
                 zIndex: 0,
                 backgroundImage: `url(${MountainsLake})`,
@@ -365,9 +411,9 @@ const FindPage: React.FC = () => {
                 backgroundRepeat: "no-repeat",
                 opacity: 0.5,
                 maskImage:
-                  "linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 18%, #000 55%, #000 100%)",
+                  "linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 18%, #000 50%, rgba(0,0,0,0.45) 82%, transparent 100%)",
                 WebkitMaskImage:
-                  "linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 18%, #000 55%, #000 100%)",
+                  "linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 18%, #000 50%, rgba(0,0,0,0.45) 82%, transparent 100%)",
               }}
             />
             {/* Page title — wrapped in a z-index:1 layer so it sits above
@@ -412,63 +458,47 @@ const FindPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Tab bar — segmented control */}
-            <div style={{ flexShrink: 0, marginTop: 8, marginBottom: 18, position: "relative", zIndex: 1 }}>
-              <div style={{ maxWidth: 1000, margin: "0 auto", padding: "0 40px", display: "flex", justifyContent: "center" }}>
-                <div style={{ display: "inline-flex", background: "#fff", borderRadius: 12, border: "1px solid var(--line, #E5E5E5)", overflow: "hidden", boxShadow: "0 1px 3px rgba(15,18,25,0.06)" }}>
-                  {TABS.map((tab, i) => {
-                    const isActive = activeTab === tab.id;
-                    return (
-                      <button
-                        key={tab.id}
-                        onClick={() => setActiveTab(tab.id)}
-                        className="max-sm:!px-5"
-                        style={{
-                          padding: "12px 36px",
-                          fontSize: 10,
-                          fontWeight: 700,
-                          letterSpacing: "0.1em",
-                          textTransform: "uppercase",
-                          color: isActive ? "#fff" : "var(--ink, #111318)",
-                          background: isActive
-                            ? (tabFlashing ? "var(--brand-blue, #3B82F6)" : "var(--accent, #4A60A8)")
-                            : "transparent",
-                          border: "none",
-                          borderLeft: !isActive && i !== 0 ? "1px solid var(--line, #E5E5E5)" : "none",
-                          cursor: "pointer",
-                          fontFamily: "inherit",
-                          transition: "background .35s ease, color .15s",
-                        }}
-                      >
-                        <span className="hidden sm:inline">{tab.label}</span>
-                        <span className="sm:hidden">{tab.mobileLabel}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            {/* Tab body */}
+            {/* Body — left vertical toggle + tab content */}
             <div style={{ flex: 1, overflowY: "auto", borderTop: "none", position: "relative", zIndex: 1 }}>
-              <div style={{ maxWidth: 1000, margin: "0 auto", padding: "0 40px 44px" }}>
-              <Suspense
-                fallback={
-                  <div className="flex items-center justify-center py-20">
-                    <LoadingSkeleton />
-                  </div>
-                }
+              <div
+                className="flex flex-col sm:flex-row"
+                style={{ maxWidth: 1120, margin: "0 auto", padding: "0 40px 44px", gap: 28 }}
               >
-                <div style={{ display: activeTab === "people" ? "block" : "none" }}>
-                  <ContactSearchPage embedded hideSubTabs parentEmailTemplate={activeEmailTemplate} isDevPreview={IS_DEV_PREVIEW} />
+                {/* Left rail — tab toggle + filter panel (FindFilterRail) */}
+                <div className="flex-shrink-0 sm:w-[236px]">
+                  <FindFilterRail
+                    activeTab={activeTab}
+                    onTabChange={setActiveTab}
+                    tabFlashing={tabFlashing}
+                    peopleFilters={peopleFilters}
+                    onPeopleFiltersChange={handlePeopleFiltersChange}
+                    companyFilters={companyFilters}
+                    onCompanyFiltersChange={handleCompanyFiltersChange}
+                  />
                 </div>
-                <div data-tour="tour-find-companies" style={{ display: activeTab === "companies" ? "block" : "none" }}>
-                  <FirmSearchPage embedded isDevPreview={IS_DEV_PREVIEW} />
+
+                {/* Tab content */}
+                <div className="min-w-0 flex-1">
+                  <Suspense
+                    fallback={
+                      <div className="flex items-center justify-center py-20">
+                        <LoadingSkeleton />
+                      </div>
+                    }
+                  >
+                    <div style={{ display: activeTab === "people" ? "block" : "none" }}>
+                      <ContactSearchPage embedded hideSubTabs parentEmailTemplate={activeEmailTemplate} isDevPreview={IS_DEV_PREVIEW} initialQuery={peopleInitialQuery}
+                        railFilters={peopleFilters} railFiltersNonce={peopleFiltersNonce} onParsedQuery={setPeopleFilters} />
+                    </div>
+                    <div data-tour="tour-find-companies" style={{ display: activeTab === "companies" ? "block" : "none" }}>
+                      <FirmSearchPage embedded isDevPreview={IS_DEV_PREVIEW} initialQuery={companiesInitialQuery}
+                        railFilters={companyFilters} railFiltersNonce={companyFiltersNonce} onParsedFilters={setCompanyFilters} />
+                    </div>
+                    <div data-tour="tour-find-hiring-managers" style={{ display: activeTab === "hiring-managers" ? "block" : "none" }}>
+                      <RecruiterSpreadsheetPage embedded isDevPreview={IS_DEV_PREVIEW} />
+                    </div>
+                  </Suspense>
                 </div>
-                <div data-tour="tour-find-hiring-managers" style={{ display: activeTab === "hiring-managers" ? "block" : "none" }}>
-                  <RecruiterSpreadsheetPage embedded isDevPreview={IS_DEV_PREVIEW} />
-                </div>
-              </Suspense>
               </div>
             </div>
           </div>

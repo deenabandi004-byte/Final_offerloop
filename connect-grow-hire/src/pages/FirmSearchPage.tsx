@@ -10,7 +10,7 @@ import { useScout } from "@/contexts/ScoutContext";
 import { useTour } from "@/contexts/TourContext";
 import {
   History, Loader2, AlertCircle, Download, Trash2, Building2, Search,
-  CheckCircle, X, ChevronRight, ArrowRight, ArrowUp
+  CheckCircle, X, ChevronRight, ArrowUp
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VideoDemo } from "@/components/VideoDemo";
@@ -34,9 +34,13 @@ import { StickyCTA } from "@/components/StickyCTA";
 
 import { DEV_MOCK_USER } from "@/lib/devPreview";
 import { getUniversityShortName } from "@/lib/universityUtils";
-import { generateFirmDiscoveryPrompts, getGenericFirmPrompts, isContextEmpty, type UserContext, type PromptChip } from "@/utils/suggestionChips";
+import { isContextEmpty, type UserContext } from "@/utils/suggestionChips";
 import { SearchPromptBox } from "@/components/find/SearchPromptBox";
+import { PromptTemplates } from "@/components/find/PromptTemplates";
+import { COMPANY_TEMPLATES } from "@/data/searchTemplates";
+import { readScoutPrefillEnvelope, SCOUT_PREFILL_EVENT, SCOUT_SEARCH_COMPLETED_EVENT } from "@/lib/scoutBridge";
 import { firebaseApi } from "@/services/firebaseApi";
+import { CompanyFilters, companyFiltersActive } from "@/types/findFilters";
 
 // Session storage key for Scout auto-populate
 const SCOUT_AUTO_POPULATE_KEY = 'scout_auto_populate';
@@ -54,12 +58,17 @@ function getFirmPlaceholders(schoolShort: string | null): string[] {
 // Find Companies batch-size caps per tier (slider max) and defaults (where the
 // slider initially sits). Free's default (5) sits below its max (10).
 type CompanyTier = "free" | "pro" | "elite";
-const COMPANY_BATCH_CAPS: Record<CompanyTier, number> = { free: 10, pro: 25, elite: 50 };
+const COMPANY_BATCH_CAPS: Record<CompanyTier, number> = { free: 10, pro: 20, elite: 30 };
 const COMPANY_BATCH_DEFAULTS: Record<CompanyTier, number> = { free: 5, pro: 10, elite: 20 };
 const normalizeCompanyTier = (tier: unknown): CompanyTier =>
   tier === "pro" || tier === "elite" ? tier : "free";
 
-const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevPreview?: boolean }> = ({ embedded = false, initialTab, isDevPreview = false }) => {
+const FirmSearchPage: React.FC<{
+  embedded?: boolean; initialTab?: string; isDevPreview?: boolean; initialQuery?: string;
+  railFilters?: CompanyFilters; railFiltersNonce?: number;
+  onParsedFilters?: (f: CompanyFilters) => void;
+}> = ({ embedded = false, initialTab, isDevPreview = false, initialQuery,
+        railFilters, railFiltersNonce = 0, onParsedFilters }) => {
   const navigate = useNavigate();
   const routerLocation = useLocation();
   const { user: authUser, checkCredits } = useFirebaseAuth();
@@ -154,7 +163,10 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
         setSearchProgress(null);
         setResults([COMPANIES_DEMO_FIRM]);
         setHasSearched(true);
-        setSearchComplete(true);
+        // Deliberately NOT setSearchComplete(true): that opens the full-screen
+        // success modal, which stacks a second dialog under the tour tooltip
+        // and its View Companies button navigates away mid-tour. The seeded
+        // card in the results list is the whole payoff here.
       }, typingDoneAt + SEARCHING_HOLD_MS),
     );
 
@@ -233,11 +245,11 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
   const archiveLoadedRef = useRef(false);
 
   // Prompt cards state (prompt-first discovery)
-  const [promptChips, setPromptChips] = useState<PromptChip[]>([]);
   const [promptsPersonalized, setPromptsPersonalized] = useState(false);
   const [userSchoolShortForPrompts, setUserSchoolShortForPrompts] = useState<string | null>(null);
 
-  // Build prompt cards from user profile data
+  // Determine whether the user's profile is filled in enough to personalize
+  // the "Recommended Searches" nudge copy.
   useEffect(() => {
     if (!user?.uid || archiveLoadedRef.current) return;
     archiveLoadedRef.current = true;
@@ -263,17 +275,9 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
           personalContext: onboarding.personalContext || '',
         };
 
-        // Build prompt cards
-        if (!isContextEmpty(ctx)) {
-          setPromptChips(generateFirmDiscoveryPrompts(ctx));
-          setPromptsPersonalized(true);
-        } else {
-          setPromptChips(getGenericFirmPrompts());
-          setPromptsPersonalized(false);
-        }
+        setPromptsPersonalized(!isContextEmpty(ctx));
       } catch (err) {
-        console.error('[FirmSearch] onboarding fetch failed, using generic prompts:', err);
-        setPromptChips(getGenericFirmPrompts());
+        console.error('[FirmSearch] onboarding fetch failed:', err);
         setPromptsPersonalized(false);
       }
     };
@@ -460,18 +464,49 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
     loadAllSavedFirms();
   }, [activeTab, user, loadAllSavedFirms]);
 
+  // Overrides apply only after a rail edit (nonce > 0) AND only while the
+  // query text is unchanged — typing a new query hands control back to the
+  // parser and the rail repopulates from its output.
+  const lastSearchedQueryRef = useRef<string>("");
+  const lastRailNonceRef = useRef(0);
+
+  useEffect(() => {
+    if (railFiltersNonce === 0 || railFiltersNonce === lastRailNonceRef.current) return;
+    if (isSearching) return; // leave the nonce pending; this effect re-fires when isSearching flips false
+    lastRailNonceRef.current = railFiltersNonce;
+    handleSearch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [railFiltersNonce, isSearching]);
+
   // Handle search submission
   const handleSearch = async (searchQuery?: string) => {
     // Hard short-circuit while the tour's demo is active on this surface.
     // Catches button click, Enter key, and chip-driven prefills in one
     // guard. No API call fires.
     if (companiesDemoActive) return;
-    const q = searchQuery || query;
 
-    if (!q.trim()) {
+    // If the user typed nothing but the filter rail has active filters, synthesize
+    // a query from them so the search (and the validation below) still has text
+    // to work with — this is the rail-only search path (nonce-triggered re-search
+    // or a first search driven entirely by rail edits).
+    const railActive = railFilters && companyFiltersActive(railFilters);
+    let effectiveQuery = (searchQuery || query).trim();
+    if (!effectiveQuery && railActive) {
+      const f = railFilters!;
+      const sizeWord = f.size === "none" ? "" : `${f.size === "mid" ? "mid-sized" : f.size} `;
+      effectiveQuery = `${sizeWord}${f.industry ?? "companies"}${f.location ? ` in ${f.location}` : ""}${f.keywords.length ? ` focused on ${f.keywords.join(", ")}` : ""}`;
+    }
+
+    if (!effectiveQuery) {
       setError('Please enter a search query');
       return;
     }
+
+    // Attach the rail's filters as explicit overrides only when this run was
+    // triggered by a rail edit (or a re-search of the exact same effective
+    // query) — a freshly typed/changed query hands control back to the parser.
+    const sendOverrides = !!railActive && railFiltersNonce > 0 && effectiveQuery === lastSearchedQueryRef.current;
+    lastSearchedQueryRef.current = effectiveQuery;
 
     if (!user) {
       setError('Please sign in to search for firms');
@@ -500,7 +535,7 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
 
     try {
       // Start async search — returns immediately with searchId
-      const { searchId } = await apiService.searchFirmsAsync(q, batchSize);
+      const { searchId } = await apiService.searchFirmsAsync(effectiveQuery, batchSize, sendOverrides ? railFilters : undefined);
 
       // Open SSE stream for real-time progress
       eventSource = await apiService.createFirmSearchStream(searchId);
@@ -526,9 +561,30 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
 
             if (result.success && result.firms?.length > 0) {
               setParsedFilters(result.parsedFilters);
+              if (result.parsedFilters) {
+                onParsedFilters?.({
+                  industry: result.parsedFilters.industry ?? null,
+                  location: result.parsedFilters.location ?? null,
+                  size: (["small", "mid", "large"].includes(result.parsedFilters.size) ? result.parsedFilters.size : "none") as CompanyFilters["size"],
+                  keywords: result.parsedFilters.keywords ?? [],
+                });
+              }
               setResults(result.firms);
               setSearchComplete(true);
               setFirmSuggestions(result.suggestions || []);
+              // Tell Scout's panel the search it kicked off finished, with
+              // the top firm names so the chat cites specifics. No-op when
+              // the panel is closed or the search was user-initiated.
+              try {
+                const names = (result.firms || []).slice(0, 4)
+                  .map((f: any) => f.name || f.companyName || f.company || '')
+                  .filter(Boolean);
+                window.dispatchEvent(
+                  new CustomEvent(SCOUT_SEARCH_COMPLETED_EVENT, {
+                    detail: { count: result.firms.length, route: '/find?tab=companies', names },
+                  }),
+                );
+              } catch { /* non-fatal */ }
               toast({
                 title: "Search Complete!",
                 description: `Found ${result.firms.length} firm${result.firms.length !== 1 ? 's' : ''}. Used ${result.creditsCharged || 0} credits.`,
@@ -540,7 +596,7 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
               setError('Hmm, nothing matched that exactly. Try broadening to just the city or industry — or ask Scout.');
               openPanelWithSearchHelp({
                 searchType: 'firm',
-                failedSearchParams: { industry: q, location: '', size: '' },
+                failedSearchParams: { industry: effectiveQuery, location: '', size: '' },
                 errorType: 'no_results',
               });
             } else {
@@ -849,6 +905,56 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
     }
   };
 
+  // Prefill + auto-run from the Getting Started launcher hand-off (initialQuery).
+  // Runs exactly once per query since this page stays mounted behind the toggle.
+  const consumedInitialQuery = useRef<string | null>(null);
+  useEffect(() => {
+    const q = (initialQuery || '').trim();
+    if (q && consumedInitialQuery.current !== initialQuery) {
+      consumedInitialQuery.current = initialQuery ?? null;
+      setQuery(q);
+      handleSearch(q);
+    }
+    // handleSearch is stable enough for this one-shot hand-off; deps kept minimal
+    // to avoid re-firing on unrelated renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuery]);
+
+  // Scout chat prefill bridge (scout_prefill in sessionStorage): consume on
+  // mount and on the in-place event. Gated to the Companies tab because all
+  // three Find tabs stay mounted and the envelope is consume-on-read.
+  useEffect(() => {
+    const applyFromBridge = () => {
+      // Fixed page identity: this embedded page IS the Find Companies tab.
+      // The bridge's identity matching keeps people-search prefill out.
+      const env = readScoutPrefillEnvelope('/find?tab=companies');
+      if (!env) return;
+      const p = env.prefill || {};
+      let newQuery = (p.prompt || '').trim();
+      if (!newQuery) {
+        if (p.industry) newQuery += p.industry;
+        if (p.location) newQuery += (newQuery ? ' in ' : '') + p.location;
+        if (p.size) newQuery += (newQuery ? ', ' : '') + p.size;
+      }
+      if (!newQuery) return;
+      setQuery(newQuery);
+      if (env.auto_submit) {
+        handleSearch(newQuery);
+      } else {
+        toast({
+          title: "Search pre-filled",
+          description: "Scout has filled in your search. Click Search to find firms.",
+        });
+      }
+    };
+    applyFromBridge();
+    window.addEventListener(SCOUT_PREFILL_EVENT, applyFromBridge);
+    return () => window.removeEventListener(SCOUT_PREFILL_EVENT, applyFromBridge);
+    // handleSearch identity churns per render; mount + event-driven re-reads
+    // are the correct cadence here, mirroring the initialQuery hand-off above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routerLocation.pathname, routerLocation.search]);
+
   // CSV Export function
   const handleExportCsv = () => {
     if (effectiveUser.tier === 'free') {
@@ -978,87 +1084,14 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
                             </div>
                           )}
 
-                          {/* Recommendation cards — reuses Find People card tokens, adapted for a company search query */}
-                          <div style={{
-                            display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 6,
-                            scrollbarWidth: 'none',
-                          }}>
-                            {promptChips.map((chip, idx) => (
-                              <button
-                                key={chip.id}
-                                type="button"
-                                disabled={isSearching}
-                                onClick={() => {
-                                  setQuery(chip.prompt);
-                                  handleSearch(chip.prompt);
-                                }}
-                                className="suggestion-row-enter"
-                                style={{
-                                  flex: '0 0 280px', width: 280,
-                                  borderRadius: 16, overflow: 'hidden',
-                                  background: 'var(--elev, #FFFFFF)',
-                                  border: '1px solid var(--line, #E8E8E8)',
-                                  cursor: 'pointer', textAlign: 'left',
-                                  transition: 'all .2s ease',
-                                  fontFamily: 'inherit', padding: 0,
-                                  boxShadow: 'inset 0 -1px 0 var(--line, #E8E8E8), 0 1px 2px rgba(26,29,35,0.03)',
-                                  animationDelay: `${idx * 60}ms`,
-                                }}
-                                onMouseEnter={(e) => {
-                                  const el = e.currentTarget as HTMLButtonElement;
-                                  el.style.borderColor = 'var(--accent, #4A60A8)';
-                                  el.style.boxShadow = 'inset 0 -1px 0 var(--line, #E8E8E8), 0 2px 6px rgba(26,29,35,0.06)';
-                                  el.style.transform = 'translateY(-1px)';
-                                }}
-                                onMouseLeave={(e) => {
-                                  const el = e.currentTarget as HTMLButtonElement;
-                                  el.style.borderColor = 'var(--line, #E8E8E8)';
-                                  el.style.boxShadow = 'inset 0 -1px 0 var(--line, #E8E8E8), 0 1px 2px rgba(26,29,35,0.03)';
-                                  el.style.transform = 'translateY(0)';
-                                }}
-                              >
-                                <div style={{ padding: '12px 14px 14px' }}>
-                                  {/* Leading companies-icon tile — colored accent for a bit of style */}
-                                  <div style={{ marginBottom: 10 }}>
-                                    <div style={{
-                                      width: 32, height: 32, borderRadius: 8,
-                                      background: 'rgba(74, 96, 168, 0.10)',
-                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    }}>
-                                      <Building2 style={{ width: 16, height: 16, color: 'var(--accent, #4A60A8)' }} />
-                                    </div>
-                                  </div>
-
-                                  {/* Company search query — card title, wraps to 2 lines */}
-                                  <div style={{
-                                    fontSize: 13.5, fontWeight: 500, color: 'var(--ink, #111318)',
-                                    lineHeight: 1.4,
-                                    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-                                    overflow: 'hidden', minHeight: 38, marginBottom: 6,
-                                  }}>
-                                    {chip.prompt}
-                                  </div>
-
-                                  {/* Descriptor — mirrors the People card's reason line */}
-                                  <div style={{
-                                    fontSize: 11, color: 'var(--ink-2, #4A4F5B)', lineHeight: 1.4,
-                                    marginBottom: 10,
-                                  }}>
-                                    {chip.hint || 'Suggested search'}
-                                  </div>
-
-                                  {/* CTA — same indigo as "Find contacts →" */}
-                                  <div style={{
-                                    fontSize: 11, color: 'var(--accent, #4A60A8)', fontWeight: 500,
-                                    display: 'flex', alignItems: 'center', gap: 4,
-                                  }}>
-                                    Run search
-                                    <ArrowRight style={{ width: 11, height: 11, opacity: 0.7 }} />
-                                  </div>
-                                </div>
-                              </button>
-                            ))}
-                          </div>
+                          <PromptTemplates
+                            categories={[{ id: "companies", label: "Companies", templates: COMPANY_TEMPLATES }]}
+                            disabled={isSearching}
+                            onSubmit={(prompt) => {
+                              setQuery(prompt);
+                              handleSearch(prompt);
+                            }}
+                          />
 
                           {/* Recent searches — compact toggle */}
                           {searchHistory.length > 0 && (
@@ -1476,7 +1509,7 @@ const FirmSearchPage: React.FC<{ embedded?: boolean; initialTab?: string; isDevP
               <div className="w-16 h-16 bg-green-100 flex items-center justify-center mx-auto mb-4" style={{ borderRadius: 3 }}>
                 <CheckCircle className="w-10 h-10 text-green-600" />
               </div>
-              <h3 className="text-xl font-semibold mb-1" style={{ color: '#0F172A', fontFamily: "'Lora', Georgia, serif" }}>Found {results.length} companies!</h3>
+              <h3 className="text-xl font-semibold mb-1" style={{ color: '#0F172A', fontFamily: "'Lora', Georgia, serif" }}>Found {results.length} {results.length === 1 ? 'company' : 'companies'}!</h3>
               <p className="mb-2" style={{ color: '#6B7280' }}>Matching your criteria</p>
               <p className="text-sm font-medium mb-6" style={{ color: '#3B82F6' }}>Saved to your Company Tracker</p>
 
