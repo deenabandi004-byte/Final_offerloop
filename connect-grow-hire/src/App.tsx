@@ -15,6 +15,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ScoutSidePanel } from "./components/ScoutSidePanel";
 import FloatingAskScoutButton from "./components/AskScoutButton";
 import { ReplyNotifier } from "./components/ReplyNotifier";
+import { LoginNotification } from "./components/LoginNotification";
 import { LoadingContainer } from "./components/ui/LoadingBar";
 import { IS_DEV_PREVIEW } from "./lib/devPreview";
 import { useAgentGlobalNotifier } from "./hooks/useAgent";
@@ -630,6 +631,7 @@ const App: React.FC = () => {
                     <PageviewTracker />
                     <AgentNotifierMount />
                     <ReplyNotifier />
+                    <LoginNotification />
                     <PendingShareModal />
                     <AppRoutes />
                     <NotOnPromo>
