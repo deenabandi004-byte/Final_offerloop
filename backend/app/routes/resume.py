@@ -426,3 +426,137 @@ def delete_resume():
         traceback.print_exc()
         return jsonify({'error': 'Failed to delete resume'}), 500
 
+
+
+def _upload_tailored_pdf(user_id: str, job_hash: str, pdf_bytes: bytes) -> str | None:
+    """Upload a tailored resume PDF and return the public URL."""
+    try:
+        from firebase_admin import storage
+        bucket = storage.bucket()
+        blob = bucket.blob(f'resumes/{user_id}/tailored/{job_hash}.pdf')
+        blob.upload_from_string(pdf_bytes, content_type='application/pdf')
+        blob.make_public()
+        return blob.public_url
+    except Exception as exc:
+        print(f"[Resume] Tailored PDF upload failed: {exc}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def _job_hash(job_title: str, company: str, description: str) -> str:
+    """Deterministic short hash so re-tailoring the same job overwrites."""
+    import hashlib
+    key = f"{(job_title or '').strip().lower()}|{(company or '').strip().lower()}|{(description or '').strip()[:500]}"
+    return hashlib.sha1(key.encode('utf-8')).hexdigest()[:12]
+
+
+@resume_bp.route('/resume/tailor', methods=['POST'])
+@require_firebase_auth
+def tailor_resume_route():
+    """Tailor the user's resume to a specific job description via Claude.
+
+    Body: { jobUrl?, jobDescription?, jobTitle?, company? }
+
+    Flow: read users/{uid}.resumeParsed → normalize to CanonicalResume →
+    resolve JD (URL via Firecrawl, or pasted text) → Claude Opus 4.7 tailors
+    bullets/skills/projects → render canonical PDF → upload to
+    resumes/{uid}/tailored/{jobHash}.pdf → persist to
+    users/{uid}/tailoredResumes/{jobHash} → return { pdfUrl, ... }.
+    """
+    from datetime import datetime
+
+    from app.services.resume_jd_resolver import JDResolutionError, resolve_jd
+    from app.services.resume_renderer import (
+        ResumeRenderError,
+        from_resume_parsed,
+        render_one_page,
+    )
+    from app.services.resume_tailor import ResumeTailorError, tailor_resume
+
+    try:
+        user_id = request.firebase_user.get('uid')
+        if not user_id:
+            return jsonify({'error': 'User ID not found'}), 401
+
+        db = get_db()
+        if not db:
+            return jsonify({'error': 'Database not available'}), 500
+
+        data = request.get_json(force=True, silent=True) or {}
+        job_url = (data.get('jobUrl') or '').strip()
+        job_description = (data.get('jobDescription') or '').strip()
+        job_title = (data.get('jobTitle') or '').strip()
+        company = (data.get('company') or '').strip()
+
+        if not job_url and not job_description:
+            return jsonify({'error': 'Provide a jobUrl or jobDescription.'}), 400
+
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+        if not user_doc.exists:
+            return jsonify({'error': 'User not found'}), 404
+
+        user_data = user_doc.to_dict() or {}
+        resume_parsed = user_data.get('resumeParsed')
+        if not resume_parsed or not isinstance(resume_parsed, dict):
+            return jsonify({
+                'error': 'No parsed resume found. Upload your resume in Account Settings first.'
+            }), 400
+
+        try:
+            jd = resolve_jd(
+                job_url=job_url or None,
+                job_description=job_description or None,
+                job_title=job_title or None,
+                company=company or None,
+            )
+        except JDResolutionError as exc:
+            return jsonify({'error': str(exc)}), 400
+
+        canonical = from_resume_parsed(resume_parsed)
+
+        try:
+            tailored = tailor_resume(canonical, jd)
+        except ResumeTailorError as exc:
+            print(f"[Resume/tailor] Claude call failed: {exc}")
+            return jsonify({'error': f'Tailor failed: {exc}'}), 500
+
+        try:
+            result = render_one_page(tailored)
+        except ResumeRenderError as exc:
+            print(f"[Resume/tailor] Render failed: {exc}")
+            return jsonify({'error': f'Render failed: {exc}'}), 500
+
+        job_hash = _job_hash(jd.title, jd.company, jd.description)
+        pdf_url = _upload_tailored_pdf(user_id, job_hash, result.pdf_bytes)
+        if not pdf_url:
+            return jsonify({'error': 'Failed to upload tailored PDF to storage'}), 500
+
+        updated_at = datetime.now().isoformat()
+        tailored_ref = user_ref.collection('tailoredResumes').document(job_hash)
+        tailored_ref.set({
+            'jobTitle': jd.title or None,
+            'company': jd.company or None,
+            'jobUrl': job_url or None,
+            'pdfUrl': pdf_url,
+            'pageCount': result.page_count,
+            'reductionsApplied': result.reductions_applied,
+            'updatedAt': updated_at,
+            'model': 'claude-opus-4-7',
+        }, merge=True)
+
+        return jsonify({
+            'pdfUrl': pdf_url,
+            'jobTitle': jd.title or None,
+            'company': jd.company or None,
+            'tailoredResumeId': job_hash,
+            'pageCount': result.page_count,
+            'reductionsApplied': result.reductions_applied,
+            'updatedAt': updated_at,
+        }), 200
+
+    except Exception as exc:
+        print(f"[Resume/tailor] error: {exc}")
+        import traceback
+        traceback.print_exc()

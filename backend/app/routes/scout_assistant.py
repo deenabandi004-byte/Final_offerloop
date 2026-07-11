@@ -37,13 +37,16 @@ _user_context_cache = TTLCache(maxsize=500, ttl=60)
 
 
 def _sse_stream_from_queue(q, heartbeat_interval_s: float = 15.0,
-                            real_timeout_s: float = 120.0):
+                            real_timeout_s: float = 180.0):
     """Yield SSE frames from a thread-safe queue with keepalive heartbeats.
 
     Browsers and proxies drop SSE connections after ~60s of idle. We poll the
     queue every heartbeat_interval_s; on timeout we emit `event: heartbeat`
     instead of bailing out. We only declare a true `Stream timeout` after
     real_timeout_s of total silence (the LLM is actually stuck, not just slow).
+    Raised from 120s to 180s to survive an occasional 4-step Scout chain plus
+    slow helpers; the producer-side heartbeats in _call_scout_tools cover the
+    common case, this is the safety net.
 
     Stops when the producer puts `None` on the queue, when the client
     disconnects (GeneratorExit), or on real timeout.

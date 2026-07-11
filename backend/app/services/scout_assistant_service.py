@@ -1450,13 +1450,19 @@ class ScoutAssistantService:
         """
         client = self._get_openai()
         convo: List[Dict[str, Any]] = list(messages)
-        MAX_STEPS = 4  # at most a few helper calls, then a forced terminal tool
+        MAX_STEPS = 5  # find_jobs + 3 auto_apply + terminal fits at 5; the
+                       # final step is terminal-only so the loop always ends
         usage = {"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0}
         helper_calls: List[Dict[str, Any]] = []
         helper_results: List[Dict[str, Any]] = []
 
         for step in range(MAX_STEPS):
             final_step = step == MAX_STEPS - 1
+            # Producer-side keepalive: a chain of legitimate 25s OpenAI calls
+            # can otherwise blow the 180s SSE ceiling with no items on the
+            # queue. Any real emit resets _sse_stream_from_queue's silence
+            # counter, so this keeps the connection alive across long chains.
+            self._emit(event_emitter, "heartbeat", {"stage": f"step_{step}_start"})
             response = await asyncio.wait_for(
                 client.chat.completions.create(
                     model=self.DEFAULT_MODEL,
@@ -1469,6 +1475,9 @@ class ScoutAssistantService:
                 ),
                 timeout=25.0,
             )
+            # Second keepalive after the LLM returns but before the helper
+            # runs — a slow helper is where the next silence window opens.
+            self._emit(event_emitter, "heartbeat", {"stage": f"step_{step}_llm_done"})
             u = getattr(response, "usage", None)
             self._log_token_usage(f"handle_chat[step={step}]", u)
             if u is not None:
