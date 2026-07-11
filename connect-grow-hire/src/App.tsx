@@ -52,6 +52,9 @@ const AppFinishSignIn = React.lazy(() => import("./pages/AppFinishSignIn"));
 const AccountSettings = React.lazy(() => import("./pages/AccountSettings"));
 const ReferPage = React.lazy(() => import("./pages/ReferPage"));
 const ApplicationsPage = React.lazy(() => import("./pages/ApplicationsPage"));
+const IntegrationsPage = React.lazy(() => import("./pages/IntegrationsPage"));
+const McpServerPage = React.lazy(() => import("./pages/McpServerPage"));
+const McpChatGptSetupPage = React.lazy(() => import("./pages/McpChatGptSetupPage"));
 const Pricing = React.lazy(() => import("./pages/Pricing"));
 const DocumentationPage = React.lazy(() => import("./pages/DocumentationPage"));
 const JobBoardPage = React.lazy(() => import("./pages/JobBoardPage"));
@@ -369,6 +372,9 @@ const AppRoutes: React.FC = () => {
       <Route path="/account-settings" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AccountSettings /></Suspense></ProtectedRoute>} />
       <Route path="/refer" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ReferPage /></Suspense></ProtectedRoute>} />
       <Route path="/applications" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ApplicationsPage /></Suspense></ProtectedRoute>} />
+      <Route path="/integrations" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><IntegrationsPage /></Suspense></ProtectedRoute>} />
+      <Route path="/mcp-server" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><McpServerPage /></Suspense></ProtectedRoute>} />
+      <Route path="/mcp-server/chatgpt" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><McpChatGptSetupPage /></Suspense></ProtectedRoute>} />
       <Route path="/pricing" element={<Suspense fallback={<PageLoader />}><Pricing /></Suspense>} />
       <Route path="/documentation" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><DocumentationPage /></Suspense></ProtectedRoute>} />
       <Route path="/payment-success" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><PaymentSuccess /></Suspense></ProtectedRoute>} />
