@@ -63,6 +63,9 @@ const JobBoardPage = React.lazy(() => import("./pages/JobBoardPage"));
 // day of confirmation. The old JobBoardPage import above stays unrouted
 // pending deletion after that confirmation window.
 const JobBoardRedesign = React.lazy(() => import("./pages/JobBoardPage.redesign"));
+// /job-board now hosts BOTH views (List = personalized board, Gallery =
+// browse-everything cards) behind a toggle. The container owns the choice.
+const JobBoardContainer = React.lazy(() => import("./pages/JobBoardContainer"));
 // /outbox renders the redesign. /tracker is preserved as a redirect for
 // internal call sites until a sweep updates them. The old NetworkTracker
 // page file is unrouted pending deletion.
@@ -384,7 +387,8 @@ const AppRoutes: React.FC = () => {
       <Route path="/contact-search/templates" element={<Navigate to="/find/templates" replace />} />
       <Route path="/find/templates" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><EmailTemplatesPage /></Suspense></ProtectedRoute>} />
       <Route path="/firm-search" element={<Navigate to="/find?tab=companies" replace />} />
-      <Route path="/job-board" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><JobBoardRedesign /></Suspense></ProtectedRoute>} />
+      <Route path="/jobs" element={<Navigate to="/job-board?view=gallery" replace />} />
+      <Route path="/job-board" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><JobBoardContainer /></Suspense></ProtectedRoute>} />
       <Route path="/recruiter-spreadsheet" element={<Navigate to="/find?tab=hiring-managers" replace />} />
       <Route path="/hiring-manager-tracker" element={<Navigate to="/find?tab=hiring-managers" replace />} />
       <Route path="/company-tracker" element={<Navigate to="/find?tab=companies" replace />} />
