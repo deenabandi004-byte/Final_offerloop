@@ -1,0 +1,121 @@
+@page {
+  size: Letter;
+  margin: var(--page-margin, 0.5in);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: Helvetica, Arial, sans-serif;
+  font-size: var(--body-size, 10.5pt);
+  line-height: 1.15;
+  color: #000000;
+}
+
+.name {
+  font-size: 22pt;
+  font-weight: bold;
+  text-align: center;
+  margin: 0;
+  padding: 0;
+  letter-spacing: 0.5pt;
+}
+
+.contact {
+  text-align: center;
+  font-size: 10pt;
+  margin-top: 2pt;
+  margin-bottom: 8pt;
+}
+
+.contact-compact {
+  font-size: 9pt;
+}
+
+.contact .field + .field::before {
+  content: " | ";
+  white-space: pre;
+}
+
+.contact a {
+  color: #000000;
+  text-decoration: none;
+}
+
+section {
+  margin: 0;
+  padding: 0;
+}
+
+h2 {
+  font-size: 11pt;
+  font-weight: bold;
+  text-transform: uppercase;
+  border-bottom: 0.5pt solid #000000;
+  margin: 8pt 0 4pt 0;
+  padding-bottom: 1pt;
+  letter-spacing: 0.3pt;
+}
+
+.entry {
+  margin-bottom: 4pt;
+  page-break-inside: avoid;
+}
+
+.entry-head,
+.entry-sub {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8pt;
+}
+
+.entry-head .left {
+  font-weight: bold;
+}
+
+.entry-head .right,
+.entry-sub .right {
+  font-weight: normal;
+  white-space: nowrap;
+}
+
+.entry-sub .left {
+  font-style: italic;
+}
+
+.meta {
+  font-size: 10pt;
+  margin-top: 1pt;
+}
+
+ul {
+  margin: 2pt 0 4pt 0;
+  padding-left: 14pt;
+  list-style-type: disc;
+}
+
+li {
+  margin-bottom: 1pt;
+}
+
+.skills-line {
+  margin: 1pt 0;
+}
+
+.skills-line .cat {
+  font-weight: bold;
+}
+
+.interests {
+  margin-top: 4pt;
+  font-size: 10pt;
+}
+
+.interests .label {
+  font-weight: bold;
+}

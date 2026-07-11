@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ contact.name }} - Resume</title>
+<style>
+:root {
+  --body-size: {{ body_size_pt }}pt;
+  --page-margin: {{ page_margin_in }}in;
+}
+{{ css | safe }}
+</style>
+</head>
+<body>
+
+<div class="name">{{ contact.name }}</div>
+{%- set _include_website = contact.website -%}
+{%- set _include_github = contact.github -%}
+{%- set _base_count = 0 -%}
+{%- if contact.location %}{% set _base_count = _base_count + 1 %}{% endif -%}
+{%- if contact.email %}{% set _base_count = _base_count + 1 %}{% endif -%}
+{%- if contact.phone %}{% set _base_count = _base_count + 1 %}{% endif -%}
+{%- if contact.linkedin %}{% set _base_count = _base_count + 1 %}{% endif -%}
+{%- set _extras = 0 -%}
+{%- if contact.github %}{% set _extras = _extras + 1 %}{% endif -%}
+{%- if contact.website %}{% set _extras = _extras + 1 %}{% endif -%}
+{%- if _base_count + _extras > 5 %}{% set _include_website = false %}{% endif -%}
+{%- if _base_count + (1 if _include_github else 0) + (1 if _include_website else 0) > 5 %}{% set _include_github = false %}{% endif -%}
+{%- set _fields = [] -%}
+{%- if contact.location %}{% set _ = _fields.append(contact.location) %}{% endif -%}
+{%- if contact.email %}{% set _ = _fields.append(contact.email) %}{% endif -%}
+{%- if contact.phone %}{% set _ = _fields.append(contact.phone) %}{% endif -%}
+{%- if contact.linkedin %}{% set _ = _fields.append(contact.linkedin) %}{% endif -%}
+{%- if _include_github %}{% set _ = _fields.append(contact.github) %}{% endif -%}
+{%- if _include_website %}{% set _ = _fields.append(contact.website) %}{% endif -%}
+<div class="contact">
+  {% for f in _fields %}<span class="field">{{ f }}</span>{% endfor %}
+</div>
+
+{% if education %}
+<section>
+  <h2>Education</h2>
+  {% for e in education %}
+  <div class="entry">
+    <div class="entry-head">
+      <span class="left">{{ e.school }}</span>
+      {% if e.location %}<span class="right">{{ e.location }}</span>{% endif %}
+    </div>
+    <div class="entry-sub">
+      <span class="left">
+        {{ e.degree }}{% if e.gpa %}, GPA {{ e.gpa }}{% endif %}
+      </span>
+      <span class="right">{{ e.graduation }}</span>
+    </div>
+    {% if e.honors %}<div class="meta"><b>Honors:</b> {{ e.honors | join(', ') }}</div>{% endif %}
+    {% if e.coursework %}<div class="meta"><b>Relevant Coursework:</b> {{ e.coursework | join(', ') }}</div>{% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{% if experience %}
+<section>
+  <h2>Experience</h2>
+  {% for x in experience %}
+  <div class="entry">
+    <div class="entry-head">
+      <span class="left">{{ x.company }}</span>
+      <span class="right">{{ x.start }} - {{ x.end }}</span>
+    </div>
+    <div class="entry-sub">
+      <span class="left">{{ x.role }}</span>
+      {% if x.location %}<span class="right">{{ x.location }}</span>{% endif %}
+    </div>
+    {% if x.bullets %}
+    <ul>
+      {% for b in x.bullets %}<li>{{ b }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{% if projects %}
+<section>
+  <h2>Projects</h2>
+  {% for p in projects %}
+  <div class="entry">
+    <div class="entry-head">
+      <span class="left">
+        {{ p.name }}{% if p.tech %} <span style="font-weight:normal;font-style:italic;">| {{ p.tech | join(', ') }}</span>{% endif %}
+      </span>
+      {% if p.date %}<span class="right">{{ p.date }}</span>{% endif %}
+    </div>
+    {% if p.bullets %}
+    <ul>
+      {% for b in p.bullets %}<li>{{ b }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{% if leadership %}
+<section>
+  <h2>Leadership</h2>
+  {% for l in leadership %}
+  <div class="entry">
+    <div class="entry-head">
+      <span class="left">{{ l.organization }}</span>
+      {% if l.start or l.end %}<span class="right">{{ l.start }}{% if l.start and l.end %} - {% endif %}{{ l.end }}</span>{% endif %}
+    </div>
+    <div class="entry-sub">
+      <span class="left">{{ l.role }}</span>
+      {% if l.location %}<span class="right">{{ l.location }}</span>{% endif %}
+    </div>
+    {% if l.bullets %}
+    <ul>
+      {% for b in l.bullets %}<li>{{ b }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{% if skills %}
+<section>
+  <h2>Skills</h2>
+  {% for s in skills %}
+  <div class="skills-line"><span class="cat">{{ s.category }}:</span> {{ s.items | join(', ') }}</div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{% if interests %}
+<div class="interests"><span class="label">Interests:</span> {{ interests }}</div>
+{% endif %}
+
+</body>
+</html>
