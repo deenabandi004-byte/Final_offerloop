@@ -22,6 +22,7 @@ import logging
 import os
 import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, Dict
 
@@ -40,6 +41,16 @@ from app.services.auto_apply.application_profile import (
 from app.services.auto_apply.ats_detector import detect_platform, is_eligible
 from app.services.auto_apply.preview import build_preview, load_user_for_apply
 from app.services.auto_apply.runner import run_auto_apply_job
+
+# Every auto-apply drives a real browser (Playwright → Browserbase) plus LLM
+# form-filling. Spawning an unbounded daemon Thread per submit meant N concurrent
+# applies opened N browser sessions: on 2026-07-12 that (alongside a draft
+# pipeline and a feed re-rank) starved the gunicorn worker until it was
+# OOM-killed — which took the in-flight Browserbase session with it, so the
+# filler reconnected to a dead session ("410 Gone - session not running").
+# Bound it: 2 per process (x2 gunicorn workers = 4 box-wide). A burst now QUEUES
+# instead of collapsing the box.
+_APPLY_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="autoapply")
 
 
 logger = logging.getLogger(__name__)
@@ -287,7 +298,7 @@ def submit_auto_apply(job_id: str):
                 except Exception:
                     logger.exception("refund check failed")
 
-    threading.Thread(target=_worker, daemon=True).start()
+    _APPLY_POOL.submit(_worker)
 
     return jsonify({
         "auto_apply_id": auto_apply_id,
@@ -451,7 +462,7 @@ def resolve_needs_attention(auto_apply_id: str):
         except Exception:
             logger.exception("resume worker crashed for %s", auto_apply_id)
 
-    threading.Thread(target=_resume_worker, daemon=True).start()
+    _APPLY_POOL.submit(_resume_worker)
 
     return jsonify({
         "auto_apply_id": auto_apply_id,

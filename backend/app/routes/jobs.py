@@ -29,7 +29,12 @@ FILTERS_CACHE_TTL = 3600
 
 _ranking_lock = threading.Lock()
 _ranking_in_progress = set()  # UIDs currently being re-ranked
-_ranking_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="job-rank")
+# A re-rank pulls thousands of job docs into memory and GPT-ranks them — it is
+# the single biggest memory spike on the box. Serialized to ONE at a time per
+# process (was 2): running two concurrently, alongside a draft pipeline and an
+# auto-apply browser session, is what OOM-killed the worker on 2026-07-12.
+# Re-ranks still queue and complete; they just no longer stack their peaks.
+_ranking_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="job-rank")
 
 _pipeline_summary_cache = {"data": None, "cached_at": 0.0}
 PIPELINE_SUMMARY_TTL = 60  # seconds
