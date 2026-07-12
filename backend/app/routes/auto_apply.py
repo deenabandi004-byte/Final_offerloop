@@ -20,9 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
-import threading
 import uuid
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from datetime import datetime
 from typing import Any, Dict
 
@@ -40,36 +38,20 @@ from app.services.auto_apply.application_profile import (
 )
 from app.services.auto_apply.ats_detector import detect_platform, is_eligible
 from app.services.auto_apply.preview import build_preview, load_user_for_apply
-from app.services.auto_apply.runner import run_auto_apply_job
+from app.services.rq_queue import enqueue, is_durable
 
-# Every auto-apply drives a real browser (Playwright → Browserbase) plus LLM
-# form-filling. Spawning an unbounded daemon Thread per submit meant N concurrent
-# applies opened N browser sessions: on 2026-07-12 that (alongside a draft
-# pipeline and a feed re-rank) starved the gunicorn worker until it was
-# OOM-killed — which took the in-flight Browserbase session with it, so the
-# filler reconnected to a dead session ("410 Gone - session not running").
-# Bound it: 2 per process (x2 gunicorn workers = 4 box-wide). A burst now QUEUES
-# instead of collapsing the box.
-_APPLY_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="autoapply")
-
-# Hard wall-clock for one auto-apply. The filler drives a REMOTE browser, so it
-# can hang in ways no single call timeout catches — the Browserbase session can
-# die under it, or the worker can be recycled mid-fill. Without a bound the job
-# doc sits at running/filling_form FOREVER: the app shows it in-flight and the
-# credits stay held (field logs 2026-07-12: 4 such zombies, none ever resolved).
-# A real fill is well under 3 min (the filler's own steps cap at 60s connect /
-# 30s networkidle), so 4 min only ever catches a genuine hang.
-AUTO_APPLY_TIMEOUT_SECONDS = 240
-
-# The in-process wall-clock guard above only helps while the PROCESS lives. A
-# worker restart — a deploy, an OOM kill, a crash — takes the filler AND its
-# guard down together, and the doc is left at running/filling_form forever
-# (2026-07-12: a deploy landed 24s into an apply and zombied it). The only
-# restart-proof reaper is a READ-time one: whenever the client polls status or
-# the list, any in-flight job that has been silent longer than this is declared
-# dead and refunded. Nothing has to stay alive for this to fire.
-# Mirrors draft_jobs.STALE_RUNNING. Kept above AUTO_APPLY_TIMEOUT_SECONDS so a
-# healthy-but-slow fill is never reaped out from under itself.
+# The filler itself runs OUT of this process — see services/auto_apply/jobs.py.
+# Playwright's driver, started inside a web worker, killed the whole container
+# ~23s in (2026-07-12), taking drafts and Scout with it. The web service now
+# only ENQUEUES; the browser starts in the RQ worker.
+#
+# The worker owns the in-run wall-clock guard. This is the other half: a
+# READ-time reaper, because if the WORKER dies mid-fill nothing in-process is
+# left alive to finalize the doc. Whenever the client polls status or the list,
+# an in-flight job silent longer than this is declared dead and refunded — so a
+# job can never sit at running/filling_form forever (field logs 2026-07-12: 4
+# such zombies, none ever resolved). Mirrors draft_jobs.STALE_RUNNING, and kept
+# above the worker's 240s guard so a healthy-but-slow fill isn't reaped early.
 AUTO_APPLY_STALE_AFTER_SECONDS = 300
 
 
@@ -310,6 +292,19 @@ def submit_auto_apply(job_id: str):
                 "deduped": True,
             }), 200
 
+    # Auto-apply MUST run out-of-process. Playwright's driver, started inside a
+    # web worker, killed the whole container ~23s in (2026-07-12) — taking
+    # drafts, Scout and the feed down with it. rq_queue's dev fallback would run
+    # it in-process, which is exactly that crash, so if the RQ worker isn't
+    # configured we refuse CLEANLY instead of taking the box down. Checked
+    # before the credit deduction so a refusal never charges anyone.
+    if not is_durable():
+        logger.error("auto-apply refused: no REDIS_URL/RQ worker (would run in-process)")
+        return jsonify({
+            "error": "Auto-apply is temporarily unavailable. Nothing was charged.",
+            "code": "AUTOAPPLY_UNAVAILABLE",
+        }), 503
+
     # Credit deduction: only on REAL submits. Dry-runs are free so users can
     # iterate without burning credits. Refund on failure.
     if not dry_run:
@@ -341,67 +336,18 @@ def submit_auto_apply(job_id: str):
         "created_at": datetime.utcnow().isoformat(),
     })
 
-    def _worker():
-        # Run the filler under a wall-clock guard. If it hangs (dead Browserbase
-        # session, worker recycled mid-fill), force a terminal 'failed' state so
-        # the app stops showing it in-flight and the refund path below can run.
-        # Without this the doc stays at running/filling_form forever.
-        guard = ThreadPoolExecutor(max_workers=1)
-        try:
-            fut = guard.submit(
-                run_auto_apply_job,
-                auto_apply_id=auto_apply_id,
-                uid=uid,
-                job_id=str(job_id),
-                dry_run=dry_run,
-                edited_answers=edited_answers,
-            )
-            try:
-                fut.result(timeout=AUTO_APPLY_TIMEOUT_SECONDS)
-            except FuturesTimeout:
-                logger.error(
-                    "auto-apply %s exceeded %ss wall-clock; forcing failed",
-                    auto_apply_id,
-                    AUTO_APPLY_TIMEOUT_SECONDS,
-                )
-                try:
-                    now = datetime.utcnow().isoformat()
-                    job_ref.update({
-                        "status": "failed",
-                        "stage": "failed",
-                        "failure_reason": (
-                            "Timed out while filling the application. "
-                            "Nothing was submitted — please try again."
-                        ),
-                        "failed_at": now,
-                        "updated_at": now,
-                    })
-                except Exception:
-                    logger.exception("failed to mark auto-apply %s timed out", auto_apply_id)
-        except Exception:
-            logger.exception("auto-apply worker error for %s", auto_apply_id)
-        finally:
-            # Never block on a hung filler — let the orphan thread leak rather
-            # than pin this pool slot.
-            guard.shutdown(wait=False)
-            # Refund on failure (real submits only). The credits_refunded guard
-            # makes this idempotent, so the timeout path can't double-refund.
-            if not dry_run:
-                try:
-                    snap = job_ref.get()
-                    data = snap.to_dict() or {}
-                    if (
-                        data.get("status") in ("failed", "submit_failed")
-                        and not data.get("credits_refunded")
-                    ):
-                        refund_credits_atomic(
-                            uid, AUTO_APPLY_CREDITS, "auto_apply_refund"
-                        )
-                        job_ref.update({"credits_refunded": True})
-                except Exception:
-                    logger.exception("refund check failed")
-
-    _APPLY_POOL.submit(_worker)
+    # Hand off to the RQ worker. The browser (Playwright + Browserbase) starts
+    # ONLY in that process — never here. The task owns the terminal state and
+    # the refund; if the worker itself dies mid-fill, _reap_if_stale finalizes
+    # and refunds on the next poll, so nothing can sit at 'running' forever.
+    enqueue(
+        "run_auto_apply",
+        auto_apply_id=auto_apply_id,
+        uid=uid,
+        job_id=str(job_id),
+        dry_run=dry_run,
+        edited_answers=edited_answers,
+    )
 
     return jsonify({
         "auto_apply_id": auto_apply_id,
@@ -555,19 +501,15 @@ def resolve_needs_attention(auto_apply_id: str):
         if qid not in drawer_answers and by_id.get(qid):
             drawer_answers[qid] = value
 
-    def _resume_worker():
-        try:
-            run_auto_apply_job(
-                auto_apply_id=auto_apply_id,
-                uid=uid,
-                job_id=str(job_id),
-                dry_run=dry_run,
-                edited_answers=drawer_answers,
-            )
-        except Exception:
-            logger.exception("resume worker crashed for %s", auto_apply_id)
-
-    _APPLY_POOL.submit(_resume_worker)
+    # Same rule as submit: the browser only ever starts in the RQ worker.
+    enqueue(
+        "run_auto_apply",
+        auto_apply_id=auto_apply_id,
+        uid=uid,
+        job_id=str(job_id),
+        dry_run=dry_run,
+        edited_answers=drawer_answers,
+    )
 
     return jsonify({
         "auto_apply_id": auto_apply_id,

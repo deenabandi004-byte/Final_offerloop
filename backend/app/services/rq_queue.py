@@ -81,6 +81,11 @@ def _init_rq() -> bool:
 
 JOB_REGISTRY: dict[str, str] = {
     "run_loop_cycle": "app.services.loop_jobs.run_loop_cycle_job",
+    # Auto-apply drives Playwright + Browserbase. Starting that inside a web
+    # worker killed the whole container ~23s in (2026-07-12), taking drafts and
+    # Scout down with it. It runs ONLY in the RQ worker process now, so a crash
+    # costs a worker (which RQ requeues), never the web service.
+    "run_auto_apply": "app.services.auto_apply.jobs.run_auto_apply_task",
 }
 
 
