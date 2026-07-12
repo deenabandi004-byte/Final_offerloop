@@ -1,6 +1,7 @@
 """
 Flask extensions and initialization
 """
+import json
 import os
 import firebase_admin
 from firebase_admin import credentials, firestore, auth as fb_auth
@@ -56,13 +57,29 @@ def init_firebase(app):
             print(f"⚠️ Firebase already initialized but Firestore client failed: {e}")
             firebase_admin._apps.clear()
 
-    # Use only GOOGLE_APPLICATION_CREDENTIALS (no hardcoded fallback paths)
+    # Credentials, in order: a mounted service-account FILE, else the raw JSON
+    # from an env var.
+    #
+    # Why the env-var path exists (2026-07-12): the RQ worker forks a child
+    # process per job, and that child could not read Render's mounted secret
+    # file — Firebase initialized fine at worker BOOT and then failed inside the
+    # job with "File /etc/secrets/... was not found". Env vars are inherited
+    # across fork unconditionally, so FIREBASE_SERVICE_ACCOUNT_JSON is the
+    # reliable path for worker processes. The file path stays first so the web
+    # service keeps behaving exactly as before.
     cred = None
     cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    cred_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON")
 
     if cred_path and os.path.exists(cred_path):
         cred = credentials.Certificate(cred_path)
         print(f"✅ Using credentials from GOOGLE_APPLICATION_CREDENTIALS: {cred_path}")
+    elif cred_json:
+        try:
+            cred = credentials.Certificate(json.loads(cred_json))
+            print("✅ Using credentials from FIREBASE_SERVICE_ACCOUNT_JSON (env)")
+        except Exception as e:
+            print(f"❌ FIREBASE_SERVICE_ACCOUNT_JSON is set but unusable: {e}")
     else:
         if cred_path:
             print(
