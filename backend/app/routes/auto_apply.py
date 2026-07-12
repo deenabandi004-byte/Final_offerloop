@@ -22,7 +22,7 @@ import logging
 import os
 import threading
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from datetime import datetime
 from typing import Any, Dict
 
@@ -51,6 +51,15 @@ from app.services.auto_apply.runner import run_auto_apply_job
 # Bound it: 2 per process (x2 gunicorn workers = 4 box-wide). A burst now QUEUES
 # instead of collapsing the box.
 _APPLY_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="autoapply")
+
+# Hard wall-clock for one auto-apply. The filler drives a REMOTE browser, so it
+# can hang in ways no single call timeout catches — the Browserbase session can
+# die under it, or the worker can be recycled mid-fill. Without a bound the job
+# doc sits at running/filling_form FOREVER: the app shows it in-flight and the
+# credits stay held (field logs 2026-07-12: 4 such zombies, none ever resolved).
+# A real fill is well under 3 min (the filler's own steps cap at 60s connect /
+# 30s networkidle), so 4 min only ever catches a genuine hang.
+AUTO_APPLY_TIMEOUT_SECONDS = 240
 
 
 logger = logging.getLogger(__name__)
@@ -275,22 +284,58 @@ def submit_auto_apply(job_id: str):
     })
 
     def _worker():
-        from flask import current_app
+        # Run the filler under a wall-clock guard. If it hangs (dead Browserbase
+        # session, worker recycled mid-fill), force a terminal 'failed' state so
+        # the app stops showing it in-flight and the refund path below can run.
+        # Without this the doc stays at running/filling_form forever.
+        guard = ThreadPoolExecutor(max_workers=1)
         try:
-            run_auto_apply_job(
+            fut = guard.submit(
+                run_auto_apply_job,
                 auto_apply_id=auto_apply_id,
                 uid=uid,
                 job_id=str(job_id),
                 dry_run=dry_run,
                 edited_answers=edited_answers,
             )
+            try:
+                fut.result(timeout=AUTO_APPLY_TIMEOUT_SECONDS)
+            except FuturesTimeout:
+                logger.error(
+                    "auto-apply %s exceeded %ss wall-clock; forcing failed",
+                    auto_apply_id,
+                    AUTO_APPLY_TIMEOUT_SECONDS,
+                )
+                try:
+                    now = datetime.utcnow().isoformat()
+                    job_ref.update({
+                        "status": "failed",
+                        "stage": "failed",
+                        "failure_reason": (
+                            "Timed out while filling the application. "
+                            "Nothing was submitted — please try again."
+                        ),
+                        "failed_at": now,
+                        "updated_at": now,
+                    })
+                except Exception:
+                    logger.exception("failed to mark auto-apply %s timed out", auto_apply_id)
+        except Exception:
+            logger.exception("auto-apply worker error for %s", auto_apply_id)
         finally:
-            # Refund on failure (real submits only)
+            # Never block on a hung filler — let the orphan thread leak rather
+            # than pin this pool slot.
+            guard.shutdown(wait=False)
+            # Refund on failure (real submits only). The credits_refunded guard
+            # makes this idempotent, so the timeout path can't double-refund.
             if not dry_run:
                 try:
                     snap = job_ref.get()
                     data = snap.to_dict() or {}
-                    if data.get("status") in ("failed", "submit_failed"):
+                    if (
+                        data.get("status") in ("failed", "submit_failed")
+                        and not data.get("credits_refunded")
+                    ):
                         refund_credits_atomic(
                             uid, AUTO_APPLY_CREDITS, "auto_apply_refund"
                         )
