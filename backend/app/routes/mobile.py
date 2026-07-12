@@ -286,13 +286,18 @@ def me():
 
     resume_parsed = u.get('resumeParsed') or {}
     resume_url = u.get('resumeUrl') or prof.get('resumeUrl')
+    # `resume` means a FILE we can attach to an application — nothing else.
+    # This used to fall back to ('Resume' if resume_parsed) so a parsed resume
+    # "counted as on-file". That was a lie with teeth: onboarding/LinkedIn set
+    # resumeParsed WITHOUT ever storing a file, so the app showed "Attached"
+    # with nothing attached, the user couldn't detach it, and every auto-apply
+    # left the Greenhouse Resume field empty (2026-07-12). Parsed text still
+    # powers email personalization via resumeExperiences below — that's a
+    # separate thing from having a document to upload.
     resume_name = (
         u.get('resumeFileName')
         or prof.get('resumeFileName')
         or ('Resume.pdf' if resume_url else None)
-        # A parsed resume counts as on-file even if the original file URL/name
-        # wasn't stored (older uploads), so the profile reflects what we have.
-        or ('Resume' if resume_parsed else None)
     )
     resume_experiences = _map_resume_experiences(resume_parsed)
 
