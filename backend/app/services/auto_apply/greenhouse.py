@@ -2373,15 +2373,44 @@ def _candidate_apply_urls(apply_url: str, job_id: str) -> List[str]:
     """
     candidates: List[str] = []
 
+    # Resolve the Greenhouse (slug, ext_id) pair — the two values every reliable
+    # form URL is built from.
+    slug = ext_id = None
     parts = (job_id or "").split("_", 2)
     if len(parts) == 3 and parts[0].lower() == "greenhouse":
         slug, ext_id = parts[1], parts[2]
+    elif apply_url:
+        # Job ids in our pool are namespaced by their SOURCE (simplify_…,
+        # fantastic_…), not by their ATS — so the greenhouse_{slug}_{id} shape
+        # above almost never matches. That meant the embed fallbacks were never
+        # built and we only ever tried the raw job page, which doesn't render
+        # #first_name: EVERY Greenhouse apply died with "form did not render"
+        # (2026-07-12). The apply_url carries the same two values, so read them
+        # from there. Handles both the legacy boards.greenhouse.io host and the
+        # current job-boards.greenhouse.io one.
+        m = re.search(
+            r"(?:job-)?boards\.greenhouse\.io/([^/?#]+)/jobs/(\d+)",
+            apply_url,
+            re.I,
+        )
+        if m:
+            slug, ext_id = m.group(1), m.group(2)
+
+    # The embed endpoint returns ONLY the application form and cannot be
+    # redirected away by a custom careers page, so it goes first (the raw
+    # /jobs/{id} page is the least reliable and goes after).
+    if slug and ext_id:
         candidates.append(
             f"https://boards.greenhouse.io/embed/job_app?for={slug}&token={ext_id}"
         )
         candidates.append(
             f"https://boards.greenhouse.io/{slug}/jobs/{ext_id}/applications/new"
         )
+
+    if apply_url and "greenhouse.io" in apply_url.lower():
+        candidates.append(apply_url)
+
+    if slug and ext_id:
         candidates.append(
             f"https://job-boards.greenhouse.io/{slug}/jobs/{ext_id}#app"
         )
@@ -2389,11 +2418,8 @@ def _candidate_apply_urls(apply_url: str, job_id: str) -> List[str]:
             f"https://boards.greenhouse.io/{slug}/jobs/{ext_id}"
         )
 
-    if apply_url:
-        if "greenhouse.io" in apply_url.lower():
-            candidates.insert(0, apply_url)
-        else:
-            candidates.append(apply_url)
+    if apply_url and "greenhouse.io" not in apply_url.lower():
+        candidates.append(apply_url)
 
     seen: set[str] = set()
     deduped: List[str] = []
