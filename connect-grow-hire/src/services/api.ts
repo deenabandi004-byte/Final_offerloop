@@ -1,6 +1,7 @@
 // src/services/api.ts
 import { auth } from '../lib/firebase';
 import type { OutreachMode } from '../utils/featureAccess';
+import type { ParsedResume } from '../types/resume';
 
 export const BACKEND_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/api\/?$/, '') ||
@@ -909,6 +910,37 @@ export interface OptimizeResumeResponse {
   processingTimeMs?: number;
 }
 
+// ================================
+// Resume Score-and-Approve Types
+// ================================
+
+export interface ResumeScoreCategory {
+  name: string;
+  score: number;
+  explanation: string;
+}
+
+export type ResumeScoreRecommendationTarget =
+  | { section: 'experience'; index: number; bullet: number }
+  | { section: 'projects'; index: number; field: 'description' };
+
+export interface ResumeScoreRecommendation {
+  id: string;
+  category: string;
+  reason: string;
+  target: ResumeScoreRecommendationTarget;
+  current: string;
+  proposed: string;
+}
+
+export interface ResumeScoreResponse {
+  score: number;
+  score_label: 'Needs Work' | 'Good' | 'Very Good' | 'Excellent';
+  summary: string;
+  categories: ResumeScoreCategory[];
+  recommendations: ResumeScoreRecommendation[];
+}
+
 export interface GenerateCoverLetterRequest {
   jobUrl?: string;
   jobDescription?: string;
@@ -927,6 +959,10 @@ export interface GenerateCoverLetterResponse {
   coverLetter: CoverLetter;
   creditsUsed: number;
   creditsRemaining: number;
+  // Resolved server-side from the URL parse / paste extraction; present even
+  // when the user typed neither field.
+  company?: string | null;
+  jobTitle?: string | null;
 }
 
 // ================================
@@ -1378,7 +1414,7 @@ class ApiService {
    * Prompt-based contact search (new endpoint). Same response shape as free-run plus parsed_query.
    * Works for all tiers; batchSize is capped by tier on backend.
    */
-  async runPromptSearch(data: { prompt: string; batchSize: number; emailTemplate?: EmailTemplate | null; mode?: OutreachMode }): Promise<SearchResult> {
+  async runPromptSearch(data: { prompt: string; batchSize: number; emailTemplate?: EmailTemplate | null; mode?: OutreachMode; filters?: import("@/types/findFilters").PeopleFilters }): Promise<SearchResult> {
     const headers = await this.getAuthHeaders();
     const payload: Record<string, unknown> = { prompt: data.prompt.trim(), batchSize: data.batchSize };
     if (data.emailTemplate && hasEmailTemplateValues(data.emailTemplate)) {
@@ -1389,6 +1425,10 @@ class ApiService {
       // The backend re-validates this against the user tier and is the source
       // of truth, so a tampered value cannot unlock a higher mode.
       payload.mode = data.mode;
+    }
+    if (data.filters) {
+      // Filter-rail overrides; backend merges these over its prompt parse.
+      payload.filters = data.filters;
     }
     return this.makeRequest<SearchResult>('/prompt-search', {
       method: 'POST',
@@ -1421,15 +1461,20 @@ class ApiService {
   // lowercased email.
   async generateAndDraftEmails(payload: {
     contacts: Array<{ Name?: string; Email: string; Company?: string; Title?: string; [k: string]: any }>;
+    emailTemplate?: EmailTemplate | null;
   }): Promise<
-    | { success: boolean; draft_count: number; drafts: Array<{ to: string; draftId: string; messageId?: string; threadId?: string; gmailUrl?: string }>; connected_email?: string; skipped_count?: number }
+    | { success: boolean; draft_count: number; drafts: Array<{ index?: number; to: string; draftId: string; messageId?: string; threadId?: string; gmailUrl?: string; subject?: string; body?: string }>; connected_email?: string; skipped_count?: number }
     | { error: string; message?: string }
   > {
     const headers = await this.getAuthHeaders();
+    const body: Record<string, unknown> = { contacts: payload.contacts };
+    if (payload.emailTemplate && hasEmailTemplateValues(payload.emailTemplate)) {
+      body.emailTemplate = payload.emailTemplate;
+    }
     return this.makeRequest('/emails/generate-and-draft', {
       method: 'POST',
       headers,
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     });
   }
 
@@ -1523,12 +1568,14 @@ class ApiService {
    * Start an async firm search. Returns a searchId immediately.
    * Use streamFirmSearchProgress() to receive real-time SSE progress.
    */
-  async searchFirmsAsync(query: string, batchSize: number = 10): Promise<{ searchId: string }> {
+  async searchFirmsAsync(query: string, batchSize: number = 10, filters?: import("@/types/findFilters").CompanyFilters): Promise<{ searchId: string }> {
     const headers = await this.getAuthHeaders();
+    const body: Record<string, unknown> = { query, batchSize };
+    if (filters) body.filters = filters;
     return this.makeRequest<{ searchId: string }>('/firm-search/search-async', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ query, batchSize }),
+      body: JSON.stringify(body),
     });
   }
 
@@ -1616,10 +1663,11 @@ class ApiService {
     // ================================
   // Gmail Integration Endpoints
   // ================================
-  async startGmailOAuth(): Promise<string> {
+  async startGmailOAuth(returnTo?: string): Promise<string> {
     const headers = await this.getAuthHeaders();
+    const qs = returnTo ? `?return_to=${encodeURIComponent(returnTo)}` : '';
     const { authUrl } = await this.makeRequest<{ authUrl: string }>(
-      '/google/oauth/start',
+      `/google/oauth/start${qs}`,
       { headers }
     );
     return authUrl;
@@ -2267,6 +2315,59 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
   }
 
   /**
+   * Score the caller's resume against the Harvard rubric and return
+   * path-targeted, mechanically-applicable recommendations. Falls back to
+   * the stored resumeParsed server-side if resumeParsed is omitted, but the
+   * Edit-tab flow always passes the current in-memory copy so scoring
+   * reflects unsaved-but-already-applied edits. Costs no credits.
+   *
+   * With jobContext (jobDescription >= 50 chars, optional jobTitle/company)
+   * the backend switches to job-fit mode: same response shape, but the score
+   * means fit-for-this-job and recommendations tailor bullets toward the
+   * posting.
+   */
+  async scoreResume(
+    resumeParsed: ParsedResume,
+    jobContext?: { jobDescription: string; jobTitle?: string; company?: string }
+  ): Promise<ResumeScoreResponse> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest<ResumeScoreResponse>('/resume/score', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ resumeParsed, ...(jobContext || {}) }),
+    });
+  }
+
+  /**
+   * Tailor the user's stored resume to a job posting via Claude Opus 4.7.
+   *
+   * Provide EITHER `jobUrl` (we'll read it via Firecrawl) or `jobDescription`
+   * (>= 100 chars). Optional `jobTitle` and `company` win over URL extraction.
+   * Returns the URL of the tailored PDF in Offerloop's canonical format.
+   */
+  async tailorResume(input: {
+    jobUrl?: string;
+    jobDescription?: string;
+    jobTitle?: string;
+    company?: string;
+  }): Promise<{
+    pdfUrl: string;
+    jobTitle: string | null;
+    company: string | null;
+    tailoredResumeId: string;
+    pageCount: number;
+    reductionsApplied: string[];
+    updatedAt: string;
+  }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest('/resume/tailor', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(input),
+    });
+  }
+
+  /**
    * Helper function to download a PDF blob.
    */
   downloadPdfBlob(blob: Blob, filename: string = 'optimized_resume.pdf'): void {
@@ -2394,6 +2495,18 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
       }
     );
     return response;
+  }
+
+  /** Render an already-generated cover letter to PDF (no credit cost). */
+  async downloadCoverLetterPdf(content: string, company?: string): Promise<Blob> {
+    const headers = await this.getAuthHeaders();
+    const res = await fetch(`${API_BASE_URL}/job-board/cover-letter-pdf`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, ...(company ? { company } : {}) }),
+    });
+    if (!res.ok) throw new Error(`Cover letter PDF failed (${res.status})`);
+    return res.blob();
   }
 
   // ================================
