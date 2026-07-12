@@ -96,7 +96,7 @@ def test_01_imperative_navigate_job_board(scout_client):
 def test_02_imperative_navigate_contact_search_credit_cost(scout_client):
     status, data = _chat(scout_client, "take me to contact search")
     assert status == 200, data
-    nav = _assert_navigate(data, "/contact-search")
+    nav = _assert_navigate(data, "/find")
     assert nav["user_was_imperative"] is True, data
     # The frontend needs the actual credit cost to warn the user before the
     # search spends credits.
@@ -110,10 +110,14 @@ def test_02_imperative_navigate_contact_search_credit_cost(scout_client):
 def test_03_inferred_navigate_contact_search_with_prefill(scout_client):
     status, data = _chat(scout_client, "find product managers at Stripe in SF")
     assert status == 200, data
-    nav = _assert_navigate(data, "/contact-search")
+    nav = _assert_navigate(data, "/find")
     prefill = nav["prefill"]
-    for key in ("job_title", "company", "location"):
-        assert key in prefill and prefill[key], f"missing prefill {key}: {prefill}"
+    # The prompt carrier is the default contract; structured fields remain
+    # acceptable when a path still emits them. Either way every piece of the
+    # query (role, company, location) must survive into the prefill.
+    carried = " ".join(str(v) for v in prefill.values()).lower()
+    for piece in ("product manager", "stripe", "sf"):
+        assert piece in carried, f"missing {piece!r} in prefill: {prefill}"
     assert nav["user_was_imperative"] is False, data
 
 
@@ -155,12 +159,13 @@ def test_07_greeting_answers(scout_client):
 # Case 8 -------------------------------------------------------------------
 def test_08_already_on_page_navigate(scout_client):
     status, data = _chat(
-        scout_client, "find engineers at Google", current_page="/contact-search"
+        scout_client, "find engineers at Google", current_page="/find"
     )
     assert status == 200, data
-    nav = _assert_navigate(data, "/contact-search")
+    nav = _assert_navigate(data, "/find")
     assert nav["already_on_page"] is True, data
-    assert nav["prefill"].get("company"), f"expected company prefill: {nav}"
+    carried = " ".join(str(v) for v in nav["prefill"].values()).lower()
+    assert "google" in carried, f"expected Google in prefill: {nav}"
 
 
 # Case 9 -------------------------------------------------------------------
@@ -181,7 +186,7 @@ def test_10_low_credits_navigate_surfaces_cost(scout_client):
         scout_client, "find people at Google", user_info={"credits": 10}
     )
     assert status == 200, data
-    nav = _assert_navigate(data, "/contact-search")
+    nav = _assert_navigate(data, "/find")
     assert nav.get("credit_spending") is True, data
     # Frontend needs the number to warn a low-credit user.
     assert "credit_cost" in nav, (
@@ -257,7 +262,7 @@ def test_14_chat_first_interview_strategy_answers_not_navigate(scout_client):
 def test_15_explicit_command_still_navigates(scout_client):
     status, data = _chat(scout_client, "take me to cover letter")
     assert status == 200, data
-    _assert_navigate(data, "/write/cover-letter")
+    _assert_navigate(data, "/cover-letter")
 
 
 # Case 16 ------------------------------------------------------------------

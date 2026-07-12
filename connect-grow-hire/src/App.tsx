@@ -3,18 +3,19 @@ import React, { Suspense, useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import { jobFeedQueryKey, fetchJobFeed, JOB_FEED_STALE_MS } from "@/lib/jobFeedQuery";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import posthog from "./lib/posthog";
 import { FirebaseAuthProvider, useFirebaseAuth } from "./contexts/FirebaseAuthContext";
 import PendingShareModal from "@/components/shares/PendingShareModal";
 import { ScoutProvider, useScout } from "./contexts/ScoutContext";
+import { ScoutChatProvider } from "./contexts/ScoutChatContext";
 import { TourProvider } from "./contexts/TourContext";
 import { HelmetProvider } from "react-helmet-async";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ScoutSidePanel } from "./components/ScoutSidePanel";
 import FloatingAskScoutButton from "./components/AskScoutButton";
-import { ReplyNotifier } from "./components/ReplyNotifier";
 import { LoginNotification } from "./components/LoginNotification";
 import { LoadingContainer } from "./components/ui/LoadingBar";
 import { IS_DEV_PREVIEW } from "./lib/devPreview";
@@ -48,13 +49,15 @@ const ContactUs = React.lazy(() => import("./pages/ContactUs"));
 const PrivacyPolicy = React.lazy(() => import("./pages/PrivacyPolicy"));
 const ExtensionPrivacyPolicy = React.lazy(() => import("./pages/ExtensionPrivacyPolicy"));
 const TermsOfService = React.lazy(() => import("./pages/TermsOfService"));
-const AppFinishSignIn = React.lazy(() => import("./pages/AppFinishSignIn"));
 const AccountSettings = React.lazy(() => import("./pages/AccountSettings"));
-const ReferPage = React.lazy(() => import("./pages/ReferPage"));
-const ApplicationsPage = React.lazy(() => import("./pages/ApplicationsPage"));
 const IntegrationsPage = React.lazy(() => import("./pages/IntegrationsPage"));
 const McpServerPage = React.lazy(() => import("./pages/McpServerPage"));
 const McpChatGptSetupPage = React.lazy(() => import("./pages/McpChatGptSetupPage"));
+const UploadListPage = React.lazy(() => import("./pages/UploadListPage"));
+const ApplicationsPage = React.lazy(() => import("./pages/ApplicationsPage"));
+const ResumePage = React.lazy(() => import("./pages/ResumePage"));
+const CoverLetterPage = React.lazy(() => import("./pages/CoverLetterPage"));
+const ReferPage = React.lazy(() => import("./pages/ReferPage"));
 const Pricing = React.lazy(() => import("./pages/Pricing"));
 const DocumentationPage = React.lazy(() => import("./pages/DocumentationPage"));
 const JobBoardPage = React.lazy(() => import("./pages/JobBoardPage"));
@@ -244,6 +247,29 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
+/* Default landing surface. Search (/find) is the everyday home; Getting
+   Started (/dashboard) greets brand-new users and anyone returning after a
+   week away. Computed once per session so re-renders can't flip the answer
+   after the last-seen stamp updates. */
+const LAST_SEEN_KEY = "ofl_last_seen_at";
+const LANDING_ABSENCE_MS = 7 * 24 * 60 * 60 * 1000;
+let cachedLandingPath: string | null = null;
+function getDefaultLandingPath(): string {
+  if (cachedLandingPath) return cachedLandingPath;
+  try {
+    const raw = localStorage.getItem(LAST_SEEN_KEY);
+    const last = raw ? Number(raw) : NaN;
+    localStorage.setItem(LAST_SEEN_KEY, String(Date.now()));
+    cachedLandingPath =
+      !raw || Number.isNaN(last) || Date.now() - last > LANDING_ABSENCE_MS
+        ? "/dashboard"
+        : "/find";
+  } catch {
+    cachedLandingPath = "/find";
+  }
+  return cachedLandingPath;
+}
+
 const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useFirebaseAuth();
   const location = useLocation();
@@ -276,15 +302,12 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     return <>{children}</>;
   }
 
-  // Only redirect authenticated users if they're not coming from sign-out
+  // Only redirect authenticated users if they're not coming from sign-out.
+  // Everyday users land on Search; new/long-absent users get Getting Started.
   if (user) {
-    const redirectPath = user.needsOnboarding ? "/onboarding" : "/dashboard";
+    const redirectPath = user.needsOnboarding ? "/onboarding" : getDefaultLandingPath();
     devLog("🛣️ [PUBLIC ROUTE] User authenticated, redirecting to:", redirectPath);
-    return user.needsOnboarding ? (
-      <Navigate to="/onboarding" replace />
-    ) : (
-      <Navigate to="/dashboard" replace />
-    );
+    return <Navigate to={redirectPath} replace />;
   }
   
   devLog("🛣️ [PUBLIC ROUTE] No user, showing public content");
@@ -373,11 +396,14 @@ const AppRoutes: React.FC = () => {
       <Route path="/contact-directory" element={<Navigate to="/my-network/people" replace />} />
       <Route path="/coffee-chat-library" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoffeeChatLibrary /></Suspense></ProtectedRoute>} />
       <Route path="/account-settings" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AccountSettings /></Suspense></ProtectedRoute>} />
-      <Route path="/refer" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ReferPage /></Suspense></ProtectedRoute>} />
-      <Route path="/applications" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ApplicationsPage /></Suspense></ProtectedRoute>} />
       <Route path="/integrations" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><IntegrationsPage /></Suspense></ProtectedRoute>} />
       <Route path="/mcp-server" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><McpServerPage /></Suspense></ProtectedRoute>} />
       <Route path="/mcp-server/chatgpt" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><McpChatGptSetupPage /></Suspense></ProtectedRoute>} />
+      <Route path="/upload-list" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><UploadListPage /></Suspense></ProtectedRoute>} />
+      <Route path="/applications" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ApplicationsPage /></Suspense></ProtectedRoute>} />
+      <Route path="/resume" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ResumePage /></Suspense></ProtectedRoute>} />
+      <Route path="/cover-letter" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><CoverLetterPage /></Suspense></ProtectedRoute>} />
+      <Route path="/refer" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><ReferPage /></Suspense></ProtectedRoute>} />
       <Route path="/pricing" element={<Suspense fallback={<PageLoader />}><Pricing /></Suspense>} />
       <Route path="/documentation" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><DocumentationPage /></Suspense></ProtectedRoute>} />
       <Route path="/payment-success" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><PaymentSuccess /></Suspense></ProtectedRoute>} />
@@ -387,6 +413,7 @@ const AppRoutes: React.FC = () => {
       <Route path="/contact-search/templates" element={<Navigate to="/find/templates" replace />} />
       <Route path="/find/templates" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><EmailTemplatesPage /></Suspense></ProtectedRoute>} />
       <Route path="/firm-search" element={<Navigate to="/find?tab=companies" replace />} />
+      {/* Old standalone gallery URL now deep-links into the Job Board's gallery view. */}
       <Route path="/jobs" element={<Navigate to="/job-board?view=gallery" replace />} />
       <Route path="/job-board" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><JobBoardContainer /></Suspense></ProtectedRoute>} />
       <Route path="/recruiter-spreadsheet" element={<Navigate to="/find?tab=hiring-managers" replace />} />
@@ -431,9 +458,6 @@ const AppRoutes: React.FC = () => {
       <Route path="/promo" element={<Suspense fallback={<PageLoader />}><PromoPage /></Suspense>} />
       <Route path="/contact" element={<Navigate to="/contact-us" replace />} />
       <Route path="/contact-us" element={<Suspense fallback={<PageLoader />}><ContactUs /></Suspense>} />
-
-      {/* Mobile app magic-link sign-in handoff (public, no auth guard) */}
-      <Route path="/app/finish-signin" element={<Suspense fallback={<PageLoader />}><AppFinishSignIn /></Suspense>} />
 
       {/* Legal pages + canonical redirects */}
       <Route path="/privacy" element={<Suspense fallback={<PageLoader />}><PrivacyPolicy /></Suspense>} />
@@ -506,8 +530,8 @@ const ScoutRedirect: React.FC = () => {
     openPanel();
   }, [openPanel]);
   
-  // Redirect to dashboard
-  return <Navigate to="/dashboard" replace />;
+  // Land on Search (the default surface) with the panel open
+  return <Navigate to="/find" replace />;
 };
 
 /* ---------------- Conditional Background Wrapper ----------------
@@ -615,6 +639,33 @@ const DashboardPrefetch: React.FC = () => {
   return null;
 };
 
+/* ---------------- Job Feed Prefetch ----------------
+   The job feed is the slowest data fetch in the app (the server gathers +
+   ranks jobs for the user). Fetching it here — the moment auth resolves to an
+   onboarded user — means the request runs in the background while the user is
+   on whatever page they landed on. By the time they click "Job Board", the
+   feed is already sitting in the React Query cache and the page paints
+   instantly instead of showing a 3s skeleton. Uses the SAME query key the
+   page reads, so it warms the exact cache entry the page consumes. Failures
+   are swallowed: this is a pure optimization, the page refetches on its own. */
+const JobFeedPrefetch: React.FC = () => {
+  const { user, isLoading } = useFirebaseAuth();
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (isLoading || !user || user.needsOnboarding) return;
+    queryClient
+      .prefetchQuery({
+        queryKey: jobFeedQueryKey(user.uid),
+        queryFn: fetchJobFeed,
+        staleTime: JOB_FEED_STALE_MS,
+      })
+      .catch(() => {
+        /* optimization only — the page will fetch normally if this misses */
+      });
+  }, [isLoading, user, queryClient]);
+  return null;
+};
+
 /* ---------------- App Root ---------------- */
 const App: React.FC = () => {
   useEffect(() => {
@@ -628,6 +679,7 @@ const App: React.FC = () => {
         <FirebaseAuthProvider>
           <ErrorBoundary>
             <DashboardPrefetch />
+            <JobFeedPrefetch />
             <BrowserRouter
               future={{
                 v7_startTransition: true,
@@ -638,19 +690,20 @@ const App: React.FC = () => {
                 <Toaster />
                 <Sonner />
                 <ScoutProvider>
-                  <TourProvider>
-                    <KeyboardShortcutHandler />
-                    <PageviewTracker />
-                    <AgentNotifierMount />
-                    <ReplyNotifier />
-                    <LoginNotification />
-                    <PendingShareModal />
-                    <AppRoutes />
-                    <NotOnPromo>
-                      <ScoutSidePanel />
-                      <FloatingAskScoutButton />
-                    </NotOnPromo>
-                  </TourProvider>
+                  <ScoutChatProvider>
+                    <TourProvider>
+                      <KeyboardShortcutHandler />
+                      <PageviewTracker />
+                      <AgentNotifierMount />
+                      <LoginNotification />
+                      <PendingShareModal />
+                      <AppRoutes />
+                      <NotOnPromo>
+                        <ScoutSidePanel />
+                        <FloatingAskScoutButton />
+                      </NotOnPromo>
+                    </TourProvider>
+                  </ScoutChatProvider>
                 </ScoutProvider>
               </ConditionalBackground>
             </BrowserRouter>
