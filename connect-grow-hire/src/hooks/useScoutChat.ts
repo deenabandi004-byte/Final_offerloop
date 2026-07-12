@@ -117,6 +117,10 @@ export interface ScoutCta {
   prefill: Record<string, string>;
   credit_spending: boolean;
   credit_cost: number | null;
+  // Chat-action chip: clicking sends this text as the user's next message in
+  // the same conversation instead of navigating to `route` (which is kept as
+  // a fallback for clients that predate chat chips).
+  chat_message?: string | null;
 }
 
 /** A multi-step plan rendered inline as a checklist (Change 5). Produced when
@@ -185,6 +189,15 @@ export interface ScoutToolEvent {
   done: boolean;
 }
 
+/** A meeting prep job Scout started this turn (run_meeting_prep). Stamped by
+ *  the backend as `prep_job` on the response envelope; the hook polls the
+ *  prep status endpoint and posts the finished packet (digest + PDF link +
+ *  View PDF chip) back into the chat. */
+export interface ScoutPrepJob {
+  prep_id: string;
+  contact_name: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -208,8 +221,13 @@ export interface ChatMessage {
   mode?: ScoutMode | null;
   intentDetail?: ScoutIntent | null;
   cta?: ScoutCta | null;
+  // Multi-chip turns (e.g. drafts created: Inbox + My Network). When present
+  // it supersedes `cta` in rendering; `cta` stays the primary for back-compat.
+  ctas?: ScoutCta[] | null;
   plan?: ScoutPlan | null;
   toolEvents?: ScoutToolEvent[];
+  // A meeting prep Scout kicked off this turn; drives the status poller.
+  prepJob?: ScoutPrepJob | null;
   // Strategist briefing payload (Phase 3B). Set on briefing-* messages only.
   coverage?: ScoutCoverage | null;
   activeStrategy?: ScoutActiveStrategy | null;
@@ -221,6 +239,9 @@ export interface UseScoutChatReturn {
   setInput: (value: string) => void;
   isLoading: boolean;
   sendMessage: (messageText?: string) => Promise<void>;
+  /** Abort the in-flight turn (the composer's stop button). Partial streamed
+   *  text is kept as a finished message; nothing errors, nothing falls back. */
+  stopGeneration: () => void;
   /** Trigger a strategist briefing (Phase 3B). Posts to /briefing/stream,
    *  streams the response into a new assistant message. Returns true when a
    *  terminal SSE event ('done' or 'error') was received. The "Get my game
@@ -281,6 +302,11 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // In-flight request abort (the composer's stop button). stoppedRef flags a
+  // USER-initiated stop so the transport error it raises is treated as a
+  // delivered turn (keep partial text, no fallback, no error bubble).
+  const abortRef = useRef<AbortController | null>(null);
+  const stoppedRef = useRef(false);
 
   // One-time cleanup of chat history saved by an earlier build. Scout no longer
   // persists conversations, so wipe the legacy local cache and the Firestore
@@ -413,6 +439,10 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
       isStreaming: true,
     }]);
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let accumulatedText = '';
+
     try {
       const response = await fetch(`${BACKEND_URL}/api/scout-assistant/chat/stream`, {
         method: 'POST',
@@ -421,6 +451,7 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
           ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
 
       if (!response.ok || !response.body) {
@@ -432,7 +463,6 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-      let accumulatedText = '';
       // Set once the backend sends a terminal SSE event (done or error). A
       // stream that connects but ends without one delivered nothing usable.
       let receivedTerminal = false;
@@ -534,7 +564,9 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
                     mode: (data.mode as ScoutMode) || m.mode || 'chat',
                     intentDetail: data.intent || m.intentDetail || null,
                     cta: data.cta || null,
+                    ctas: data.ctas || null,
                     plan: data.plan || null,
+                    prepJob: (data.prep_job as ScoutPrepJob) || null,
                   } : m
                 ));
               } else if (eventType === 'error') {
@@ -578,10 +610,25 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
       }
       return delivered;
     } catch (error) {
+      // User pressed stop: keep whatever streamed so far as a finished
+      // message (drop the bubble entirely if nothing arrived) and report
+      // delivered so no fallback runs and no error bubble shows.
+      if (stoppedRef.current) {
+        setMessages(prev =>
+          accumulatedText.trim()
+            ? prev.map(m =>
+                m.id === assistantId ? { ...m, isStreaming: false, intent: null } : m
+              )
+            : prev.filter(m => m.id !== assistantId)
+        );
+        return true;
+      }
       console.error('[Scout] Streaming error:', error);
       // Remove placeholder and signal fallback
       setMessages(prev => prev.filter(m => m.id !== assistantId));
       return false;
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
     }
   };
 
@@ -589,6 +636,8 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
   // rendered; on any transport or HTTP failure it returns false so the caller
   // can surface an explicit error instead of failing silently.
   const sendMessageFallback = async (text: string, currentMessages: ChatMessage[]): Promise<boolean> => {
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       const token = await getToken();
       const payload = buildPayload(text, currentMessages);
@@ -600,6 +649,7 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
           ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -622,14 +672,20 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
         mode: (data.mode as ScoutMode) || 'chat',
         intentDetail: data.intent || null,
         cta: data.cta || null,
+        ctas: data.ctas || null,
         plan: data.plan || null,
+        prepJob: (data.prep_job as ScoutPrepJob) || null,
       };
 
       setMessages(prev => [...prev, assistantMessage]);
       return true;
     } catch (error) {
+      // User pressed stop: a silent no-reply turn, not a transport failure.
+      if (stoppedRef.current) return true;
       console.error('[Scout] Fallback error:', error);
       return false;
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
     }
   };
 
@@ -654,6 +710,7 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
 
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
+    stoppedRef.current = false;
 
     let delivered = false;
     try {
@@ -695,6 +752,14 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
     }
   }, [input, isLoading, messages, currentPage, user, chatId]);
 
+  // Stop button: abort the in-flight request. The transport catch blocks see
+  // stoppedRef and treat the turn as delivered (partial text kept, no error).
+  const stopGeneration = useCallback(() => {
+    if (!abortRef.current) return;
+    stoppedRef.current = true;
+    abortRef.current.abort();
+  }, []);
+
   /** Push a synthetic assistant message into the chat (local-only).
    *  Useful for "the workflow you started just finished" follow-ups: a
    *  Scout-driven contact search completes, the page dispatches
@@ -718,6 +783,122 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
       },
     ]);
   }, []);
+
+  // ---------------------------------------------------------------------
+  // Meeting prep poller. When a turn carries prepJob (Scout started a real
+  // meeting prep via run_meeting_prep), poll the same status endpoint the
+  // Meeting Prep page uses, render the live stage as a tool pill on that
+  // message, and when the job completes post the packet into the chat:
+  // digest + clickable PDF link + a View PDF chip that deep-links to the
+  // Meeting Prep page. A reload drops the poller (the message is contextual
+  // to the just-started action); the prep itself keeps running server-side.
+  // ---------------------------------------------------------------------
+  const handledPrepIdsRef = useRef<Set<string>>(new Set());
+  const prepPollerAliveRef = useRef(true);
+  useEffect(() => {
+    prepPollerAliveRef.current = true;
+    return () => { prepPollerAliveRef.current = false; };
+  }, []);
+
+  useEffect(() => {
+    const pending = messages.find(
+      m => m.prepJob?.prep_id && !handledPrepIdsRef.current.has(m.prepJob.prep_id),
+    );
+    if (!pending?.prepJob) return;
+    const { prep_id: prepId } = pending.prepJob;
+    const contactName = pending.prepJob.contact_name || 'your meeting';
+    handledPrepIdsRef.current.add(prepId);
+    const messageId = pending.id;
+    const startedAt = Date.now();
+    const POLL_MS = 4000;
+    const TIMEOUT_MS = 5 * 60 * 1000;
+    const evtId = `prep-${prepId}`;
+
+    const setPill = (label: string, done: boolean, summary?: string) => {
+      setMessages(prev => prev.map(m => {
+        if (m.id !== messageId) return m;
+        const events = [...(m.toolEvents || [])];
+        const idx = events.findIndex(e => e.id === evtId);
+        const evt: ScoutToolEvent = { id: evtId, name: 'run_meeting_prep', label, summary, done };
+        if (idx >= 0) events[idx] = { ...events[idx], ...evt };
+        else events.push(evt);
+        return { ...m, toolEvents: events };
+      }));
+    };
+
+    const prepPageCta = (id?: string): ScoutCta => ({
+      label: 'View PDF',
+      route: id ? `/coffee-chat-prep?prepId=${id}` : '/coffee-chat-prep',
+      prefill: {},
+      credit_spending: false,
+      credit_cost: null,
+    });
+
+    setPill(`Preparing your ${contactName} packet...`, false);
+
+    const tick = async () => {
+      if (!prepPollerAliveRef.current) return;
+      if (Date.now() - startedAt > TIMEOUT_MS) {
+        setPill('Prep still running', true, 'taking longer than usual');
+        appendSyntheticAssistant(
+          `The prep for **${contactName}** is taking longer than usual. It keeps running in the background; it will be in your Meeting Prep library when it finishes.`,
+          { cta: prepPageCta() },
+        );
+        return;
+      }
+      try {
+        const { apiService } = await import('@/services/api');
+        const status = await apiService.getCoffeeChatPrepStatus(prepId) as Record<string, any>;
+        if (!prepPollerAliveRef.current) return;
+        if (status?.status === 'completed') {
+          setPill('Meeting prep ready', true, `packet for ${contactName}`);
+          const fullName = status.contactData?.fullName || status.contactName || contactName;
+          // coffeeQuestions is a list of category groups ({questions: [...]}),
+          // not plain strings; flatten to the question text or the digest
+          // renders "[object Object]".
+          const questions: string[] = (Array.isArray(status.coffeeQuestions)
+            ? status.coffeeQuestions
+            : []
+          )
+            .flatMap((q: any) => {
+              if (typeof q === 'string') return [q];
+              if (Array.isArray(q?.questions)) return q.questions;
+              if (typeof q?.question === 'string') return [q.question];
+              return [];
+            })
+            .filter((q: any) => typeof q === 'string' && q.trim())
+            .slice(0, 3);
+          const lines = [
+            `Your meeting prep for **${fullName}** is ready.`,
+            ...(questions.length
+              ? ['A few questions to open with:', ...questions.map(q => `- ${q}`)]
+              : []),
+            ...(status.pdfUrl ? [`[Open the PDF](${status.pdfUrl})`] : []),
+          ];
+          appendSyntheticAssistant(lines.join('\n'), {
+            mode: 'do',
+            cta: prepPageCta(prepId),
+          });
+          return;
+        }
+        if (status?.status === 'failed') {
+          setPill('Prep failed', true, status.error || 'could not finish');
+          appendSyntheticAssistant(
+            `I couldn't finish the prep for **${contactName}**${status.error ? `: ${status.error}` : '.'} The credits were refunded automatically.`,
+          );
+          return;
+        }
+        const label = typeof status?.stageLabel === 'string' && status.stageLabel
+          ? status.stageLabel
+          : `Preparing your ${contactName} packet...`;
+        setPill(label, false);
+      } catch {
+        // Transient poll failure: keep trying until the timeout.
+      }
+      window.setTimeout(tick, POLL_MS);
+    };
+    window.setTimeout(tick, POLL_MS);
+  }, [messages, appendSyntheticAssistant]);
 
   // Tour demo orchestration — local addition, not in loops-setup-v2.
   // Mirror of appendSyntheticAssistant for the user side. Used by the
@@ -886,6 +1067,7 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
     setInput,
     isLoading,
     sendMessage,
+    stopGeneration,
     clearChat,
     messagesEndRef,
     inputRef,

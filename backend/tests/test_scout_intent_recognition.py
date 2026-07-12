@@ -33,15 +33,17 @@ except Exception:
 
 # --- Tier A: the broadened find-people rule (regex, deterministic) ----------
 
-# message, required prefill subset. All resolve to /contact-search.
+# message, required prefill subset. All resolve to /find. The rule emits a
+# natural-language prompt carrier (matching the LLM path's default-to-prompt
+# rule) so count/school/framing context survives verbatim.
 _TIER_A = [
-    ("reach out to PMs at stripe", {"company": "stripe", "job_title": "PMs"}),
-    ("find consultants at mckinsey", {"company": "mckinsey", "job_title": "consultants"}),
-    ("find me a recruiter at apple", {"company": "apple", "job_title": "recruiter"}),
-    ("looking for engineers at Anthropic", {"company": "Anthropic", "job_title": "engineers"}),
-    ("need to connect with recruiters at Meta", {"company": "Meta", "job_title": "recruiters"}),
+    ("reach out to PMs at stripe", {"prompt": "PMs at stripe"}),
+    ("find consultants at mckinsey", {"prompt": "consultants at mckinsey"}),
+    ("find me a recruiter at apple", {"prompt": "recruiter at apple"}),
+    ("looking for engineers at Anthropic", {"prompt": "engineers at Anthropic"}),
+    ("need to connect with recruiters at Meta", {"prompt": "recruiters at Meta"}),
     ("connect with analysts at Goldman in Chicago",
-     {"company": "Goldman", "job_title": "analysts", "location": "Chicago"}),
+     {"prompt": "analysts at Goldman in Chicago"}),
 ]
 
 
@@ -52,7 +54,7 @@ def test_tier_a_find_people(message, prefill):
     assert plan is not None, f"{message!r} should be a Tier A regex hit"
     assert plan["name"] == "navigate"
     args = plan["args"]
-    assert args["route"] == "/contact-search"
+    assert args["route"] == "/find"
     for key, value in prefill.items():
         assert args["prefill"].get(key) == value, (
             f"prefill[{key}]: got {args['prefill'].get(key)!r}, want {value!r}")
@@ -69,13 +71,28 @@ def test_tier_a_ignores_find_out():
 # message, accepted routes. Every case must navigate, never answer/clarify the
 # need away. A genuinely ambiguous target accepts more than one route.
 _LLM_NAVIGATE = [
-    ("email ey portland auditors", ("/contact-search",)),
+    ("email ey portland auditors", ("/find",)),
     # Removed Jane Street interview prep case: /interview-prep no longer
     # exists in the page registry after the Phase 5 cleanup.
-    ("draft a cover letter for the stripe pm role", ("/write/cover-letter",)),
-    ("who do i know at anthropic", ("/contact-directory", "/contact-search")),
-    ("auto apply to swe jobs in nyc", ("/job-board",)),
+    ("draft a cover letter for the stripe pm role", ("/cover-letter",)),
+    ("who do i know at anthropic", ("/my-network/people", "/find")),
 ]
+
+# "auto apply to swe jobs in nyc" moved out of the navigate-only table: since
+# Scout gained the in-chat auto-apply flow (find_jobs -> confirm -> submit),
+# answering with matches or clarifying which jobs is correct behavior too.
+# It must simply never route to a people-search page.
+
+
+@pytest.mark.integration
+def test_auto_apply_request_never_routes_to_people_search():
+    result = run_async(scout_assistant_service.handle_chat(
+        message="auto apply to swe jobs in nyc", current_page="/dashboard"))
+    if result["tool"] == "navigate":
+        assert result["navigate"]["route"] in ("/job-board", "/applications"), (
+            f"navigated to {result['navigate']['route']!r}")
+    else:
+        assert result["tool"] in ("answer", "clarify"), result["tool"]
 
 
 @pytest.mark.integration

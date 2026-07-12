@@ -87,6 +87,7 @@ def _navigate_plan(
     prefill: Dict[str, str],
     reasoning: str,
     user_was_imperative: bool,
+    auto_submit: bool = False,
 ) -> Dict[str, Any]:
     """A navigate tool-call dict, identical in shape to what the LLM path
     produces, so _build_tool_response handles a regex hit the same way."""
@@ -98,6 +99,7 @@ def _navigate_plan(
             "reasoning": reasoning,
             "confidence": _REGEX_CONFIDENCE,
             "user_was_imperative": user_was_imperative,
+            "auto_submit": auto_submit,
         },
     }
 
@@ -130,7 +132,7 @@ def _rule_linkedin_url(message: str) -> Optional[Dict[str, Any]]:
         return None
     url = raw.rstrip("/.,);:")
     return _navigate_plan(
-        route="/meeting-prep",
+        route="/coffee-chat-prep",
         prefill={"linkedin_url": url},
         reasoning="Open meeting prep for this LinkedIn profile.",
         user_was_imperative=False,
@@ -183,16 +185,26 @@ def _rule_find_people(message: str) -> Optional[Dict[str, Any]]:
     # Company should be a name, not a clause. Keep it short and present.
     if not company or _word_count(company) > 5:
         return None
-    prefill: Dict[str, str] = {"company": company}
-    if location:
-        prefill["location"] = location
+    # Prompt carrier: rebuild the natural search ("5 usc alumni at bain in
+    # los angeles") instead of forcing count/school fragments into structured
+    # fields. Matches the LLM path's default-to-prompt rule, so school, year,
+    # and count context survive into the search bar verbatim.
+    descriptor = ""
     if role and role.lower() not in _GENERIC_PEOPLE_WORDS and _word_count(role) <= 5:
-        prefill["job_title"] = role
+        descriptor = role
+    prompt = f"{descriptor or 'people'} at {company}"
+    if location:
+        prompt += f" in {location}"
+    # An explicit count means the query is complete; fire the search on
+    # landing (the approve card still gates it, since the action spends
+    # credits).
+    has_count = bool(re.search(r"\b\d+\b", descriptor))
     return _navigate_plan(
-        route="/contact-search",
-        prefill=prefill,
-        reasoning=f"Search for contacts at {company}.",
+        route="/find",
+        prefill={"prompt": prompt},
+        reasoning=f"Search for {descriptor or 'contacts'} at {company}.",
         user_was_imperative=False,
+        auto_submit=has_count,
     )
 
 
@@ -201,7 +213,13 @@ def _rule_find_people(message: str) -> Optional[Dict[str, Any]]:
 # prep, a cover letter, or a recruiter lookup; the right page is genuinely
 # ambiguous, so these fall through to the LLM, which has the parse_job_url
 # helper tool to disambiguate. There is intentionally no rule for them.
-_RULES = (_rule_linkedin_url, _rule_route_mention, _rule_find_people)
+#
+# _rule_find_people is retired from the active set: "find me 3 SWEs at
+# Spotify" is now an in-chat execute (the find_contacts tool surfaces the
+# results in the panel and saves them to My Network), so it must reach the
+# LLM instead of being short-circuited into a /find navigate. The function
+# stays for reference / quick revert.
+_RULES = (_rule_linkedin_url, _rule_route_mention)
 
 
 def try_pre_llm(
