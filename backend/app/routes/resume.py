@@ -12,6 +12,7 @@ from app.services.resume_capabilities import (
     get_file_extension,
     build_resume_metadata
 )
+from app.services.resume_scoring import MIN_JOB_DESCRIPTION_CHARS, score_resume_structured
 from ..extensions import require_firebase_auth
 from app.utils.users import parse_resume_info, validate_parsed_resume
 from ..extensions import get_db
@@ -427,7 +428,6 @@ def delete_resume():
         return jsonify({'error': 'Failed to delete resume'}), 500
 
 
-
 def _upload_tailored_pdf(user_id: str, job_hash: str, pdf_bytes: bytes) -> str | None:
     """Upload a tailored resume PDF and return the public URL."""
     try:
@@ -560,3 +560,71 @@ def tailor_resume_route():
         print(f"[Resume/tailor] error: {exc}")
         import traceback
         traceback.print_exc()
+        return jsonify({'error': 'Failed to tailor resume'}), 500
+
+
+@resume_bp.route('/resume/score', methods=['POST'])
+@require_firebase_auth
+def score_resume():
+    """
+    Score the caller's resume against the Harvard rubric and return
+    path-targeted, mechanically-applicable recommendations.
+
+    Body: {"resumeParsed": {...}} (optional — falls back to the user doc's
+    stored resumeParsed if omitted or empty). Optional job-fit mode: pass
+    "jobDescription" (plus optional "jobTitle", "company") to score fit
+    against that specific posting instead of general quality. Costs no
+    credits.
+    """
+    try:
+        uid = request.firebase_user['uid']
+        db = get_db()
+
+        payload = request.get_json(silent=True) or {}
+        parsed = payload.get('resumeParsed')
+
+        # Optional job-fit mode: a meaningful jobDescription switches the
+        # scorer to grade fit against that posting. Empty/whitespace-only is
+        # treated as absent (general mode) so clients that always send the
+        # field don't break; present-but-too-short is a hard 400.
+        job_context = None
+        job_description = payload.get('jobDescription')
+        job_description = job_description.strip() if isinstance(job_description, str) else ''
+        if job_description:
+            if len(job_description) < MIN_JOB_DESCRIPTION_CHARS:
+                return jsonify({
+                    'error': 'Job description is too short to score against '
+                             f'(minimum {MIN_JOB_DESCRIPTION_CHARS} characters). '
+                             'Paste the full posting.'
+                }), 400
+            job_title = payload.get('jobTitle')
+            company = payload.get('company')
+            job_context = {
+                'job_description': job_description,
+                'job_title': job_title.strip() if isinstance(job_title, str) else '',
+                'company': company.strip() if isinstance(company, str) else '',
+            }
+
+        if not parsed:
+            user_data = {}
+            if db:
+                user_doc = db.collection('users').document(uid).get()
+                user_data = user_doc.to_dict() or {}
+            parsed = user_data.get('resumeParsed')
+
+        if not parsed:
+            return jsonify({'error': 'No resume data to score. Upload a resume first.'}), 400
+
+        try:
+            result = score_resume_structured(parsed, job_context=job_context)
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        print(f"[Resume] Scoring failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': 'Failed to score resume'}), 502
+
