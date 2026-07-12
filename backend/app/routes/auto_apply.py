@@ -61,6 +61,64 @@ _APPLY_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="autoapply")
 # 30s networkidle), so 4 min only ever catches a genuine hang.
 AUTO_APPLY_TIMEOUT_SECONDS = 240
 
+# The in-process wall-clock guard above only helps while the PROCESS lives. A
+# worker restart — a deploy, an OOM kill, a crash — takes the filler AND its
+# guard down together, and the doc is left at running/filling_form forever
+# (2026-07-12: a deploy landed 24s into an apply and zombied it). The only
+# restart-proof reaper is a READ-time one: whenever the client polls status or
+# the list, any in-flight job that has been silent longer than this is declared
+# dead and refunded. Nothing has to stay alive for this to fire.
+# Mirrors draft_jobs.STALE_RUNNING. Kept above AUTO_APPLY_TIMEOUT_SECONDS so a
+# healthy-but-slow fill is never reaped out from under itself.
+AUTO_APPLY_STALE_AFTER_SECONDS = 300
+
+
+def _reap_if_stale(uid: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    """Declare a silent in-flight auto-apply dead, and refund it.
+
+    Read-time (so it survives worker restarts). Returns the doc dict, patched
+    in place when reaped, so callers can just hand the result to jsonify.
+    """
+    if not data or data.get("status") not in ("queued", "running"):
+        return data
+    stamp = data.get("updated_at") or data.get("created_at")
+    if not stamp:
+        return data
+    try:
+        last = datetime.fromisoformat(str(stamp).replace("Z", ""))
+    except (TypeError, ValueError):
+        return data
+    if (datetime.utcnow() - last).total_seconds() < AUTO_APPLY_STALE_AFTER_SECONDS:
+        return data
+
+    now = datetime.utcnow().isoformat()
+    patch: Dict[str, Any] = {
+        "status": "failed",
+        "stage": "failed",
+        "failure_reason": (
+            "The application stopped partway through. Nothing was submitted — "
+            "please try again."
+        ),
+        "failed_at": now,
+        "updated_at": now,
+    }
+    auto_apply_id = data.get("auto_apply_id")
+    try:
+        charged = int(data.get("credits_charged") or 0)
+        if charged and not data.get("credits_refunded") and not data.get("dry_run"):
+            refund_credits_atomic(uid, charged, "auto_apply_refund")
+            patch["credits_refunded"] = True
+        (
+            get_db().collection("users").document(uid)
+            .collection("autoApplyJobs").document(str(auto_apply_id))
+            .update(patch)
+        )
+    except Exception:
+        logger.exception("stale reap failed for auto-apply %s", auto_apply_id)
+        return data
+    logger.info("reaped stale auto-apply %s (silent > %ss)", auto_apply_id, AUTO_APPLY_STALE_AFTER_SECONDS)
+    return {**data, **patch}
+
 
 logger = logging.getLogger(__name__)
 
@@ -371,7 +429,9 @@ def auto_apply_status(auto_apply_id: str):
     )
     if not snap.exists:
         return jsonify({"error": "not found", "code": "NOT_FOUND"}), 404
-    return jsonify(snap.to_dict() or {})
+    # Reap on read: a job whose worker died (deploy/OOM/crash) would otherwise
+    # poll as "running" forever. See _reap_if_stale.
+    return jsonify(_reap_if_stale(uid, snap.to_dict() or {}))
 
 
 # =============================================================================
@@ -688,5 +748,9 @@ def list_auto_apply_jobs():
             for d in docs
         ]
 
+    # Reap on read here too — the Applications tab polls this even when no
+    # detail modal is open, so it's often the first thing to notice a job whose
+    # worker died. Cheap: only touches docs already stuck in queued/running.
+    items = [_reap_if_stale(uid, it) for it in items]
     items.sort(key=lambda x: x.get("created_at") or "", reverse=True)
     return jsonify({"items": items[:limit], "count": len(items)})
