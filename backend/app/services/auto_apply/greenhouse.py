@@ -289,11 +289,37 @@ def run_greenhouse_filler(
                             # render completes, and we measured at least one
                             # case where the inputs took >5s to appear after
                             # networkidle — so poll for 30s.
-                            print(f"[auto_apply]   polling for #security-input-0 (email-code gate detection, up to 30s)...", flush=True)
+                            # Gate detection used to match ONLY Temelio's markup
+                            # (#security-input-0), so other tenants' verification
+                            # widgets (Docugami, 2026-07-13) were missed and the
+                            # code-reader below never ran. Match the generic
+                            # signals too: the page text Greenhouse uses, plus any
+                            # one-time-code / security input.
+                            print(f"[auto_apply]   polling for the email-code gate (up to 30s)...", flush=True)
                             verification_visible = False
                             for _ in range(30):
-                                if page.query_selector("#security-input-0"):
-                                    verification_visible = True
+                                try:
+                                    verification_visible = page.evaluate(
+                                        """() => {
+                                            if (document.querySelector('#security-input-0')) return true;
+                                            const body = (document.body.innerText || '').toLowerCase();
+                                            const worded = (
+                                                body.includes('verification code') ||
+                                                body.includes('security code') ||
+                                                body.includes("confirm you're a human") ||
+                                                body.includes('confirm you are a human')
+                                            );
+                                            const hasCodeInput = !!document.querySelector(
+                                                'input[autocomplete="one-time-code"], ' +
+                                                'input[name*="security" i], input[id*="security" i], ' +
+                                                'input[name*="verification" i], input[id*="verification" i]'
+                                            );
+                                            return worded && hasCodeInput;
+                                        }"""
+                                    )
+                                except Exception:
+                                    verification_visible = bool(page.query_selector("#security-input-0"))
+                                if verification_visible:
                                     break
                                 page.wait_for_timeout(1000)
                             print(f"[auto_apply]   email-verification UI visible: {verification_visible}", flush=True)
@@ -718,15 +744,38 @@ def _try_email_code_completion(
               flush=True)
         return False
 
-    print(f"[auto_apply.emailcode] CODE CAPTURED: {code} — filling 8 boxes", flush=True)
+    print(f"[auto_apply.emailcode] CODE CAPTURED: {code} — filling boxes", flush=True)
     try:
-        for i, char in enumerate(code[:8]):
-            sel = f"#security-input-{i}"
-            if page.query_selector(sel):
-                page.fill(sel, char)
-                print(f"[auto_apply.emailcode] filled {sel} = {char!r}", flush=True)
-            else:
-                print(f"[auto_apply.emailcode] WARN: {sel} not found", flush=True)
+        # Preferred: Temelio's #security-input-{i}. Fallback: locate the code
+        # inputs generically (other tenants use different ids), in DOM order.
+        boxes = page.query_selector_all("#security-input-0, #security-input-1")
+        use_generic = not boxes
+        if use_generic:
+            box_els = page.query_selector_all(
+                'input[autocomplete="one-time-code"], '
+                'input[name*="security" i], input[id*="security" i], '
+                'input[name*="verification" i], input[id*="verification" i]'
+            )
+            print(f"[auto_apply.emailcode] generic box path: {len(box_els)} input(s) found", flush=True)
+            for i, char in enumerate(code[:len(box_els)]):
+                try:
+                    box_els[i].fill(char)
+                except Exception:
+                    box_els[i].type(char)
+            # Single-input variants (one field, whole code) — type it all.
+            if len(box_els) == 1:
+                try:
+                    box_els[0].fill(code[:8])
+                except Exception:
+                    pass
+        else:
+            for i, char in enumerate(code[:8]):
+                sel = f"#security-input-{i}"
+                if page.query_selector(sel):
+                    page.fill(sel, char)
+                    print(f"[auto_apply.emailcode] filled {sel} = {char!r}", flush=True)
+                else:
+                    print(f"[auto_apply.emailcode] WARN: {sel} not found", flush=True)
         page.wait_for_timeout(500)
         # Greenhouse's 2FA-style UI sometimes auto-submits on the last
         # character; click Submit anyway in case it doesn't.

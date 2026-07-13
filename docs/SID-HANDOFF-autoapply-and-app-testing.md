@@ -230,28 +230,43 @@ Render's mounted secret files). Start command must put **both** the repo root an
 
 ---
 
-## 7. ⛔ The open decision: Greenhouse's verification code
+## 7. Greenhouse's verification code — auto-read IS the intended behavior
 
-Greenhouse emails the applicant an 8-character code and will not accept a submit
-without it. **We cannot and should not defeat that headlessly.** Today it routes to
-**`needs_verification`** → the app shows a "Finish in browser" card, everything we
-filled is preserved, and the user types the code themselves.
+Greenhouse emails the applicant an 8-character code and won't accept a submit
+without it. **This is already built and is the intended design** — do not
+second-guess it: `greenhouse.py::_try_email_code_completion` polls the candidate's
+connected Gmail (`from:greenhouse-mail.io`, regex `application:\s+([A-Za-z0-9]{8})`,
+up to 90s), fills the 8 boxes, and re-submits. It was part of the working June
+flow. The human hand-off (`needs_verification`) is only the FALLBACK for when the
+code can't be read.
 
-**The option on the table:** the code is emailed **to the user**, and their Gmail
-is **already connected with read scope**. So we could **read the code from their
-own inbox, enter it, and submit** — their email, their application, their explicit
-intent. That restores true end-to-end auto-apply.
+**Why it wasn't firing (fixed 2026-07-13):**
+1. **Gate detection was too narrow.** It only triggered on Temelio's markup
+   (`#security-input-0`). Other tenants (Docugami) use a different verification
+   widget, so `verification_visible` stayed False and the reader never ran — the
+   job fell through to `submit_failed`. Detection now also matches the generic
+   signals (page text "verification code" / "confirm you're a human" + a
+   one-time-code / security input).
+2. **The box-fill was hardcoded to `#security-input-{0..7}`.** Generalized to fall
+   back to the ordered OTP/single-char inputs when those specific ids aren't present.
 
-**This is a judgment call for the founders, not an engineering detail.** It is the
-difference between "auto-apply gets you to the one-yard line" and "auto-apply
-actually applies." It is also, arguably, exactly the human-intent check Greenhouse
-wants — the user *did* ask to apply. Decide deliberately.
+**Demo-account caveat (not a code bug):** the demo account's application email is
+`applereview@offerloop.ai` but its connected/readable Gmail is
+`offerloop0@gmail.com`. Greenhouse sends the code to the *application* email, and
+we can only read the *connected* one — so on the demo it finds nothing. For a real
+user those are the same address (they apply with the Gmail they connected). For
+testing, the demo's application email should be set to the connected Gmail.
+
+**The fallback is honest and correct:** if there's no connected Gmail, or the code
+genuinely doesn't arrive in the poll window, the job goes to `needs_verification`
+and the user finishes the code step themselves — everything else stays filled.
 
 ---
 
 ## 8. Still open (ranked)
 
-1. **The verification-code decision** (§7) — blocks true end-to-end.
+1. **Verify the widened code-reader works end-to-end** (§7). Detection + box-fill
+   are fixed; confirm a real auto-read completes once the demo email is aligned.
 2. **Stale job pool.** `expires_at` flagged only **3 of 7,980** jobs as expired,
    yet several we tried **404'd** (Doctors Without Borders, Multiply Labs). Users
    swipe ghosts. Fillers now stamp **`job_gone`** — wire that to auto-expire a job
