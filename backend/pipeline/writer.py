@@ -17,10 +17,32 @@ EXISTENCE_CHECK_CHUNK = 300
 DELETE_BATCH_SIZE = 500
 
 
+# A company name is never a role word or a placeholder. Scrapers sometimes slide
+# the job TYPE into the company slot — a Simplify record shipped with
+# company="Internship", title="AI Deployment Engineering Intern" (2026-07-12).
+# That is worse than a cosmetic glitch: swiping such a job sends the contact
+# search hunting for people who "work at Internship", which returns junk people
+# and burns the user's credits. Reject at the door — cheap, and it protects us
+# from whatever a NEW provider decides a company field means.
+_NOT_A_COMPANY = {
+    "internship", "internships", "intern", "co-op", "coop", "new grad", "graduate",
+    "engineering", "engineer", "analyst", "associate", "manager", "developer",
+    "scientist", "designer", "consultant", "full time", "part time", "full-time",
+    "part-time", "contract", "remote", "hybrid", "onsite", "n/a", "na", "none",
+    "unknown", "jobs", "job", "careers", "career", "company", "employer", "-",
+}
+
+
+def _company_is_junk(company) -> bool:
+    name = str(company or "").strip().lower()
+    return (not name) or name in _NOT_A_COMPANY
+
+
 def write_jobs(normalized_jobs: list[dict]) -> dict:
     """
-    Write net-new jobs to Firestore. Skips any job_id that already exists.
-    Returns { written, skipped_duplicates, total }.
+    Write net-new jobs to Firestore. Skips any job_id that already exists, and
+    any job whose company name is obviously not a company (see _NOT_A_COMPANY).
+    Returns { written, skipped_duplicates, skipped_junk, total }.
     """
     db = get_db()
     if not db:
@@ -28,11 +50,20 @@ def write_jobs(normalized_jobs: list[dict]) -> dict:
 
     total = len(normalized_jobs)
     if total == 0:
-        return {"written": 0, "skipped_duplicates": 0, "total": 0}
+        return {"written": 0, "skipped_duplicates": 0, "skipped_junk": 0, "total": 0}
 
     # Build lookup: job_id -> doc
     jobs_by_id = {}
+    skipped_junk = 0
     for job in normalized_jobs:
+        if _company_is_junk(job.get("company")):
+            skipped_junk += 1
+            print(
+                f"[writer] skipping junk company={job.get('company')!r} "
+                f"title={str(job.get('title'))[:40]!r} src={job.get('source')}",
+                flush=True,
+            )
+            continue
         jid = job["job_id"]
         if jid not in jobs_by_id:
             jobs_by_id[jid] = job
@@ -72,7 +103,12 @@ def write_jobs(normalized_jobs: list[dict]) -> dict:
         written += len(chunk)
         logger.info("  Batch write: %d jobs committed", len(chunk))
 
-    result = {"written": written, "skipped_duplicates": skipped, "total": total}
+    result = {
+        "written": written,
+        "skipped_duplicates": skipped,
+        "skipped_junk": skipped_junk,
+        "total": total,
+    }
     logger.info("Write complete: %s", result)
     return result
 
