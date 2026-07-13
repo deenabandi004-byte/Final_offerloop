@@ -299,6 +299,19 @@ def me():
         or prof.get('resumeFileName')
         or ('Resume.pdf' if resume_url else None)
     )
+    # Some resumes were stored with the URL-ENCODED filename rather than the
+    # human one, so the app rendered "Rylan%20Bohnett%20Resume%20April%202025.pdf"
+    # (the storage URL even double-encodes it to %2520). Decode for display —
+    # this fixes every existing user without a migration. Guarded: a literal '%'
+    # in a real filename is left alone if unquote can't improve it.
+    if resume_name and '%' in resume_name:
+        try:
+            from urllib.parse import unquote
+            decoded = unquote(resume_name)
+            if decoded and decoded != resume_name:
+                resume_name = decoded
+        except Exception:
+            pass
     resume_experiences = _map_resume_experiences(resume_parsed)
 
     return jsonify({
@@ -340,7 +353,22 @@ def me():
         ),
         'industries': get_structured_target_industries(u),
         'gradYear': _grad_year(u, prof, academics),
-        'about': u.get('personalNote') or u.get('about') or resume_parsed.get('objective') or '',
+        # About: what the user wrote, else what we already know about them. The
+        # LinkedIn enrichment writes a one-line summary into
+        # linkedinResumeParsed.objective ("Co-founder at offerloop.ai in the
+        # financial services industry") — we were sitting on it and never
+        # reading it, so About rendered blank for enriched users whose uploaded
+        # resume happened to have no objective line. Falling through to it means
+        # the field arrives pre-filled from the LinkedIn + resume parse instead
+        # of empty; it stays fully editable and the user's own text always wins.
+        'about': (
+            u.get('personalNote')
+            or u.get('about')
+            or resume_parsed.get('objective')
+            or (u.get('linkedinResumeParsed') or {}).get('objective')
+            or (u.get('linkedinEnrichmentData') or {}).get('summary')
+            or ''
+        ),
         'resumeExperiences': resume_experiences,
         'linkedinHighlights': _linkedin_highlights(u),
     }), 200
@@ -408,6 +436,12 @@ def save_preferences():
       - targetRoles / industries — the onboarding goal (IB / Consulting / Tech);
         /me already surfaces these and the feed ranks against them.
       - referralSource — acquisition attribution ("How did you hear about us?").
+      - about / gradYear / linkedinUrl — the rest of the Profile tab. These were
+        collected by the app's Save button but had nowhere to go: the endpoint
+        didn't accept them, so they lived only in the local React Query cache and
+        were silently lost on the next refetch. Same "I edited my profile and
+        nothing changed" bug that targetRoles/industries already got fixed for —
+        this finishes the job.
     Only the fields present in the body are written (merge=True), so a
     locations-only or goal-only POST never clobbers the others."""
     db = get_db()
@@ -434,6 +468,19 @@ def save_preferences():
         src = str(data.get('referralSource') or '').strip()[:120]
         if src:
             patch['referralSource'] = src
+    if 'about' in data:
+        # Write to personalNote — /me reads that FIRST, so the user's own words
+        # always beat the LinkedIn-derived fallback. Allow clearing it ('' is a
+        # legitimate value: "I don't want an About").
+        patch['personalNote'] = str(data.get('about') or '').strip()[:600]
+    if 'gradYear' in data:
+        gy = str(data.get('gradYear') or '').strip()[:8]
+        if gy:
+            patch['gradYear'] = gy
+    if 'linkedinUrl' in data:
+        li = str(data.get('linkedinUrl') or '').strip()[:200]
+        if li:
+            patch['linkedinUrl'] = li
 
     if not patch:
         return jsonify({'error': 'no recognized preference fields'}), 400
