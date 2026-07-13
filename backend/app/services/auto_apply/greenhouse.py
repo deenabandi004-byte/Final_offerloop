@@ -2004,11 +2004,17 @@ def _verify_combobox_commit(
                         const txt = (single.textContent || '').trim().toLowerCase();
                         if (!txt) return false;
                         if (!expected) return true;
-                        return (
-                            txt === expected ||
-                            txt.includes(expected) ||
-                            expected.includes(txt)
-                        );
+                        // Extra TRAILING words = the same entity with more
+                        // detail ("... - Marshall"): accept. A committed value
+                        // with extra LEADING words is a DIFFERENT entity
+                        // ("Vanguard University of Southern California" != USC):
+                        // reject. The old rule accepted any either-direction
+                        // substring, so it rubber-stamped the wrong school onto
+                        // a real application (2026-07-13). Blank beats false.
+                        if (txt === expected) return true;
+                        if (txt.indexOf(expected) === 0) return true;              // trailing detail
+                        if (expected.indexOf(txt) === 0 && txt.length >= 0.6 * expected.length) return true; // abbreviation
+                        return false;
                     }
                     valueContainer = valueContainer.parentElement;
                 }
@@ -2408,17 +2414,60 @@ def _fill_combobox(
                 except Exception:
                     hit = None
                 if hit:
-                    # Navigate to the matched option via keyboard so
-                    # react-select's event chain fires correctly. Calling
-                    # `.click()` from JS only flips the visual highlight —
-                    # React state never gets the change and the form
-                    # re-renders empty on validation. ArrowDown + Enter is
-                    # the documented react-select keyboard pattern.
-                    target_idx = int(hit.get("index") or 0)
-                    for _ in range(target_idx + 1):
+                    # Commit by matching the HIGHLIGHTED option's text, not a
+                    # fixed index. ArrowDown+Enter is the right react-select
+                    # pattern (JS .click() only flips the highlight; React never
+                    # gets the change) — but the old code pressed ArrowDown
+                    # `target_idx + 1` times, which assumes NOTHING is
+                    # pre-highlighted. react-select actually auto-focuses the
+                    # FIRST filtered option after you type, so that overshot by
+                    # one: for USC at index 0 it moved the highlight to index 1
+                    # (Vanguard) and Enter committed the wrong school onto a real
+                    # application (2026-07-13). Step until the focused option's
+                    # text matches what we scored, THEN Enter — immune to the
+                    # initial-highlight ambiguity.
+                    target_text = (hit.get("text") or "").strip().lower()
+
+                    def _focused_option_text():
+                        try:
+                            return (page.evaluate(
+                                """() => {
+                                    const boxes = document.querySelectorAll('[role="listbox"]');
+                                    const box = boxes[boxes.length - 1];
+                                    if (!box) return '';
+                                    const f = box.querySelector(
+                                        '[class*="--is-focused"], [role="option"][aria-selected="true"]'
+                                    );
+                                    return f ? (f.textContent || '').trim().toLowerCase() : '';
+                                }"""
+                            ) or "").strip().lower()
+                        except Exception:
+                            return ""
+
+                    committed = False
+                    # react-select pre-focuses option 0, so CHECK before moving.
+                    for _step in range(40):
+                        if _focused_option_text() == target_text:
+                            page.keyboard.press("Enter")
+                            committed = True
+                            break
                         page.keyboard.press("ArrowDown")
-                    page.wait_for_timeout(50)
-                    page.keyboard.press("Enter")
+                        page.wait_for_timeout(40)
+                    if not committed:
+                        # Never landed on the exact option — do NOT guess a
+                        # near-match. Leave the field for the user (blank beats
+                        # a wrong school). Close the listbox and skip this hit.
+                        try:
+                            page.keyboard.press("Escape")
+                        except Exception:
+                            pass
+                        unmapped.append({
+                            "field_id": selector, "label": option_text,
+                            "reason": "could not focus the exact matched option to commit",
+                        })
+                        filled[selector] = f"combo:{target_text}[focus-miss|q={query!r}]"
+                        option_clicked = True
+                        break
                     # Force the wrapper form's blur handler so
                     # .select__control--error clears and the wrapper's
                     # validator re-runs. Figma's Greenhouse keeps
