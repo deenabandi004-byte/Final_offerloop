@@ -272,3 +272,146 @@ wants — the user *did* ask to apply. Decide deliberately.
 - **Ask any new provider for:** trustworthy freshness/expiry, the **real ATS
   `apply_url`** (not a redirect wrapper — auto-apply lives or dies on it), and
   clean company fields.
+
+---
+
+# PART II — Sid, starting from scratch
+
+Everything below assumes zero prior setup.
+
+## 10. The short answer on access
+
+**Do NOT share Rylan's Apple ID.** It's tempting and it will hurt:
+- Apple 2FA sends a code to *Rylan's* device on every login — Sid is blocked every
+  time Rylan is asleep or on a plane.
+- It violates Apple's terms (accounts are per-person), and it puts submissions,
+  pricing, and financials behind one shared password with **no audit trail**.
+- If Rylan rotates the password or loses a device, Sid is locked out mid-review.
+
+**The good news: Sid needs almost none of it.**
+
+| What Sid wants to do | What he actually needs | Apple login? |
+|---|---|---|
+| **Write code** (the 90% case) | The repos + a dev build on his machine | **No — none** |
+| **Test on his phone** | TestFlight invite (an email is enough) | **No** |
+| **Cut/submit builds** | Added to the **Expo** project | **No** — EAS already holds the Apple creds server-side |
+| **See App Store review status / submit for review** | An App Store Connect user invite | Yes (his own, not Rylan's) |
+
+**The key unlock: EAS already stores the Apple certs + provisioning profile
+server-side.** So Sid can run `eas build` and `eas submit` **without ever touching
+Rylan's Apple ID** — he just needs access to the *Expo* project, not the Apple one.
+
+### Two blockers to know about (both are Rylan's to do, once)
+
+1. **The Expo project is on a personal account** (`@rylanbohnett/offerloop-mobile`).
+   Personal accounts **cannot have members**. To give Sid build access:
+   Expo dashboard → create an **Organization** (free) → **transfer the project**
+   into it → invite Sid as a member. *Do this after submission, not during — a
+   transfer mid-review is asking for trouble.*
+
+2. **The Apple Developer account is Individual** (`Rylan Bohnett (Individual)`).
+   Individual memberships **cannot add developer-portal team members**. Only an
+   **Organization** account can (needs a D-U-N-S number; takes days-to-weeks).
+   Converting is a real future step, **not a pre-submission one**.
+
+**Practical recommendation for right now:**
+- Sid develops + tests immediately (needs nothing from Apple).
+- Add him as a **TestFlight tester** today (§12) — one email, no accounts.
+- **Rylan keeps cutting builds and doing the final submit** until after launch.
+- Post-launch: Expo Org (easy) and, if warranted, Apple Org conversion (slow).
+
+---
+
+## 11. Local setup (30 minutes)
+
+### Repos
+| Repo | Path | What it is |
+|---|---|---|
+| Mobile app | `~/offerloop-mobile` | The iOS app (Expo / React Native / TypeScript) |
+| Backend (staging) | `~/Downloads/Final_offerloop-staging-brain` | Flask API — branch **`staging/mobile-field`** |
+| Web / prod | `~/Downloads/Final_offerloop` | The website — branch `main`. **Different economics; don't cross-merge.** |
+
+### Mobile app
+```bash
+cd ~/offerloop-mobile
+npm install
+npx expo start          # then press `i` for the iOS simulator
+npm run typecheck       # tsc --noEmit — run this before every commit
+```
+
+The app talks to **staging** by default. There is **no `.env` in the mobile repo**
+— the API base URL comes from `eas.json`. To point a local run somewhere else:
+```bash
+EXPO_PUBLIC_API_BASE_URL=https://offerloop-staging.onrender.com npx expo start
+```
+
+Useful `EXPO_PUBLIC_*` flags (all optional):
+- `EXPO_PUBLIC_USE_MOCKS=1` — run the UI with fixture data, no backend
+- `EXPO_PUBLIC_FORCE_ONBOARDING=1` — always show onboarding (great for testing it)
+- `EXPO_PUBLIC_DEV_EMAIL` / `EXPO_PUBLIC_DEV_PASSWORD` — skip the sign-in dance
+
+⚠️ **`eas update` does NOT inline `EXPO_PUBLIC_*` vars.** Anything that must exist
+in a shipped build has to be **hardcoded or baked at build time** — we lost an hour
+to this once when a reviewer allowlist silently vanished from an OTA.
+
+### Backend (only if he's changing the API)
+```bash
+cd ~/Downloads/Final_offerloop-staging-brain/backend
+python3 -m venv venv && ./venv/bin/pip install -r requirements.txt
+```
+Secrets live in the **root `.env`** of `~/Downloads/Final_offerloop` (Rylan shares
+this directly — it is **not** in git). It holds `RENDER_API_KEY`,
+`GOOGLE_APPLICATION_CREDENTIALS`, and the provider keys.
+
+> ⚠️ The **root `.env`'s `OPENAI_API_KEY` is corrupted at rest** (ends in a stray
+> `$`). The valid one is in **`backend/.env`**. Load that one. This has bitten us.
+
+**You usually don't need to run the backend at all** — staging is live, and the
+app points at it. Push to `staging/mobile-field` and Render redeploys in ~3 min.
+
+---
+
+## 12. Getting the app on Sid's phone (TestFlight)
+
+**Easiest path — external tester (no Apple account needed):**
+1. Rylan → App Store Connect → **Offerloop** → **TestFlight** → **External Testing**
+2. Add Sid's email → he gets an invite → he installs the **TestFlight** app → Offerloop appears
+3. He installs **Build 10** (delete + reinstall for a clean run)
+
+*(Internal testers get builds instantly with no review, but require an App Store
+Connect user account. External is one email and is plenty for this.)*
+
+**Sid signs up in the app exactly like a normal user.** No special access. But for
+testing the *reviewer* path, use the shared demo account (§5):
+`applereview@offerloop.ai` — free tier, Gmail already connected, resume + application
+profile already on it. **That's the account with the full setup — use it.**
+
+---
+
+## 13. Sid's first week — suggested order
+
+1. **Read §1–§4.** Especially §4 (the wrong-school bug). The principle —
+   *a blank field beats a false one* — should govern every filler change he makes.
+2. **Get Build 10 on his phone**, sign in as the demo account, and run the loop:
+   swipe → draft → check the draft actually lands in **offerloop0@gmail.com's
+   Drafts folder** (not Inbox).
+3. **Run a dry-run auto-apply** via the API (§5) against a Greenhouse job. Read the
+   result doc. **Decode `screenshot_b64` and look at it.** That single habit found
+   two bugs today.
+4. **Pick up the ranked list in §8.** Item 2 (auto-expiring dead jobs via the new
+   `job_gone` flag) is the highest-value, lowest-risk piece of work available, and
+   it's self-contained.
+5. **Don't touch** the verification-code question (§7) until the founders decide —
+   it's a judgment call, not an engineering one.
+
+## 14. Things that will waste his day if nobody tells him
+
+- **The browser does not run in the web service.** Fill logs are in the **worker**.
+- **`expires_at` in the job pool lies.** Jobs 404 while claiming to be live.
+- **Native modules can't OTA.** JS-only changes ship instantly via `eas update`;
+  anything touching `package.json`/native needs a full build.
+- **The app and the web are separate economic entities.** Free tier on the app gets
+  *every* feature, limited only by credits. Never merge `staging/mobile-field` → `main`.
+- **Drafts land in the connected Gmail's *Drafts* folder**, not the Inbox. People
+  look in the wrong place and conclude it's broken.
+- **A "failed" auto-apply is often a dead job**, not a bug. Read `failure_reason`.
