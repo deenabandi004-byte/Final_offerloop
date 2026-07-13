@@ -112,8 +112,9 @@ endpoint, Ashby's `/application`) **were never even built** for most jobs.
 | `cdf1aee2` | **Greenhouse**: derive form URLs from `apply_url`, not `job_id`; embed endpoint first |
 | `1b051a60` | **Ashby**: use `/application` (where the form actually is); bare page has **no form** |
 | `ae84c7d7` | **School matching** — see §4, this one is serious |
-| `8ed24cab` | Greenhouse code-gate → `needs_verification`; **dead postings reported honestly**; Lever form-first |
+| `8ed24cab` | Greenhouse code-gate detection; **dead postings reported honestly**; Lever form-first |
 | `b7947fb4` | Ingestion rejects junk company names (a Simplify record had `company: "Internship"`) |
+| `bf0fefdd` | **Restored the Gmail code auto-reader** on non-Temelio verification gates (§7) — widened gate detection + generalized the box-fill |
 
 **Result — verified by live dry-runs:**
 - **Greenhouse (FFE Inc):** `dry_run_complete`, **17 fields** filled — name, email,
@@ -260,6 +261,18 @@ testing, the demo's application email should be set to the connected Gmail.
 **The fallback is honest and correct:** if there's no connected Gmail, or the code
 genuinely doesn't arrive in the poll window, the job goes to `needs_verification`
 and the user finishes the code step themselves — everything else stays filled.
+
+**To test the auto-read on the demo account:** point its application email at the
+connected inbox first, or the code lands where we can't read it. The application
+email resolves from `parsed.email or user.email` (`preview.py`), so set the demo
+user's `email` (Firestore user doc — NOT Firebase Auth, so the `applereview@`
+reviewer login is unaffected) to `offerloop0@gmail.com`, then submit (a REAL
+submit, not dry-run — dry-runs never reach the code gate) a live Greenhouse job
+and watch the worker log for `[auto_apply.emailcode] CODE CAPTURED`.
+
+> Lesson from 2026-07-13: this feature already existed and was intended. Before
+> concluding auto-apply "can't do X", grep the codebase — a lot more is built than
+> it looks, and the June flow really did work end-to-end.
 
 ---
 
