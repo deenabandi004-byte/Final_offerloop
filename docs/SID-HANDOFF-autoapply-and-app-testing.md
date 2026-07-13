@@ -415,3 +415,93 @@ profile already on it. **That's the account with the full setup — use it.**
 - **Drafts land in the connected Gmail's *Drafts* folder**, not the Inbox. People
   look in the wrong place and conclude it's broken.
 - **A "failed" auto-apply is often a dead job**, not a bug. Read `failure_reason`.
+
+---
+
+# PART III — Access checklist (Rylan does these once)
+
+**Division of labour:** Sid **develops and prepares**; Rylan **builds and submits**
+from Sid's updated codebase. That division means **Sid needs no Apple account and
+no Expo/EAS account at all.** He develops against the **iOS Simulator**, which
+requires zero Apple credentials.
+
+## 1. GitHub — the essential one
+
+The code lives in **two** GitHub repos (both under the `deenabandi004-byte` account):
+
+| Repo | Contains | Branch that matters |
+|---|---|---|
+| `deenabandi004-byte/offerloop-mobile` | **The iOS app** | `main` |
+| `deenabandi004-byte/Final_offerloop` | Backend + web | **`staging/mobile-field`** (app's backend) |
+
+**Do:** each repo → **Settings → Collaborators → Add people** → Sid's GitHub handle.
+
+> ⚠️ **This was nearly a disaster.** As of 2026-07-13 the mobile repo had **9
+> commits that existed only on Rylan's laptop** — including the App Store
+> compliance fix that prevents rejection. They're pushed now. **Push daily.** A
+> dead laptop was one coffee spill away from erasing the app.
+
+## 2. Render — invite Sid to the workspace
+
+Workspace **"My Workspace"** (`tea-d3213fmr433s738u62j0`), currently **1 member**.
+It's a *team*-type workspace, so members can be added:
+
+**Render dashboard → Settings → Members → Invite** → Sid's email.
+*(Render bills team seats on paid plans — check the cost before inviting.)*
+
+He'll then see all four services:
+| Service | id | What |
+|---|---|---|
+| `offerloop-staging` | `srv-d93d0fcvikkc73a1igmg` | The app's backend (web) |
+| `offerloop-worker` | `srv-d9a0e8l7vvec738cocjg` | **Where auto-apply's browser runs** |
+| `offerloop-queue` | `red-d9a0dt57vvec738cnt2g` | Redis (free) |
+| `Final_offerloop` | `srv-d3217ridbo4c73a24j9g` | The website (prod) |
+
+## 3. Firebase console — for reading Firestore
+
+He'll need this constantly (job docs, `autoApplyJobs`, user profiles).
+**Firebase console → project `offerloop-native` → Settings → Users and permissions
+→ Add member** → Sid's Google account → **Editor** (or Viewer if you'd rather he
+not write).
+
+## 4. Secrets (send directly — never commit)
+
+- The **root `.env`** from `~/Downloads/Final_offerloop` — provider keys +
+  `RENDER_API_KEY`.
+- The **Firebase service-account JSON** (for running the backend locally).
+- **Reminder:** the root `.env`'s `OPENAI_API_KEY` is corrupted (trailing `$`).
+  The good one is in `backend/.env`.
+
+## 5. TestFlight (optional but useful)
+
+App Store Connect → Offerloop → **TestFlight → External Testing** → add Sid's
+email. One invite, **no Apple account needed on his side.** He installs the
+TestFlight app and gets Build 10.
+
+## 6. What Sid does NOT need
+
+- ❌ **Rylan's Apple ID.** Never share it — 2FA lands on Rylan's device, it breaks
+  Apple's per-person terms, and it puts submissions + financials behind one shared
+  password with no audit trail.
+- ❌ **App Store Connect access** — Rylan submits.
+- ❌ **Expo / EAS** — Rylan builds. *(The Expo project is on a personal account,
+  which can't have members anyway; making Sid a builder would require creating an
+  Expo Org and transferring the project. Not worth doing pre-launch.)*
+- ❌ **An Apple Developer seat** — the account is **Individual**, which cannot add
+  team members at all. Only an Org conversion (D-U-N-S, days-to-weeks) would change
+  that. Post-launch decision, if ever.
+
+## 7. Sid's dev loop (no Apple involved)
+
+```bash
+git clone git@github.com:deenabandi004-byte/offerloop-mobile.git
+cd offerloop-mobile && npm install
+npx expo start          # press `i` -> iOS Simulator. No Apple account required.
+npm run typecheck       # before every commit
+```
+The app points at **staging**, which is live — so he does **not** need to run the
+backend to work on the app. Backend changes: push to **`staging/mobile-field`** and
+Render redeploys in ~3 minutes.
+
+**Handoff back to Rylan for release:** Sid pushes to `main` (mobile) →
+Rylan pulls → `eas build` → `eas submit`. Sid never touches Apple.
