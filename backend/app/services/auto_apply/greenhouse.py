@@ -2481,10 +2481,10 @@ def _fill_combobox(
                         page.wait_for_timeout(200)
                     except Exception:
                         pass
-                    if _verify_combobox_commit(page, selector, hit.get("text") or ""):
+                    if _verify_combobox_commit(page, selector, target_text):
                         option_clicked = True
                         filled[selector] = (
-                            f"combo:{hit.get('text')}[idx={target_idx}|q={query!r}]"
+                            f"combo:{target_text}[matched|q={query!r}]"
                         )
                         break
                     # Chip rendered (react-select committed internally) but
@@ -2502,8 +2502,8 @@ def _fill_combobox(
                         ),
                     })
                     filled[selector] = (
-                        f"combo:{hit.get('text')}"
-                        f"[chip-set-but-invalid|idx={target_idx}|q={query!r}]"
+                        f"combo:{target_text}"
+                        f"[chip-set-but-invalid|q={query!r}]"
                     )
                     option_clicked = True
                     break
