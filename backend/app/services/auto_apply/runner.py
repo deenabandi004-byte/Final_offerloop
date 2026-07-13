@@ -22,7 +22,10 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import shutil
 import tempfile
+from urllib.parse import unquote
 import threading
 import traceback
 from datetime import datetime, timedelta
@@ -435,19 +438,46 @@ def _build_student_context(
 
 
 def _download_resume_to_temp(url: str, filename: str) -> str:
-    """Pull the resume PDF to a temp file. The form-filler needs a local path
-    for Playwright's set_input_files."""
-    suffix = os.path.splitext(filename)[1] or ".pdf"
+    """Pull the resume PDF to a temp file and return a local path for
+    Playwright's set_input_files.
+
+    The BASENAME of this path is the filename the EMPLOYER sees in their ATS.
+    mkstemp() named it for the machine, so every application we have ever
+    submitted arrived as "autoapply_resume_8c6k9nbn.pdf" — a random temp name
+    attached to a real application under the user's real name. Write the file
+    into a temp DIRECTORY under the user's actual filename instead, so the
+    recruiter gets "Rylan Bohnett Resume April 2025.pdf".
+
+    Also decodes the stored name: some resumes were saved URL-encoded
+    ("Rylan%20Bohnett%20Resume.pdf"), and we are NOT putting %20s on somebody's
+    job application.
+    """
+    raw = os.path.basename((filename or "").strip())
+    try:
+        raw = unquote(raw)
+    except Exception:
+        pass
+    # Strip anything that isn't safe as a path component; keep it human.
+    safe = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', " ", raw)
+    safe = re.sub(r"\s+", " ", safe).strip(" .")
+    if not safe:
+        safe = "Resume.pdf"
+    if not os.path.splitext(safe)[1]:
+        safe += ".pdf"
+
     resp = requests.get(url, timeout=30)
     resp.raise_for_status()
-    fd, path = tempfile.mkstemp(suffix=suffix, prefix="autoapply_resume_")
+    # mkdtemp (not mkstemp): the directory carries the uniqueness, the FILE
+    # keeps the human name.
+    tmpdir = tempfile.mkdtemp(prefix="autoapply_resume_")
+    path = os.path.join(tmpdir, safe)
     try:
-        with os.fdopen(fd, "wb") as f:
+        with open(path, "wb") as f:
             f.write(resp.content)
         return path
     except Exception:
         try:
-            os.unlink(path)
+            shutil.rmtree(tmpdir, ignore_errors=True)
         except Exception:
             pass
         raise
