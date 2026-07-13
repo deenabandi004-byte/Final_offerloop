@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 # loaded. Prints to stdout on import. When you Ctrl+C and restart the
 # backend, this line should appear in the log — if it doesn't, the backend
 # isn't actually reloading and any "test" is running against the old code.
-_BUILD_TAG = "greenhouse-v19-needs-verification-route"
+_BUILD_TAG = "greenhouse-v20-combobox-focus-fallback"
 print(f"[auto_apply] greenhouse.py loaded — build={_BUILD_TAG}")
 
 
@@ -2529,14 +2529,19 @@ def _fill_combobox(
 
                     committed = False
                     # react-select pre-focuses option 0, so CHECK before moving.
+                    _last_focus_text = ""
                     for _step in range(40):
-                        if _focused_option_text() == target_text:
+                        _last_focus_text = _focused_option_text()
+                        if _last_focus_text == target_text:
                             page.keyboard.press("Enter")
                             committed = True
                             break
                         page.keyboard.press("ArrowDown")
                         page.wait_for_timeout(40)
                     if not committed:
+                        print(f"[auto_apply.combofix] {selector}: focus-detect failed "
+                              f"(want={target_text!r} last_focused={_last_focus_text!r}) "
+                              f"— trying click fallback", flush=True)
                         # Keyboard nav couldn't confirm the highlight on this
                         # tenant. Before giving up, click the exact option we
                         # scored — still the same option, still verified below.
