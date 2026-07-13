@@ -1402,6 +1402,15 @@ def _collect_unclassified_required_ids(page, already_classified: set) -> List[st
     return [str(x) for x in ids if str(x) not in already_classified]
 
 
+# Greenhouse's standard applicant fields. On aria-invalid retry these must be
+# refilled from their KNOWN preview values, never via label resolution — the
+# label resolver mis-tags the email input on some tenants.
+_STANDARD_FIELD_IDS = {
+    "first_name", "last_name", "full_name", "email", "phone",
+    "preferred_name", "preferred_first_name", "preferred_last_name",
+}
+
+
 def _resolve_refill_and_resubmit(
     page,
     invalid_fields: List[Dict[str, Any]],
@@ -1471,11 +1480,19 @@ def _resolve_refill_and_resubmit(
             continue
         field_type = field.get("field_type") or "text"
         label = field.get("label") or ""
-        # User's drawer answer wins. Falls back to LLM-resolved value only
-        # if drawer didn't speak for this field.
+        # User's drawer answer wins. Then the KNOWN value for standard fields.
+        # Only then the label-based resolver.
         user_answer = edited.get(str(fid))
+        std_fields = preview.get("fields") or {}
         if user_answer:
             info = {"answer": user_answer, "source": "drawer"}
+        elif str(fid) in _STANDARD_FIELD_IDS and std_fields.get(str(fid)):
+            # first_name/last_name/email/phone are known — use the value
+            # directly, never the label-based resolver. On some tenants
+            # _resolve_label_text mis-labels the EMAIL input as "First Name",
+            # so the resolver put the first name INTO email and blocked every
+            # submit (2026-07-13). Deterministic beats guessing for these.
+            info = {"answer": std_fields.get(str(fid)), "source": "standard"}
         else:
             info = resolved.get(fid) or {}
         answer = info.get("answer")
