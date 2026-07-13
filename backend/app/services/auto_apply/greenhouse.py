@@ -186,11 +186,18 @@ def run_greenhouse_filler(
                         ).decode("ascii")
                     except Exception:
                         pass
+                    # Distinguish "the job is gone" from "we couldn't find the
+                    # form". Most of these are dead postings, and calling that a
+                    # render failure makes our tool look broken.
+                    from app.services.auto_apply import _form_filler_common as _cc
+                    gone = _cc.posting_looks_gone(page)
                     return _failure(
-                        "Greenhouse form did not render at any candidate URL",
+                        _cc.JOB_GONE_REASON if gone
+                        else "Greenhouse form did not render at any candidate URL",
                         attempted_urls=candidate_urls,
                         attempt_log=attempt_log,
                         screenshot_b64=failure_b64,
+                        job_gone=gone,
                     )
 
                 print(f"[auto_apply] === FILLING STANDARD FIELDS (name, email, phone, country, location) ===", flush=True)
@@ -404,6 +411,64 @@ def run_greenhouse_filler(
                                         "See the unmapped list."
                                     )
                             elif form_still_present:
+                                # Greenhouse now gates submission behind an EMAILED
+                                # verification code ("A verification code was sent to
+                                # <email>. To submit your application, enter the
+                                # 8-character code to confirm you're a human."). The
+                                # form fills perfectly, Submit clicks, and Greenhouse
+                                # silently refuses — no aria-invalid, no error text.
+                                # We were reporting that as "submit_failed (likely
+                                # silent validation)", which reads like OUR bug and
+                                # leaves the user with no idea what to do.
+                                #
+                                # It's not a failure — it's a human check we cannot
+                                # (and shouldn't) defeat headlessly. Detect it and hand
+                                # off: needs_verification puts a "Finish in browser"
+                                # card in front of the user, who has the code in their
+                                # inbox. Everything we filled is preserved.
+                                verification_gate = False
+                                try:
+                                    verification_gate = page.evaluate(
+                                        """() => {
+                                            const body = (document.body.innerText || '').toLowerCase();
+                                            const worded = (
+                                                body.includes('verification code') ||
+                                                body.includes('security code') ||
+                                                body.includes("confirm you're a human") ||
+                                                body.includes('confirm you are a human')
+                                            );
+                                            const hasCodeInput = !!document.querySelector(
+                                                'input[name*="security" i], input[id*="security" i], ' +
+                                                'input[name*="verification" i], input[id*="verification" i], ' +
+                                                'input[autocomplete="one-time-code"]'
+                                            );
+                                            return worded || hasCodeInput;
+                                        }"""
+                                    )
+                                except Exception:
+                                    pass
+
+                                if verification_gate:
+                                    print(
+                                        "[auto_apply]   STATUS: needs_verification "
+                                        "(Greenhouse emailed a code — handing off to the user)",
+                                        flush=True,
+                                    )
+                                    return {
+                                        "status": "needs_verification",
+                                        "filled": filled,
+                                        "unmapped": unmapped,
+                                        "prepared_answers": prepared_answers,
+                                        "screenshot_b64": screenshot_b64,
+                                        "captcha": {"kind": "email_code"},
+                                        "apply_url": landed_on or apply_url,
+                                        "failure_reason": (
+                                            "Greenhouse emailed you an 8-character code to prove "
+                                            "you're human. Everything else is filled in — open the "
+                                            "application, enter the code, and submit."
+                                        ),
+                                    }
+
                                 status = "submit_failed"
                                 failure_reason = (
                                     "form is still on the page after Submit click — "

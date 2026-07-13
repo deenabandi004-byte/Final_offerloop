@@ -1070,3 +1070,48 @@ def failure(reason: str, **extra: Any) -> Dict[str, Any]:
     out: Dict[str, Any] = {"status": "failed", "failure_reason": reason}
     out.update(extra)
     return out
+
+
+# A posting that has been taken down is NOT a filler bug — but we were reporting
+# it as "<ATS> form did not render at any candidate URL", which reads like our
+# code is broken and tells the user nothing actionable. In practice a large share
+# of auto-apply "failures" are simply dead jobs: the scraped pool goes stale, and
+# the pool's own expires_at is not trustworthy (2026-07-13: only 3 of 7,980 jobs
+# were flagged expired, yet several we tried 404'd). Say so plainly instead.
+_GONE_MARKERS = (
+    "no longer accepting",
+    "no longer available",
+    "no longer accepting applications",
+    "position is closed",
+    "job is closed",
+    "posting is closed",
+    "this job is no longer",
+    "not found",
+    "page not found",
+    "404",
+    "job posting has expired",
+    "has been filled",
+)
+
+
+def posting_looks_gone(page) -> bool:
+    """True when the loaded page says the job is taken down / doesn't exist.
+
+    Deliberately conservative: only consulted AFTER every candidate URL failed
+    to render a form, so a false positive can't cost us a real application — the
+    application was already not happening. The value is an honest reason.
+    """
+    try:
+        text = (page.evaluate("() => (document.body.innerText || '')") or "").lower()
+    except Exception:
+        return False
+    if not text:
+        return False
+    head = text[:4000]
+    return any(m in head for m in _GONE_MARKERS)
+
+
+JOB_GONE_REASON = (
+    "This job is no longer accepting applications — the posting was taken down. "
+    "Nothing was submitted."
+)

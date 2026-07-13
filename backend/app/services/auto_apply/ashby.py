@@ -144,11 +144,15 @@ def run_ashby_filler(
                         ).decode("ascii")
                     except Exception:
                         pass
+                    # A taken-down posting is not a render bug — say which it is.
+                    gone = common.posting_looks_gone(page)
                     return common.failure(
-                        "Ashby form did not render at any candidate URL",
+                        common.JOB_GONE_REASON if gone
+                        else "Ashby form did not render at any candidate URL",
                         attempted_urls=candidate_urls,
                         attempt_log=attempt_log,
                         screenshot_b64=failure_b64,
+                        job_gone=gone,
                     )
 
                 _fill_standard_fields(

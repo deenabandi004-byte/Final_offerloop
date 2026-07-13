@@ -147,11 +147,16 @@ def run_lever_filler(
                         ).decode("ascii")
                     except Exception:
                         pass
+                    # The Multiply Labs posting that "failed" on 2026-07-13 was a
+                    # plain 404 — the job was gone. Report that, don't blame the form.
+                    gone = common.posting_looks_gone(page)
                     return common.failure(
-                        "Lever form did not render at any candidate URL",
+                        common.JOB_GONE_REASON if gone
+                        else "Lever form did not render at any candidate URL",
                         attempted_urls=candidate_urls,
                         attempt_log=attempt_log,
                         screenshot_b64=failure_b64,
+                        job_gone=gone,
                     )
 
                 _fill_standard_fields(
@@ -762,12 +767,17 @@ def _candidate_apply_urls(apply_url: str, job_id: str) -> List[str]:
 
     if apply_url:
         if "lever.co" in apply_url.lower():
-            # Promote to first slot. Make sure we hit /apply if the caller
-            # passed the job-detail URL.
-            if not apply_url.rstrip("/").endswith("/apply"):
-                with_apply = apply_url.rstrip("/") + "/apply"
-                candidates.insert(0, with_apply)
-            candidates.insert(0, apply_url)
+            # /apply is where the FORM is; the bare URL is the job-detail page.
+            # The old code did insert(0, with_apply) and THEN insert(0, apply_url),
+            # which put the formless detail page first — so we burned the 12s
+            # form wait on a page that can never match before even trying /apply.
+            # Same ordering bug Ashby and Greenhouse had. Form first.
+            base = apply_url.rstrip("/")
+            if base.endswith("/apply"):
+                candidates.insert(0, base)
+            else:
+                candidates.insert(0, base)          # detail page: keep as fallback
+                candidates.insert(0, base + "/apply")  # ...but try the form first
         else:
             candidates.append(apply_url)
 
