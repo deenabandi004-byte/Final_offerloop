@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 # loaded. Prints to stdout on import. When you Ctrl+C and restart the
 # backend, this line should appear in the log — if it doesn't, the backend
 # isn't actually reloading and any "test" is running against the old code.
-_BUILD_TAG = "greenhouse-v21-combobox-whitespace-match"
+_BUILD_TAG = "greenhouse-v22-no-drawer-deadend"
 print(f"[auto_apply] greenhouse.py loaded — build={_BUILD_TAG}")
 
 
@@ -415,6 +415,37 @@ def run_greenhouse_filler(
                                         # Retry succeeded — fall through to
                                         # the success return at the bottom.
                                         pass
+                                    elif status == "unfillable":
+                                        # The user already answered this field and
+                                        # the form still rejected it. Re-asking is a
+                                        # loop. End it with something they can act
+                                        # on: everything else is filled, so send
+                                        # them to the listing to finish. NO
+                                        # pending_questions — that's what makes the
+                                        # app re-open the drawer.
+                                        stuck = ", ".join(
+                                            str(q.get("label") or q.get("field_id"))
+                                            for q in (validation_pending or [])[:2]
+                                        ) or "one field"
+                                        print(
+                                            f"[auto_apply]   STATUS: submit_failed "
+                                            f"(unfillable field: {stuck}) — handing off to site",
+                                            flush=True,
+                                        )
+                                        return {
+                                            "status": "submit_failed",
+                                            "filled": filled,
+                                            "unmapped": unmapped,
+                                            "prepared_answers": prepared_answers,
+                                            "screenshot_b64": screenshot_b64,
+                                            "apply_url": landed_on or apply_url,
+                                            "failure_reason": (
+                                                f"We filled everything, but this employer's "
+                                                f"“{stuck}” field wouldn't accept an "
+                                                f"automated answer. Nothing was submitted — "
+                                                f"open the listing and finish it there."
+                                            ),
+                                        }
                                     elif validation_pending:
                                         validation_pending = _dedupe_pending_by_label(validation_pending)
                                         print(f"[auto_apply]   post-submit pending questions (deduped): {len(validation_pending)}", flush=True)
@@ -1643,6 +1674,26 @@ def _resolve_refill_and_resubmit(
             f"retry; {len(remaining)} resolved labels for drawer",
             flush=True,
         )
+        # Dead-end guard. If the user ALREADY answered a field in the drawer and
+        # it STILL bounces, asking again is a guaranteed loop — that's the
+        # chip-set-but-invalid case (Greenhouse's Places-backed
+        # candidate-location, 2026-07-13): react-select takes our text and
+        # renders the chip, but the form's validator never registers a real
+        # selection, so re-typing the same answer bounces identically. Rylan hit
+        # this as "it asks for input, then says failed, then asks again."
+        # Stop re-asking and hand the application off honestly.
+        bounced = [q for q in remaining if edited.get(str(q.get("field_id")))]
+        if bounced:
+            labels = ", ".join(
+                str(q.get("label") or q.get("field_id")) for q in bounced[:3]
+            )
+            print(
+                f"[auto_apply.retry] {len(bounced)} field(s) bounced even with the "
+                f"user's own answer ({labels}) — not re-asking; handing off to the "
+                f"company site",
+                flush=True,
+            )
+            return ("unfillable", bounced, new_screenshot_b64)
         return ("", remaining, new_screenshot_b64)
     except Exception as exc:
         logger.warning("retry submit failed: %s", exc)
