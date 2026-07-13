@@ -32,6 +32,7 @@ Dry-run mode fills everything but does not click Submit.
 from __future__ import annotations
 
 import base64
+import re
 import logging
 import os
 from typing import Any, Callable, Dict, List, Optional
@@ -814,17 +815,34 @@ def _candidate_apply_urls(apply_url: str, job_id: str) -> List[str]:
     iframe has its own URL pattern we'd need to extract)."""
     candidates: List[str] = []
 
+    # Resolve (slug, ashby_job_id). Same trap Greenhouse had: job ids in our pool
+    # are namespaced by SOURCE (simplify_…, fantasticjobs_…), not by ATS, so the
+    # ashby_{slug}_{id} shape below often doesn't match — and then the
+    # /application candidate was never built at all. The apply_url carries both
+    # values, so read them from there when the id doesn't cooperate.
+    slug = ashby_job_id = None
     parts = (job_id or "").split("_", 2)
     if len(parts) == 3 and parts[0].lower() == "ashby":
         slug, ashby_job_id = parts[1], parts[2]
-        candidates.append(f"https://jobs.ashbyhq.com/{slug}/{ashby_job_id}")
+    elif apply_url:
+        m = re.search(
+            r"jobs\.ashbyhq\.com/([^/?#]+)/([0-9a-fA-F][0-9a-fA-F-]{7,})",
+            apply_url,
+        )
+        if m:
+            slug, ashby_job_id = m.group(1), m.group(2)
+
+    # /application is where the form actually IS. Verified 2026-07-12: the bare
+    # job page returns ~7KB with no form node, while /application returns ~106KB
+    # containing input#_systemfield_name — the very selector the filler waits on.
+    # The old code did insert(0, apply_url), which put that formless bare page
+    # FIRST, so the filler burned its 12s wait on a page that can never match.
+    if slug and ashby_job_id:
         candidates.append(f"https://jobs.ashbyhq.com/{slug}/{ashby_job_id}/application")
+        candidates.append(f"https://jobs.ashbyhq.com/{slug}/{ashby_job_id}")
 
     if apply_url:
-        if "ashbyhq.com" in apply_url.lower():
-            candidates.insert(0, apply_url)
-        else:
-            candidates.append(apply_url)
+        candidates.append(apply_url)
 
     seen: set[str] = set()
     deduped: List[str] = []
