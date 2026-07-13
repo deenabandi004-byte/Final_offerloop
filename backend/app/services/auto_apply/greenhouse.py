@@ -72,6 +72,7 @@ def run_greenhouse_filler(
     uid: str = "",
     resume_summary: str = "",
     job_data: Optional[Dict[str, Any]] = None,
+    progress_cb: Optional[Callable[[str], None]] = None,
 ) -> Dict[str, Any]:
     """Drive the Greenhouse application form. Returns a result dict the
     runner persists to the autoApplyJobs doc."""
@@ -277,6 +278,16 @@ def run_greenhouse_filler(
                             submit_ts = int(_time_now.time())
                             print(f"[auto_apply]   clicking submit at ts={submit_ts}", flush=True)
                             submit.click()
+                            # Input is done. Everything after this — the submit
+                            # POST, the email-code gate, the Gmail code-read — is
+                            # waiting, not filling. Advance the stage so the app
+                            # can swap the "Filling out the form…" card for a
+                            # distinct "waiting" card instead of looking frozen.
+                            if progress_cb:
+                                try:
+                                    progress_cb("awaiting_verification")
+                                except Exception:
+                                    pass
                             page.wait_for_load_state("networkidle", timeout=30_000)
                             print(f"[auto_apply]   networkidle reached, URL now: {page.url!r}", flush=True)
 
@@ -2452,14 +2463,55 @@ def _fill_combobox(
                                     const boxes = document.querySelectorAll('[role="listbox"]');
                                     const box = boxes[boxes.length - 1];
                                     if (!box) return '';
-                                    const f = box.querySelector(
+                                    // react-select marks the focused option one of
+                                    // three ways depending on version/tenant. Only
+                                    // checking the first two made every commit on
+                                    // some tenants a focus-miss (Docugami #country,
+                                    // Justworks candidate-location, 2026-07-13):
+                                    // the loop never saw a focused option, burned
+                                    // 40 ArrowDowns, and left a REQUIRED field
+                                    // blank. aria-activedescendant is the standard
+                                    // ARIA pointer and the one those tenants use.
+                                    let f = box.querySelector(
                                         '[class*="--is-focused"], [role="option"][aria-selected="true"]'
                                     );
+                                    if (!f) {
+                                        const combo = document.querySelector(
+                                            '[role="combobox"][aria-activedescendant]'
+                                        );
+                                        const activeId = combo &&
+                                            combo.getAttribute('aria-activedescendant');
+                                        if (activeId) f = document.getElementById(activeId);
+                                    }
                                     return f ? (f.textContent || '').trim().toLowerCase() : '';
                                 }"""
                             ) or "").strip().lower()
                         except Exception:
                             return ""
+
+                    def _click_scored_option(index: int) -> bool:
+                        """Real mouse-click the option we already SCORED as the
+                        match. Not a guess — it's the same option Enter would
+                        have taken; we just can't confirm the highlight on this
+                        tenant. Playwright dispatches real mousedown/mouseup,
+                        which react-select commits on (a synthetic el.click()
+                        from evaluate() only flips the highlight — that's why
+                        keyboard nav was the original strategy). The commit is
+                        still verified below, so a bad click leaves the field
+                        blank rather than wrong."""
+                        try:
+                            boxes = page.query_selector_all('[role="listbox"]')
+                            if not boxes:
+                                return False
+                            opts = boxes[-1].query_selector_all('[role="option"]')
+                            if index < 0 or index >= len(opts):
+                                return False
+                            opts[index].scroll_into_view_if_needed(timeout=1_000)
+                            opts[index].click(timeout=2_000)
+                            page.wait_for_timeout(150)
+                            return True
+                        except Exception:
+                            return False
 
                     committed = False
                     # react-select pre-focuses option 0, so CHECK before moving.
@@ -2470,6 +2522,12 @@ def _fill_combobox(
                             break
                         page.keyboard.press("ArrowDown")
                         page.wait_for_timeout(40)
+                    if not committed:
+                        # Keyboard nav couldn't confirm the highlight on this
+                        # tenant. Before giving up, click the exact option we
+                        # scored — still the same option, still verified below.
+                        if _click_scored_option(int(hit.get("index", -1))):
+                            committed = True
                     if not committed:
                         # Never landed on the exact option — do NOT guess a
                         # near-match. Leave the field for the user (blank beats

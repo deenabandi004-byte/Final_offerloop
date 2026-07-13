@@ -147,6 +147,12 @@ def run_auto_apply_job(
 
         update_status(uid, auto_apply_id, stage="filling_form")
 
+        def _progress(stage: str) -> None:
+            # Mid-filler stage hop. The filler runs synchronously (fill →
+            # submit → wait on the emailed code), so without this the doc is
+            # stuck at filling_form for the whole submit+code-read window.
+            update_status(uid, auto_apply_id, stage=stage)
+
         platform = detect_platform(job_data)
         if platform == "greenhouse":
             from app.services.auto_apply.greenhouse import run_greenhouse_filler
@@ -161,6 +167,7 @@ def run_auto_apply_job(
                 uid=uid,
                 resume_summary=resume_summary,
                 job_data=job_data,
+                progress_cb=_progress,
             )
         elif platform == "lever":
             from app.services.auto_apply.lever import run_lever_filler
