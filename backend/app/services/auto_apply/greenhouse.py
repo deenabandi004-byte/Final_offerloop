@@ -2476,11 +2476,17 @@ def _fill_combobox(
                                         '[class*="--is-focused"], [role="option"][aria-selected="true"]'
                                     );
                                     if (!f) {
-                                        const combo = document.querySelector(
-                                            '[role="combobox"][aria-activedescendant]'
-                                        );
-                                        const activeId = combo &&
-                                            combo.getAttribute('aria-activedescendant');
+                                        // Scope to the input we just typed into —
+                                        // it holds DOM focus. A page-wide
+                                        // querySelector('[role=combobox]') would
+                                        // grab whichever combobox happens to come
+                                        // first in the document (a Greenhouse form
+                                        // has a dozen), read ITS focused option,
+                                        // and never match ours.
+                                        const active = document.activeElement;
+                                        const activeId = active &&
+                                            active.getAttribute &&
+                                            active.getAttribute('aria-activedescendant');
                                         if (activeId) f = document.getElementById(activeId);
                                     }
                                     return f ? (f.textContent || '').trim().toLowerCase() : '';
@@ -2502,15 +2508,23 @@ def _fill_combobox(
                         try:
                             boxes = page.query_selector_all('[role="listbox"]')
                             if not boxes:
+                                print(f"[auto_apply.combofix] {selector}: no listbox at click time "
+                                      f"(menu closed during keyboard nav)", flush=True)
                                 return False
                             opts = boxes[-1].query_selector_all('[role="option"]')
                             if index < 0 or index >= len(opts):
+                                print(f"[auto_apply.combofix] {selector}: index {index} out of range "
+                                      f"({len(opts)} options at click time)", flush=True)
                                 return False
                             opts[index].scroll_into_view_if_needed(timeout=1_000)
                             opts[index].click(timeout=2_000)
                             page.wait_for_timeout(150)
+                            print(f"[auto_apply.combofix] {selector}: clicked option[{index}] "
+                                  f"after focus-detect failed", flush=True)
                             return True
-                        except Exception:
+                        except Exception as exc:
+                            print(f"[auto_apply.combofix] {selector}: click fallback threw: {exc}",
+                                  flush=True)
                             return False
 
                     committed = False
