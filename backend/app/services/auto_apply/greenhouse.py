@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 # loaded. Prints to stdout on import. When you Ctrl+C and restart the
 # backend, this line should appear in the log — if it doesn't, the backend
 # isn't actually reloading and any "test" is running against the old code.
-_BUILD_TAG = "greenhouse-v20-combobox-focus-fallback"
+_BUILD_TAG = "greenhouse-v21-combobox-whitespace-match"
 print(f"[auto_apply] greenhouse.py loaded — build={_BUILD_TAG}")
 
 
@@ -2516,8 +2516,16 @@ def _fill_combobox(
                                 print(f"[auto_apply.combofix] {selector}: index {index} out of range "
                                       f"({len(opts)} options at click time)", flush=True)
                                 return False
-                            opts[index].scroll_into_view_if_needed(timeout=1_000)
-                            opts[index].click(timeout=2_000)
+                            # Best-effort scroll — react-select options often
+                            # aren't "scrollable into view" by Playwright's
+                            # definition and this times out even though the
+                            # option is perfectly clickable. Never let it abort
+                            # the click.
+                            try:
+                                opts[index].scroll_into_view_if_needed(timeout=1_000)
+                            except Exception:
+                                pass
+                            opts[index].click(timeout=3_000, force=True)
                             page.wait_for_timeout(150)
                             print(f"[auto_apply.combofix] {selector}: clicked option[{index}] "
                                   f"after focus-detect failed", flush=True)
@@ -2527,12 +2535,27 @@ def _fill_combobox(
                                   flush=True)
                             return False
 
+                    # Compare option text with ALL whitespace removed. The option
+                    # renders the label and a badge in separate child nodes
+                    # ("United States" + "+1"), and textContent comes back as
+                    # 'united states+1' at scoring time but 'united states +1'
+                    # when read again during focus detection. An exact == on that
+                    # never matched, so the loop burned 40 ArrowDowns and left a
+                    # REQUIRED field blank (this is what killed Justworks'
+                    # candidate-location, 2026-07-13). Whitespace-insensitive is
+                    # still an exact-content match — it does not loosen the
+                    # "never guess a near-match" guarantee.
+                    def _cmp(s: str) -> str:
+                        return re.sub(r"\s+", "", s or "")
+
+                    target_cmp = _cmp(target_text)
+
                     committed = False
                     # react-select pre-focuses option 0, so CHECK before moving.
                     _last_focus_text = ""
                     for _step in range(40):
                         _last_focus_text = _focused_option_text()
-                        if _last_focus_text == target_text:
+                        if _cmp(_last_focus_text) == target_cmp:
                             page.keyboard.press("Enter")
                             committed = True
                             break
