@@ -79,6 +79,35 @@ def _update_stage(prep_ref, stage, label, pct):
 # "building") within a usable window.
 COFFEE_CHAT_PREP_TIMEOUT_SECONDS = 300
 
+# How long past that ceiling a still-unfinished prep is presumed dead. The
+# in-pipeline timeout above only fires if the PROCESS is still alive to fire it —
+# and the whole failure mode here was the process NOT being alive (web worker
+# exits on deploy/OOM, taking the prep with it and freezing the doc). This is the
+# read-time backstop for that case: no owner, no timeout, no terminal state.
+PREP_STALE_AFTER_SECONDS = COFFEE_CHAT_PREP_TIMEOUT_SECONDS + 120  # 7 min
+
+
+def _prep_is_stale(prep_data: dict) -> bool:
+    """True when a non-terminal prep is older than any live run could be."""
+    from datetime import datetime as _dt, timezone as _tz
+
+    raw = prep_data.get("updatedAt") or prep_data.get("createdAt")
+    if not raw:
+        return False
+    try:
+        if hasattr(raw, "timestamp"):          # Firestore timestamp
+            started = float(raw.timestamp())
+        else:                                   # ISO string (what we write)
+            s = str(raw).replace("Z", "+00:00")
+            parsed = _dt.fromisoformat(s)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=_tz.utc)
+            started = parsed.timestamp()
+    except Exception:
+        return False
+    age = _dt.now(_tz.utc).timestamp() - started
+    return age > PREP_STALE_AFTER_SECONDS
+
 
 def process_coffee_chat_prep_background(
     prep_id,
@@ -527,21 +556,51 @@ def create_coffee_chat_prep():
         if validated_data.get("industry"):
             extra_context["industry"] = validated_data.get("industry")
 
-        # Start background processing in a thread
+        # Hand the prep to the RQ worker.
+        #
+        # This used to be a daemon thread in THIS (gunicorn web) process. A web
+        # worker exits on every deploy, recycle, and OOM, taking the thread with
+        # it — and nothing marked the doc, so the prep froze at "building" and the
+        # app spun forever. That's why prep had not completed once since the
+        # TestFlight build (2026-07-13: prep running fine at 22:26:52, "Worker
+        # exiting (pid: 162)" at 22:27:02 as a deploy rolled, dead from then on).
+        # The worker process is not touched by a web deploy, and a job that dies
+        # there gets marked failed instead of hanging.
         try:
-            thread = threading.Thread(
-                target=process_coffee_chat_prep_background,
-                args=(
-                    prep_id,
-                    linkedin_url,
-                    user_id,
-                    resume_text,
-                    extra_context,
-                    user_data,
-                ),
-                daemon=True
-            )
-            thread.start()
+            from app.services.rq_queue import enqueue as _rq_enqueue, is_durable as _rq_durable
+
+            if _rq_durable():
+                _rq_enqueue(
+                    "run_meeting_prep",
+                    prep_id=prep_id,
+                    linkedin_url=linkedin_url,
+                    user_id=user_id,
+                    resume_text=resume_text,
+                    extra_context=extra_context,
+                    user_data=user_data,
+                )
+                print(f"[CoffeeChat] enqueued prep {prep_id} on the RQ worker", flush=True)
+            else:
+                # No Redis (local dev). Fall back to the old in-process thread so
+                # the feature still works on a laptop — it just isn't durable.
+                print(
+                    "[CoffeeChat] RQ unavailable — running prep in-process "
+                    "(not durable across restarts)",
+                    flush=True,
+                )
+                thread = threading.Thread(
+                    target=process_coffee_chat_prep_background,
+                    args=(
+                        prep_id,
+                        linkedin_url,
+                        user_id,
+                        resume_text,
+                        extra_context,
+                        user_data,
+                    ),
+                    daemon=True
+                )
+                thread.start()
 
             # Log coffee_chat_prep_used metric (manual trigger)
             from app.utils.metrics_events import log_event
@@ -710,6 +769,32 @@ def get_coffee_chat_prep(prep_id):
 
         prep_data = prep_doc.to_dict()
         prep_data["id"] = prep_id
+
+        # Reap a prep that died mid-flight. A prep that is still "building" long
+        # past the pipeline's own ceiling is never coming back — the process that
+        # owned it is gone (a deploy, an OOM, a lost worker). Leaving it at
+        # "building" makes the app spin forever, which is how Rylan's preps from
+        # 2026-07-11 and 2026-07-13 were still "in progress" hours later. Flip it
+        # to a terminal, honest state on read so the user can retry.
+        if prep_data.get("status") in ("building", "processing"):
+            stale = _prep_is_stale(prep_data)
+            if stale:
+                prep_data["status"] = "failed"
+                prep_data["stage"] = "failed"
+                prep_data["error"] = (
+                    "The prep stopped partway through. Nothing was charged — try again."
+                )
+                try:
+                    prep_ref.set(
+                        {
+                            "status": "failed",
+                            "stage": "failed",
+                            "error": prep_data["error"],
+                        },
+                        merge=True,
+                    )
+                except Exception:
+                    pass
 
         # Ensure stage fields are present for frontend
         if "stage" not in prep_data:

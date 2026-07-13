@@ -86,6 +86,12 @@ JOB_REGISTRY: dict[str, str] = {
     # Scout down with it. It runs ONLY in the RQ worker process now, so a crash
     # costs a worker (which RQ requeues), never the web service.
     "run_auto_apply": "app.services.auto_apply.jobs.run_auto_apply_task",
+    # Meeting prep ran in a thread inside the web worker, so every deploy /
+    # recycle / OOM killed it mid-flight and left the doc stuck at "building"
+    # forever — it had not completed once since the TestFlight build shipped
+    # (2026-07-13). Same cure as auto-apply: run it in the worker process, where
+    # a web deploy can't reach it.
+    "run_meeting_prep": "app.services.meeting_prep_jobs.run_meeting_prep_task",
 }
 
 
