@@ -373,6 +373,25 @@ def _process_coffee_chat_prep_impl(
             }
         )
 
+        # Tell the user it's ready. The prep runs on the worker now, so it
+        # finishes whether or not the app is open — which means finishing
+        # silently is finishing invisibly. Drafts, auto-apply, replies and Loops
+        # all push on completion; prep was the only one that didn't, so you had
+        # to remember to come back and look. Best-effort: a failed push must
+        # never fail the prep.
+        try:
+            from app.services.push_service import send_push
+
+            who = (contact_data.get("fullName") or "").strip()
+            send_push(
+                user_id,
+                title=f"Your prep for {who} is ready" if who else "Your meeting prep is ready",
+                body="Talking points, questions, and their background — tap to open it.",
+                data={"url": f"/meeting-prep/{prep_id}", "type": "meeting_prep_ready"},
+            )
+        except Exception:
+            logger.exception("meeting prep ready push failed uid=%s prep=%s", user_id, prep_id)
+
         # Step 8: Increment usage counter atomically
         print("Step 8: Incrementing usage counter...")
         try:
