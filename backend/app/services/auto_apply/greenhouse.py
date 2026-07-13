@@ -2219,8 +2219,33 @@ def _fill_combobox(
                                 if (!t) return 0;
                                 if (t === wantedFull) return 1000;
                                 if (t === wantedQuery) return 900;
-                                if (t.includes(wantedFull)) return 800;
-                                if (wantedFull.length > 3 && wantedFull.includes(t)) return 700;
+                                // Extra TRAILING words are the same entity with
+                                // more detail ("University of Southern
+                                // California - Marshall"). Extra LEADING words
+                                // are a DIFFERENT entity: "Vanguard University
+                                // of Southern California" is not USC, and
+                                // "Northeastern Illinois University" is not
+                                // Northeastern. The old rule scored any
+                                // superstring 800, so on 2026-07-13 it put
+                                // "Vanguard University of Southern California"
+                                // on a real job application in the user's name.
+                                // A wrong school is worse than a blank one, so a
+                                // leading-extra match now scores BELOW the
+                                // acceptance bar (400) and we leave the field for
+                                // the user rather than quietly lying on their behalf.
+                                if (t.startsWith(wantedFull)) return 800;
+                                if (t.includes(wantedFull)) return 350;
+                                // The option being a SUBSTRING of the answer is
+                                // fine when it's a near-complete abbreviation
+                                // ("University of Southern Cal"), but a bare
+                                // "University" is a substring too — and picking
+                                // it is the same wrong-school failure. Require
+                                // the option to carry most of the answer.
+                                if (
+                                    wantedFull.length > 3 &&
+                                    wantedFull.includes(t) &&
+                                    t.length >= 0.6 * wantedFull.length
+                                ) return 700;
                                 // Word-overlap: how many of the FULL answer's
                                 // distinct words appear in the option
                                 const tWords = new Set(t.split(/[\\s,+]+/).filter(w => w.length > 1));
