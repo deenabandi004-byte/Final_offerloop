@@ -67,6 +67,13 @@ _EXPLORE_POOL_SIZE = 400
 # the next rerank; this is the seasoning, not the meal.
 _EXPLORE_RATIO = 0.05
 
+# Refill trigger. When the hydrated deck falls below this many cards — because
+# the user has passed on most of their cached ranking — re-rank immediately
+# instead of waiting out the 30-minute cache. A heavy swiper can empty a 300-card
+# deck in minutes; making them wait half an hour for new jobs is the same dead
+# end, just deferred.
+_DECK_LOW_WATER = 60
+
 
 def _advance_feed_offset(current: int, cache_len: int, stride: int = _FEED_OFFSET_STRIDE) -> tuple[int, bool]:
     """Return (new_offset, wrapped) for the next refresh slice.
@@ -648,6 +655,25 @@ def get_feed():
         ))
         if explore:
             top_jobs = _interleave_exploration(top_jobs, explore)
+
+        # Deck running dry? Re-rank NOW rather than waiting out the cache TTL.
+        #
+        # _enrich drops every job the user has passed on, so a heavy swiper burns
+        # through the cached ranking far faster than the 30-minute cache lives.
+        # Without this, they swipe the deck down to nothing and then stare at an
+        # empty feed for half an hour while ~7,000 unseen jobs sit in the catalog
+        # — the dead end, merely deferred. A rerank excludes what they've passed
+        # and pulls unseen jobs up into its place, so the deck refills with
+        # genuinely new work. _ranking_in_progress keeps this to one rerank at a
+        # time per user.
+        if len(top_jobs) < _DECK_LOW_WATER and uid not in _ranking_in_progress:
+            _ranking_in_progress.add(uid)
+            logger.info(
+                "[JobsFeed] deck down to %d cards for %s — re-ranking to refill",
+                len(top_jobs), uid,
+            )
+            _ranking_pool.submit(_background_rerank, uid)
+
         new_matches_raw, nm_from_cache = _fetch_new_matches(cached_scores, cached_reasons)
         new_matches = _enrich(new_matches_raw)
         new_matches, top_jobs, gated_info = _apply_gates(new_matches, top_jobs)
