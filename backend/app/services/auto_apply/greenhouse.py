@@ -457,6 +457,44 @@ def run_greenhouse_filler(
                                         }
                                     elif validation_pending:
                                         validation_pending = _dedupe_pending_by_label(validation_pending)
+                                        # NEVER ask the user for something we already
+                                        # know. Anthropic's drawer asked Rylan for his
+                                        # FIRST NAME (2026-07-14) — we have it, we filled
+                                        # it, and the retry refilled it from his profile.
+                                        # If it's STILL rejected, that's our filling
+                                        # failing, not a question a human can answer, and
+                                        # putting it in front of them makes the product
+                                        # look broken and confused about who they are.
+                                        asked = [
+                                            q for q in validation_pending
+                                            if str(q.get("field_id")) not in _STANDARD_FIELD_IDS
+                                        ]
+                                        dropped = len(validation_pending) - len(asked)
+                                        if dropped:
+                                            print(
+                                                f"[auto_apply]   dropped {dropped} standard "
+                                                f"identity field(s) from the drawer — we own those",
+                                                flush=True,
+                                            )
+                                        if not asked:
+                                            # Everything still invalid is a field WE own, so
+                                            # there is nothing to ask. Hand off honestly
+                                            # rather than inventing a question.
+                                            return {
+                                                "status": "submit_failed",
+                                                "filled": filled,
+                                                "unmapped": unmapped,
+                                                "prepared_answers": prepared_answers,
+                                                "screenshot_b64": screenshot_b64,
+                                                "apply_url": landed_on or apply_url,
+                                                "failure_reason": (
+                                                    "We filled everything, but this employer's form "
+                                                    "kept rejecting details we'd already entered. "
+                                                    "Nothing was submitted — open the listing and "
+                                                    "finish it there."
+                                                ),
+                                            }
+                                        validation_pending = asked
                                         print(f"[auto_apply]   post-submit pending questions (deduped): {len(validation_pending)}", flush=True)
                                         return {
                                             "status": "needs_attention",
@@ -1709,6 +1747,73 @@ def _resolve_refill_and_resubmit(
         return ("", invalid_fields, current_screenshot_b64)
 
 
+def _clean_question_label(label: str) -> str:
+    """Tidy a label harvested straight off the form before a human reads it.
+
+    Greenhouse bakes its own required marker into the label text, so we shipped
+    "(Optional) Personal Preferences*" and the app appended a second asterisk:
+    "(Optional) Personal Preferences* *". A required marker on a field the
+    employer literally calls Optional, printed twice. Strip THEIR marker and let
+    the app render exactly one of ours.
+    """
+    s = (label or "").strip()
+    s = re.sub(r"[\s*✱]+$", "", s)          # trailing required markers
+    s = re.sub(r"\s{2,}", " ", s)
+    return s.strip()
+
+
+def _resolve_field_description(page, field_id: str, selector: str) -> str:
+    """The employer's help text for a question, if the form gives one.
+
+    A question like "Additional Information" is unanswerable on its own — all the
+    meaning lives in the paragraph Greenhouse renders under it, and we were
+    dropping that on the floor and then asking the user to fill in the blank.
+    Reads aria-describedby first (the accessible, intended answer), then falls
+    back to a description/help sibling in the field's container.
+    """
+    try:
+        return (page.evaluate(
+            """(args) => {
+                const el = document.getElementById(args.fid) ||
+                           document.querySelector(args.sel);
+                if (!el) return '';
+                const clean = (t) => (t || '').replace(/\\s+/g, ' ').trim();
+
+                // 1. The accessible way, and the one Greenhouse actually uses.
+                const describedBy = el.getAttribute('aria-describedby');
+                if (describedBy) {
+                    const parts = describedBy.split(/\\s+/)
+                        .map((id) => document.getElementById(id))
+                        .filter(Boolean)
+                        .map((n) => clean(n.textContent))
+                        // Skip validation errors — "Please complete this field"
+                        // is not context, it's the complaint that sent us here.
+                        .filter((t) => t && !/please|required|cannot be blank/i.test(t));
+                    const joined = clean(parts.join(' '));
+                    if (joined) return joined.slice(0, 400);
+                }
+
+                // 2. A description/help node inside the field's wrapper.
+                let node = el;
+                for (let i = 0; i < 4 && node; i++) {
+                    node = node.parentElement;
+                    if (!node) break;
+                    const hit = node.querySelector(
+                        '[class*="description" i], [class*="help" i], [class*="hint" i]'
+                    );
+                    if (hit) {
+                        const t = clean(hit.textContent);
+                        if (t && t.length > 2) return t.slice(0, 400);
+                    }
+                }
+                return '';
+            }""",
+            {"fid": field_id, "sel": selector},
+        ) or "").strip()
+    except Exception:
+        return ""
+
+
 def _extract_invalid_field_questions(page) -> List[Dict[str, Any]]:
     """After Submit, Greenhouse marks rejected required fields with
     aria-invalid="true". For each one, resolve the label, classify the
@@ -1749,6 +1854,12 @@ def _extract_invalid_field_questions(page) -> List[Dict[str, Any]]:
             label = _resolve_label_text(page, str(fid))
             if not label:
                 label = str(fid)
+            label = _clean_question_label(label)
+            # The employer's own help text. Without it the drawer shows a bare
+            # "Additional Information" and the user has no idea what is being
+            # asked — the question is only answerable in the context the form
+            # gave it, and we were throwing that context away.
+            description = _resolve_field_description(page, str(fid), sel)
             field_type = _detect_field_type(page, sel)
             options = _detect_options(page, sel)
             # react-select widgets render their listbox on demand. If we saw
@@ -1760,6 +1871,7 @@ def _extract_invalid_field_questions(page) -> List[Dict[str, Any]]:
             results.append({
                 "field_id": str(fid),
                 "label": label,
+                "description": description,
                 "field_type": field_type,
                 "options": options,
                 "required": True,
