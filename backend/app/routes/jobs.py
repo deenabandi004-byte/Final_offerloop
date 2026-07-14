@@ -360,6 +360,14 @@ def get_feed():
 
     profile = user_doc.to_dict()
 
+    # TEMP instrumentation: the feed takes ~4.5s while every other endpoint is
+    # sub-second. Measure each stage rather than guess at the hotspot.
+    import time as _t
+    _t0 = _t.perf_counter()
+    _marks: list[tuple[str, float]] = []
+    def _mark(label: str):
+        _marks.append((label, (_t.perf_counter() - _t0) * 1000))
+
     # ----- Phase 2: hard intent gates (feature-flag gated) ---------------
     # Built once per request so all 4 return paths can call _apply_gates().
     from backend.app.services import feature_flags
@@ -434,6 +442,8 @@ def get_feed():
     except Exception:
         user_signals = None
         logger.exception("[JobsFeed] load_user_signals failed for uid=%s", uid)
+
+    _mark("prefetch(dismissed+saved+signals)")
 
     def _enrich(jobs: list[dict]) -> list[dict]:
         """Filter dismissed jobs and attach the editorial match_signals array."""
@@ -645,6 +655,7 @@ def get_feed():
         top_jobs = _enrich(_load_top_jobs_from_cache(
             cached_ids, cached_scores, cached_reasons, offset=feed_offset,
         ))
+        _mark("hydrate+enrich top_jobs")
         # Sprinkle in a few jobs from outside the ranking (5%). _enrich drops
         # anything the user already dismissed, so explore cards obey the same
         # rules as ranked ones.
@@ -674,11 +685,13 @@ def get_feed():
             )
             _ranking_pool.submit(_background_rerank, uid)
 
+        _mark("explore+refill")
         new_matches_raw, nm_from_cache = _fetch_new_matches(cached_scores, cached_reasons)
         new_matches = _enrich(new_matches_raw)
+        _mark(f"new_matches(cached={nm_from_cache})")
         new_matches, top_jobs, gated_info = _apply_gates(new_matches, top_jobs)
 
-        return jsonify({
+        _payload = {
             "new_matches": _serialize_jobs(new_matches) if not nm_from_cache else new_matches,
             "top_jobs": _serialize_jobs(top_jobs),
             "new_matches_count": len(new_matches),
@@ -690,7 +703,14 @@ def get_feed():
             "feed_wrapped": feed_wrapped,
             "summary": _get_pipeline_summary(),
             "gated": gated_info,
-        })
+        }
+        _mark("serialize")
+        logger.info(
+            "[FeedPerf] uid=%s total=%.0fms | %s",
+            uid, (_t.perf_counter() - _t0) * 1000,
+            " | ".join(f"{k}={v:.0f}ms" for k, v in _marks),
+        )
+        return jsonify(_payload)
 
     if not cache_valid and cache_stale_ok:
         cached_ids = cache.get("job_ids", [])
