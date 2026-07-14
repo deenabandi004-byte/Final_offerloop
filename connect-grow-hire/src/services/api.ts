@@ -2367,6 +2367,25 @@ async setOutboxThreadResolution(contactId: string, resolution: Resolution, detai
     });
   }
 
+  async listTailoredResumes(): Promise<{
+    items: Array<{
+      id: string;
+      jobTitle: string | null;
+      company: string | null;
+      jobUrl: string | null;
+      pdfUrl: string;
+      pageCount: number | null;
+      updatedAt: string | null;
+      model: string | null;
+    }>;
+  }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest('/resume/tailored', {
+      method: 'GET',
+      headers,
+    });
+  }
+
   /**
    * Helper function to download a PDF blob.
    */

@@ -563,6 +563,37 @@ def tailor_resume_route():
         return jsonify({'error': 'Failed to tailor resume'}), 500
 
 
+@resume_bp.route('/resume/tailored', methods=['GET'])
+@require_firebase_auth
+def list_tailored_resumes():
+    """List the caller's past tailored resumes, newest first."""
+    try:
+        uid = request.firebase_user['uid']
+        db = get_db()
+        if not db:
+            return jsonify({'error': 'Database not available'}), 500
+
+        col = db.collection('users').document(uid).collection('tailoredResumes')
+        items = []
+        for snap in col.stream():
+            doc = snap.to_dict() or {}
+            items.append({
+                'id': snap.id,
+                'jobTitle': doc.get('jobTitle'),
+                'company': doc.get('company'),
+                'jobUrl': doc.get('jobUrl'),
+                'pdfUrl': doc.get('pdfUrl'),
+                'pageCount': doc.get('pageCount'),
+                'updatedAt': doc.get('updatedAt'),
+                'model': doc.get('model'),
+            })
+        items.sort(key=lambda x: x.get('updatedAt') or '', reverse=True)
+        return jsonify({'items': items}), 200
+    except Exception as e:
+        print(f"[Resume/tailored list] error: {e}")
+        return jsonify({'error': 'Failed to list tailored resumes'}), 500
+
+
 @resume_bp.route('/resume/score', methods=['POST'])
 @require_firebase_auth
 def score_resume():
