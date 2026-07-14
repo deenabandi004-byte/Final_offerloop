@@ -20,7 +20,20 @@ from app.models.users import (
     get_structured_target_industries,
 )
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 mobile_bp = Blueprint('mobile', __name__, url_prefix='/api/mobile')
+
+# Anti-burst guard on drafting. Credits are the only meter the user sees, and
+# they bound the MONTH — nothing in them stops someone firing thirty cold emails
+# in ninety seconds, which is how a sending domain gets burned. The old client
+# swipe-cooldown nominally paced this, but it was React state a force-quit reset,
+# so it enforced nothing. This is the real pacing, server-side where it can't be
+# bypassed. Deliberately loose: a normal session should never touch it.
+DRAFT_BURST_MAX = 10               # drafts…
+DRAFT_BURST_WINDOW_SECONDS = 600   # …per 10 minutes
 
 PLAN_LABEL = {'free': 'Free', 'pro': 'Pro', 'elite': 'Elite'}
 
@@ -782,6 +795,43 @@ def create_draft_job_route():
     prompt = (data.get('prompt') or '').strip()
     if not prompt or len(prompt) < 3 or len(prompt) > 500:
         return jsonify({'error': 'Prompt must be 3-500 characters'}), 400
+
+    uid = request.firebase_user['uid']
+
+    # Anti-burst guard (2026-07-14). The client used to pace drafting with a
+    # swipe-stamina batch + multi-hour cooldown — but that was React state, so a
+    # force-quit handed you a fresh batch and it enforced nothing. It's gone;
+    # credits are the only meter now. Credits bound the MONTH, though, not the
+    # MINUTE: nothing stopped someone firing thirty cold emails in ninety seconds,
+    # which is how a sending domain gets burned.
+    #
+    # So the pacing that actually mattered moves here, where it can't be
+    # bypassed. This is a deliverability guard, not a paywall — it's deliberately
+    # loose enough that a normal session never touches it.
+    try:
+        window_start = datetime.now(timezone.utc) - timedelta(seconds=DRAFT_BURST_WINDOW_SECONDS)
+        recent = (
+            db.collection('users').document(uid).collection('draftJobs')
+            # createdAt, NOT created_at — draft_jobs.py writes it camelCase.
+            # Querying the snake_case name matches zero docs, so the guard would
+            # have looked fine and silently never fired.
+            .where('createdAt', '>=', window_start)
+            .limit(DRAFT_BURST_MAX + 1)
+            .get()
+        )
+        if len(recent) >= DRAFT_BURST_MAX:
+            mins = max(1, DRAFT_BURST_WINDOW_SECONDS // 60)
+            return jsonify({
+                'error': 'rate_limited',
+                'code': 'DRAFT_BURST',
+                'message': (
+                    f'That\'s {DRAFT_BURST_MAX} drafts in {mins} minutes — give them a '
+                    'moment to send. Outreach lands better spaced out anyway.'
+                ),
+            }), 429
+    except Exception:
+        # A guard that can't read must not block real work.
+        logger.exception('draft burst check failed for uid=%s', uid)
 
     from app.services.draft_jobs import create_draft_job
     state = create_draft_job(
