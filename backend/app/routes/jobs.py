@@ -18,6 +18,7 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 import base64
 import json
 import logging
+import random
 import threading
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,25 @@ PIPELINE_SUMMARY_TTL = 60  # seconds
 # no docs to surface.
 _FEED_OFFSET_STRIDE = 100
 
+# How much of the catalog the reranker considers. Was 5000 against a ~8,200-job
+# pool, which quietly made the newest-N a hard exposure ceiling AND made growing
+# the catalog pointless (new jobs just pushed old ones out of the window).
+# Generous headroom so ingest growth widens reach instead of churning it.
+_RERANK_CANDIDATE_LIMIT = 20000
+
+# Jobs sampled from OUTSIDE the personalized ranking, cached per user and
+# sprinkled into the deck (see _EXPLORE_RATIO). This is what keeps
+# personalization from doubling as a cage: it decides what's most relevant, not
+# what's reachable.
+_EXPLORE_POOL_SIZE = 400
+
+# Share of each hydrated deck reserved for those off-ranking jobs. 5% — roughly
+# one card in twenty — deliberately low: the deck should still feel tailored,
+# with discovery as a rare surprise rather than a dilution. The heavy lifting on
+# exposure is done by ranking the whole catalog and by dropping passed jobs from
+# the next rerank; this is the seasoning, not the meal.
+_EXPLORE_RATIO = 0.05
+
 
 def _advance_feed_offset(current: int, cache_len: int, stride: int = _FEED_OFFSET_STRIDE) -> tuple[int, bool]:
     """Return (new_offset, wrapped) for the next refresh slice.
@@ -62,6 +82,31 @@ def _advance_feed_offset(current: int, cache_len: int, stride: int = _FEED_OFFSE
     if nxt >= cache_len:
         return 0, True
     return nxt, False
+
+
+def _interleave_exploration(ranked: list[dict], explore: list[dict]) -> list[dict]:
+    """Spread exploration cards evenly through the ranked deck.
+
+    They must NOT simply be appended: an explore job has no match_score, and the
+    deck is sorted by score descending, so they would sink to the bottom of a
+    300-card list and never actually be seen. Spacing them at regular intervals
+    is the whole point — the user meets one every ~20 swipes, wherever they stop.
+    """
+    if not explore:
+        return ranked
+    if not ranked:
+        return explore
+    step = max(1, len(ranked) // (len(explore) + 1))
+    out: list[dict] = []
+    ei = 0
+    for i, job in enumerate(ranked):
+        out.append(job)
+        # Offset by step//2 so the first surprise isn't card #1.
+        if ei < len(explore) and i > 0 and (i + step // 2) % step == 0:
+            out.append(explore[ei])
+            ei += 1
+    out.extend(explore[ei:])  # anything left over rides at the end
+    return out
 
 
 def _format_freshness(minutes: int | None) -> str:
@@ -537,6 +582,38 @@ def get_feed():
             top_jobs.sort(key=lambda j: j.get("match_score") or 0, reverse=True)
         return top_jobs
 
+    def _load_explore_jobs(explore_ids, offset: int, want: int):
+        """Hydrate a rotating handful of jobs from OUTSIDE the user's ranking.
+
+        These are sampled at rerank time from the whole catalog (see
+        _EXPLORE_POOL_SIZE), so they're jobs personalization would never surface
+        — the 90% of the pool a user otherwise cannot reach no matter how much
+        they swipe. Rotating by the same feed offset means a refresh brings a
+        different handful rather than the same ones forever.
+
+        They carry `exploration: True` so the client (and our own analytics) can
+        tell a discovery card from a ranked one, and no fake match_score is
+        invented for them — an unranked job reports an honest null.
+        """
+        if not explore_ids or want <= 0:
+            return []
+        n = len(explore_ids)
+        start = (offset if offset > 0 else 0) % n
+        # Wrap around the end so a large offset still returns a full handful.
+        picks = [explore_ids[(start + i) % n] for i in range(min(want, n))]
+        out = []
+        for i in range(0, len(picks), 100):
+            refs = [db.collection("jobs").document(jid) for jid in picks[i:i + 100]]
+            for d in db.get_all(refs):
+                if d.exists:
+                    j = d.to_dict()
+                    j["match_score"] = None
+                    j["match_reason"] = None
+                    j["ranked"] = False
+                    j["exploration"] = True
+                    out.append(j)
+        return out
+
     # Resolve the hydration offset before the cache paths execute. Reads the
     # stored offset, and if this is a refresh and the cache exists, advances
     # by STRIDE (with wrap-to-zero on overflow) and persists the new value.
@@ -561,6 +638,16 @@ def get_feed():
         top_jobs = _enrich(_load_top_jobs_from_cache(
             cached_ids, cached_scores, cached_reasons, offset=feed_offset,
         ))
+        # Sprinkle in a few jobs from outside the ranking (5%). _enrich drops
+        # anything the user already dismissed, so explore cards obey the same
+        # rules as ranked ones.
+        explore = _enrich(_load_explore_jobs(
+            cache.get("explore_ids") or [],
+            offset=feed_offset,
+            want=int(MAX_DISPLAY_TOP_JOBS * _EXPLORE_RATIO),
+        ))
+        if explore:
+            top_jobs = _interleave_exploration(top_jobs, explore)
         new_matches_raw, nm_from_cache = _fetch_new_matches(cached_scores, cached_reasons)
         new_matches = _enrich(new_matches_raw)
         new_matches, top_jobs, gated_info = _apply_gates(new_matches, top_jobs)
@@ -719,15 +806,51 @@ def _background_rerank(uid: str):
         if not has_resume:
             return
 
+        # Consider the WHOLE pool, not a recency window. This used to be
+        # limit(5000) against ~8,200 jobs, so ~3,000 postings were never even
+        # candidates — no matter how well they matched. Worse, it made growth
+        # useless: ingesting more jobs just churned the window faster and pushed
+        # older ones out the back, so a bigger catalog bought a user nothing.
+        # The expensive stage is rank_with_gpt, and that still only sees the
+        # prefiltered shortlist — widening the candidate pool here is a cheap
+        # Firestore read, not more LLM spend.
         all_query = (
             db.collection("jobs")
             .order_by("posted_at", direction="DESCENDING")
-            .limit(5000)
+            .limit(_RERANK_CANDIDATE_LIMIT)
         )
         all_jobs = [doc.to_dict() for doc in all_query.stream()]
 
         # Filter out international and senior/irrelevant jobs
         all_jobs = [j for j in all_jobs if not _is_international_job(j) and not _is_excluded_job(j)]
+
+        # Drop what the user already rejected. Without this the rerank keeps
+        # re-caching the same jobs the feed then filters out at hydrate time, so
+        # a user who swipes left on everything watches their deck shrink to
+        # nothing and never refill — the "I passed on all of them and hit a
+        # wall" dead end. Excluding them here means the next rerank pulls
+        # genuinely UNSEEN jobs up into the cache, which is what lets someone
+        # work through the whole catalog over time instead of a fixed 790.
+        dismissed_ids: set[str] = set()
+        try:
+            for d in (
+                user_ref.collection("jobPreferences")
+                .where("signal", "==", "negative")
+                .stream()
+            ):
+                pd = d.to_dict() or {}
+                jid = pd.get("job_id") or d.id
+                if jid:
+                    dismissed_ids.add(jid)
+        except Exception as e:
+            logger.debug("rerank: could not load dismissed jobs for %s: %s", uid, e)
+        if dismissed_ids:
+            before = len(all_jobs)
+            all_jobs = [j for j in all_jobs if j.get("job_id") not in dismissed_ids]
+            logger.info(
+                "Rerank for %s: excluded %d already-passed jobs (%d -> %d candidates)",
+                uid, before - len(all_jobs), before, len(all_jobs),
+            )
 
         prefs_query = user_ref.collection("jobPreferences").limit(100)
         preferences = [doc.to_dict() for doc in prefs_query.stream()]
@@ -767,12 +890,33 @@ def _background_rerank(uid: str):
         # Deduplicate by title + company, cap per company, then take top N
         deduped = _dedup_by_title_company(adjusted)
         top_jobs = cap_per_company(deduped, max_per_company=10)[:1000]
+
+        # Explore pool: a random sample of jobs that did NOT make the ranking.
+        # Personalization decides what's most relevant; it should not also decide
+        # what's REACHABLE. Without this a user's entire universe is the ~790
+        # that survive ranking + company caps, and the other ~7,400 in the
+        # catalog are invisible forever, however hard they swipe. Sampled here
+        # (we already hold the pool in memory) and hydrated by job_id at feed
+        # time, so serendipity costs no extra queries on the request path.
+        top_ids = {j["job_id"] for j in top_jobs}
+        explore_pool = [
+            j["job_id"] for j in all_jobs
+            if j.get("job_id") and j["job_id"] not in top_ids
+        ]
+        random.shuffle(explore_pool)
+        explore_ids = explore_pool[:_EXPLORE_POOL_SIZE]
+
         cache_data = {
             "job_ids": [j["job_id"] for j in top_jobs],
             "scores": {j["job_id"]: j.get("match_score") for j in top_jobs},
             "reasons": {j["job_id"]: j.get("match_reason") for j in top_jobs},
+            "explore_ids": explore_ids,
             "ranked_at": datetime.now(timezone.utc),
         }
+        logger.info(
+            "Rerank for %s: %d ranked, %d in explore pool (catalog %d)",
+            uid, len(top_jobs), len(explore_ids), len(all_jobs),
+        )
         # Reset the refresh-rotation offset whenever we write a fresh ranked
         # list. The previous offset was keyed to the OLD job_ids; carrying it
         # forward would mean the user's next visit hydrates positions e.g.
