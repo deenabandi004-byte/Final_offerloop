@@ -254,6 +254,16 @@ def _process_coffee_chat_prep_impl(
 
         print(f"Found {len(research.get('company_news', []))} news, {len(research.get('person_mentions', []))} mentions")
 
+        # Stream the research the moment it lands. It's the single longest phase
+        # (~67s of a ~2m build) and it finishes ~25s before the first AI section,
+        # so publishing it here gives the user something real to read a good while
+        # earlier — company news, recent mentions — instead of watching a bar.
+        if research:
+            try:
+                prep_ref.update({"research": research})
+            except Exception:
+                logger.exception("could not stream research for prep %s", prep_id)
+
         # Step 3: Build user context from resume or stored profile
         print("Step 3: Building user context...")
         _update_stage(prep_ref, "analyzing", "Analyzing career history...", 45)
