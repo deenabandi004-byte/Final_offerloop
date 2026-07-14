@@ -74,6 +74,10 @@ _EXPLORE_RATIO = 0.05
 # end, just deferred.
 _DECK_LOW_WATER = 60
 
+# Cache holds up to 1000 ranked job_ids (inventory for rotation); a single
+# response never hydrates more than this many. Also the hard ceiling on ?limit.
+MAX_DISPLAY_TOP_JOBS = 300
+
 
 def _advance_feed_offset(current: int, cache_len: int, stride: int = _FEED_OFFSET_STRIDE) -> tuple[int, bool]:
     """Return (new_offset, wrapped) for the next refresh slice.
@@ -370,6 +374,25 @@ def get_feed():
     # the feature flag is on for this user. Useful for "Show all" toggle.
     ungated = request.args.get("ungated", "").lower() == "true"
 
+    # Pagination. The feed used to hydrate, enrich, serialize and ship ~420 cards
+    # on every load for a session in which the user swipes a couple of dozen —
+    # ~550ms of that was enrich alone, and it's the first thing they wait on when
+    # they open the app. `limit`/`cursor` let the client take a page at a time and
+    # fetch more as the deck drains.
+    #
+    # Defaults preserve the old behavior exactly, so a client that knows nothing
+    # about paging (every build currently in the wild) keeps working unchanged.
+    try:
+        page_limit = int(request.args.get("limit", MAX_DISPLAY_TOP_JOBS))
+    except (TypeError, ValueError):
+        page_limit = MAX_DISPLAY_TOP_JOBS
+    page_limit = max(10, min(page_limit, MAX_DISPLAY_TOP_JOBS))
+    try:
+        cursor = int(request.args.get("cursor", 0))
+    except (TypeError, ValueError):
+        cursor = 0
+    cursor = max(0, cursor)
+
     # Load user profile
     user_ref = db.collection("users").document(uid)
     user_doc = user_ref.get()
@@ -603,14 +626,11 @@ def get_feed():
             pass
         return new_matches, False
 
-    # Display slice: cache stores up to 1000 ranked job_ids (rich inventory for
-    # rotation), but each response only hydrates MAX_DISPLAY_TOP_JOBS of them.
-    # The slice now starts at `offset` so successive refreshes surface
-    # different jobs from the same ranked pool.
-    MAX_DISPLAY_TOP_JOBS = 300
 
-    def _load_top_jobs_from_cache(cached_ids, cached_scores, cached_reasons, offset: int = 0):
-        """Hydrate top_jobs from cached job IDs starting at `offset`.
+    def _load_top_jobs_from_cache(
+        cached_ids, cached_scores, cached_reasons, offset: int = 0, count: int | None = None,
+    ):
+        """Hydrate `count` top_jobs from cached job IDs starting at `offset`.
 
         Defensively wraps when offset is past the end of the cached list,
         so a stale persisted offset (e.g. left over from a longer cache that
@@ -618,12 +638,13 @@ def get_feed():
         returning an empty list. The caller's _advance_feed_offset normally
         prevents this, so the wrap here is belt-and-suspenders.
         """
+        want = count or MAX_DISPLAY_TOP_JOBS
         top_jobs = []
         if cached_ids:
             start = max(0, offset)
             if start >= len(cached_ids):
                 start = 0
-            window = cached_ids[start : start + MAX_DISPLAY_TOP_JOBS]
+            window = cached_ids[start : start + want]
 
             # Fetch the 100-doc batches CONCURRENTLY. They were sequential, so
             # 300 cards meant three round-trips to Firestore stacked end to end
@@ -705,17 +726,26 @@ def get_feed():
         cached_ids = cache.get("job_ids", [])
         cached_scores = cache.get("scores", {})
         cached_reasons = cache.get("reasons", {})
+        # Page within the rotated slice: feed_offset picks WHICH part of the
+        # ranked list this reroll is showing; cursor walks through it a page at a
+        # time as the user swipes.
+        page_start = feed_offset + cursor
         top_jobs = _enrich(_load_top_jobs_from_cache(
-            cached_ids, cached_scores, cached_reasons, offset=feed_offset,
+            cached_ids, cached_scores, cached_reasons,
+            offset=page_start, count=page_limit,
         ))
         _mark("hydrate+enrich top_jobs")
-        # Sprinkle in a few jobs from outside the ranking (5%). _enrich drops
-        # anything the user already dismissed, so explore cards obey the same
-        # rules as ranked ones.
+        exhausted = (page_start + page_limit) >= len(cached_ids)
+        next_cursor = None if exhausted else cursor + page_limit
+        # Sprinkle in jobs from outside the ranking — 5% OF THIS PAGE, so the
+        # discovery rate stays one-in-twenty whether the client asks for 60 cards
+        # or 300. `cursor` rotates which ones, so page 2 isn't the same surprises
+        # as page 1. _enrich drops anything already dismissed, so explore cards
+        # obey the same rules as ranked ones.
         explore = _enrich(_load_explore_jobs(
             cache.get("explore_ids") or [],
-            offset=feed_offset,
-            want=int(MAX_DISPLAY_TOP_JOBS * _EXPLORE_RATIO),
+            offset=feed_offset + cursor,
+            want=int(page_limit * _EXPLORE_RATIO),
         ))
         if explore:
             top_jobs = _interleave_exploration(top_jobs, explore)
@@ -730,17 +760,33 @@ def get_feed():
         # and pulls unseen jobs up into its place, so the deck refills with
         # genuinely new work. _ranking_in_progress keeps this to one rerank at a
         # time per user.
-        if len(top_jobs) < _DECK_LOW_WATER and uid not in _ranking_in_progress:
+        #
+        # Gated on `exhausted`: with paging, a short page is NORMAL (a 60-card
+        # page is always < the 60-card low-water mark), so triggering on page size
+        # alone would fire a re-rank on literally every request. Only a page at the
+        # END of the ranked list coming back thin means the user has actually
+        # worked through it.
+        if (
+            exhausted
+            and len(top_jobs) < _DECK_LOW_WATER
+            and uid not in _ranking_in_progress
+        ):
             _ranking_in_progress.add(uid)
             logger.info(
-                "[JobsFeed] deck down to %d cards for %s — re-ranking to refill",
-                len(top_jobs), uid,
+                "[JobsFeed] ranked list exhausted for %s (%d cards left) — re-ranking to refill",
+                uid, len(top_jobs),
             )
             _ranking_pool.submit(_background_rerank, uid)
 
         _mark("explore+refill")
-        new_matches_raw, nm_from_cache = _fetch_new_matches(cached_scores, cached_reasons)
-        new_matches = _enrich(new_matches_raw)
+        # new_matches is a whole second bucket (~107 cards). It belongs to the
+        # deck as a whole, not to each page — re-sending it on every page would
+        # undo most of the point of paging.
+        if cursor == 0:
+            new_matches_raw, nm_from_cache = _fetch_new_matches(cached_scores, cached_reasons)
+            new_matches = _enrich(new_matches_raw)
+        else:
+            new_matches, nm_from_cache = [], True
         _mark(f"new_matches(cached={nm_from_cache})")
         new_matches, top_jobs, gated_info = _apply_gates(new_matches, top_jobs)
 
@@ -763,6 +809,13 @@ def get_feed():
             "cached": True,
             "feed_offset": feed_offset,
             "feed_wrapped": feed_wrapped,
+            # Paging. `next_cursor` is null when the ranked list is spent, which
+            # is the client's cue to stop asking and show "you're all caught up"
+            # (where the reroll lives).
+            "cursor": cursor,
+            "limit": page_limit,
+            "next_cursor": next_cursor,
+            "has_more": next_cursor is not None,
             "summary": _get_pipeline_summary(),
             "gated": gated_info,
         }
