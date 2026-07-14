@@ -2,6 +2,7 @@
 Coffee chat prep routes
 """
 import concurrent.futures
+from typing import Any, Dict
 import logging
 import threading
 import traceback
@@ -224,7 +225,14 @@ def _process_coffee_chat_prep_impl(
             )
             return
 
-        prep_ref.update({"contactData": contact_data})
+        # Name the person as soon as we know them. contactName used to be written
+        # only in the FINAL update, so a prep that was 80% built still had nothing
+        # to put in a title — the screen could only say "loading". Streaming the
+        # sections is pointless if the user can't see who they're for.
+        prep_ref.update({
+            "contactData": contact_data,
+            "contactName": contact_data.get("fullName", ""),
+        })
 
         # Step 2: Fetch comprehensive research via SERP
         # Use extra_context overrides for division/office/industry if user provided them
@@ -303,20 +311,71 @@ def _process_coffee_chat_prep_impl(
         print("Step 5: Generating AI content...")
         _update_stage(prep_ref, "generating", "Writing tailored questions...", 65)
 
+        # Stream each section into the doc the MOMENT it lands, instead of
+        # batching them all into the final write.
+        #
+        # These three already ran in parallel — but we awaited them in a fixed
+        # order and then published everything at once, so the user stared at a
+        # spinner for the full ~2m14s and then got hit with a wall of text. The
+        # work doesn't get faster, but the WAIT collapses: the first section shows
+        # up as soon as it's ready and the rest fill in behind it. The app renders
+        # whatever is present, so partial is genuinely useful rather than a
+        # loading state pretending to be one.
+        _SECTION_LABEL = {
+            "similaritySummary": "Found your common ground",
+            "coffeeQuestions": "Wrote your questions",
+            "companyCheatSheet": "Built the company cheat sheet",
+        }
+        results: Dict[str, Any] = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            f_similarity = executor.submit(
-                generate_coffee_chat_similarity, contact_data, user_context, research)
-            f_questions = executor.submit(
-                generate_coffee_chat_questions, contact_data, user_context, research)
-            f_cheatsheet = executor.submit(
-                generate_company_cheat_sheet, contact_data, research)
+            futures = {
+                executor.submit(
+                    generate_coffee_chat_similarity, contact_data, user_context, research
+                ): "similaritySummary",
+                executor.submit(
+                    generate_coffee_chat_questions, contact_data, user_context, research
+                ): "coffeeQuestions",
+                executor.submit(
+                    generate_company_cheat_sheet, contact_data, research
+                ): "companyCheatSheet",
+            }
+            landed = 0
+            for fut in concurrent.futures.as_completed(futures):
+                field = futures[fut]
+                try:
+                    value = fut.result()
+                except Exception:
+                    logger.exception("prep section %s failed for %s", field, prep_id)
+                    value = None
+                results[field] = value
+                landed += 1
+                if not value:
+                    continue
+                try:
+                    prep_ref.update({
+                        field: value,
+                        "stageLabel": _SECTION_LABEL.get(field, "Working on it..."),
+                        "progressPct": 65 + landed * 7,   # 72 / 79 / 86
+                    })
+                    print(f"[CoffeeChat] streamed {field} ({landed}/3)", flush=True)
+                except Exception:
+                    logger.exception("could not stream %s for prep %s", field, prep_id)
 
-            similarity = f_similarity.result()
-            questions = f_questions.result()
-            cheatsheet = f_cheatsheet.result()
+        similarity = results.get("similaritySummary")
+        questions = results.get("coffeeQuestions")
+        cheatsheet = results.get("companyCheatSheet")
 
-        # Strategy uses similarity output — run after
+        # Strategy uses similarity output — run after, and stream it too.
         strategy = generate_conversation_strategy(contact_data, user_context, similarity)
+        if strategy:
+            try:
+                prep_ref.update({
+                    "conversationStrategy": strategy,
+                    "stageLabel": "Shaping the conversation...",
+                    "progressPct": 92,
+                })
+            except Exception:
+                logger.exception("could not stream strategy for prep %s", prep_id)
 
         # Track which AI sections failed so we can inform the user
         partial_failures = []
