@@ -49,6 +49,26 @@ from .app.routes.loops import loops_bp
 from .app.routes.metrics import metrics_bp
 from .app.extensions import init_app_extensions
 
+# Do THIS process's background daemons run here?
+#
+# create_app() runs at module level and gunicorn forks a worker from it, so every
+# web worker started its OWN copy of all four daemons: the tracker scanner, the
+# Gmail watch-renewal loop, the watchdog, and the hourly agent digest. With
+# --workers 2 that meant two Gmail renewals and two agent digests running in
+# parallel — duplicate work aimed at real users, not just duplicate memory. It
+# also hard-caps the web service at one worker/instance: scaling out multiplies
+# the daemons instead of the throughput.
+#
+# The daemons belong in the long-lived worker process (worker.py), which is
+# exactly the argument worker.py's own docstring already makes about loop cycles.
+# Web sets RUN_DAEMONS=false; the worker sets RUN_DAEMONS=true and boots them
+# once. Defaults to ON so any deploy that doesn't set it (e.g. production, which
+# has no worker service) keeps its existing behavior.
+_RUN_DAEMONS = os.getenv("RUN_DAEMONS", "true").strip().lower() not in (
+    "0", "false", "no", "off",
+)
+
+
 def create_app() -> Flask:
     # Project layout assumptions:
     REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -368,9 +388,10 @@ def create_app() -> Flask:
 
             time.sleep(SIX_HOURS)
 
-    tracker_thread = threading.Thread(target=_tracker_scanner_loop, daemon=True)
-    tracker_thread.start()
-    _tracker_logger.info("Tracker scanner thread registered (first run in ~5 minutes)")
+    if _RUN_DAEMONS:
+        tracker_thread = threading.Thread(target=_tracker_scanner_loop, daemon=True)
+        tracker_thread.start()
+        _tracker_logger.info("Tracker scanner thread registered (first run in ~5 minutes)")
 
     # Start Gmail watch renewal background thread (every 6 days)
     _watch_logger = logging.getLogger("watch_renewal")
@@ -418,9 +439,10 @@ def create_app() -> Flask:
             except Exception as e:
                 _watch_logger.error("Watch renewal loop error: %s", e)
 
-    t = threading.Thread(target=_watch_renewal_loop, daemon=True)
-    t.start()
-    _watch_logger.info("Gmail watch renewal thread registered (first run in 6 days)")
+    if _RUN_DAEMONS:
+        t = threading.Thread(target=_watch_renewal_loop, daemon=True)
+        t.start()
+        _watch_logger.info("Gmail watch renewal thread registered (first run in 6 days)")
 
     # ---- Daemon healthcheck watchdog (every 1 hour) ----------------------
     #
@@ -514,7 +536,7 @@ def create_app() -> Flask:
 
             time.sleep(ONE_HOUR)
 
-    if os.getenv("WATCHDOG_ENABLED", "true").lower() == "true":
+    if _RUN_DAEMONS and os.getenv("WATCHDOG_ENABLED", "true").lower() == "true":
         watchdog_thread = threading.Thread(target=_watchdog_loop, daemon=True)
         watchdog_thread.start()
         _watchdog_logger.info("Daemon watchdog registered (first check in ~10 minutes)")
@@ -541,7 +563,7 @@ def create_app() -> Flask:
                 _agent_logger.exception("Agent daemon failed")
             time.sleep(ONE_HOUR)
 
-    if os.getenv("AGENT_DAEMON_ENABLED", "true").lower() == "true":
+    if _RUN_DAEMONS and os.getenv("AGENT_DAEMON_ENABLED", "true").lower() == "true":
         agent_thread = threading.Thread(target=_agent_daemon_loop, daemon=True)
         agent_thread.start()
         _agent_logger.info("Agent daemon registered (first run in ~10 minutes)")
