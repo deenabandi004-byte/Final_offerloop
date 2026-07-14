@@ -22,7 +22,7 @@ from app.models.users import (
 
 import logging
 
-from app.config import DRAFT_CREDITS_PER_CONTACT
+from app.config import CREDIT_COSTS
 
 logger = logging.getLogger(__name__)
 
@@ -342,8 +342,9 @@ def me():
         # Per-CONTACT price of a swipe. Must match the actual charge in
         # runs.py prompt_search (5 × contacts drafted) — the app multiplies
         # this by its contacts-per-swipe setting for the optimistic decrement.
-        # The real charge (runs.py). Was hardcoded 10 while the backend took 5.
-        'creditsPerSwipe': DRAFT_CREDITS_PER_CONTACT,
+        # Straight from CREDIT_COSTS, so the price the app quotes and the price
+        # the backend charges can never drift apart again.
+        'creditsPerSwipe': CREDIT_COSTS['find_contact'],
         'gmailConnected': gmail_connected,
         'gmailAddress': gmail_address,
         'resume': ({'name': resume_name, 'url': resume_url} if resume_name else None),

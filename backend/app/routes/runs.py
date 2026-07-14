@@ -737,8 +737,17 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
         credits_used = 0
         credits_remaining = None
         if db and user_id:
-            from app.config import DRAFT_CREDITS_PER_CONTACT
-            credits_amount = DRAFT_CREDITS_PER_CONTACT * len(contacts)
+            # CREDIT_COSTS is the source of truth for price — the same table the
+            # Stripe catalog, the slider stops and the top-up packs are all built
+            # from. This was hardcoded `5 * len(contacts)` and got MISSED by the
+            # 2026-06-10 doubling that inflated everything else (tier grants,
+            # prices, packs, even existing balances via migrate_double_credits).
+            # So every user, web and app, has been charged half price ever since:
+            # free got 60 emails instead of 30, Pro 400 instead of 200 — twice the
+            # PDL/OpenAI cost we actually priced for. Never hardcode a price that
+            # a table already owns.
+            from app.config import CREDIT_COSTS
+            credits_amount = CREDIT_COSTS['find_contact'] * len(contacts)
             try:
                 success, remaining = deduct_credits_atomic(user_id, credits_amount, "prompt_search")
                 if success:
