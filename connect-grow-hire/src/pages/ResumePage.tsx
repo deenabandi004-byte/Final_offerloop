@@ -44,9 +44,17 @@ import {
   ArrowUp,
   ArrowDown,
   Link2,
-  Briefcase,
-  Building2,
+  FolderOpen,
+  ExternalLink,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { PageTitle } from "@/components/PageTitle";
 import yetiFindUrl from "@/assets/scouts/yeti-find.png";
 import { db, storage, auth } from "@/lib/firebase";
@@ -249,6 +257,67 @@ const ResumePage = () => {
     company: string | null;
     updatedAt: string;
   } | null>(null);
+
+  // Tailored resume library (past runs, newest first).
+  type TailoredLibraryItem = {
+    id: string;
+    jobTitle: string | null;
+    company: string | null;
+    jobUrl: string | null;
+    pdfUrl: string;
+    pageCount: number | null;
+    updatedAt: string | null;
+    model: string | null;
+  };
+  const [tailoredLibrary, setTailoredLibrary] = useState<TailoredLibraryItem[]>([]);
+  const [downloadingTailoredId, setDownloadingTailoredId] = useState<string | null>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+
+  const refreshTailoredLibrary = useCallback(async () => {
+    try {
+      const res = await apiService.listTailoredResumes();
+      setTailoredLibrary(res.items || []);
+    } catch (err) {
+      console.error("Failed to load tailored library", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!uid) return;
+    refreshTailoredLibrary();
+  }, [uid, refreshTailoredLibrary]);
+
+  const downloadTailoredPdf = useCallback(
+    async (item: { id: string; pdfUrl: string; jobTitle: string | null; company: string | null }) => {
+      if (downloadingTailoredId) return;
+      setDownloadingTailoredId(item.id);
+      try {
+        const response = await fetch(item.pdfUrl);
+        if (!response.ok) throw new Error("Failed to fetch tailored PDF");
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        const baseName = [item.jobTitle, item.company].filter(Boolean).join(" - ") || "tailored-resume";
+        a.href = url;
+        a.download = `${baseName.replace(/[\\/:*?"<>|]+/g, "").trim()}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast({ title: "Tailored resume downloaded" });
+      } catch (err) {
+        console.error("Tailored download failed", err);
+        toast({
+          title: "Download failed",
+          description: "Open the PDF and try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setDownloadingTailoredId(null);
+      }
+    },
+    [downloadingTailoredId],
+  );
 
   const loadResume = useCallback(async (userId: string) => {
     try {
@@ -655,13 +724,13 @@ const ResumePage = () => {
         company: res.company,
         updatedAt: res.updatedAt,
       });
-      window.open(res.pdfUrl, "_blank");
+      refreshTailoredLibrary();
       toast({
         title: "Tailored resume ready",
         description:
           res.company || res.jobTitle
-            ? `Tailored for ${[res.jobTitle, res.company].filter(Boolean).join(" at ")}.`
-            : "Your tailored PDF is open in a new tab.",
+            ? `Tailored for ${[res.jobTitle, res.company].filter(Boolean).join(" at ")}. Click "Download tailored resume" to save it.`
+            : `Click "Download tailored resume" to save it.`,
       });
     } catch (err) {
       console.error("Tailor failed", err);
@@ -788,19 +857,14 @@ const ResumePage = () => {
   // Rendered inside each tab's left column, with the recommendations list
   // directly underneath — the left column is NOT sticky since it now scrolls
   // past the fold when recommendations are present.
-  // Preview shows the tailored PDF once a tailor completes; otherwise the
-  // live browser-rendered preview of the currently-parsed resume.
-  const activePreviewUrl = tailorResult?.pdfUrl ?? previewUrl;
-  const activePreviewLabel = tailorResult
-    ? tailorResult.company || tailorResult.jobTitle
-      ? `Tailored for ${[tailorResult.jobTitle, tailorResult.company].filter(Boolean).join(" at ")}`
-      : "Tailored resume"
-    : "Live preview";
-  const activePreviewSub = tailorResult
-    ? "Open in a new tab or download from the top-right of the PDF"
-    : previewRendering
-      ? "Updating…"
-      : "This is the exact PDF you'll download";
+  // The left-column preview always shows the user's original resume — the
+  // tailored PDF is offered as a downloadable artifact in the right rail so the
+  // source of truth stays visible.
+  const activePreviewUrl = previewUrl;
+  const activePreviewLabel = "Your resume";
+  const activePreviewSub = previewRendering
+    ? "Updating…"
+    : "The original stays here — tailored copies live in the library on the right.";
 
   const previewPanel = (
     <div>
@@ -981,21 +1045,189 @@ const ResumePage = () => {
                     size="lg"
                   />
                 </div>
-                <p
-                  className="mt-[14px]"
-                  style={{
-                    fontFamily: "Inter, system-ui, sans-serif",
-                    fontSize: "15px",
-                    lineHeight: 1.65,
-                    color: "#64748B",
-                    maxWidth: "560px",
-                  }}
-                >
-                  Keep the live preview open while Scout scores your resume against the
-                  posting and suggests rewrites — approve them one by one, then download
-                  the exact PDF.
-                </p>
+                <div className="mt-[14px] flex items-start justify-between gap-6">
+                  <p
+                    style={{
+                      fontFamily: "Inter, system-ui, sans-serif",
+                      fontSize: "15px",
+                      lineHeight: 1.65,
+                      color: "#64748B",
+                      maxWidth: "560px",
+                    }}
+                  >
+                    Keep the live preview open while Scout scores your resume against the
+                    posting and suggests rewrites — approve them one by one, then download
+                    the exact PDF.
+                  </p>
+                  {/* Right: Resume library button — sits below the Scout pill so it
+                      doesn't collide with the fixed AskScout button at top-right. */}
+                  <div className="shrink-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        refreshTailoredLibrary();
+                        setLibraryOpen(true);
+                      }}
+                      className="gap-2"
+                    >
+                      <FolderOpen className="w-4 h-4" />
+                      Resume library
+                      {tailoredLibrary.length > 0 && (
+                        <span
+                          style={{
+                            background: "#EEF1FB",
+                            color: "#4A60A8",
+                            fontFamily: "Inter, system-ui, sans-serif",
+                            fontSize: "11px",
+                            fontWeight: 600,
+                            borderRadius: "99px",
+                            padding: "1px 7px",
+                            marginLeft: "2px",
+                          }}
+                        >
+                          {tailoredLibrary.length}
+                        </span>
+                      )}
+                    </Button>
+                  </div>
+                </div>
               </div>
+
+              {/* Resume library dialog */}
+              <Dialog open={libraryOpen} onOpenChange={setLibraryOpen}>
+                <DialogContent className="sm:max-w-[560px] max-h-[80vh] overflow-hidden flex flex-col">
+                  <DialogHeader>
+                    <DialogTitle
+                      style={{
+                        fontFamily: "'Libre Baskerville', Georgia, serif",
+                        fontSize: "22px",
+                        fontWeight: 600,
+                        color: "#1E2D4D",
+                      }}
+                    >
+                      Resume library
+                    </DialogTitle>
+                    <DialogDescription>
+                      Every tailored resume you've generated, newest first. Click download to save
+                      the PDF locally.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <div className="flex-1 overflow-y-auto -mx-6 px-6" style={{ marginTop: "8px" }}>
+                    {tailoredLibrary.length === 0 ? (
+                      <div
+                        className="text-center"
+                        style={{
+                          padding: "48px 16px",
+                          fontFamily: "Inter, system-ui, sans-serif",
+                          fontSize: "13px",
+                          color: "#64748B",
+                        }}
+                      >
+                        <FolderOpen
+                          className="mx-auto mb-3"
+                          style={{ width: 32, height: 32, color: "#CBD5E1" }}
+                        />
+                        <p style={{ fontWeight: 600, color: "#1E2D4D", fontSize: "14px", marginBottom: "4px" }}>
+                          No tailored resumes yet
+                        </p>
+                        <p>Run the Tailor step to generate one — it'll show up here.</p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col" style={{ gap: "8px", paddingBottom: "8px" }}>
+                        {tailoredLibrary.map((item) => {
+                          const label =
+                            [item.jobTitle, item.company].filter(Boolean).join(" at ") ||
+                            "Tailored resume";
+                          const isDownloading = downloadingTailoredId === item.id;
+                          return (
+                            <div
+                              key={item.id}
+                              className="flex items-center justify-between"
+                              style={{
+                                padding: "12px 14px",
+                                borderRadius: "10px",
+                                background: "#F7F8FD",
+                                border: "1px solid #EEF1FB",
+                                gap: "12px",
+                              }}
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div
+                                  className="truncate"
+                                  style={{
+                                    fontFamily: "Inter, system-ui, sans-serif",
+                                    fontSize: "13.5px",
+                                    fontWeight: 600,
+                                    color: "#1E2D4D",
+                                  }}
+                                >
+                                  {label}
+                                </div>
+                                <div
+                                  style={{
+                                    fontFamily: "Inter, system-ui, sans-serif",
+                                    fontSize: "11.5px",
+                                    color: "#64748B",
+                                  }}
+                                >
+                                  {item.updatedAt
+                                    ? new Date(item.updatedAt).toLocaleDateString()
+                                    : ""}
+                                </div>
+                              </div>
+                              <div className="flex items-center" style={{ gap: "6px" }}>
+                                <a
+                                  href={item.pdfUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  aria-label={`Preview ${label}`}
+                                  className="inline-flex items-center justify-center transition-all"
+                                  style={{
+                                    width: "34px",
+                                    height: "34px",
+                                    borderRadius: "8px",
+                                    background: "#fff",
+                                    border: "1px solid #D6DEF3",
+                                    color: "#4A60A8",
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  <ExternalLink className="w-4 h-4" />
+                                </a>
+                                <button
+                                  onClick={() => downloadTailoredPdf(item)}
+                                  disabled={downloadingTailoredId !== null}
+                                  aria-label={`Download ${label}`}
+                                  className="inline-flex items-center justify-center transition-all disabled:opacity-50"
+                                  style={{
+                                    width: "34px",
+                                    height: "34px",
+                                    borderRadius: "8px",
+                                    background: "#4A60A8",
+                                    border: "none",
+                                    color: "#fff",
+                                    cursor:
+                                      downloadingTailoredId !== null ? "not-allowed" : "pointer",
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {isDownloading ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Download className="w-4 h-4" />
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </DialogContent>
+              </Dialog>
 
               {loading ? (
                 <div className="flex items-center justify-center py-24">
@@ -1202,40 +1434,8 @@ const ResumePage = () => {
                         canonical PDF.
                       </p>
 
-                      {/* Step 1 */}
-                      <div
-                        className="mt-5 flex items-center"
-                        style={{ gap: "8px" }}
-                      >
-                        <span
-                          className="inline-flex items-center justify-center"
-                          style={{
-                            width: "20px",
-                            height: "20px",
-                            borderRadius: "99px",
-                            background: "#EEF1FB",
-                            color: "#4A60A8",
-                            fontFamily: "Inter, system-ui, sans-serif",
-                            fontSize: "11px",
-                            fontWeight: 700,
-                          }}
-                        >
-                          1
-                        </span>
-                        <span
-                          style={{
-                            fontFamily: "Inter, system-ui, sans-serif",
-                            fontSize: "12.5px",
-                            fontWeight: 600,
-                            color: "#1E2D4D",
-                          }}
-                        >
-                          Point Scout at the job
-                        </span>
-                      </div>
-
                       {/* URL input with Link2 leading icon */}
-                      <div className="relative mt-3">
+                      <div className="relative mt-5">
                         <Link2
                           className="absolute pointer-events-none"
                           style={{
@@ -1306,83 +1506,6 @@ const ResumePage = () => {
                             ? `${jobDescription.length} chars`
                             : `${jobDescription.length} / ${TAILOR_MIN_JD_LENGTH}`}
                         </span>
-                      </div>
-
-                      {/* Step 2 */}
-                      <div
-                        className="mt-5 flex items-center"
-                        style={{ gap: "8px" }}
-                      >
-                        <span
-                          className="inline-flex items-center justify-center"
-                          style={{
-                            width: "20px",
-                            height: "20px",
-                            borderRadius: "99px",
-                            background: "#EEF1FB",
-                            color: "#4A60A8",
-                            fontFamily: "Inter, system-ui, sans-serif",
-                            fontSize: "11px",
-                            fontWeight: 700,
-                          }}
-                        >
-                          2
-                        </span>
-                        <span
-                          style={{
-                            fontFamily: "Inter, system-ui, sans-serif",
-                            fontSize: "12.5px",
-                            fontWeight: 600,
-                            color: "#1E2D4D",
-                          }}
-                        >
-                          Confirm the target — optional
-                        </span>
-                      </div>
-
-                      {/* Job title + Company grid */}
-                      <div
-                        className="mt-3 grid gap-3"
-                        style={{ gridTemplateColumns: "1fr 1fr" }}
-                      >
-                        <div className="relative">
-                          <Briefcase
-                            className="absolute pointer-events-none"
-                            style={{
-                              left: "13px",
-                              top: "50%",
-                              transform: "translateY(-50%)",
-                              width: "16px",
-                              height: "16px",
-                              color: "#94A3B8",
-                            }}
-                          />
-                          <Input
-                            value={jobTitle}
-                            onChange={(e) => setJobTitle(e.target.value)}
-                            placeholder="Job title"
-                            style={{ paddingLeft: "38px" }}
-                          />
-                        </div>
-                        <div className="relative">
-                          <Building2
-                            className="absolute pointer-events-none"
-                            style={{
-                              left: "13px",
-                              top: "50%",
-                              transform: "translateY(-50%)",
-                              width: "16px",
-                              height: "16px",
-                              color: "#94A3B8",
-                            }}
-                          />
-                          <Input
-                            value={company}
-                            onChange={(e) => setCompany(e.target.value)}
-                            placeholder="Company"
-                            style={{ paddingLeft: "38px" }}
-                          />
-                        </div>
                       </div>
 
                       {/* Primary button — single-shot Claude tailor */}
@@ -1464,6 +1587,100 @@ const ResumePage = () => {
                         </p>
                       )}
                     </div>
+
+                    {/* Just-finished tailor: prominent download callout */}
+                    {tailorResult && (
+                      <div
+                        className="rounded-xl overflow-hidden"
+                        style={{
+                          background: "linear-gradient(180deg, #F0F5FF 0%, #E8EEFF 100%)",
+                          border: "1px solid #C7D2FE",
+                          padding: "20px",
+                        }}
+                      >
+                        <div
+                          className="mb-2"
+                          style={{
+                            fontFamily: "Inter, system-ui, sans-serif",
+                            fontSize: "11px",
+                            fontWeight: 700,
+                            letterSpacing: "0.09em",
+                            color: "#4A60A8",
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          Tailored resume ready
+                        </div>
+                        <div
+                          style={{
+                            fontFamily: "'Libre Baskerville', Georgia, serif",
+                            fontSize: "17px",
+                            fontWeight: 600,
+                            color: "#1E2D4D",
+                            lineHeight: 1.35,
+                            marginBottom: "4px",
+                          }}
+                        >
+                          {tailorResult.jobTitle || "Tailored resume"}
+                          {tailorResult.company ? ` at ${tailorResult.company}` : ""}
+                        </div>
+                        <div
+                          className="mb-4"
+                          style={{
+                            fontFamily: "Inter, system-ui, sans-serif",
+                            fontSize: "12px",
+                            color: "#64748B",
+                          }}
+                        >
+                          Rendered {new Date(tailorResult.updatedAt).toLocaleString()}
+                        </div>
+                        <button
+                          onClick={() =>
+                            downloadTailoredPdf({
+                              id: `just-tailored-${tailorResult.updatedAt}`,
+                              pdfUrl: tailorResult.pdfUrl,
+                              jobTitle: tailorResult.jobTitle,
+                              company: tailorResult.company,
+                            })
+                          }
+                          disabled={downloadingTailoredId !== null}
+                          className="w-full inline-flex items-center justify-center gap-2 transition-all disabled:opacity-60"
+                          style={{
+                            background: "#4A60A8",
+                            color: "#fff",
+                            borderRadius: "10px",
+                            padding: "12px",
+                            fontFamily: "Inter, system-ui, sans-serif",
+                            fontSize: "14px",
+                            fontWeight: 600,
+                            boxShadow: "0 4px 14px rgba(74,96,168,0.2)",
+                            border: "none",
+                            cursor: downloadingTailoredId !== null ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          {downloadingTailoredId ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Download className="w-4 h-4" />
+                          )}
+                          Download tailored resume
+                        </button>
+                        <a
+                          href={tailorResult.pdfUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block text-center mt-2"
+                          style={{
+                            fontFamily: "Inter, system-ui, sans-serif",
+                            fontSize: "12px",
+                            color: "#4A60A8",
+                            textDecoration: "none",
+                          }}
+                        >
+                          Preview in a new tab
+                        </a>
+                      </div>
+                    )}
 
                     {fitState === "scoring" && (
                       <div className="rounded-xl border border-line bg-white p-8 flex flex-col items-center justify-center text-center">
