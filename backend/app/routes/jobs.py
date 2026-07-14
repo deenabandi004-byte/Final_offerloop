@@ -433,42 +433,55 @@ def get_feed():
         counts["intent_hash"] = _intent_hash_str
         return gated_new, gated_top, counts
 
-    # Load negative-signal job_ids so dismissed rows stop reappearing.
-    dismissed_ids: set[str] = set()
-    try:
-        prefs_snap = (
-            user_ref.collection("jobPreferences")
-            .where("signal", "==", "negative")
-            .stream()
-        )
-        for d in prefs_snap:
-            pd = d.to_dict() or {}
-            jid = pd.get("job_id") or d.id
-            if jid:
-                dismissed_ids.add(jid)
-    except Exception as e:
-        logger.debug(f"could not load dismissed jobs for {uid}: {e}")
+    # Three independent reads — dismissed jobs, saved companies, ranker signals.
+    # They ran back to back, which cost 277ms warm and 1.4s COLD (the worst case
+    # is exactly the one the user feels: opening the app). Nothing here depends on
+    # anything else here, so fetch them concurrently.
+    def _load_dismissed() -> set[str]:
+        out: set[str] = set()
+        try:
+            for d in (
+                user_ref.collection("jobPreferences")
+                .where("signal", "==", "negative")
+                .stream()
+            ):
+                pd = d.to_dict() or {}
+                jid = pd.get("job_id") or d.id
+                if jid:
+                    out.add(jid)
+        except Exception as e:
+            logger.debug(f"could not load dismissed jobs for {uid}: {e}")
+        return out
 
-    saved_companies: set[str] = set()
-    try:
-        saved_snap = user_ref.collection("savedJobs").stream()
-        for d in saved_snap:
-            sd = d.to_dict() or {}
-            co = (sd.get("company") or "").strip().lower()
-            if co:
-                saved_companies.add(co)
-    except Exception:
-        pass
+    def _load_saved_companies() -> set[str]:
+        out: set[str] = set()
+        try:
+            for d in user_ref.collection("savedJobs").stream():
+                sd = d.to_dict() or {}
+                co = (sd.get("company") or "").strip().lower()
+                if co:
+                    out.add(co)
+        except Exception:
+            pass
+        return out
 
-    # Phase 2: load dream/target/alumni signals once per request. Cached for
-    # 5 min so repeat pulls from get_feed within a session are free. Failing
-    # to load is non-fatal — feed still renders, just without the new badges.
-    try:
-        from app.services.job_ranker_signals import load_user_signals
-        user_signals = load_user_signals(uid)
-    except Exception:
-        user_signals = None
-        logger.exception("[JobsFeed] load_user_signals failed for uid=%s", uid)
+    def _load_signals():
+        # Phase 2: dream/target/alumni signals. Cached 5 min. Non-fatal — the
+        # feed still renders without the badges.
+        try:
+            from app.services.job_ranker_signals import load_user_signals
+            return load_user_signals(uid)
+        except Exception:
+            logger.exception("[JobsFeed] load_user_signals failed for uid=%s", uid)
+            return None
+
+    with ThreadPoolExecutor(max_workers=3) as _pf:
+        _f_dismissed = _pf.submit(_load_dismissed)
+        _f_saved = _pf.submit(_load_saved_companies)
+        _f_signals = _pf.submit(_load_signals)
+        dismissed_ids: set[str] = _f_dismissed.result()
+        saved_companies: set[str] = _f_saved.result()
+        user_signals = _f_signals.result()
 
     _mark("prefetch(dismissed+saved+signals)")
 
@@ -731,14 +744,18 @@ def get_feed():
         _mark(f"new_matches(cached={nm_from_cache})")
         new_matches, top_jobs, gated_info = _apply_gates(new_matches, top_jobs)
 
-        # Slim the wire AFTER interleaving, so "the first 40 cards" means the
-        # first 40 the user will actually see, explore cards included.
-        top_jobs = _slim_for_wire(top_jobs)
-        new_matches = _slim_for_wire(new_matches)
-
+        # Slim AFTER _serialize_jobs, never before: serialize RE-ORDERS the deck
+        # (auto-apply-eligible jobs get pushed to the front), so slimming by index
+        # first meant "the first 40" were not the first 40 the user sees — a card
+        # at position 186 kept its description while early cards lost theirs and
+        # had to lazy-fetch. Slim last, so the cards that ship with a description
+        # are exactly the ones swiped first.
         _payload = {
-            "new_matches": _serialize_jobs(new_matches) if not nm_from_cache else new_matches,
-            "top_jobs": _serialize_jobs(top_jobs),
+            "new_matches": (
+                _slim_for_wire(_serialize_jobs(new_matches)) if not nm_from_cache
+                else _slim_for_wire(list(new_matches))
+            ),
+            "top_jobs": _slim_for_wire(_serialize_jobs(top_jobs)),
             "new_matches_count": len(new_matches),
             "top_jobs_count": len(top_jobs),
             "ranked": True,
