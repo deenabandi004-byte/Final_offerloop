@@ -62,6 +62,56 @@ def run_auto_apply_task(
         .collection("autoApplyJobs").document(auto_apply_id)
     )
 
+    # NEVER submit the same application twice.
+    #
+    # RQ requeues a task whose worker died mid-run, and the task re-runs FROM THE
+    # TOP — refilling the form and clicking Submit again. On 2026-07-14 a deploy
+    # restarted the worker during Rylan's Discord apply and the job ran twice.
+    # Nothing was corrupted, no error was logged, and the doc looked normal — the
+    # only trace was two "START filler" lines. A recruiter quietly receiving the
+    # same application twice, under the user's real name, is exactly the kind of
+    # harm that leaves no error message.
+    #
+    # The fillers stamp submit_attempted_at immediately BEFORE clicking Submit,
+    # so if it's set, this job already put an application in front of an employer
+    # and must not do it again. Bail out honestly instead: the user can see what
+    # happened and finish on the site if it didn't land.
+    #
+    # Retries of runs that never reached Submit (form didn't render, timed out
+    # while filling) are unaffected — that's the whole point of stamping at the
+    # click and not at the start.
+    if not dry_run:
+        try:
+            snap = job_ref.get()
+            existing = snap.to_dict() or {} if snap.exists else {}
+            if existing.get("submit_attempted_at"):
+                logger.warning(
+                    "auto-apply %s already attempted a submit — refusing to re-run "
+                    "(worker restart / requeue). Not submitting twice.",
+                    auto_apply_id,
+                )
+                print(
+                    f"[auto_apply] SKIP {auto_apply_id}: submit already attempted — "
+                    f"refusing to submit this application a second time",
+                    flush=True,
+                )
+                if str(existing.get("status")) in ("queued", "running"):
+                    job_ref.set({
+                        "status": "needs_attention",
+                        "stage": "submit_attempted",
+                        "failure_reason": (
+                            "We already sent this application once and stopped before "
+                            "sending it again. Open the listing to check it landed."
+                        ),
+                    }, merge=True)
+                return
+        except Exception:
+            # A guard that can't read must not silently become a duplicate
+            # submitter — but it also must not break every apply. Log loudly.
+            logger.exception(
+                "auto-apply %s: could not check submit_attempted_at", auto_apply_id
+            )
+
     guard = ThreadPoolExecutor(max_workers=1)
     try:
         future = guard.submit(

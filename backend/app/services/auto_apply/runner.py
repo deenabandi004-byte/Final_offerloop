@@ -28,7 +28,7 @@ import tempfile
 from urllib.parse import unquote
 import threading
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 import requests
@@ -154,7 +154,19 @@ def run_auto_apply_job(
             # Mid-filler stage hop. The filler runs synchronously (fill →
             # submit → wait on the emailed code), so without this the doc is
             # stuck at filling_form for the whole submit+code-read window.
-            update_status(uid, auto_apply_id, stage=stage)
+            #
+            # awaiting_verification is emitted by the fillers IMMEDIATELY BEFORE
+            # they click Submit, so it doubles as the "we are about to send a
+            # real application" record. Stamping it here is what makes the job
+            # idempotent: RQ requeues a task whose worker died, the task re-runs
+            # from the top, and without this the second run cheerfully submits
+            # the application a SECOND time. Discord got two runs on 2026-07-14
+            # because a deploy restarted the worker mid-apply. A recruiter
+            # receiving the same application twice is a real cost to the user.
+            fields = {"stage": stage}
+            if stage == "awaiting_verification" and not dry_run:
+                fields["submit_attempted_at"] = datetime.now(timezone.utc)
+            update_status(uid, auto_apply_id, **fields)
 
         platform = detect_platform(job_data)
         if platform == "greenhouse":
@@ -185,6 +197,7 @@ def run_auto_apply_job(
                 uid=uid,
                 resume_summary=resume_summary,
                 job_data=job_data,
+                progress_cb=_progress,
             )
         elif platform == "ashby":
             from app.services.auto_apply.ashby import run_ashby_filler
@@ -199,6 +212,7 @@ def run_auto_apply_job(
                 uid=uid,
                 resume_summary=resume_summary,
                 job_data=job_data,
+                progress_cb=_progress,
             )
         else:
             result = {

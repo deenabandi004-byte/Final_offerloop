@@ -482,6 +482,18 @@ def resolve_needs_attention(auto_apply_id: str):
     # actually click Submit.
     update_payload["status"] = "queued"
     update_payload["stage"] = "queued_for_resume"
+    # Clear the submit-attempt stamp: the USER has just answered the drawer and
+    # explicitly asked us to try again, so another submission is authorized.
+    #
+    # This is what separates a legitimate retry from a duplicate. The RQ worker
+    # refuses to run a job whose submit_attempted_at is set, because a requeue
+    # after a mid-apply worker restart would otherwise re-submit the application
+    # (Discord, 2026-07-14). A requeue carries no new user input and never clears
+    # this; a drawer retry does. Without clearing it here, the guard would block
+    # the very flow it's meant to protect — the user answers the question, and
+    # nothing happens.
+    from firebase_admin import firestore as _fs
+    update_payload["submit_attempted_at"] = _fs.DELETE_FIELD
     job_ref.update(update_payload)
 
     job_id = data.get("job_id")

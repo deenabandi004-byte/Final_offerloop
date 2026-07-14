@@ -277,17 +277,26 @@ def run_greenhouse_filler(
                             import time as _time_now
                             submit_ts = int(_time_now.time())
                             print(f"[auto_apply]   clicking submit at ts={submit_ts}", flush=True)
-                            submit.click()
-                            # Input is done. Everything after this — the submit
-                            # POST, the email-code gate, the Gmail code-read — is
-                            # waiting, not filling. Advance the stage so the app
-                            # can swap the "Filling out the form…" card for a
-                            # distinct "waiting" card instead of looking frozen.
+                            # Announce the click BEFORE making it, never after.
+                            #
+                            # Two jobs at once. (1) It advances the stage so the app
+                            # can swap "Filling out the form…" for a "waiting" card.
+                            # (2) It stamps submit_attempted_at, which is the ONLY
+                            # thing standing between a worker restart and a second
+                            # application landing on a recruiter's desk: RQ requeues
+                            # a job whose worker died, and the task re-runs from the
+                            # top. Discord got two runs on 2026-07-14 for exactly
+                            # this reason (a deploy restarted the worker mid-apply).
+                            #
+                            # If this fired AFTER the click, the fatal window — died
+                            # between clicking and recording it — would be the one
+                            # case it exists to cover. Before. Always before.
                             if progress_cb:
                                 try:
                                     progress_cb("awaiting_verification")
                                 except Exception:
                                     pass
+                            submit.click()
                             page.wait_for_load_state("networkidle", timeout=30_000)
                             print(f"[auto_apply]   networkidle reached, URL now: {page.url!r}", flush=True)
 

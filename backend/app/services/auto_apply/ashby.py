@@ -63,6 +63,7 @@ def run_ashby_filler(
     uid: str = "",
     resume_summary: str = "",
     job_data: Optional[Dict[str, Any]] = None,
+    progress_cb: Optional[Callable[[str], None]] = None,
 ) -> Dict[str, Any]:
     """Drive the Ashby application form. Same return shape as the
     Greenhouse / Lever fillers so the runner dispatch is uniform."""
@@ -215,6 +216,17 @@ def run_ashby_filler(
                             status = "submit_failed"
                             failure_reason = "no submit button found"
                         else:
+                            # Stamp the attempt BEFORE the click. RQ requeues a job whose
+                            # worker died, so the task re-runs from the top — and without
+                            # this the second run happily submits the application AGAIN.
+                            # (Discord got two runs on 2026-07-14 when a deploy restarted
+                            # the worker mid-apply.) After the click would leave the fatal
+                            # window — died between clicking and recording — uncovered.
+                            if progress_cb:
+                                try:
+                                    progress_cb("awaiting_verification")
+                                except Exception:
+                                    pass
                             submit.click()
                             page.wait_for_load_state("networkidle", timeout=30_000)
                             screenshot_bytes = page.screenshot(full_page=True)
