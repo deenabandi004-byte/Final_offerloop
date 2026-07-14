@@ -91,6 +91,33 @@ def _advance_feed_offset(current: int, cache_len: int, stride: int = _FEED_OFFSE
     return nxt, False
 
 
+# How many cards ship with their description inline. The deck is swiped in
+# order, so only the ones near the top are read soon; the rest lazy-load.
+_STRUCTURED_PREFETCH = 40
+
+
+def _slim_for_wire(jobs: list[dict], keep_first: int = _STRUCTURED_PREFETCH) -> list[dict]:
+    """Strip description prose from cards the user won't reach for a while.
+
+    The feed response was 1.3MB uncompressed (268KB gzipped) because every one of
+    ~420 cards carried its full `structured` blob — ~2.6KB of requirements and
+    responsibilities prose each — for a user who will swipe maybe twenty. That is
+    the single biggest cost of opening the app, and most of it is never read.
+
+    Keep the description inline for the first `keep_first` cards so they render
+    instantly, and drop it from the rest. This is not a new fallback: mapJob
+    already composes from `structured` when present and JobCard already
+    lazy-fetches a description when it's absent, so deeper cards simply fill in
+    on demand as the user actually reaches them.
+    """
+    for i, j in enumerate(jobs):
+        j.pop("search_terms", None)      # not read by any client
+        if i >= keep_first:
+            j.pop("structured", None)
+            j.pop("description_raw", None)
+    return jobs
+
+
 def _interleave_exploration(ranked: list[dict], explore: list[dict]) -> list[dict]:
     """Spread exploration cards evenly through the ranked deck.
 
@@ -584,18 +611,31 @@ def get_feed():
             if start >= len(cached_ids):
                 start = 0
             window = cached_ids[start : start + MAX_DISPLAY_TOP_JOBS]
-            for i in range(0, len(window), 100):
-                chunk = window[i:i + 100]
+
+            # Fetch the 100-doc batches CONCURRENTLY. They were sequential, so
+            # 300 cards meant three round-trips to Firestore stacked end to end
+            # (~800ms of the feed's ~1.1s). They're independent reads — waiting
+            # for one before starting the next bought nothing.
+            chunks = [window[i:i + 100] for i in range(0, len(window), 100)]
+
+            def _fetch(chunk):
                 refs = [db.collection("jobs").document(jid) for jid in chunk]
-                docs = db.get_all(refs)
+                return [d for d in db.get_all(refs) if d.exists]
+
+            if len(chunks) > 1:
+                with ThreadPoolExecutor(max_workers=len(chunks)) as pool:
+                    batches = list(pool.map(_fetch, chunks))
+            else:
+                batches = [_fetch(c) for c in chunks]
+
+            for docs in batches:
                 for d in docs:
-                    if d.exists:
-                        j = d.to_dict()
-                        jid = j.get("job_id", d.id)
-                        j["match_score"] = cached_scores.get(jid)
-                        j["match_reason"] = cached_reasons.get(jid)
-                        j["ranked"] = j["match_score"] is not None
-                        top_jobs.append(j)
+                    j = d.to_dict()
+                    jid = j.get("job_id", d.id)
+                    j["match_score"] = cached_scores.get(jid)
+                    j["match_reason"] = cached_reasons.get(jid)
+                    j["ranked"] = j["match_score"] is not None
+                    top_jobs.append(j)
             top_jobs.sort(key=lambda j: j.get("match_score") or 0, reverse=True)
         return top_jobs
 
@@ -690,6 +730,11 @@ def get_feed():
         new_matches = _enrich(new_matches_raw)
         _mark(f"new_matches(cached={nm_from_cache})")
         new_matches, top_jobs, gated_info = _apply_gates(new_matches, top_jobs)
+
+        # Slim the wire AFTER interleaving, so "the first 40 cards" means the
+        # first 40 the user will actually see, explore cards included.
+        top_jobs = _slim_for_wire(top_jobs)
+        new_matches = _slim_for_wire(new_matches)
 
         _payload = {
             "new_matches": _serialize_jobs(new_matches) if not nm_from_cache else new_matches,
