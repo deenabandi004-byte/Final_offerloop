@@ -111,6 +111,12 @@ RESUME_LINE = "For context, I've attached my resume below."
 COFFEE_CHAT_CREDITS = 0
 TIMELINE_CREDITS = 20
 AUTO_APPLY_CREDITS = 5
+
+# What one drafted contact costs. runs.py hardcoded `5 * len(contacts)` while
+# /api/mobile/me told the app `creditsPerSwipe: 10` — so the app quoted DOUBLE
+# the real price and, now that credits are the only meter, showed users half the
+# drafts they could actually afford. One constant, both places.
+DRAFT_CREDITS_PER_CONTACT = 5
 SUPPORTED_AUTO_APPLY_ATS = {"greenhouse", "lever", "ashby"}
 CACHE_DURATION = timedelta(days=365)
 CREATE_GMAIL_DRAFTS = False  # Set True to create Gmail drafts; False to only return subject/body and compose links

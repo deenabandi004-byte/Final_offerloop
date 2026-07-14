@@ -7,7 +7,7 @@ import traceback
 import threading
 from datetime import datetime
 from typing import Dict, Tuple, Optional
-from app.services.pdl_client import get_contact_identity, search_contacts_from_prompt
+from app.services.pdl_client import get_contact_identity, normalize_company_for_identity, search_contacts_from_prompt
 from app.services.prompt_parser import parse_search_prompt_structured
 from app.services import coresignal_client
 from flask import Blueprint, request, jsonify
@@ -98,7 +98,9 @@ def _contact_already_exists(contact, existing_emails_set, existing_name_company_
             return True
     fn = (contact.get("FirstName") or contact.get("firstName") or "").strip().lower()
     ln = (contact.get("LastName") or contact.get("lastName") or "").strip().lower()
-    co = (contact.get("Company") or contact.get("company") or "").strip().lower()
+    # Same normalization as the set was built with — otherwise the comparison is
+    # between two different spellings of the same employer and never matches.
+    co = normalize_company_for_identity(contact.get("Company") or contact.get("company") or "")
     if fn and ln and co and f"{fn}_{ln}_{co}" in existing_name_company_set:
         return True
     return False
@@ -180,7 +182,9 @@ def _build_exclusion_data_from_firestore(db, user_id: str) -> dict:
             linkedin_set.add(linkedin)
         fn = first.lower()
         ln = last.lower()
-        co = company.lower()
+        # Normalize the employer, or "Discord" and "Discord, Inc." are two
+        # different people and the same human gets drafted (and charged) twice.
+        co = normalize_company_for_identity(company)
         if fn and ln and co:
             name_company_set.add(f"{fn}_{ln}_{co}")
     return {
@@ -241,34 +245,71 @@ def _reservation_ref(db, user_id: str, contact: dict):
               .collection("_swipeReservations").document(_swipe_reservation_key(contact)))
 
 
+def _reservation_keys(contact: dict) -> list:
+    """Every identity this person could be reserved under.
+
+    The reservation used to key on (first, last, company) ALONE. That misses the
+    same human twice over: PDL writes the employer inconsistently across postings
+    ("Discord" / "Discord, Inc."), and it ignores the LinkedIn URL — the one
+    identifier PDL reliably returns and the only one that's genuinely unique.
+
+    So we take BOTH. If either is already held, it's a dup. Reserving on the
+    union is what makes a large batch — several jobs at one employer, fired
+    seconds apart — stop handing the user the same person twice and charging for
+    each.
+    """
+    import hashlib
+    keys = []
+    linkedin = (contact.get("LinkedIn") or contact.get("linkedinUrl") or "").strip().lower()
+    if linkedin:
+        linkedin = linkedin.split("?")[0].rstrip("/")
+        keys.append(hashlib.sha1(f"li:{linkedin}".encode("utf-8")).hexdigest())
+    keys.append(_swipe_reservation_key(contact))  # name + normalized company
+    return keys
+
+
 def _try_reserve_contact(db, user_id: str, contact: dict) -> bool:
     """Atomically reserve one contact so a concurrent swipe excludes it.
     Returns True if WE won the reservation (safe to draft this person), False if
     another in-flight swipe already holds it (skip — it's a dup). Fails OPEN: any
     reservation-store error logs and returns True, so a Firestore hiccup never
     blocks a real swipe (matches the events_service .create() idempotency style)."""
-    try:
-        _reservation_ref(db, user_id, contact).create(
-            {"reservedAt": datetime.utcnow().isoformat() + "Z"}  # TODO: deprecated in Python 3.12
-        )
-        return True
-    except Exception as e:
-        # .create() raises AlreadyExists when another worker already reserved
-        # this identity — that's the in-flight dup we want to drop (return False).
-        msg = str(e).lower()
-        if "already_exists" in msg or "already exists" in msg:
-            return False
-        print(f"[Runs] swipe reservation error (failing open): {e}")
-        return True
+    won = []
+    col = db.collection("users").document(user_id).collection("_swipeReservations")
+    for key in _reservation_keys(contact):
+        try:
+            col.document(key).create({"reservedAt": datetime.utcnow().isoformat() + "Z"})
+            won.append(key)
+        except Exception as e:
+            msg = str(e).lower()
+            if "already_exists" in msg or "already exists" in msg:
+                # Somebody already holds this identity — it's a dup. Give back the
+                # keys we took on the way in, or we'd permanently lock out a person
+                # we never actually delivered.
+                for k in won:
+                    try:
+                        col.document(k).delete()
+                    except Exception:
+                        pass
+                return False
+            print(f"[Runs] swipe reservation error (failing open): {e}")
+            return True
+    return True
 
 
 def _release_contact_reservation(db, user_id: str, contact: dict) -> None:
     """Delete a reservation so a person the user never actually received isn't
-    permanently excluded from a future genuine swipe. Best-effort — never raises."""
-    try:
-        _reservation_ref(db, user_id, contact).delete()
-    except Exception:
-        traceback.print_exc()
+    permanently excluded from a future genuine swipe. Best-effort — never raises.
+
+    Releases EVERY key we reserve under (LinkedIn + name/company). Freeing only
+    one would leave the person locked out forever under the other — a contact the
+    user never received, permanently unreachable."""
+    col = db.collection("users").document(user_id).collection("_swipeReservations")
+    for key in _reservation_keys(contact):
+        try:
+            col.document(key).delete()
+        except Exception:
+            traceback.print_exc()
 
 
 def _refund_and_release_failed_swipe(db, user_id, charged_amount, idem_swipe_id, reserved_contacts=None):
@@ -696,7 +737,8 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
         credits_used = 0
         credits_remaining = None
         if db and user_id:
-            credits_amount = 5 * len(contacts)
+            from app.config import DRAFT_CREDITS_PER_CONTACT
+            credits_amount = DRAFT_CREDITS_PER_CONTACT * len(contacts)
             try:
                 success, remaining = deduct_credits_atomic(user_id, credits_amount, "prompt_search")
                 if success:

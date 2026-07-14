@@ -22,6 +22,8 @@ from app.models.users import (
 
 import logging
 
+from app.config import DRAFT_CREDITS_PER_CONTACT
+
 logger = logging.getLogger(__name__)
 
 mobile_bp = Blueprint('mobile', __name__, url_prefix='/api/mobile')
@@ -340,7 +342,8 @@ def me():
         # Per-CONTACT price of a swipe. Must match the actual charge in
         # runs.py prompt_search (5 × contacts drafted) — the app multiplies
         # this by its contacts-per-swipe setting for the optimistic decrement.
-        'creditsPerSwipe': 10,
+        # The real charge (runs.py). Was hardcoded 10 while the backend took 5.
+        'creditsPerSwipe': DRAFT_CREDITS_PER_CONTACT,
         'gmailConnected': gmail_connected,
         'gmailAddress': gmail_address,
         'resume': ({'name': resume_name, 'url': resume_url} if resume_name else None),
