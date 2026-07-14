@@ -61,10 +61,15 @@ def main() -> None:
         )
 
     logger.info("Booting Flask app to start the background daemons...")
-    from backend.wsgi import create_app
 
-    create_app()  # registers + starts the daemon threads
-    logger.info("Daemons running: tracker scanner, Gmail watch renewal, watchdog, agent digest")
+    # Import ONLY. wsgi.py ends with a module-level `app = create_app()`, so the
+    # import itself builds the app and starts the daemons. Calling create_app()
+    # again here would start a SECOND set of every daemon — the exact duplication
+    # this service exists to eliminate (caught in the first boot: every daemon
+    # logged "registered" twice, one second apart).
+    import backend.wsgi  # noqa: F401  (import for its module-level side effect)
+
+    logger.info("Daemons running (one set, in this process)")
 
     # The daemons are daemon=True threads, so the process must stay alive or
     # they die with it.

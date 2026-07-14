@@ -593,7 +593,7 @@ def create_app() -> Flask:
                 _loop_sched_logger.exception("Loop scheduler daemon failed")
             time.sleep(ONE_HOUR)
 
-    if os.getenv("LOOP_SCHEDULER_ENABLED", "true").lower() == "true":
+    if _RUN_DAEMONS and os.getenv("LOOP_SCHEDULER_ENABLED", "true").lower() == "true":
         loop_sched_thread = threading.Thread(target=_loop_scheduler_loop, daemon=True)
         loop_sched_thread.start()
         _loop_sched_logger.info("Loop scheduler registered (first run in ~10 minutes)")
@@ -619,7 +619,7 @@ def create_app() -> Flask:
                 _followup_logger.exception("Agent followup daemon failed")
             time.sleep(ONE_HOUR)
 
-    if os.getenv("AGENT_FOLLOWUP_ENABLED", "true").lower() == "true":
+    if _RUN_DAEMONS and os.getenv("AGENT_FOLLOWUP_ENABLED", "true").lower() == "true":
         followup_thread = threading.Thread(target=_agent_followup_loop, daemon=True)
         followup_thread.start()
         _followup_logger.info("Agent followup daemon registered (first run in ~10 minutes)")
@@ -645,7 +645,7 @@ def create_app() -> Flask:
                 _digest_logger.exception("Agent digest daemon failed")
             time.sleep(TWENTY_FOUR_HOURS)
 
-    if os.getenv("AGENT_DIGEST_ENABLED", "true").lower() == "true":
+    if _RUN_DAEMONS and os.getenv("AGENT_DIGEST_ENABLED", "true").lower() == "true":
         digest_thread = threading.Thread(target=_agent_digest_loop, daemon=True)
         digest_thread.start()
         _digest_logger.info("Agent digest daemon registered (first run in ~1 hour)")
@@ -673,7 +673,7 @@ def create_app() -> Flask:
                 _fj_modified_logger.exception("Fantastic.jobs modified daemon failed; will retry next cycle")
             time.sleep(TWENTY_FOUR_HOURS)
 
-    if os.getenv("FJ_MODIFIED_DAEMON_ENABLED", "true").lower() == "true":
+    if _RUN_DAEMONS and os.getenv("FJ_MODIFIED_DAEMON_ENABLED", "true").lower() == "true":
         fj_modified_thread = threading.Thread(target=_fantastic_modified_loop, daemon=True)
         fj_modified_thread.start()
         _fj_modified_logger.info("Fantastic.jobs modified daemon registered (first run in ~30 minutes)")
@@ -701,7 +701,7 @@ def create_app() -> Flask:
                 _fj_expired_logger.exception("Fantastic.jobs expired sweep daemon failed; will retry next cycle")
             time.sleep(TWENTY_FOUR_HOURS)
 
-    if os.getenv("FJ_EXPIRED_DAEMON_ENABLED", "true").lower() == "true":
+    if _RUN_DAEMONS and os.getenv("FJ_EXPIRED_DAEMON_ENABLED", "true").lower() == "true":
         fj_expired_thread = threading.Thread(target=_fantastic_expired_loop, daemon=True)
         fj_expired_thread.start()
         _fj_expired_logger.info("Fantastic.jobs expired sweep daemon registered (first run in ~30 minutes)")
