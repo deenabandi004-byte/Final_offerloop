@@ -1629,6 +1629,13 @@ class ScoutAssistantService:
                 "served_by": served_by,
                 "latency_ms": latency_ms,
                 "final_tool": result.get("tool", "answer"),
+                # Where a navigate turn SENT the user. final_tool only says
+                # "navigate"; the route is the signal — navigations to /find or a
+                # company page are Scout being used for company-first search, the
+                # exact behavior that would justify surfacing a dedicated search
+                # entry point. Logged so "watch Scout usage" is an actual query,
+                # not a vibe.
+                "nav_route": result.get("route") if result.get("tool") == "navigate" else None,
                 "near_miss_cosine": near_miss,
             }
             # Every non-regex turn embedded the message once (Tier B). Embedding
