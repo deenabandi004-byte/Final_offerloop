@@ -828,14 +828,36 @@ def get_feed():
         return jsonify(_payload)
 
     if not cache_valid and cache_stale_ok:
+        # Serve the stale ranking while a fresh one builds. This path gets the
+        # SAME paging, exploration and wire-slimming as the fresh-cache path — it
+        # is not a rare edge case, it's what every user hits whenever their cache
+        # ages past 30 minutes, i.e. most app opens. Leaving it un-paged and
+        # un-slimmed meant the optimizations silently did nothing for them: a
+        # limit=60 request still came back with 405 cards and a 257KB payload.
         cached_ids = cache.get("job_ids", [])
         cached_scores = cache.get("scores", {})
         cached_reasons = cache.get("reasons", {})
+        page_start = feed_offset + cursor
         top_jobs = _enrich(_load_top_jobs_from_cache(
-            cached_ids, cached_scores, cached_reasons, offset=feed_offset,
+            cached_ids, cached_scores, cached_reasons,
+            offset=page_start, count=page_limit,
         ))
-        new_matches_raw, nm_from_cache = _fetch_new_matches(cached_scores, cached_reasons)
-        new_matches = _enrich(new_matches_raw)
+        exhausted = (page_start + page_limit) >= len(cached_ids)
+        next_cursor = None if exhausted else cursor + page_limit
+
+        explore = _enrich(_load_explore_jobs(
+            cache.get("explore_ids") or [],
+            offset=page_start,
+            want=int(page_limit * _EXPLORE_RATIO),
+        ))
+        if explore:
+            top_jobs = _interleave_exploration(top_jobs, explore)
+
+        if cursor == 0:
+            new_matches_raw, nm_from_cache = _fetch_new_matches(cached_scores, cached_reasons)
+            new_matches = _enrich(new_matches_raw)
+        else:
+            new_matches, nm_from_cache = [], True
 
         # Trigger background re-rank if not already in progress
         if uid not in _ranking_in_progress:
@@ -845,8 +867,11 @@ def get_feed():
 
         new_matches, top_jobs, gated_info = _apply_gates(new_matches, top_jobs)
         return jsonify({
-            "new_matches": _serialize_jobs(new_matches) if not nm_from_cache else new_matches,
-            "top_jobs": _serialize_jobs(top_jobs),
+            "new_matches": (
+                _slim_for_wire(_serialize_jobs(new_matches)) if not nm_from_cache
+                else _slim_for_wire(list(new_matches))
+            ),
+            "top_jobs": _slim_for_wire(_serialize_jobs(top_jobs)),
             "new_matches_count": len(new_matches),
             "top_jobs_count": len(top_jobs),
             "ranked": True,
@@ -855,6 +880,10 @@ def get_feed():
             "stale": True,
             "feed_offset": feed_offset,
             "feed_wrapped": feed_wrapped,
+            "cursor": cursor,
+            "limit": page_limit,
+            "next_cursor": next_cursor,
+            "has_more": next_cursor is not None,
             "summary": _get_pipeline_summary(),
             "gated": gated_info,
         })
@@ -880,8 +909,11 @@ def get_feed():
         new_matches, top_jobs, gated_info = _apply_gates(new_matches, top_jobs)
 
         return jsonify({
-            "new_matches": _serialize_jobs(new_matches) if not nm_from_cache else new_matches,
-            "top_jobs": _serialize_jobs(top_jobs),
+            "new_matches": (
+                _slim_for_wire(_serialize_jobs(new_matches)) if not nm_from_cache
+                else _slim_for_wire(list(new_matches))
+            ),
+            "top_jobs": _slim_for_wire(_serialize_jobs(top_jobs[:page_limit])),
             "new_matches_count": len(new_matches),
             "top_jobs_count": len(top_jobs),
             "ranked": False,
@@ -918,8 +950,11 @@ def get_feed():
 
     new_matches, top_jobs, gated_info = _apply_gates(new_matches, top_jobs)
     return jsonify({
-        "new_matches": _serialize_jobs(new_matches) if not nm_from_cache else new_matches,
-        "top_jobs": _serialize_jobs(top_jobs),
+        "new_matches": (
+            _slim_for_wire(_serialize_jobs(new_matches)) if not nm_from_cache
+            else _slim_for_wire(list(new_matches))
+        ),
+        "top_jobs": _slim_for_wire(_serialize_jobs(top_jobs[:page_limit])),
         "new_matches_count": len(new_matches),
         "top_jobs_count": len(top_jobs),
         "ranked": False,
