@@ -1101,6 +1101,22 @@ def posting_looks_gone(page) -> bool:
     to render a form, so a false positive can't cost us a real application — the
     application was already not happening. The value is an honest reason.
     """
+    # URL evidence FIRST. An ATS that bounces you off a posting has already told
+    # you it's dead — and it does so in the URL, before any body text would.
+    #
+    # Greenhouse redirects a dead posting to the board root with ?error=true
+    # (e.g. job-boards.greenhouse.io/msfcareers?error=true). The page you land on
+    # is a perfectly normal job LIST, so not one of the text markers below fires,
+    # and we reported "Greenhouse form did not render at any candidate URL" —
+    # blaming ourselves for a job that simply no longer exists. That reads as a
+    # broken product, and it sent the user to a listing that isn't there.
+    try:
+        url = (page.url or "").lower()
+    except Exception:
+        url = ""
+    if "error=true" in url:
+        return True
+
     try:
         text = (page.evaluate("() => (document.body.innerText || '')") or "").lower()
     except Exception:
