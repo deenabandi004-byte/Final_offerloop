@@ -1,10 +1,11 @@
 # Jobs: Digest, Personalization, Location, and Speed — spec for Sid
 
-Written 2026-07-15. Context: the ATS crawl is scaling from ~34k jobs toward
-100k+/day. This doc is how the app already digests, ranks, filters, and *serves
-fast* — and what to wire up so your growing crawl flows in clean, plus how to
-carry the app's speed tricks back to the website (whose personalization/serving
-layer is currently behind the app's).
+Written 2026-07-15. Context: the ATS crawl is already at **118,434 jobs** (up
+from 34k days ago) and climbing toward 100k+/day. This doc is how the app already
+digests, ranks, filters, and *serves fast* — and what to wire up so your growing
+crawl flows in clean (spoiler: 92% of it is currently invisible to the enricher —
+see §2), plus how to carry the app's speed tricks back to the website (whose
+personalization/serving layer is currently behind the app's).
 
 Everything below is grounded in live code in `backend/app/routes/jobs.py`,
 `backend/app/utils/job_ranking.py`, `backend/pipeline/*`, and the app's feed
@@ -47,12 +48,57 @@ Two independent clocks, and this is the mental model to hold:
 
 ## 2. Digesting your crawl + enrichment at scale (the one wiring step)
 
-**Ask: stamp `enrichment_status='pending'` on every job the crawler writes.**
+### DIAGNOSTIC (measured 2026-07-15, live `jobs` collection)
+```
+total jobs:                     118,434
+  enrichment_status = pending      1,620
+  enrichment_status = completed    7,948
+  enrichment_status = failed         103
+  enrichment_status = <MISSING>  ~108,763   ← 92% of the catalog
+```
+The ~108k with **no `enrichment_status` field** are the ATS crawl. `pipeline/
+writer.py:write_jobs` stamps `enrichment_status='pending'` (line 96) on every job
+it writes — so if these jobs lack the field, **the crawler is writing to `jobs`
+on a path that bypasses that writer.** The enricher's cron query is
+`where enrichment_status == 'pending'`, so it literally cannot see 92% of the
+catalog. That's exactly why the crawled jobs are 0% enriched.
 
+### THE FIX — two ways, pick one
+
+**Option A (preferred): route the crawler's normalized jobs through the shared
+writer.** It already does dedup-by-job_id, junk-company filtering, batched writes,
+AND the enrichment stamps — one call, no reinvention:
+```python
+from backend.pipeline.writer import write_jobs
+result = write_jobs(normalized_jobs)   # {written, skipped_duplicates, skipped_junk, total}
+```
+
+**Option B (if the crawler must keep its own writer): add the two stamps before
+`batch.set`.** This is the entire change — mirror what `write_jobs` does:
+```python
+for jid, doc in chunk:
+    doc.setdefault("enrichment_status", "pending")        # Firecrawl JD enrichment
+    doc.setdefault("title_enrichment_status", "pending")  # PDL title enrichment
+    batch.set(db.collection("jobs").document(jid), doc)
+```
+`setdefault` (not `=`) so a re-crawl of an already-enriched job doesn't reset it
+to pending and re-burn Firecrawl on it.
+
+### BACKFILL the existing ~108k (one-time)
+New writes are fixed by the above, but the 108k already on disk still lack the
+field. The enricher has a backfill path that scans for jobs *missing*
+`enrichment_status` and enriches them (capped per run):
+```
+python backend/pipeline/main.py --backfill-enrich --since-days=30 --limit=2000
+```
+Run it repeatedly (or on a cron) to drain the backlog over time. Prioritize a
+recent `--since-days` window first — those are the jobs users actually see.
+
+### DON'T eagerly enrich all 108k — prioritize
 `pipeline/enricher.py` already runs on a cron every ~30 min, querying
-`enrichment_status == 'pending'` (indexed), Firecrawl-extracting the JD, and
-marking `completed`/`failed`. If your writer stamps `'pending'`, your jobs flow
-through it hands-off. That's the entire digest wiring.
+`enrichment_status == 'pending'`, Firecrawl-extracting the JD, and marking
+`completed`/`failed`. Once the stamp is wired it flows hands-off — but at 118k→
+100k/day, Firecrawl cost/rate makes eager full-catalog enrichment infeasible.
 
 **But do NOT eagerly enrich all 100k** — Firecrawl has a per-run cap and real
 cost. At crawl scale, enrich *by priority*, not by raw volume:
@@ -184,7 +230,9 @@ worker-offload. The catalog can 10× and a request stays O(page), not O(catalog)
 - ✅ International blocklist expanded (immediate Dubai/Malaysia fix) — shipped.
 - ✅ Explore ratio 5% → 3% — shipped.
 - ✅ Company Roles tab cursor-paginated "load more" (app) — shipped.
-- ⏳ `enrichment_status='pending'` stamp on crawl writes — **Sid**.
+- ⏳ **`enrichment_status='pending'` stamp on crawl writes — Sid** (§2, Option A/B).
+      92% of the 118k catalog is missing it → invisible to the enricher.
+- ⏳ Backfill the existing ~108k via `--backfill-enrich` (§2) — one-time drain.
 - ⏳ Positive US-detection + preference-aware international — ranking layer.
 - ⏳ Prioritized enrichment ordering at scale — **Sid** + pipeline.
 - ⏳ Port the speed techniques (§6) to the website serving layer.
