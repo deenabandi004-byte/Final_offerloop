@@ -48,57 +48,41 @@ Two independent clocks, and this is the mental model to hold:
 
 ## 2. Digesting your crawl + enrichment at scale (the one wiring step)
 
-### DIAGNOSTIC (measured 2026-07-15, live `jobs` collection)
+### STATUS (measured 2026-07-15, live `jobs` collection — CORRECTED)
 ```
-total jobs:                     118,434
-  enrichment_status = pending      1,620
-  enrichment_status = completed    7,948
-  enrichment_status = failed         103
-  enrichment_status = <MISSING>  ~108,763   ← 92% of the catalog
-```
-The ~108k with **no `enrichment_status` field** are the ATS crawl. `pipeline/
-writer.py:write_jobs` stamps `enrichment_status='pending'` (line 96) on every job
-it writes — so if these jobs lack the field, **the crawler is writing to `jobs`
-on a path that bypasses that writer.** The enricher's cron query is
-`where enrichment_status == 'pending'`, so it literally cannot see 92% of the
-catalog. That's exactly why the crawled jobs are 0% enriched.
+total jobs:                            118,434
+  enrichment_status = pending             1,620
+  enrichment_status = completed           7,948
+  enrichment_status = failed                103
+  enrichment_status = skipped_low_priority 108,763   ← tier-gated, NOT missing
+  ————————————————————————————————————————————————
+  SUM                                   118,434  (== total; every job has the field)
 
-### THE FIX — two ways, pick one
-
-**Option A (preferred): route the crawler's normalized jobs through the shared
-writer.** It already does dedup-by-job_id, junk-company filtering, batched writes,
-AND the enrichment stamps — one call, no reinvention:
-```python
-from backend.pipeline.writer import write_jobs
-result = write_jobs(normalized_jobs)   # {written, skipped_duplicates, skipped_junk, total}
+  relevance_tier=1: 1,427   tier=2: 7,435   tier=3: 101,328
 ```
+**CORRECTION to an earlier draft of this doc:** I first reported ~108k jobs as
+*missing* `enrichment_status`, inferred from `total − (pending+completed+failed)`,
+and concluded the crawler was bypassing the stamping writer. **That was my error**
+— Firestore can't query field-absence, so I subtracted known values and never
+enumerated `skipped_low_priority`. In reality **100% of jobs carry the field.**
+Sid verified this independently (2,000-doc random sample, 0 missing).
 
-**Option B (if the crawler must keep its own writer): add the two stamps before
-`batch.set`.** This is the entire change — mirror what `write_jobs` does:
-```python
-for jid, doc in chunk:
-    doc.setdefault("enrichment_status", "pending")        # Firecrawl JD enrichment
-    doc.setdefault("title_enrichment_status", "pending")  # PDL title enrichment
-    batch.set(db.collection("jobs").document(jid), doc)
-```
-`setdefault` (not `=`) so a re-crawl of an already-enriched job doesn't reset it
-to pending and re-burn Firecrawl on it.
+So on the website side this is **already handled** and needs nothing:
+- Both writers stamp `enrichment_status` + `title_enrichment_status` via
+  `setdefault` — the shared `write_jobs` AND the `sync_board_jobs` direct-ATS path.
+- **Tier gating is live:** only `relevance_tier=1` gets `enrichment_status=pending`;
+  tiers 2–3 (91.8%) get `skipped_low_priority`, so Firecrawl cost is bounded by
+  design. No runaway spend, no backfill needed.
 
-### BACKFILL the existing ~108k (one-time)
-New writes are fixed by the above, but the 108k already on disk still lack the
-field. The enricher has a backfill path that scans for jobs *missing*
-`enrichment_status` and enriches them (capped per run):
-```
-python backend/pipeline/main.py --backfill-enrich --since-days=30 --limit=2000
-```
-Run it repeatedly (or on a cron) to drain the backlog over time. Prioritize a
-recent `--since-days` window first — those are the jobs users actually see.
-
-### DON'T eagerly enrich all 108k — prioritize
-`pipeline/enricher.py` already runs on a cron every ~30 min, querying
-`enrichment_status == 'pending'`, Firecrawl-extracting the JD, and marking
-`completed`/`failed`. Once the stamp is wired it flows hands-off — but at 118k→
-100k/day, Firecrawl cost/rate makes eager full-catalog enrichment infeasible.
+### The REAL gap this surfaced: "thin jobs" quality feel
+91% of the pool has no `structured` Firecrawl data — correct for cost, but a
+tier-2/3 card renders as just title/company/location and the feed can *feel*
+sparse. The fix (agreed, **post-launch, non-blocking**): a **lazy enrichment
+path** — when a user clicks into a `skipped_low_priority` job, kick off Firecrawl
+inline and upgrade the card. Pay for enrichment exactly where attention lands.
+Note: the app already lazy-fetches the *description* prose on card view; extending
+that to trigger *structured* enrichment on click is the same pattern, one layer
+deeper. Applies to both surfaces.
 
 **But do NOT eagerly enrich all 100k** — Firecrawl has a per-run cap and real
 cost. At crawl scale, enrich *by priority*, not by raw volume:
@@ -230,9 +214,12 @@ worker-offload. The catalog can 10× and a request stays O(page), not O(catalog)
 - ✅ International blocklist expanded (immediate Dubai/Malaysia fix) — shipped.
 - ✅ Explore ratio 5% → 3% — shipped.
 - ✅ Company Roles tab cursor-paginated "load more" (app) — shipped.
-- ⏳ **`enrichment_status='pending'` stamp on crawl writes — Sid** (§2, Option A/B).
-      92% of the 118k catalog is missing it → invisible to the enricher.
-- ⏳ Backfill the existing ~108k via `--backfill-enrich` (§2) — one-time drain.
+- ✅ `enrichment_status` stamp + tier gating — **already live on the website**
+      (Sid; both writers, verified). My "92% missing" claim was wrong (§2).
+- ✅ Website feed speed: `WHERE relevance_tier IN [1,2]` narrows 7k→~1.5k, index
+      deployed — **Sid, shipping now**.
+- ⏳ App feed: same `relevance_tier IN [1,2]` narrowing (118k cold-load stall) —
+      us (see below / §6).
+- ⏳ Lazy structured-enrichment on click for `skipped_low_priority` jobs — both
+      surfaces, post-launch.
 - ⏳ Positive US-detection + preference-aware international — ranking layer.
-- ⏳ Prioritized enrichment ordering at scale — **Sid** + pipeline.
-- ⏳ Port the speed techniques (§6) to the website serving layer.

@@ -54,6 +54,17 @@ _FEED_OFFSET_STRIDE = 100
 # Generous headroom so ingest growth widens reach instead of churning it.
 _RERANK_CANDIDATE_LIMIT = 20000
 
+# The ranked feed (AND its explore pool, which samples from the same in-memory
+# `all_jobs`) draws only from relevance tiers 1-2 (~8.8k quality jobs), not the
+# full 118k. When the crawl jumped to 118k the cold rank stalled 10s+ pulling the
+# whole pool; tier-3 is ~101k globally-low-relevance postings that shouldn't fill
+# the swipe deck. TRADEOFF: tier-3 is now feed-excluded entirely — it stays
+# reachable via company pages (search-by-company does NOT tier-filter), but not
+# via the deck or explore. If tier-3 should keep feed serendipity, sample the
+# explore pool from a separate full-catalog query. Mirrors the website's feed
+# narrowing; composite index (relevance_tier, posted_at DESC) is deployed.
+_FEED_RELEVANCE_TIERS = [1, 2]
+
 # Jobs sampled from OUTSIDE the personalized ranking, cached per user and
 # sprinkled into the deck (see _EXPLORE_RATIO). This is what keeps
 # personalization from doubling as a cage: it decides what's most relevant, not
@@ -959,6 +970,7 @@ def get_feed():
         new_matches = _enrich(new_matches_raw)
         top_query = (
             db.collection("jobs")
+            .where(filter=FieldFilter("relevance_tier", "in", _FEED_RELEVANCE_TIERS))
             .order_by("posted_at", direction="DESCENDING")
             .limit(1000)
         )
@@ -991,6 +1003,7 @@ def get_feed():
     # Has resume but no cache — return unranked jobs immediately, rank in background
     top_query = (
         db.collection("jobs")
+        .where(filter=FieldFilter("relevance_tier", "in", _FEED_RELEVANCE_TIERS))
         .order_by("posted_at", direction="DESCENDING")
         .limit(1000)
     )
@@ -1078,6 +1091,7 @@ def _background_rerank(uid: str):
         # Firestore read, not more LLM spend.
         all_query = (
             db.collection("jobs")
+            .where(filter=FieldFilter("relevance_tier", "in", _FEED_RELEVANCE_TIERS))
             .order_by("posted_at", direction="DESCENDING")
             .limit(_RERANK_CANDIDATE_LIMIT)
         )
