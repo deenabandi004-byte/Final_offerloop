@@ -85,10 +85,6 @@ const RecruitingTimelinePage = React.lazy(() => import("./pages/RecruitingTimeli
 // (see DashboardPrefetch), making the post-redirect Suspense fallback instant.
 const importDashboardPage = () => import("./pages/DashboardPage");
 const DashboardPage = React.lazy(importDashboardPage);
-const AgentPage = React.lazy(() => import("./pages/AgentPage"));
-const AgentSetup = React.lazy(() => import("./pages/AgentSetup"));
-const LoopsPage = React.lazy(() => import("./pages/LoopsPage"));
-const LoopDetailPage = React.lazy(() => import("./pages/LoopDetailPage"));
 // New Lovable Onboarding Flow
 const OnboardingFlow = React.lazy(() => import("./pages/OnboardingFlow").then(m => ({ default: m.OnboardingFlow })));
 // Dev-only preview routes (no auth) for design iteration on the new Profile page
@@ -421,11 +417,6 @@ const AppRoutes: React.FC = () => {
       <Route path="/company-tracker" element={<Navigate to="/find?tab=companies" replace />} />
       <Route path="/scout" element={<ProtectedRoute><ScoutRedirect /></ProtectedRoute>} />
       <Route path="/recruiting-timeline" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><RecruitingTimelinePage /></Suspense></ProtectedRoute>} />
-      {/* /agent is the multi-Loop fleet view (LoopsPage). */}
-      <Route path="/agent" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><LoopsPage /></Suspense></ProtectedRoute>} />
-      <Route path="/agent/setup" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><AgentSetup /></Suspense></ProtectedRoute>} />
-      <Route path="/agent/:loopId" element={<ProtectedRoute><Suspense fallback={<PageLoader />}><LoopDetailPage /></Suspense></ProtectedRoute>} />
-
       {/* Data & Stats */}
       <Route path="/data" element={<Suspense fallback={<PageLoader />}><DataStats /></Suspense>} />
 

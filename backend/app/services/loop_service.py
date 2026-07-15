@@ -633,6 +633,12 @@ def trigger_loop_cycle(uid: str, loop_id: str, app=None) -> str | None:
     """
     del app  # legacy param, no longer needed
 
+    # Loops feature removed from UI — refuse to enqueue new cycles so manual
+    # start/run-now/resume endpoints (still exposed by loops.py) don't burn
+    # credits. Revert this block to bring Loops back.
+    logger.info("trigger_loop_cycle: loops disabled globally, skipping loop=%s", loop_id)
+    return None
+
     db = get_db()
     loop_ref = (
         db.collection("users").document(uid)

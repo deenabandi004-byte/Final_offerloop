@@ -155,10 +155,7 @@ export function AppSidebar() {
 
   const { startTour } = useTour();
   const { notifications } = useNotifications();
-  // Badge totals replies + loop-run summaries. Loop runs are a new in-app
-  // surface (fix #4) and surface the same way replies do.
-  const unreadCount =
-    notifications.unreadReplyCount + notifications.unreadLoopRunCount;
+  const unreadCount = notifications.unreadReplyCount;
 
   const applicationsAttention = useApplicationsAttention();
   const gettingStartedItem: NavItemDef = {
