@@ -519,7 +519,15 @@ def save_preferences():
         inds = _clean_str_list(data.get('industries'))
         if inds is None:
             return jsonify({'error': 'industries must be a list'}), 400
+        # /me reads industries via get_structured_target_industries(), which looks
+        # at `targetIndustries` — NOT this legacy `industries` field. Writing only
+        # `industries` meant the value never round-tripped: it saved, but the next
+        # /me refetch read the untouched `targetIndustries` and reverted the UI
+        # (the "industries won't save" bug — targetRoles worked because it reads
+        # and writes the same key). Write the canonical field the reader uses; keep
+        # `industries` too for any legacy reader and so the cache-bust below fires.
         patch['industries'] = inds
+        patch['targetIndustries'] = inds
     if 'referralSource' in data:
         src = str(data.get('referralSource') or '').strip()[:120]
         if src:
