@@ -60,12 +60,13 @@ _RERANK_CANDIDATE_LIMIT = 20000
 # what's reachable.
 _EXPLORE_POOL_SIZE = 400
 
-# Share of each hydrated deck reserved for those off-ranking jobs. 5% — roughly
-# one card in twenty — deliberately low: the deck should still feel tailored,
-# with discovery as a rare surprise rather than a dilution. The heavy lifting on
-# exposure is done by ranking the whole catalog and by dropping passed jobs from
-# the next rerank; this is the seasoning, not the meal.
-_EXPLORE_RATIO = 0.05
+# Share of each hydrated deck reserved for those off-ranking jobs. 3% — roughly
+# one card in thirty. Trimmed from 5% now that the catalog is scaling into the
+# hundreds of thousands: with that much depth the ranked deck already covers a
+# huge, varied slice, so the anti-boxing insurance explore provides needs to be
+# only a light touch, not a dilution. Kept non-zero on purpose — it's cheap cover
+# against a user's ranking settling into a rut. Seasoning, not the meal.
+_EXPLORE_RATIO = 0.03
 
 # Refill trigger. When the hydrated deck falls below this many cards — because
 # the user has passed on most of their cached ranking — re-rank immediately

@@ -178,20 +178,38 @@ _PARTNER_EXCEPTIONS = ("channel partner", "partner manager", "partner success")
 # "Manager" is excluded UNLESS preceded by "product" or "program"
 _MANAGER_EXCEPTIONS = ("product manager", "program manager")
 
+# NOTE: this is a BLOCKLIST, which fundamentally can't keep up with a global
+# ATS crawl — every country/city we forget leaks through (that's how Dubai and
+# Malaysia surfaced to a USC student). It's expanded below to cover the major job
+# hubs, but the durable fix is positive US-detection + preference-awareness (a
+# user who lists an international city or opts into relocation SHOULD see them).
+# That's specced separately (docs) as part of the personalization layer.
 NON_US_LOCATION_KEYWORDS = [
     # Countries
     "india", "brazil", "canada", "singapore", "united kingdom",
     "australia", "germany", "france", "netherlands",
     "china", "japan", "mexico", "ireland", "poland", "spain",
     "italy", "sweden", "denmark", "finland", "norway",
-    # Indian cities
+    "malaysia", "philippines", "indonesia", "thailand", "vietnam",
+    "united arab emirates", "u.a.e", "uae", "qatar", "saudi arabia",
+    "israel", "turkey", "egypt", "nigeria", "kenya", "south africa",
+    "pakistan", "bangladesh", "sri lanka", "south korea", "korea",
+    "taiwan", "new zealand", "portugal", "switzerland", "austria",
+    "belgium", "czech", "romania", "hungary", "greece", "ukraine",
+    "argentina", "colombia", "chile", "peru", "costa rica",
+    # International cities / hubs
     "bengaluru", "bangalore", "mumbai", "delhi", "hyderabad",
     "chennai", "pune", "kolkata", "ahmedabad", "noida", "gurgaon",
-    # Other international cities
     "toronto", "vancouver", "montreal", "london", "manchester",
     "berlin", "amsterdam", "paris", "sydney", "melbourne",
     "hong kong", "tokyo", "beijing", "shanghai",
     "mexico city", "sao paulo", "dublin", "warsaw",
+    "kuala lumpur", "dubai", "abu dhabi", "manila", "jakarta",
+    "bangkok", "hanoi", "ho chi minh", "riyadh", "doha",
+    "tel aviv", "istanbul", "cairo", "lagos", "nairobi",
+    "seoul", "taipei", "auckland", "lisbon", "zurich", "vienna",
+    "brussels", "prague", "bucharest", "budapest", "athens",
+    "bogota", "buenos aires", "santiago",
 ]
 
 # "uk" needs word-boundary matching to avoid false positives on substrings
