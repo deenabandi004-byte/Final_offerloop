@@ -282,9 +282,12 @@ def evaluate(doc: dict, *, mode: str = "hot") -> tuple[bool, str | None]:
 def apply(docs: list[dict], *, mode: str = "hot") -> tuple[list[dict], dict]:
     """Filter a batch of normalized job docs. Returns (kept, drop_counts_by_reason).
 
-    Mutates kept docs in-place to attach `relevance_tier` (1/2/3). Feed queries
-    filter on this; writer.py gates enrichment on tier==1.
+    Mutates kept docs in-place to attach:
+      - `relevance_tier` (1/2/3) — feed filter + enrichment gate
+      - `us_priority`    (1/2/3) — US > remote > non-US ordering for the feed
     """
+    from backend.pipeline.normalizer import infer_us_priority
+
     kept: list[dict] = []
     drops: dict[str, int] = {}
     for doc in docs:
@@ -293,6 +296,7 @@ def apply(docs: list[dict], *, mode: str = "hot") -> tuple[list[dict], dict]:
             drops[reason] = drops.get(reason, 0) + 1
             continue
         doc["relevance_tier"] = compute_relevance_tier(doc)
+        doc["us_priority"] = infer_us_priority(doc)
         kept.append(doc)
     if drops:
         breakdown = ", ".join(f"{k}={v}" for k, v in sorted(drops.items()))
