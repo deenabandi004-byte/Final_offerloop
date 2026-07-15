@@ -212,6 +212,8 @@ def _get_grad_year(profile: dict) -> Optional[int]:
 
 def _is_excluded(job: dict) -> bool:
     """Return True if a job should be excluded from ranking entirely."""
+    if job.get("expired") is True:
+        return True
     if job.get("category") in EXCLUDED_CATEGORIES:
         return True
     title_lower = (job.get("title") or "").lower()
