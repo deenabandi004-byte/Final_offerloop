@@ -509,16 +509,23 @@ def _get_feed_impl(_perf_t0=None):
         # Was 800 — pure over-fetch: the extra 400 docs were streamed,
         # deserialized, then discarded by the [:150] slice. Recency order is
         # preserved, so the surfaced set is unchanged in practice.
-        # Phase 0 direct-ATS scale-up: relevance_tier is stamped on every new
-        # doc but NOT filtered here yet. The tier filter (WHERE relevance_tier
-        # IN [1, 2]) becomes correct at Phase 2 when we scale to 10K cold-tier
-        # slugs and need to keep junk out. During Phase 0/1 (curated hot slugs)
-        # the corpus is small enough that filtering would starve the feed.
-        # Composite index (relevance_tier, posted_at) is already in
-        # firestore.indexes.json for a zero-latency flip when we're ready.
+        # Phase 2 tier filter (2026-07-15 pre-launch): the loose-gate cold
+        # matrix wrote ~85K tier-3 jobs, which pushed the 24h feed window
+        # from 288 → 7,133 matches and caused cold-cache feed loads to stall
+        # 10+ seconds. Filter narrows the query to tier-1 (early-career +
+        # target function) and tier-2 (early-career off-target), dropping
+        # tier-3 from the default feed. Composite index
+        # (relevance_tier ASC, posted_at DESC) was deployed pre-flip.
+        #
+        # Legacy jobs without relevance_tier are excluded by this IN filter
+        # — acceptable trade because tier-stamped jobs already dominate the
+        # 24h window post-Phase-0. Backfill script exists at
+        # backend/scripts/backfill_relevance_tier.py if we want to
+        # retroactively stamp legacy docs.
         new_query = (
             db.collection("jobs")
             .where("posted_at", ">=", twenty_four_hours_ago)
+            .where("relevance_tier", "in", [1, 2])
             .order_by("posted_at", direction="DESCENDING")
             .limit(400)
         )
