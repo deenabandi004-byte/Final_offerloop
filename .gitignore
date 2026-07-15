@@ -49,6 +49,10 @@ pip-wheel-metadata/
 *.sqlite3
 *.sqlite
 *.csv
+# Exception: vendored jobhive ATS company lists. Load-bearing for the
+# direct-ATS crawler in backend/pipeline/; must be tracked in-repo so GH
+# Actions runners can read them without cloning jobhive itself.
+!backend/pipeline/data/ats_companies/*.csv
 
 # --- Coverage / reports ---
 coverage/

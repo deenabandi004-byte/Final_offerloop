@@ -66,6 +66,14 @@
         { "fieldPath": "salary_normalized_annual", "order": "DESCENDING" },
         { "fieldPath": "type", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "relevance_tier", "order": "ASCENDING" },
+        { "fieldPath": "posted_at", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

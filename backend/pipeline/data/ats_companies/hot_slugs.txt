@@ -1,0 +1,434 @@
+# Curated hot-tier companies — crawled every 2h via .github/workflows/job-pipeline.yml.
+# Format: {ats}:{slug} per line. Blank lines and # comments are ignored.
+# Migrated from hardcoded GREENHOUSE_SLUGS/LEVER_SLUGS/ASHBY_SLUGS in fetcher.py.
+greenhouse:stripe
+greenhouse:figma
+greenhouse:airbnb
+greenhouse:doordashusa
+greenhouse:lyft
+greenhouse:coinbase
+greenhouse:robinhood
+greenhouse:pinterest
+greenhouse:reddit
+greenhouse:dropbox
+greenhouse:twilio
+greenhouse:brex
+greenhouse:airtable
+greenhouse:carta
+greenhouse:chime
+greenhouse:scaleai
+greenhouse:verkada
+greenhouse:discord
+greenhouse:duolingo
+greenhouse:gitlab
+greenhouse:grammarly
+greenhouse:intercom
+greenhouse:webflow
+greenhouse:gusto
+greenhouse:lattice
+greenhouse:mercury
+greenhouse:faire
+greenhouse:squarespace
+greenhouse:hubspot
+greenhouse:boxinc
+greenhouse:cloudflare
+greenhouse:mongodb
+greenhouse:databricks
+greenhouse:spacex
+greenhouse:instacart
+greenhouse:metacareers
+greenhouse:google
+greenhouse:microsoft
+greenhouse:amazon
+greenhouse:apple
+greenhouse:nvidia
+greenhouse:anthropic
+greenhouse:greenhouse
+greenhouse:datadog
+greenhouse:elastic
+greenhouse:okta
+greenhouse:zscaler
+greenhouse:newrelic
+greenhouse:sumologic
+greenhouse:samsara
+greenhouse:toast
+greenhouse:deloitte
+greenhouse:pwc
+greenhouse:kpmg
+greenhouse:ey
+greenhouse:goldmansachs
+greenhouse:jpmorgan
+greenhouse:blackrock
+greenhouse:citadel
+greenhouse:twosigma
+greenhouse:janestreet
+greenhouse:hudsonrivertrading
+greenhouse:drw
+greenhouse:akunacapital
+greenhouse:imctrading
+greenhouse:optiver
+greenhouse:sig
+greenhouse:flowtraders
+greenhouse:gemini
+greenhouse:adyen
+greenhouse:marqeta
+greenhouse:affirm
+greenhouse:fivetran
+greenhouse:hightouch
+greenhouse:mixpanel
+greenhouse:cultureamp
+greenhouse:remote
+greenhouse:rippling
+greenhouse:justworks
+greenhouse:oysterhr
+greenhouse:papayaglobal
+greenhouse:bamboohr
+greenhouse:personio
+greenhouse:hibob
+greenhouse:leapsome
+greenhouse:15five
+greenhouse:betterworks
+greenhouse:benchling
+greenhouse:ginkgobioworks
+greenhouse:recursionpharma
+greenhouse:insitro
+greenhouse:10xgenomics
+greenhouse:virbio
+greenhouse:shieldai
+greenhouse:jobyaviation
+greenhouse:archeraircraft
+greenhouse:boomsupersonic
+greenhouse:hermeus
+greenhouse:zeroavia
+greenhouse:lilium
+greenhouse:wisk
+greenhouse:amd
+greenhouse:qualcomm
+greenhouse:texasinstruments
+greenhouse:appliedmaterials
+greenhouse:lamresearch
+greenhouse:kla
+greenhouse:asml
+greenhouse:micron
+greenhouse:palantirtech
+greenhouse:cockroachlabs
+greenhouse:netlify
+greenhouse:fastly
+greenhouse:yugabyte
+greenhouse:timescale
+greenhouse:influxdata
+greenhouse:datastax
+greenhouse:couchbase
+greenhouse:scylladb
+greenhouse:hulu
+greenhouse:a24
+greenhouse:soundcloud
+lever:uber
+lever:netflix
+lever:spotify
+lever:anduril
+lever:rivian
+lever:waymo
+lever:aurora
+lever:recursion
+lever:asana
+lever:calm
+lever:hims
+lever:ro
+lever:oscar-health
+lever:devoted-health
+lever:cityblock
+lever:quartet
+lever:scale-ai
+lever:nuro
+lever:figma
+lever:canva
+lever:shopify
+lever:twitch
+lever:reddit
+lever:duolingo
+lever:notion
+lever:airtable
+lever:webflow
+lever:zapier
+lever:hubspot
+lever:intercom
+lever:zendesk
+lever:freshworks
+lever:atlassian
+lever:monday
+lever:clickup
+lever:linear
+lever:loom
+lever:miro
+lever:framer
+lever:pitch
+lever:superhuman
+lever:fastmail
+lever:hey
+lever:basecamp
+lever:doist
+lever:buffer
+lever:ghost
+lever:substack
+lever:beehiiv
+lever:convertkit
+lever:mailchimp
+lever:sendgrid
+lever:postmark
+lever:resend
+lever:loops
+lever:customerio
+lever:braze
+lever:iterable
+lever:klaviyo
+lever:segment
+lever:rudderstack
+lever:mparticle
+lever:amplitude
+lever:mixpanel
+lever:posthog
+lever:heap
+lever:fullstory
+lever:hotjar
+lever:contentsquare
+lever:quantum-metric
+lever:glassbox
+lever:medallia
+lever:qualtrics
+lever:surveymonkey
+lever:typeform
+lever:tally
+lever:jotform
+ashby:linear
+ashby:notion
+ashby:ramp
+ashby:deel
+ashby:runway
+ashby:replit
+ashby:supabase
+ashby:ashby
+ashby:clerk
+ashby:resend
+ashby:raycast
+ashby:openai
+ashby:cohere
+ashby:perplexity
+ashby:cursor
+ashby:anysphere
+ashby:mistralai
+ashby:togetherai
+ashby:modal
+ashby:replicate
+ashby:huggingface
+ashby:wandb
+ashby:langchain
+ashby:pinecone
+ashby:weaviate
+ashby:trychroma
+ashby:qdrant
+ashby:neon
+ashby:railway
+ashby:airbyte
+ashby:posthog
+ashby:inngest
+ashby:plain
+ashby:helpscout
+ashby:fly
+ashby:render
+ashby:netlify
+ashby:zapier
+ashby:doist
+ashby:buffer
+ashby:front
+ashby:intercom
+ashby:liveblocks
+ashby:ghost
+ashby:beehiiv
+ashby:loops
+ashby:calcom
+ashby:trigger
+ashby:sanity
+ashby:contentful
+ashby:storyblok
+ashby:prismic
+ashby:hygraph
+ashby:payload
+ashby:strapi
+ashby:directus
+ashby:appwrite
+ashby:pocketbase
+ashby:nhost
+ashby:hasura
+ashby:fauna
+ashby:convex
+ashby:xata
+ashby:turso
+ashby:planetscale
+ashby:cockroachdb
+ashby:yugabyte
+ashby:timescale
+ashby:questdb
+ashby:scylladb
+ashby:datastax
+
+# Phase 1 additions (2026-07-14) — curated from jobhive CSVs
+greenhouse:linkedin  # linkedin
+lever:jobvite  # LinkedIn Test - Senthil
+greenhouse:uberfreight  # uberfreight
+lever:uberflip  # Uberflip
+ashby:uberall  # Uberall
+greenhouse:snapmobileinc  # Snap! Mobile, Inc.
+lever:snappr  # Snappr
+ashby:snapdocs  # Snapdocs
+greenhouse:peloton  # peloton
+greenhouse:taskrabbit  # Taskrabbit
+greenhouse:roblox  # roblox
+greenhouse:epicgames  # Epic Games
+greenhouse:zyngacareers  # Zynga
+ashby:character  # Character.AI
+greenhouse:inflectionai  # Inflection AI
+greenhouse:renttherunway  # Rent the Runway
+ashby:runway-ml  # Runway
+ashby:chromatic  # Chromatic
+greenhouse:biomodal  # biomodal
+ashby:replicated  # Replicated
+greenhouse:togetherai  # Together AI
+greenhouse:fireworksai  # Fireworks AI
+lever:anyscale  # Anyscale
+ashby:anyscale  # Anyscale
+greenhouse:contextualai  # Contextual AI
+greenhouse:asana  # Asana
+lever:sanabenefits  # Sana Benefits
+ashby:sana-roles  # Sana
+greenhouse:gleanwork  # Glean
+ashby:harvey  # Harvey
+ashby:plaid  # Plaid
+greenhouse:wisetack  # Wisetack
+lever:wisecode  # WISEcode
+ashby:pplwise  # pplwise
+greenhouse:sofi  # sofi
+greenhouse:nubank  # Nubank
+ashby:nubank  # Nubank
+greenhouse:block  # Block
+lever:swissblock  # Swissblock
+ashby:block-labs  # Block Labs
+greenhouse:squarepointcapital  # Squarepoint Capital
+ashby:junipersquare  # Juniper Square
+greenhouse:rampnetwork  # Ramp Network
+ashby:mercury  # Mercury
+ashby:moderntreasury  # Modern Treasury
+ashby:airwallex  # Airwallex
+greenhouse:tanium  # tanium
+lever:nium  # Nium
+greenhouse:alloy  # Alloy
+lever:alloy  # Alloy.ai
+ashby:alloyenterprises  # Alloy Enterprises
+greenhouse:svetness  # Svetness Personal Training
+ashby:persona  # Persona
+greenhouse:truework  # truework
+greenhouse:stashinvest  # stashinvest
+ashby:stash  # Stash
+greenhouse:public  # Public
+lever:findhelp  # Findhelp, A Public Benefit Corporation
+ashby:publiccloudgroup  # Public Cloud Group
+lever:wealthfront  # Wealthfront
+greenhouse:betterment  # Betterment
+ashby:acorns  # Acorns
+ashby:chimerareit  # Chimera Investment Corporation
+greenhouse:current  # Current
+lever:varomoney  # Varo Bank
+ashby:brunswick  # Sevaro - Physician/Clinical Roles
+ashby:dave  # Dave
+greenhouse:zoomget  # zoomget
+ashby:clickup  # ClickUp
+ashby:airtable  # Airtable
+greenhouse:codalinc  # Codal
+lever:Coda  # Coda
+ashby:codat  # Codat
+greenhouse:zoominfo  # zoominfo
+greenhouse:pagerduty  # PagerDuty
+greenhouse:braze  # Braze
+greenhouse:iterable  # Iterable
+greenhouse:klaviyo  # klaviyo
+greenhouse:amplitude  # Amplitude
+ashby:amplitude  # Amplitude
+greenhouse:postman  # Postman
+greenhouse:jetbrains  # JetBrains
+lever:jetbrains  # Jetbrains
+greenhouse:vercel  # Vercel
+ashby:vercel  # Vercel
+lever:rendernetworks  # Render Networks
+greenhouse:neonaerospace  # neonaerospace
+lever:neon  # Neon Pagamentos
+greenhouse:planetscale  # PlanetScale
+ashby:convex-dev  # Convex
+greenhouse:sourcegraph91  # Sourcegraph
+ashby:sentry  # Sentry
+greenhouse:launchdarkly  # LaunchDarkly
+ashby:launchdarkly  # LaunchDarkly
+ashby:statsig  # Statsig
+greenhouse:grafanalabs  # Grafana Labs
+ashby:influxdata  # InfluxData
+ashby:snowflake  # Snowflake
+ashby:confluent  # Confluent
+greenhouse:materialize  # materialize
+ashby:materialize  # Materialize
+greenhouse:recursionpharmaceuticals  # Recursion
+lever:illumination  # Illumination
+greenhouse:roivantsciences  # roivantsciences
+ashby:insitro  # insitro
+greenhouse:freenome  # Freenome
+greenhouse:roadie  # Roadie
+ashby:roadrunner  # Roadrunner
+ashby:hims-and-hers  # Hims & Hers
+ashby:capsule  # Capsule
+greenhouse:truepill  # Truepill
+greenhouse:andurilindustries  # Anduril Industries
+lever:palantir  # Palantir Technologies
+lever:shieldai  # Shield AI
+ashby:skydio  # Skydio
+greenhouse:flyzipline  # Zipline
+ashby:ziplines  # Ziplines, Inc.
+greenhouse:aurorainnovation  # Aurora Innovation
+ashby:aurorasolar  # Aurora Solar
+greenhouse:waymo  # waymo
+lever:zoox  # Zoox
+greenhouse:nuro  # nuro
+greenhouse:lucidmotors  # Lucid Motors
+greenhouse:archer56  # Archer
+greenhouse:astranis  # Astranis
+greenhouse:vardaspace  # Varda Space Industries
+greenhouse:allbirds  # Allbirds
+greenhouse:glossier  # Glossier
+lever:bhhc  # Berkshire Hathaway Homestate Companies
+ashby:away  # Away
+greenhouse:doordashaustralia  # DoorDash Australia
+ashby:whatnot  # Whatnot
+greenhouse:goatgroup  # GOAT Group
+greenhouse:stockx  # StockX
+ashby:reddit  # Reddit
+greenhouse:twitch  # Twitch
+greenhouse:soundcloud71  # SoundCloud
+ashby:substack  # Substack
+greenhouse:ghost  # Ghost
+greenhouse:medium  # Medium
+ashby:gravitysketch  # Gravity Sketch
+greenhouse:bloomerang  # Bloomerang
+lever:bloom  # Bloom
+ashby:loom  # Loom
+greenhouse:descript  # Descript
+ashby:alchemy  # Alchemy
+greenhouse:fireblocks  # Fireblocks
+ashby:chainalysis-careers  # Chainalysis
+ashby:opensea  # OpenSea
+ashby:uniswap  # Uniswap Labs
+greenhouse:alixpartners  # AlixPartners
+greenhouse:sigmacomputing  # Sigma Computing
+lever:signal  # Signal Messenger
+ashby:signal-ai  # Signal AI
+greenhouse:point72  # Point72
+greenhouse:pdtpartners  # PDT Partners
+greenhouse:radixexperienced  # Radix Trading Experienced Job Board
+greenhouse:xtxmarketstechnologies  # XTX Markets
+lever:belvederetrading  # Belvedere Trading

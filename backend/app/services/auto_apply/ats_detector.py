@@ -29,6 +29,12 @@ _DOMAIN_TO_PLATFORM = {
 # aggregators but the underlying form is hosted on Greenhouse/Lever/Ashby.
 _URL_SUFFIX_TO_PLATFORM = (
     (".greenhouse.io", "greenhouse"),
+    # grnh.se is Greenhouse's branded URL shortener; the trailing ".se"
+    # doesn't match ".greenhouse.io" via endswith. Exact-host entry catches
+    # it via the `host == suffix.lstrip(".")` check at line 79. Follow-up:
+    # backend/app/services/auto_apply/greenhouse.py filler must resolve the
+    # 302 redirect before driving the form, otherwise the URL parser fails.
+    ("grnh.se", "greenhouse"),
     (".lever.co", "lever"),
     (".ashbyhq.com", "ashby"),
 )
