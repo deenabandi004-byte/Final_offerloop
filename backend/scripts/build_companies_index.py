@@ -147,18 +147,24 @@ def main() -> None:
                 "total": g["total"],
             },
             "topTitles": top_titles,
-            "sector": None,  # Reserved for Piece 3 (LLM sector tag)
             "updatedAt": now,
         }
+        # NOTE: sector is intentionally NOT written here. classify_company_sectors
+        # owns that field. Previously build_companies_index wrote sector=None on
+        # every run, which wiped LLM classifications (~5,500 docs) on rebuild —
+        # 2026-07-15 QA bug. With merge=True below, existing sector values
+        # survive rebuilds cleanly.
         docs_to_write.append((slug, doc))
 
-    # Batched writes
+    # Batched writes with merge=True so sector (owned by classify_company_sectors)
+    # survives rebuild. Other fields (name, jobCount, topTitles, updatedAt) get
+    # overwritten on every rebuild as intended.
     written = 0
     if not args.dry_run:
         batch = db.batch()
         batch_size = 0
         for slug, doc in docs_to_write:
-            batch.set(companies_coll.document(slug), doc)
+            batch.set(companies_coll.document(slug), doc, merge=True)
             batch_size += 1
             if batch_size >= BATCH_WRITE_SIZE:
                 batch.commit()

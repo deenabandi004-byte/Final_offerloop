@@ -268,6 +268,46 @@ _COMPANY_ALIASES: dict[str, str] = {
     "ghost": "Ghost",
     "substack": "Substack",
     "loops": "Loops",
+    # QA additions from Rylan's 2026-07-15 sector-classifier spot-check.
+    # Fix scrape-artifact concatenations that survived tail-strip, plus
+    # missing parent→brand mappings.
+    "paytm payments": "Paytm",
+    "paytm payments bank": "Paytm",
+    "monsterenergy": "Monster Energy",
+    "monster energy": "Monster Energy",
+    "michelscorporation": "Michels",
+    "michels corporation": "Michels",
+    "jdsports": "JD Sports",
+    "jdsportsfr": "JD Sports",
+    "jd sports": "JD Sports",
+    "n2publishing": "N2 Publishing",
+    "n2publishingglassdoor": "N2 Publishing",
+    "n2 publishing": "N2 Publishing",
+    # Companies mis-inferred by sector classifier — force the display
+    # to the canonical brand form so re-classification (later --force
+    # pass) picks the correct sector.
+    "harvey ai": "Harvey AI",
+    "harveyai": "Harvey AI",
+    "omada ai": "Omada Health",
+    "omadaai": "Omada Health",
+    "omada health": "Omada Health",
+    "omadahealth": "Omada Health",
+    "horace mann": "Horace Mann",
+    "horace mann agent opportunities": "Horace Mann",
+    "morgan and morgan": "Morgan & Morgan",
+    "morgan & morgan": "Morgan & Morgan",
+    "morgan and morgan p a": "Morgan & Morgan",
+    "morgan and morgan pa": "Morgan & Morgan",
+    "chaos industries": "CHAOS Industries",
+    "chaosindustries": "CHAOS Industries",
+    "genius sports": "Genius Sports",
+    "genius sports statistician network": "Genius Sports",
+    "genius sports group": "Genius Sports",
+    "betsson": "Betsson",
+    "air apps": "Air Apps",
+    "airapps": "Air Apps",
+    "infuse": "INFUSE",
+    "lyft": "Lyft",
 }
 
 
@@ -312,8 +352,15 @@ def _strip_suffixes(name: str) -> str:
 # names like "Doordashusa" or "StripeInc" where the source system mashed the
 # suffix on without a space. Only stripped from the key used for matching,
 # never from the display form.
+#
+# Also strips common scrape artifacts (`fr`, `de`, `uk`, `glassdoor`) that
+# leak from source systems' localized subdomains and aggregator IDs — per
+# Rylan's QA (2026-07-15): jdsportsfr → jdsports, n2publishingglassdoor →
+# n2publishing.
 _KEY_TAIL_STRIP_RE = re.compile(
-    r"(usa|us|inc|corp|llc|llp|ltd|ltd|holdings|technologies|group|co)$",
+    r"(usa|us|inc|corp|llc|llp|ltd|holdings|technologies|group|co|"
+    r"fr|de|uk|es|it|nl|jp|ca|au|"
+    r"glassdoor|indeed|linkedin)$",
     re.I,
 )
 
@@ -420,7 +467,19 @@ def canonicalize_company(raw_company: str | None) -> str:
 
     # 1. Hand-curated aliases first (they carry parent→brand rewrites like
     # "Alphabet Inc" → "Google", which no downstream cache would guess).
-    aliased = _COMPANY_ALIASES.get(cleaned.lower()) or _COMPANY_ALIASES.get(key)
+    # Try three key forms so scrape variants match regardless of casing,
+    # dashes, or concatenation:
+    #   - raw lowercased ("horace mann - agent opportunities")
+    #   - punctuation-collapsed ("horace mann agent opportunities")
+    #   - fully-canonical key ("horacemannagentopportunities")
+    _spaced = _PUNCT_COLLAPSE_RE.sub(" ", cleaned.replace("&", " and "))
+    _spaced = re.sub(r"[-–—/]+", " ", _spaced)
+    _spaced = _MULTI_SPACE_RE.sub(" ", _spaced).strip().lower()
+    aliased = (
+        _COMPANY_ALIASES.get(cleaned.lower())
+        or _COMPANY_ALIASES.get(_spaced)
+        or _COMPANY_ALIASES.get(key)
+    )
     if aliased:
         return aliased
 
