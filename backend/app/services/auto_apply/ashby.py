@@ -181,26 +181,16 @@ def run_ashby_filler(
                         "failure_reason": None,
                     }
 
-                # Needs-verification escalation: Ashby ships reCAPTCHA v3
-                # invisible on every tenant. Even with a perfect fill, the
-                # submit attempt risks a score-based rejection (and on a
-                # rejected attempt the headless session is now flagged
-                # with their backend). Route to verification UX so the
-                # user submits from their real browser instead.
-                captcha = common.detect_captcha_challenge(page)
-                if captcha and not dry_run:
-                    return {
-                        "status": "needs_verification",
-                        "filled": filled,
-                        "unmapped": unmapped,
-                        "pending_questions": [],
-                        "prepared_answers": prepared_answers,
-                        "captcha": captcha,
-                        "apply_url": page.url or apply_url,
-                        "screenshot_b64": screenshot_b64,
-                        "failure_reason": None,
-                    }
-
+                # NOTE: The previous early-bail on detect_captcha_challenge
+                # was removed. Ashby ships reCAPTCHA v3 (score-based,
+                # invisible) on every tenant — there is no challenge to
+                # solve, only a fingerprint / IP / behavior score returned
+                # to Ashby's backend. Widget presence is not evidence of
+                # anything; bailing on it means we never attempt submit
+                # for any Ashby job. Instead we let submit run through
+                # Browserbase (stealth + solveCaptchas) and route to
+                # needs_verification below only when the ATS actually
+                # silent-rejects us (form still on page after submit).
                 status = "dry_run_complete"
                 failure_reason: Optional[str] = None
                 if not dry_run:
@@ -284,13 +274,32 @@ def run_ashby_filler(
                                     )
                             else:
                                 # No invalid markers, no success URL. If the
-                                # form is gone, assume success; otherwise
-                                # report submit_failed.
+                                # form is gone, assume success. Otherwise
+                                # we're either silent-rejected (v3 score
+                                # too low → user needs to submit from a
+                                # real browser) or genuinely failed. Route
+                                # to needs_verification when reCAPTCHA is
+                                # on the page — that's the signal we lost
+                                # the score game, not that the form was
+                                # broken.
                                 form_still_present = (
                                     page.query_selector('input#_systemfield_name, input#_systemfield_email')
                                     is not None
                                 )
                                 if form_still_present:
+                                    captcha = common.detect_captcha_challenge(page)
+                                    if captcha:
+                                        return {
+                                            "status": "needs_verification",
+                                            "filled": filled,
+                                            "unmapped": unmapped,
+                                            "pending_questions": [],
+                                            "prepared_answers": prepared_answers,
+                                            "captcha": captcha,
+                                            "apply_url": page.url or apply_url,
+                                            "screenshot_b64": screenshot_b64,
+                                            "failure_reason": None,
+                                        }
                                     status = "submit_failed"
                                     failure_reason = (
                                         "form is still on the page after Submit — "
