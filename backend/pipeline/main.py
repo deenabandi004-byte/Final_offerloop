@@ -17,6 +17,9 @@ Usage:
     python pipeline/main.py --backfill-enrich --since-days=30 --limit=2000  # Custom backfill window + cap
     python pipeline/main.py --title-enrich-only       # PDL title enrichment for pending jobs
     python pipeline/main.py --backfill-title-enrich   # Backfill title enrichment for legacy jobs
+    python pipeline/main.py --crawl-ats --tier=hot                  # Direct-ATS crawl of hot-tier slugs (~270 curated)
+    python pipeline/main.py --crawl-ats --tier=cold --shard=0/4     # Cold-tier shard 0 of 4 (~2400 slugs)
+    python pipeline/main.py --health-snapshot                       # Read-only current-state metrics → pipeline_runs
 """
 from dotenv import load_dotenv
 load_dotenv()
@@ -370,6 +373,256 @@ def _parse_since_days(default: int | None = None) -> int | None:
     return default
 
 
+def run_health_snapshot() -> dict:
+    """Read-only pipeline health snapshot. Emits current-state metrics that
+    aren't visible from per-crawl telemetry alone.
+
+    Metrics:
+      - jobs_total                — count of all docs in jobs/
+      - jobs_last_24h             — feed-visibility (matches feed query window)
+      - jobs_last_24h_by_tier     — tier 1 / 2 / 3 count in the same window
+      - jobs_last_24h_eligible    — auto-apply-eligible count in the window
+      - slug_state_total          — ats_crawl_state doc count
+      - slug_state_dormant        — count where dormant=True (auto-pruned)
+      - slug_state_dormant_pct    — dormancy ratio
+
+    Runs 5-6 Firestore aggregate queries (all cheap — count() is < $0.001).
+    Writes result to pipeline_runs under mode='health-snapshot' for trend
+    tracking. Also logged/printed for GH Actions run visibility.
+    """
+    from datetime import datetime, timedelta, timezone
+    from backend.app.extensions import get_db
+    from backend.app.services.auto_apply.ats_detector import is_eligible
+
+    db = get_db()
+    if not db:
+        raise RuntimeError("Firestore DB not initialized")
+
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(hours=24)
+
+    def _agg_count(query) -> int:
+        try:
+            snap = query.count().get()
+            # Firestore returns [[AggregationResult]] shape
+            return int(snap[0][0].value)
+        except Exception as e:
+            logger.warning("aggregate count failed: %s", e)
+            return -1
+
+    jobs_ref = db.collection("jobs")
+    state_ref = db.collection("ats_crawl_state")
+
+    jobs_total = _agg_count(jobs_ref)
+    jobs_last_24h = _agg_count(jobs_ref.where("posted_at", ">=", window_start))
+    slug_state_total = _agg_count(state_ref)
+    slug_state_dormant = _agg_count(state_ref.where("dormant", "==", True))
+
+    # Single sample-scan handles both eligibility % AND tier distribution —
+    # avoids needing composite indexes for every (posted_at, relevance_tier)
+    # combination. Capped at 500 for speed; extrapolate to the full 24h pool.
+    sample_size = 0
+    sample_eligible = 0
+    tier_sample: dict[int, int] = {1: 0, 2: 0, 3: 0, 0: 0}
+    for doc in jobs_ref.where("posted_at", ">=", window_start).limit(500).stream():
+        sample_size += 1
+        d = doc.to_dict() or {}
+        if is_eligible(d):
+            sample_eligible += 1
+        t = d.get("relevance_tier")
+        tier_sample[t if t in (1, 2, 3) else 0] += 1
+    eligible_pct = round(100 * sample_eligible / max(sample_size, 1), 1)
+    est_eligible_last_24h = int(jobs_last_24h * eligible_pct / 100) if jobs_last_24h > 0 else 0
+    tier_counts = {
+        f"tier{t}_est": int(jobs_last_24h * tier_sample[t] / max(sample_size, 1))
+        for t in (1, 2, 3)
+    }
+    tier_counts["untiered_est"] = int(jobs_last_24h * tier_sample[0] / max(sample_size, 1))
+
+    snap = {
+        "captured_at": now.isoformat(),
+        "jobs_total": jobs_total,
+        "jobs_last_24h": jobs_last_24h,
+        "jobs_last_24h_by_tier_est": tier_counts,
+        "sample_size": sample_size,
+        "auto_apply_eligible_sample_pct": eligible_pct,
+        "auto_apply_eligible_last_24h_est": est_eligible_last_24h,
+        "slug_state_total": slug_state_total,
+        "slug_state_dormant": slug_state_dormant,
+        "slug_state_dormant_pct": round(
+            100 * slug_state_dormant / max(slug_state_total, 1), 1
+        ),
+    }
+    logger.info("health snapshot: %s", snap)
+    return snap
+
+
+def _parse_tier(default: str = "hot") -> str:
+    for arg in sys.argv:
+        if arg.startswith("--tier="):
+            val = arg.split("=", 1)[1].strip().lower()
+            if val in ("hot", "cold", "all"):
+                return val
+    return default
+
+
+def _parse_shard() -> tuple[int, int] | None:
+    """Parse --shard=N/M into (N, M). Only valid for cold-tier crawls."""
+    for arg in sys.argv:
+        if arg.startswith("--shard="):
+            try:
+                n_str, m_str = arg.split("=", 1)[1].split("/", 1)
+                n, m = int(n_str), int(m_str)
+                if m > 1 and 0 <= n < m:
+                    return (n, m)
+            except ValueError:
+                pass
+    return None
+
+
+def run_crawl_ats(tier: str = "hot", shard: tuple[int, int] | None = None) -> dict:
+    """Direct-ATS scale-up crawler (Phase 0 orchestrator).
+
+    For each platform (greenhouse / lever / ashby):
+      1. Load slugs from slug_loader for the requested tier + shard
+      2. Batch-read prior crawl state for those slugs
+      3. Parallel per-platform pool: fetch → normalize → sync_board_jobs
+      4. Aggregate results
+
+    Cold tier runs the strict positive-allowlist quality gate; hot tier runs
+    the original drop-list. Both stamp relevance_tier on kept docs.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from backend.pipeline import fetcher, writer, slug_loader, crawl_state
+    from backend.pipeline.normalizer import normalize_job, _is_non_us_non_remote
+    from backend.pipeline.quality_gate import apply as apply_quality_gate
+
+    gate_mode = tier if tier in ("hot", "cold") else "hot"
+    platforms = {
+        "greenhouse": fetcher._fetch_greenhouse,
+        "lever": fetcher._fetch_lever,
+        "ashby": fetcher._fetch_ashby,
+    }
+
+    def _empty_platform_stats() -> dict:
+        return {
+            "slugs_crawled": 0,
+            "slugs_failed": 0,
+            "board_hash_matched": 0,
+            "snapshot_count": 0,
+            "written": 0,
+            "expired": 0,
+            "tier1": 0,
+            "tier2": 0,
+            "tier3": 0,
+        }
+
+    totals = {
+        "tier": tier,
+        "shard": f"{shard[0]+1}/{shard[1]}" if shard else "all",
+        "slugs_crawled": 0,
+        "slugs_failed": 0,
+        "board_hash_matched": 0,
+        "snapshot_count": 0,
+        "written": 0,
+        "expired": 0,
+        "tier1": 0,
+        "tier2": 0,
+        "tier3": 0,
+        "per_platform": {p: _empty_platform_stats() for p in platforms},
+    }
+
+    def _crawl_one(platform: str, slug: str, prior_state):
+        """Fetch → normalize → gate → sync. Returns sync result + tier counts."""
+        raw = platforms[platform](slug)
+        # normalize per-slug (mirror the pieces of normalize_all we need)
+        normalized: list[dict] = []
+        for r in raw:
+            doc = normalize_job(r)
+            if not doc or _is_non_us_non_remote(doc):
+                continue
+            normalized.append(doc)
+        kept, _ = apply_quality_gate(normalized, mode=gate_mode)
+        # Tier breakdown of the kept snapshot (before sync writes).
+        # Note: not all kept jobs are "new writes" — sync will diff against
+        # prior state. But tier distribution of what surfaces is the metric
+        # that matters for feed quality.
+        tiers = {"tier1": 0, "tier2": 0, "tier3": 0}
+        for d in kept:
+            key = f"tier{d.get('relevance_tier') or 3}"
+            if key in tiers:
+                tiers[key] += 1
+        result = writer.sync_board_jobs(platform, slug, kept, prior_state=prior_state)
+        result.update(tiers)
+        return result
+
+    for platform in platforms:
+        slugs = slug_loader.load_slugs(platform, tier=tier, shard=shard)
+        logger.info(
+            "[%s/%s] loaded %d slugs%s",
+            platform, tier, len(slugs),
+            f" (shard {shard[0]+1}/{shard[1]})" if shard else "",
+        )
+        if not slugs:
+            continue
+
+        # One batched read up front — 5-6 Firestore round-trips even for a 2500-slug shard.
+        state_map = crawl_state.read_state_batch(platform, slugs)
+
+        pool_size = fetcher.POOL_SIZE.get(platform, 8)
+        with ThreadPoolExecutor(max_workers=pool_size) as pool:
+            futures = {
+                pool.submit(_crawl_one, platform, slug, state_map.get(slug)): slug
+                for slug in slugs
+            }
+            for future in as_completed(futures):
+                slug = futures[future]
+                p_stats = totals["per_platform"][platform]
+                try:
+                    result = future.result()
+                except Exception as e:
+                    logger.warning("[%s/%s] slug %s failed: %s", platform, tier, slug, e)
+                    totals["slugs_failed"] += 1
+                    p_stats["slugs_failed"] += 1
+                    try:
+                        crawl_state.mark_failure(platform, slug, state_map.get(slug))
+                    except Exception:
+                        pass
+                    continue
+                # Aggregate + per-platform in one pass
+                totals["slugs_crawled"] += 1
+                p_stats["slugs_crawled"] += 1
+                totals["snapshot_count"] += result["snapshot_count"]
+                p_stats["snapshot_count"] += result["snapshot_count"]
+                for tk in ("tier1", "tier2", "tier3"):
+                    totals[tk] += result.get(tk, 0)
+                    p_stats[tk] += result.get(tk, 0)
+                if result["board_hash_matched"]:
+                    totals["board_hash_matched"] += 1
+                    p_stats["board_hash_matched"] += 1
+                else:
+                    totals["written"] += result["written"]
+                    p_stats["written"] += result["written"]
+                    totals["expired"] += result["expired"]
+                    p_stats["expired"] += result["expired"]
+
+    # Compute board-hash skip rate — the % of crawls that avoided all Firestore
+    # writes because nothing changed. 85-95% is the target at steady state
+    # (co-founder's plan projection). Divide by crawls that actually happened
+    # (skip failed slugs from the denominator to avoid bias).
+    denom = totals["board_hash_matched"] + totals["written"] + totals["expired"]
+    totals["board_hash_skip_rate_pct"] = round(
+        100 * totals["board_hash_matched"] / max(totals["slugs_crawled"], 1), 1
+    )
+    for p, p_stats in totals["per_platform"].items():
+        p_stats["board_hash_skip_rate_pct"] = round(
+            100 * p_stats["board_hash_matched"] / max(p_stats["slugs_crawled"], 1), 1
+        )
+
+    logger.info("crawl-ats %s complete: %s", tier, totals)
+    return totals
+
+
 if __name__ == "__main__":
     app = _bootstrap_app()
 
@@ -409,6 +662,12 @@ if __name__ == "__main__":
             mode, runner = "sweep-expired", run_sweep_expired
         elif "--skip-fantastic" in sys.argv:
             mode, runner = "skip-fantastic", (lambda: run_pipeline(skip_fantastic=True))
+        elif "--crawl-ats" in sys.argv:
+            tier = _parse_tier(default="hot")
+            shard = _parse_shard()
+            mode, runner = f"crawl-ats-{tier}", (lambda: run_crawl_ats(tier=tier, shard=shard))
+        elif "--health-snapshot" in sys.argv:
+            mode, runner = "health-snapshot", run_health_snapshot
         elif "--include-fantastic-7d" in sys.argv:
             # Explicit opt-in for the paid 7d FJ sweep alongside the other sources.
             # Still gated by FJ_FULL_BACKFILL_ENABLED inside run_fantastic_only-equivalent

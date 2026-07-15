@@ -5,121 +5,86 @@ Outputs a list of pre-normalized job dicts ready for the normalizer/writer.
 import html
 import logging
 import os
+import random
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+from backend.pipeline import slug_loader
 
 logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT = 15
 
 # ---------------------------------------------------------------------------
-# Company configs
+# Politeness scaffolding (Phase 0)
 # ---------------------------------------------------------------------------
+# Per-platform requests.Session with a Retry adapter, custom User-Agent, and
+# per-request jitter. Identifies us to Greenhouse / Lever / Ashby so we stay
+# off greylists as slug count scales from 270 → ~10K.
+#
+# Pool sizing matches ThreadPoolExecutor `max_workers` for each platform so
+# urllib3 doesn't complain about a saturated connection pool.
 
-GREENHOUSE_SLUGS = [
-    # Big tech / consumer
-    "stripe", "figma", "airbnb", "doordashusa", "lyft", "coinbase", "robinhood",
-    "pinterest", "reddit", "dropbox", "twilio", "brex",
-    "airtable", "carta", "chime", "scaleai", "verkada",
-    "discord", "duolingo", "gitlab", "grammarly", "intercom", "webflow",
-    "gusto", "lattice", "mercury", "faire",
-    "squarespace", "hubspot", "boxinc", "cloudflare",
-    "mongodb", "databricks", "spacex", "instacart",
-    # FAANG / big tech
-    "metacareers", "google", "microsoft", "amazon", "apple", "nvidia",
-    # AI
-    "anthropic",
-    # Infrastructure / security / observability
-    "greenhouse", "datadog", "elastic", "okta", "zscaler",
-    "newrelic", "sumologic", "samsara", "toast",
-    # Consulting / Big 4
-    "deloitte", "pwc", "kpmg", "ey",
-    # Finance / quant
-    "goldmansachs", "jpmorgan", "blackrock", "citadel", "twosigma",
-    "janestreet", "hudsonrivertrading", "drw", "akunacapital",
-    "imctrading", "optiver", "sig", "flowtraders",
-    # Fintech
-    "gemini", "adyen", "marqeta", "affirm",
-    # Data / analytics
-    "fivetran", "hightouch", "mixpanel", "cultureamp",
-    # HR / remote / fintech
-    "remote", "rippling", "justworks", "oysterhr", "papayaglobal",
-    "bamboohr", "personio", "hibob", "leapsome", "15five", "betterworks",
-    # Biotech
-    "benchling", "ginkgobioworks", "recursionpharma", "insitro",
-    "10xgenomics", "virbio",
-    # Defense tech
-    "shieldai",
-    # Aviation / space
-    "jobyaviation", "archeraircraft", "boomsupersonic", "hermeus",
-    "zeroavia", "lilium", "wisk",
-    # Semiconductors
-    "amd", "qualcomm", "texasinstruments", "appliedmaterials",
-    "lamresearch", "kla", "asml", "micron",
-    # Developer tools / infra
-    "palantirtech", "cockroachlabs", "netlify", "fastly",
-    # Databases
-    "yugabyte", "timescale", "influxdata", "datastax", "couchbase", "scylladb",
-    # Entertainment / media
-    "hulu", "a24", "soundcloud",
-]
+USER_AGENT = "OfferloopJobBot/1.0 (+https://offerloop.ai; contact@offerloop.ai)"
 
-LEVER_SLUGS = [
-    # Mobility / health / AI
-    "uber", "netflix", "spotify", "anduril",
-    "rivian", "waymo", "aurora", "recursion", "asana", "calm", "hims",
-    "ro", "oscar-health", "devoted-health", "cityblock", "quartet",
-    "scale-ai", "nuro",
-    # Design / productivity / dev tools
-    "figma", "canva", "shopify", "twitch", "reddit", "duolingo",
-    "notion", "airtable", "webflow", "zapier",
-    "hubspot", "intercom", "zendesk", "freshworks", "atlassian",
-    "monday", "clickup", "linear", "loom", "miro",
-    "framer", "pitch", "superhuman", "fastmail", "hey",
-    "basecamp", "doist", "buffer",
-    # Publishing / newsletters
-    "ghost", "substack", "beehiiv", "convertkit", "mailchimp",
-    # Email infrastructure
-    "sendgrid", "postmark", "resend", "loops", "customerio",
-    "braze", "iterable", "klaviyo",
-    # Data / CDP
-    "segment", "rudderstack", "mparticle",
-    # Analytics / product
-    "amplitude", "mixpanel", "posthog", "heap", "fullstory", "hotjar",
-    "contentsquare", "quantum-metric", "glassbox",
-    # Feedback / surveys
-    "medallia", "qualtrics", "surveymonkey", "typeform", "tally", "jotform",
-]
+_JITTER_MS = (50, 300)
 
-ASHBY_SLUGS = [
-    # Core (verified with jobs)
-    "linear", "notion", "ramp", "deel",
-    "runway", "replit", "supabase", "ashby", "clerk", "resend", "raycast",
-    # AI / ML
-    "openai", "cohere", "perplexity", "cursor", "anysphere",
-    "mistralai", "togetherai", "modal", "replicate", "huggingface",
-    "wandb", "langchain", "pinecone", "weaviate", "trychroma", "qdrant",
-    # Infrastructure / data
-    "neon", "railway", "airbyte", "posthog", "inngest", "plain", "helpscout",
-    "fly", "render", "netlify",
-    # Productivity / dev tools
-    "zapier", "doist", "buffer", "front", "intercom", "liveblocks",
-    # Publishing / email
-    "ghost", "beehiiv", "loops",
-    # Serverless / triggers
-    "calcom", "trigger",
-    # CMS
-    "sanity", "contentful", "storyblok", "prismic", "hygraph",
-    "payload", "strapi", "directus",
-    # Backend-as-a-service / databases
-    "appwrite", "pocketbase", "nhost", "hasura", "fauna", "convex",
-    "xata", "turso", "planetscale",
-    "cockroachdb", "yugabyte", "timescale", "questdb", "scylladb", "datastax",
-]
+POOL_SIZE = {
+    "greenhouse": 24,
+    "lever": 16,
+    "ashby": 12,
+}
+
+
+def _polite_sleep() -> None:
+    """Add small random jitter before each ATS request to avoid burst patterns."""
+    lo, hi = _JITTER_MS
+    time.sleep(random.uniform(lo, hi) / 1000.0)
+
+
+def _build_session(pool_size: int) -> requests.Session:
+    """Session with retry-on-throttle + per-host connection pool sized for concurrency."""
+    session = requests.Session()
+    retry = Retry(
+        total=2,
+        backoff_factor=1.5,
+        status_forcelist=(429, 500, 502, 503),
+        allowed_methods=frozenset(["GET"]),
+        respect_retry_after_header=True,
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(
+        pool_connections=pool_size,
+        pool_maxsize=pool_size,
+        max_retries=retry,
+    )
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    session.headers.update({"User-Agent": USER_AGENT, "Accept": "application/json"})
+    return session
+
+
+_SESSION_GREENHOUSE = _build_session(POOL_SIZE["greenhouse"])
+_SESSION_LEVER = _build_session(POOL_SIZE["lever"])
+_SESSION_ASHBY = _build_session(POOL_SIZE["ashby"])
+
+# ---------------------------------------------------------------------------
+# Slug source (Phase 0 — 2026-07-14)
+# ---------------------------------------------------------------------------
+# The ~270 curated slugs that used to live inline here were migrated to
+# backend/pipeline/data/ats_companies/hot_slugs.txt. slug_loader reads that
+# file and the vendored jobhive CSVs; module-level bindings preserve backward
+# compat for any caller that imported *_SLUGS from this module.
+
+GREENHOUSE_SLUGS = slug_loader.load_slugs("greenhouse", tier="hot")
+LEVER_SLUGS = slug_loader.load_slugs("lever", tier="hot")
+ASHBY_SLUGS = slug_loader.load_slugs("ashby", tier="hot")
 
 # ---------------------------------------------------------------------------
 # HTML stripping helper
@@ -139,9 +104,12 @@ def _strip_html(html: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _fetch_greenhouse(slug: str) -> list[dict]:
-    url = f"https://boards.greenhouse.io/v1/boards/{slug}/jobs?content=true"
+    # Migrated 2026-07-14 from boards.greenhouse.io to boards-api.greenhouse.io
+    # per Greenhouse's canonical documented endpoint. Same response schema.
+    url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true"
+    _polite_sleep()
     try:
-        resp = requests.get(url, timeout=REQUEST_TIMEOUT)
+        resp = _SESSION_GREENHOUSE.get(url, timeout=REQUEST_TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
     except Exception as exc:
@@ -162,10 +130,12 @@ def _fetch_greenhouse(slug: str) -> list[dict]:
         content = _strip_html(html.unescape(job.get("content", "")))[:8000]
 
         jobs.append({
-            "job_id": f"greenhouse_{slug}_{job['id']}",
+            "job_id": f"direct_greenhouse_{slug}_{job['id']}",
             "source": "greenhouse",
+            "board_platform": "greenhouse",
+            "board_slug": slug,
             "title": title,
-            "company": slug.replace("-", " ").title(),
+            "company": slug_loader.get_company_name("greenhouse", slug),
             "employer_logo": None,
             "location": location_name or "United States",
             "remote": "remote" in location_name.lower(),
@@ -184,7 +154,7 @@ def _fetch_greenhouse(slug: str) -> list[dict]:
 def _fetch_all_greenhouse() -> list[dict]:
     results = []
     companies_with_jobs = 0
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=POOL_SIZE["greenhouse"]) as pool:
         futures = {pool.submit(_fetch_greenhouse, slug): slug for slug in GREENHOUSE_SLUGS}
         for future in as_completed(futures):
             jobs = future.result()
@@ -201,8 +171,9 @@ def _fetch_all_greenhouse() -> list[dict]:
 
 def _fetch_lever(slug: str) -> list[dict]:
     url = f"https://api.lever.co/v0/postings/{slug}?mode=json"
+    _polite_sleep()
     try:
-        resp = requests.get(url, timeout=REQUEST_TIMEOUT)
+        resp = _SESSION_LEVER.get(url, timeout=REQUEST_TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
     except Exception as exc:
@@ -231,10 +202,12 @@ def _fetch_lever(slug: str) -> list[dict]:
         description = (posting.get("descriptionPlain") or "")[:8000]
 
         jobs.append({
-            "job_id": f"lever_{slug}_{posting['id']}",
+            "job_id": f"direct_lever_{slug}_{posting['id']}",
             "source": "lever",
+            "board_platform": "lever",
+            "board_slug": slug,
             "title": title,
-            "company": slug.replace("-", " ").title(),
+            "company": slug_loader.get_company_name("lever", slug),
             "employer_logo": None,
             "location": location or "United States",
             "remote": workplace == "remote",
@@ -253,7 +226,7 @@ def _fetch_lever(slug: str) -> list[dict]:
 def _fetch_all_lever() -> list[dict]:
     results = []
     companies_with_jobs = 0
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=POOL_SIZE["lever"]) as pool:
         futures = {pool.submit(_fetch_lever, slug): slug for slug in LEVER_SLUGS}
         for future in as_completed(futures):
             jobs = future.result()
@@ -318,8 +291,9 @@ def _parse_ashby_compensation(comp) -> tuple:
 
 def _fetch_ashby(slug: str) -> list[dict]:
     url = f"https://api.ashbyhq.com/posting-api/job-board/{slug}"
+    _polite_sleep()
     try:
-        resp = requests.get(
+        resp = _SESSION_ASHBY.get(
             url,
             params={"includeCompensation": "true"},
             timeout=REQUEST_TIMEOUT,
@@ -339,10 +313,12 @@ def _fetch_ashby(slug: str) -> list[dict]:
         sal_min, sal_max, sal_period = _parse_ashby_compensation(job.get("compensation"))
 
         jobs.append({
-            "job_id": f"ashby_{slug}_{job['id']}",
+            "job_id": f"direct_ashby_{slug}_{job['id']}",
             "source": "ashby",
+            "board_platform": "ashby",
+            "board_slug": slug,
             "title": title,
-            "company": slug.replace("-", " ").title(),
+            "company": slug_loader.get_company_name("ashby", slug),
             "employer_logo": None,
             "location": location,
             "remote": bool(job.get("isRemote")),
@@ -362,7 +338,7 @@ def _fetch_ashby(slug: str) -> list[dict]:
 def _fetch_all_ashby() -> list[dict]:
     results = []
     companies_with_jobs = 0
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=POOL_SIZE["ashby"]) as pool:
         futures = {pool.submit(_fetch_ashby, slug): slug for slug in ASHBY_SLUGS}
         for future in as_completed(futures):
             jobs = future.result()

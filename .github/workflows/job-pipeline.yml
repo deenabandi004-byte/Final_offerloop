@@ -24,6 +24,8 @@ on:
           - fantastic-only
           - skip-fantastic
           - fix-salaries
+          - crawl-ats-hot
+          - crawl-ats-cold-shard0
 
 jobs:
   run:
@@ -92,5 +94,17 @@ jobs:
             fantastic-only)          python -m backend.pipeline.main --fantastic-only ;;
             skip-fantastic)          python -m backend.pipeline.main --skip-fantastic ;;
             fix-salaries)            python -m backend.pipeline.main --fix-salaries ;;
+            crawl-ats-hot)           python -m backend.pipeline.main --crawl-ats --tier=hot ;;
+            crawl-ats-cold-shard0)   python -m backend.pipeline.main --crawl-ats --tier=cold --shard=0/4 ;;
             *) echo "Unknown mode"; exit 1 ;;
           esac
+
+      # Direct-ATS scale-up (Phase 0). Runs on the same 2h cadence as the FJ
+      # full-mode pipeline. Free (all public APIs); adds ~2-5 min per run at
+      # the current 270-slug hot tier. Independent of FJ — one can succeed
+      # while the other fails, and we log both.
+      - name: Run direct-ATS crawl (hot tier)
+        if: steps.mode.outputs.mode == 'full'
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ env.GOOGLE_APPLICATION_CREDENTIALS }}
+        run: python -m backend.pipeline.main --crawl-ats --tier=hot

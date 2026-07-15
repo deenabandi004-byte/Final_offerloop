@@ -4,10 +4,12 @@ Deduplicates by job_id and handles batch writes.
 """
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 
 from google.cloud.firestore_v1.base_query import FieldFilter
 
 from backend.app.extensions import get_db
+from backend.pipeline import crawl_state
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +17,26 @@ COLLECTION = "jobs"
 BATCH_WRITE_SIZE = 400
 EXISTENCE_CHECK_CHUNK = 300
 DELETE_BATCH_SIZE = 500
+
+
+def _apply_enrichment_gate(doc: dict) -> None:
+    """Stamp enrichment_status / title_enrichment_status based on relevance_tier.
+
+    Only tier-1 (early-career + target function) gets flagged for the
+    expensive Firecrawl + PDL + Perplexity enrichment path. Everything else
+    is marked skipped_low_priority so pipeline/enricher.py leaves it alone.
+    Prevents enrichment-cost explosion when we scale from 270 → 10K slugs.
+
+    Mutates the doc in place. Safe on docs already carrying either field
+    (setdefault preserves anything explicitly set upstream).
+    """
+    tier = doc.get("relevance_tier")
+    if tier == 1:
+        doc.setdefault("enrichment_status", "pending")
+        doc.setdefault("title_enrichment_status", "pending")
+    else:
+        doc.setdefault("enrichment_status", "skipped_low_priority")
+        doc.setdefault("title_enrichment_status", "skipped_low_priority")
 
 
 def write_jobs(normalized_jobs: list[dict]) -> dict:
@@ -60,12 +82,9 @@ def write_jobs(normalized_jobs: list[dict]) -> dict:
         batch = db.batch()
         chunk = new_items[i : i + BATCH_WRITE_SIZE]
         for jid, doc in chunk:
-            # Flag for Phase 1 enricher; pipeline/enricher.py picks these up
-            # and fills in `structured` from Firecrawl.
-            doc.setdefault("enrichment_status", "pending")
-            # Flag for the PDL title pre-enricher; pipeline/title_enricher.py
-            # picks these up and writes structured.title_meta.
-            doc.setdefault("title_enrichment_status", "pending")
+            # Tier-gated: only relevance_tier==1 flags for Firecrawl / PDL
+            # enrichment. Prevents cost explosion when we scale to 10K slugs.
+            _apply_enrichment_gate(doc)
             ref = db.collection(COLLECTION).document(jid)
             batch.set(ref, doc)
         batch.commit()
@@ -141,6 +160,57 @@ def _embed_new_jobs_batch(new_jobs: list[dict]) -> int:
     return total_embedded
 
 
+def _expire_by_firestore_ids(firestore_ids: list[str]) -> int:
+    """Core expiry primitive: mark each Firestore job doc as expired.
+
+    Verifies existence (avoids empty-doc updates from unknown IDs), batch-
+    updates, and mirrors the flag onto job_embeddings so vector search
+    prefilters correctly. Returns count actually flagged.
+
+    Public callers are mark_expired_jobs (FJ daemon) and sync_board_jobs
+    (direct-ATS diff expiry). Kept private so both callers share one
+    implementation.
+    """
+    db = get_db()
+    if not db:
+        raise RuntimeError("Firestore DB not initialized")
+    if not firestore_ids:
+        return 0
+
+    now = datetime.now(timezone.utc)
+
+    existing_ids: set[str] = set()
+    for i in range(0, len(firestore_ids), EXISTENCE_CHECK_CHUNK):
+        chunk = firestore_ids[i : i + EXISTENCE_CHECK_CHUNK]
+        refs = [db.collection(COLLECTION).document(jid) for jid in chunk]
+        for doc in db.get_all(refs):
+            if doc.exists:
+                existing_ids.add(doc.id)
+
+    marked = 0
+    targets = list(existing_ids)
+    for i in range(0, len(targets), BATCH_WRITE_SIZE):
+        batch = db.batch()
+        chunk = targets[i : i + BATCH_WRITE_SIZE]
+        for jid in chunk:
+            ref = db.collection(COLLECTION).document(jid)
+            batch.update(ref, {"expired": True, "expired_at": now})
+        batch.commit()
+        marked += len(chunk)
+        logger.info("  Expired-mark batch: %d jobs flagged", len(chunk))
+
+    # Mirror onto job_embeddings so vector-search prefilters catch expiries.
+    if targets:
+        try:
+            from backend.app.services.vector_store import mark_expired as _mark_vec_expired
+            vec_marked = _mark_vec_expired(list(targets))
+            logger.info("  Mirrored expired=true onto %d embedding docs", vec_marked)
+        except Exception as e:
+            logger.warning("Failed to mirror expired flag into job_embeddings: %s", e)
+
+    return marked
+
+
 def mark_expired_jobs(fj_ids: list[str]) -> dict:
     """Flag Firestore docs as expired based on the Fantastic.jobs Expired Jobs feed.
 
@@ -154,48 +224,10 @@ def mark_expired_jobs(fj_ids: list[str]) -> dict:
     job-board reads should filter expired=true. Keeping the doc lets the
     UI optionally show "this role closed" for users who saved it.
     """
-    db = get_db()
-    if not db:
-        raise RuntimeError("Firestore DB not initialized")
-
     if not fj_ids:
         return {"marked": 0, "not_found": 0, "total": 0}
-
-    now = datetime.now(timezone.utc)
     firestore_ids = [f"fantasticjobs_{fid}" for fid in fj_ids]
-
-    # Check existence in chunks (Firestore get_all caps around 500/call)
-    existing_ids = set()
-    for i in range(0, len(firestore_ids), EXISTENCE_CHECK_CHUNK):
-        chunk = firestore_ids[i : i + EXISTENCE_CHECK_CHUNK]
-        refs = [db.collection(COLLECTION).document(jid) for jid in chunk]
-        for doc in db.get_all(refs):
-            if doc.exists:
-                existing_ids.add(doc.id)
-
-    # Batch-update only the docs we actually have
-    marked = 0
-    targets = list(existing_ids)
-    for i in range(0, len(targets), BATCH_WRITE_SIZE):
-        batch = db.batch()
-        chunk = targets[i : i + BATCH_WRITE_SIZE]
-        for jid in chunk:
-            ref = db.collection(COLLECTION).document(jid)
-            batch.update(ref, {"expired": True, "expired_at": now})
-        batch.commit()
-        marked += len(chunk)
-        logger.info("  Expired-mark batch: %d jobs flagged", len(chunk))
-
-    # Mirror expired flag onto the job_embeddings collection so Firestore
-    # vector search's expired=false prefilter continues to exclude them.
-    if targets:
-        try:
-            from backend.app.services.vector_store import mark_expired as _mark_vec_expired
-            vec_marked = _mark_vec_expired(list(targets))
-            logger.info("  Mirrored expired=true onto %d embedding docs", vec_marked)
-        except Exception as e:
-            logger.warning("Failed to mirror expired flag into job_embeddings: %s", e)
-
+    marked = _expire_by_firestore_ids(firestore_ids)
     result = {
         "marked": marked,
         "not_found": len(fj_ids) - marked,
@@ -203,6 +235,122 @@ def mark_expired_jobs(fj_ids: list[str]) -> dict:
     }
     logger.info("Expired sweep complete: %s", result)
     return result
+
+
+def sync_board_jobs(
+    platform: str,
+    slug: str,
+    snapshot_jobs: list[dict],
+    *,
+    prior_state: Optional[dict] = None,
+) -> dict:
+    """Reconcile one board's full snapshot against Firestore state.
+
+    The direct-ATS pipeline's core primitive. Steps:
+      1. Hash the snapshot's (job_id, posted_at) pairs.
+      2. If hash matches the prior state, this board hasn't changed since
+         the last crawl — return with zero Firestore writes. Co-founder's
+         plan projects 85-95% skip rate at steady state, which is what
+         keeps naive-$54/mo Firestore cost at ~$1-3/mo.
+      3. Otherwise diff current vs prior kept_job_ids:
+           new_ids     = in snapshot, not in prior kept
+           removed_ids = in prior kept, not in snapshot
+      4. Batch-write new jobs (skipping existence check — the diff already
+         guarantees they're new relative to what we last saw).
+      5. Mark removed_ids as expired=True (auto-apply safety — filled roles
+         must never appear in a live feed once we scale to 10K slugs).
+      6. Persist updated state via crawl_state.write_state.
+
+    Args:
+        platform: "greenhouse" | "lever" | "ashby"
+        slug: company slug (e.g. "stripe")
+        snapshot_jobs: normalized job dicts with `direct_{platform}_{slug}_*`
+            prefixed job_ids
+        prior_state: pre-fetched state from crawl_state.read_state_batch; if
+            omitted, this function will read the state doc itself (adds one
+            Firestore read per call — batch reads at the caller are cheaper
+            for large sweeps).
+
+    Returns: {board_hash_matched, snapshot_count, written, expired}.
+    """
+    db = get_db()
+    if not db:
+        raise RuntimeError("Firestore DB not initialized")
+
+    snapshot_count = len(snapshot_jobs)
+    new_hash = crawl_state.compute_board_hash(snapshot_jobs)
+
+    if prior_state is None:
+        prior_state = crawl_state.read_state(platform, slug)
+
+    prior_hash = (prior_state or {}).get("board_hash")
+    prior_kept = set((prior_state or {}).get("kept_job_ids") or [])
+    snapshot_ids = [j["job_id"] for j in snapshot_jobs if j.get("job_id")]
+    snapshot_set = set(snapshot_ids)
+
+    if prior_hash == new_hash and prior_hash is not None:
+        logger.info(
+            "  sync[%s/%s]: hash match, %d jobs unchanged, no writes",
+            platform, slug, snapshot_count,
+        )
+        return {
+            "board_hash_matched": True,
+            "snapshot_count": snapshot_count,
+            "written": 0,
+            "expired": 0,
+        }
+
+    new_ids = snapshot_set - prior_kept
+    removed_ids = prior_kept - snapshot_set
+
+    # Write new jobs — skip existence check since diff already isolates
+    # net-new relative to prior kept_ids. Any collision that DOES survive
+    # (rare, from partial prior crawls) gets overwritten cleanly.
+    new_jobs = [j for j in snapshot_jobs if j.get("job_id") in new_ids]
+    written = 0
+    if new_jobs:
+        for i in range(0, len(new_jobs), BATCH_WRITE_SIZE):
+            batch = db.batch()
+            chunk = new_jobs[i : i + BATCH_WRITE_SIZE]
+            for doc in chunk:
+                _apply_enrichment_gate(doc)
+                ref = db.collection(COLLECTION).document(doc["job_id"])
+                batch.set(ref, doc)
+            batch.commit()
+            written += len(chunk)
+        logger.info("  sync[%s/%s]: wrote %d new", platform, slug, written)
+
+        # Fail-soft embedding, same pattern as write_jobs.
+        try:
+            _embed_new_jobs_batch(new_jobs)
+        except Exception as e:
+            logger.warning("sync[%s/%s]: embed failed: %s", platform, slug, e)
+
+    expired_count = 0
+    if removed_ids:
+        expired_count = _expire_by_firestore_ids(list(removed_ids))
+        logger.info("  sync[%s/%s]: expired %d removed", platform, slug, expired_count)
+
+    # Phase 3 signal: how many of this snapshot's kept jobs graded tier-1.
+    # Used later to decide whether a cold slug deserves hot promotion.
+    tier1_count = sum(1 for j in snapshot_jobs if j.get("relevance_tier") == 1)
+
+    crawl_state.write_state(
+        platform,
+        slug,
+        board_hash=new_hash,
+        kept_job_ids=snapshot_ids,
+        jobs_count=snapshot_count,
+        tier1_count=tier1_count,
+        prior_state=prior_state,
+    )
+
+    return {
+        "board_hash_matched": False,
+        "snapshot_count": snapshot_count,
+        "written": written,
+        "expired": expired_count,
+    }
 
 
 def delete_expired_jobs() -> int:

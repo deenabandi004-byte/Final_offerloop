@@ -72,7 +72,131 @@ _REQUIRES_WORK_AUTH = re.compile(
 
 
 _MIN_DESCRIPTION_CHARS = 50
-_MAX_AGE_DAYS = 60
+# Widened 2026-07-14 from 60 → 90 days to keep more of the historical
+# early-career window indexed. Big-co posting cycles run 30-45 days and many
+# fall/spring intern reqs stay open 60+ days before closing.
+_MAX_AGE_DAYS = 90
+
+
+# ---------------------------------------------------------------------------
+# Relevance tier + cold-tier positive allowlist (Phase 0 — 2026-07-14)
+# ---------------------------------------------------------------------------
+# When we scale from 270 → ~10K slugs the cold tier will surface a lot of
+# non-target postings (blue-collar, clinical, senior IC). Two mechanisms
+# handle this without polluting the feed:
+#   - Cold-tier positive allowlist: at ingest, only keep titles that read as
+#     early-career. Filters at the door.
+#   - Relevance tier: every KEPT posting gets tier 1|2|3. Feed queries filter
+#     to tier in [1,2]; enrichment only fires on tier 1.
+
+# Explicit early-career vocabulary. "internship" also covers "intern".
+_EARLY_CAREER_TITLE = re.compile(
+    r"\b("
+    r"intern|internship|co[-\s]?op|new\s+grad|new[-\s]graduate|recent\s+graduate|"
+    r"early[-\s]career|university\s+graduate|entry[-\s]level|"
+    r"junior|jr\.?|associate|"
+    r"apprentice|trainee|fellow(ship)?|"
+    r"summer\s+(analyst|associate|intern)|graduate\s+program|"
+    r"rotational\s+program|rotational|campus\s+(hire|recruit)|college\s+hire|"
+    r"level\s+i\b|l1\b|grad\s+role"
+    r")\b",
+    re.I,
+)
+
+# Titles Offerloop users actively want (SWE, IB, consulting, PM, data,
+# design, product marketing). Union of common variants — kept broad because
+# tier 1 is meant to be inclusive of anything a target-audience student would
+# realistically apply to.
+_TARGET_FUNCTION_TITLE = re.compile(
+    r"\b("
+    r"software\s+engineer(ing)?|swe|sde|software\s+developer|"
+    r"backend|frontend|full[-\s]stack|mobile\s+engineer|ios|android|"
+    r"platform\s+engineer|infrastructure\s+engineer|devops|sre|site\s+reliability|"
+    r"data\s+(scientist|engineer|analyst)|ml\s+engineer|mle|machine\s+learning|"
+    r"applied\s+scientist|research\s+scientist|research\s+engineer|"
+    r"security\s+(engineer|analyst)|"
+    r"product\s+(manager|analyst|designer)|associate\s+product\s+manager|apm|"
+    r"ux\s+designer|ui\s+designer|product\s+design|"
+    r"solutions\s+engineer|forward\s+deployed|technical\s+account\s+manager|"
+    r"customer\s+success|customer\s+engineer|"
+    r"account\s+executive|sales\s+development|sdr|bdr|business\s+development|"
+    r"investment\s+banking|equity\s+research|sales\s+and\s+trading|"
+    r"consultant|consulting|"
+    r"quant(itative)?|research\s+analyst|"
+    r"business\s+analyst|financial\s+analyst|risk\s+analyst|"
+    r"product\s+marketing|growth\s+marketing|marketing\s+analyst|"
+    r"strategy\s+(analyst|associate)|operations\s+(analyst|associate)"
+    r")\b",
+    re.I,
+)
+
+# Categorical exclusions for the cold tier only — blue-collar, clinical,
+# skilled trades. Hot-tier curated companies rarely post these so we don't
+# apply this filter there.
+_COLD_TIER_BLOCKLIST_TITLE = re.compile(
+    r"\b("
+    r"nurse|nursing|rn|lpn|cna|"
+    r"medical\s+assistant|dental\s+(assistant|hygienist)|"
+    r"physical\s+therap(ist|y)|occupational\s+therap(ist|y)|"
+    r"home\s+(health|care)\s+aide|caregiver|"
+    r"cdl|truck\s+driver|delivery\s+driver|forklift|"
+    r"warehouse|welder|machinist|electrician|plumber|hvac|"
+    r"phlebotom(ist|y)|radiolog(ist|y)|sonographer|"
+    r"security\s+guard|janitor|custodian|"
+    r"cashier|barista|line\s+cook|server|bartender|"
+    r"pharmacist|pharmacy\s+technician|"
+    r"esthetician|cosmetologist|hair\s+stylist"
+    r")\b",
+    re.I,
+)
+
+
+def _matches_cold_allowlist(doc: dict) -> bool:
+    """Cold-tier admission: title must be either early-career OR a target
+    function AND must not be blue-collar / clinical.
+
+    Loosened 2026-07-14 (Phase 2 volume push) — target-function titles are
+    now admitted unconditionally, not gated on description scanning. Rationale:
+    the senior-title exclusion in evaluate() step 4 already drops Senior/Staff/
+    Lead titles, so what survives to this check is mid/junior IC. Indexing
+    those is a net positive at the cold-tier scale we're targeting.
+    """
+    title = doc.get("title") or ""
+    if _COLD_TIER_BLOCKLIST_TITLE.search(title):
+        return False
+    if _EARLY_CAREER_TITLE.search(title):
+        return True
+    if _TARGET_FUNCTION_TITLE.search(title):
+        return True
+    return False
+
+
+def compute_relevance_tier(doc: dict) -> int:
+    """Assign a 1-3 tier to a kept posting. Higher = worse fit for feed.
+
+    Tier 1 — Early-career title + in target function OR clear intern/new-grad
+             marker. Feed default. Also gates enrichment spend.
+    Tier 2 — Early-career signal but outside target functions (e.g. entry-
+             level marketing at a tech co). Reachable via feed but never
+             enriched.
+    Tier 3 — Neither. Kept only for ranking flexibility; hidden from feed by
+             default via tier filter.
+    """
+    title = doc.get("title") or ""
+    is_early = bool(_EARLY_CAREER_TITLE.search(title))
+    in_target = bool(_TARGET_FUNCTION_TITLE.search(title))
+
+    if is_early and in_target:
+        return 1
+    if is_early:
+        return 2
+    # Titles without early-career marker but tagged INTERN/internship in the
+    # employment-type field are treated as tier 1 (common at Ashby/Lever).
+    if _is_intern_role(doc) and in_target:
+        return 1
+    if _is_intern_role(doc):
+        return 2
+    return 3
 
 
 def _is_too_old(posted_at) -> bool:
@@ -102,10 +226,17 @@ def _is_intern_role(doc: dict) -> bool:
     return any(kw in title for kw in ("intern", "co-op", "coop", "summer analyst"))
 
 
-def evaluate(doc: dict) -> tuple[bool, str | None]:
+def evaluate(doc: dict, *, mode: str = "hot") -> tuple[bool, str | None]:
     """Return (keep, reason_if_dropped).
 
     Pure function — easy to unit test without Firestore or HTTP.
+
+    Args:
+        doc: normalized job dict
+        mode: "hot" — original drop-list only (FJ + hot-tier direct-ATS).
+              "cold" — additionally require the cold-tier positive allowlist
+              (early-career vocabulary AND not blue-collar/clinical). Prevents
+              10K-slug cold tier from flooding the feed with junk.
     """
     title = doc.get("title") or ""
     company = doc.get("company") or ""
@@ -142,20 +273,37 @@ def evaluate(doc: dict) -> tuple[bool, str | None]:
     if _is_too_old(doc.get("posted_at")):
         return False, "too_old"
 
+    # 8. Cold-tier only: must match early-career positive allowlist.
+    #    Hot tier (curated ~270 co's + FJ) skips this — those are known-good.
+    if mode == "cold" and not _matches_cold_allowlist(doc):
+        return False, "cold_tier_allowlist_miss"
+
     return True, None
 
 
-def apply(docs: list[dict]) -> tuple[list[dict], dict]:
-    """Filter a batch of normalized job docs. Returns (kept, drop_counts_by_reason)."""
-    kept = []
+def apply(docs: list[dict], *, mode: str = "hot") -> tuple[list[dict], dict]:
+    """Filter a batch of normalized job docs. Returns (kept, drop_counts_by_reason).
+
+    Mutates kept docs in-place to attach `relevance_tier` (1/2/3). Feed queries
+    filter on this; writer.py gates enrichment on tier==1.
+    """
+    kept: list[dict] = []
     drops: dict[str, int] = {}
     for doc in docs:
-        ok, reason = evaluate(doc)
-        if ok:
-            kept.append(doc)
-        else:
+        ok, reason = evaluate(doc, mode=mode)
+        if not ok:
             drops[reason] = drops.get(reason, 0) + 1
+            continue
+        doc["relevance_tier"] = compute_relevance_tier(doc)
+        kept.append(doc)
     if drops:
         breakdown = ", ".join(f"{k}={v}" for k, v in sorted(drops.items()))
-        logger.info("Quality gate dropped %d jobs (%s)", sum(drops.values()), breakdown)
+        logger.info("Quality gate (mode=%s) dropped %d jobs (%s)",
+                    mode, sum(drops.values()), breakdown)
+    if kept:
+        tier_counts: dict[int, int] = {}
+        for d in kept:
+            tier_counts[d["relevance_tier"]] = tier_counts.get(d["relevance_tier"], 0) + 1
+        tier_breakdown = ", ".join(f"tier{k}={v}" for k, v in sorted(tier_counts.items()))
+        logger.info("Quality gate (mode=%s) kept %d jobs (%s)", mode, len(kept), tier_breakdown)
     return kept, drops

@@ -1,0 +1,106 @@
+name: ATS Companies Sync (Phase 3)
+
+# Weekly poll of upstream jobhive CSVs. Diffs against vendored copies at
+# backend/pipeline/data/ats_companies/. If anything changed, opens a PR
+# for a human to review + merge.
+#
+# Merging a PR:
+#   - Adds new companies jobhive picked up since the last sync (auto-crawled
+#     next time the tier-hot or longtail workflow fires)
+#   - Removes companies jobhive dropped (usually because their careers page
+#     went dark — our own dormancy tracking would catch them eventually, but
+#     jobhive's upstream signal is faster)
+#
+# Never merges automatically — jobhive is community-maintained and a bad
+# push there shouldn't silently rewrite our slug lists.
+
+on:
+  schedule:
+    # Sundays at 12:00 UTC — off-hours for US traffic, well before Monday
+    # morning eng review.
+    - cron: '0 12 * * 0'
+  workflow_dispatch:
+
+concurrency:
+  group: ats-companies-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # Both needed by peter-evans/create-pull-request to push a branch
+      # and open the PR against main.
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Set up Python
+        uses: actions/setup-python@65d7f2d534ac1bc67fcd62888c5f4f3d2cb2b236 # v5.1.0
+        with:
+          python-version: '3.11'
+
+      - name: Install script deps
+        # Sync script only needs `requests`; skip full backend/requirements.txt
+        # to keep this job fast + independent of the API stack.
+        run: pip install requests
+
+      - name: Run jobhive sync
+        id: sync
+        # Exit 0 = no changes (workflow ends cleanly, no PR opened).
+        # Exit 42 = diff detected + CSVs written locally (open PR next step).
+        # Any other non-zero exit = real failure (workflow fails loudly).
+        run: |
+          set +e
+          python -m backend.scripts.sync_jobhive_csvs 2>&1 | tee sync-output.txt
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" = "42" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          elif [ "$code" = "0" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          else
+            exit "$code"
+          fi
+
+      - name: Build PR body from sync output
+        if: steps.sync.outputs.changed == 'true'
+        id: body
+        run: |
+          {
+            echo 'body<<EOF'
+            echo 'Automated PR from ats-companies-sync workflow.'
+            echo ''
+            echo 'Upstream: https://github.com/kalil0321/ats-scrapers'
+            echo ''
+            echo '```'
+            cat sync-output.txt
+            echo '```'
+            echo ''
+            echo 'Review the diff, especially the removed slugs — some may be'
+            echo 'companies that renamed or migrated ATSes (still on jobhive'
+            echo 'under a different slug). If you want to keep an entry that'
+            echo 'jobhive dropped, add it manually to hot_slugs.txt before'
+            echo 'merging this PR.'
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open PR
+        if: steps.sync.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@6d6857d36972b65feb161a90e484f2984215f83e # v6.0.5
+        with:
+          branch: automation/ats-companies-sync
+          delete-branch: true
+          commit-message: 'chore: sync jobhive ATS company lists'
+          title: 'chore: sync jobhive ATS company lists (weekly)'
+          body: ${{ steps.body.outputs.body }}
+          add-paths: backend/pipeline/data/ats_companies/*.csv
+          labels: |
+            automation
+            data-sync

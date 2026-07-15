@@ -509,6 +509,13 @@ def _get_feed_impl(_perf_t0=None):
         # Was 800 — pure over-fetch: the extra 400 docs were streamed,
         # deserialized, then discarded by the [:150] slice. Recency order is
         # preserved, so the surfaced set is unchanged in practice.
+        # Phase 0 direct-ATS scale-up: relevance_tier is stamped on every new
+        # doc but NOT filtered here yet. The tier filter (WHERE relevance_tier
+        # IN [1, 2]) becomes correct at Phase 2 when we scale to 10K cold-tier
+        # slugs and need to keep junk out. During Phase 0/1 (curated hot slugs)
+        # the corpus is small enough that filtering would starve the feed.
+        # Composite index (relevance_tier, posted_at) is already in
+        # firestore.indexes.json for a zero-latency flip when we're ready.
         new_query = (
             db.collection("jobs")
             .where("posted_at", ">=", twenty_four_hours_ago)

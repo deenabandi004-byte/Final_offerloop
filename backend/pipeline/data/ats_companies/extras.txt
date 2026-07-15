@@ -1,0 +1,284 @@
+# Ancillary slug source — Phase 2 volume push.
+# Format: {ats}:{slug} per line. Merged into cold tier by slug_loader.
+# Regenerate: python -m backend.scripts.pull_simplify_slugs
+
+# --- SimplifyJobs pull (279 new slugs) ---
+greenhouse:10beauty  # 10Beauty
+greenhouse:60decibelsinc  # 60decibelsinc
+greenhouse:9thwayinsignia  # 9th Way Insignia
+greenhouse:abelsontaylor  # AbelsonTaylor
+greenhouse:adelphirealworld  # Adelphi Real World
+greenhouse:agilespaceindustries  # AGILE Space Industries
+greenhouse:aircapture  # AirCapture
+greenhouse:alphataraxia  # Alphataraxia
+greenhouse:altaresourcetechnologiesinc  # Alta Resource Technologies
+greenhouse:ampsortation  # Amp Robotics
+greenhouse:aperiatechnologies  # Aperia Technologies
+greenhouse:applytotruebuilt  # TrueBuilt
+greenhouse:arenaclub  # Arena Club
+greenhouse:argmax  # Argmax
+greenhouse:arvinas  # Arvinas
+greenhouse:atlassand  # Atlas Energy Solutions
+greenhouse:attentionarc  # Attention Arc
+greenhouse:avepoint  # AvePoint
+greenhouse:awetomaton  # Awetomaton
+greenhouse:axiscompany  # Axis Automation
+greenhouse:axuall  # Axuall
+greenhouse:babelstreet  # Babel Street
+greenhouse:baltimoreorioles  # Major League Baseball
+greenhouse:bloombergdotorg  # Bloomberg Philanthropies
+greenhouse:bluelabsanalyticsinc  # BlueLabs Analytics
+greenhouse:bluestaq  # Bluestaq
+greenhouse:brevium  # Brevium
+greenhouse:businessolverinvitationonly  # Businessolver
+greenhouse:capitaltg  # Capital Technology Group
+greenhouse:cellsignalingtechnology79  # Cell Signaling Technology
+greenhouse:clockworksystems  # Clockwork Systems
+greenhouse:cmt  # Cambridge Mobile Telematics
+greenhouse:cognitiv  # Cognitiv
+greenhouse:connectder  # ConnectDER
+greenhouse:connerstrongbuckelew  # Conner Strong & Buckelew
+greenhouse:constellationsoftwareinc  # Constellation
+greenhouse:corcepttherapeutics  # Corcept Therapeutics
+greenhouse:correlationone  # Correlation One
+greenhouse:creatorsworkhere  # Adorama
+greenhouse:creditunionofcolorado  # Credit Union of Colorado
+greenhouse:customcomputerspecialists  # Custom Computer Specialists
+greenhouse:designmehair  # DESIGNME Hair
+greenhouse:didi  # DiDi Global
+greenhouse:docugami  # Docugami
+greenhouse:doublegood  # Double Good
+greenhouse:drwuniversityjobs  # DRW
+greenhouse:edgewoodpartnersinsurancecenter  # EPIC Insurance Brokers & Consultants
+greenhouse:efficientcomputer  # Efficient Computer
+greenhouse:eikontherapeutics  # Eikon Therapeutics
+greenhouse:elevationscreditunion  # Elevations Credit Union
+greenhouse:elwoodtechnologies  # Elwood Technologies
+greenhouse:embed  # Jump Trading
+greenhouse:eulerity  # Eulerity
+greenhouse:everdriven  # EverDriven
+greenhouse:everlaw  # Everlaw
+greenhouse:flexport  # Flexport
+greenhouse:forerunner  # Forerunner
+greenhouse:forteracorporation  # Fortera
+greenhouse:foundenergy  # Found Energy
+greenhouse:freedomconsulting  # Freedom Technology Solutions Group
+greenhouse:fsastorecom  # Health-E Commerce
+greenhouse:fspco-op012325  # Flagship Pioneering
+greenhouse:ftandinternships  # Stevens Capital Management
+greenhouse:gaintheory  # Gain Theory
+greenhouse:gcmgrosvenor  # GCM Grosvenor
+greenhouse:genies  # Genies
+greenhouse:gipathfinder  # GIPathfinder
+greenhouse:grassrootsanalytics  # Grassroots Analytics
+greenhouse:growthloop  # GrowthLoop
+greenhouse:gsdm  # GSD&M
+greenhouse:haven  # Haven Studios
+greenhouse:headlandstechnologiesllc  # Headlands Tech Holdings
+greenhouse:hellbenderinc  # HELLBENDER
+greenhouse:hiddenlayer  # HiddenLayer
+greenhouse:homesolutions  # Home Solutions
+greenhouse:horizonindustrieslimited  # Horizon Industries
+greenhouse:horizonsurgicalsystems  # Horizon Surgical Systems
+greenhouse:idmeuniversityrecruiting  # ID.me
+greenhouse:ieqcapital  # IEQ Capital
+greenhouse:immersive  # CGS Immersive
+greenhouse:instalilyai  # InstaLILY
+greenhouse:integrainterns  # Integra FEC
+greenhouse:interwellhealth  # Interwell Health
+greenhouse:jencapinc  # Jencap
+greenhouse:johnsonlawgroup  # Johnson Law Group
+greenhouse:klaviyojobs  # Klaviyo
+greenhouse:landscapeforms  # Landscape Forms
+greenhouse:lexingtonmedical  # Lexington Medical
+greenhouse:lottebiologicsusallc  # LOTTE BIOLOGICS
+greenhouse:mara  # MARA
+greenhouse:mcmastercarr  # McMaster-Carr
+greenhouse:millenniumspacesystems  # Millennium Space Systems
+greenhouse:modernizingmedicineinc  # Modernizing Medicine
+greenhouse:momentus  # Momentus Space
+greenhouse:morsecorp  # MORSE Corp
+greenhouse:morsecorpcoop  # Meridian Partners
+greenhouse:mwam-imperial-placements  # Marshall Wace
+greenhouse:newtonresearch  # Newton Research
+greenhouse:oceanx  # OceanX
+greenhouse:optirtc  # OptiRTC
+greenhouse:otrcapital1  # OTR Solutions
+greenhouse:pendartechnologies  # Pendar Technologies
+greenhouse:personalisinc  # Personalis
+greenhouse:piaggiofastforward  # Piaggio Fast Forward
+greenhouse:pinwheelapi  # Pinwheel
+greenhouse:practisinglawinstitute  # Practising Law Institute
+greenhouse:premierautomation  # Premier Automation
+greenhouse:proconex  # Proconex
+greenhouse:qualifiedhealth  # Qualified Health
+greenhouse:queracomputinginc  # QuEra Computing
+greenhouse:rab  # RAB Lighting
+greenhouse:racapitalmanagementllc  # RA Capital Management
+greenhouse:redis  # Redis
+greenhouse:resonate  # Resonate
+greenhouse:riotgamesup  # Riot Games
+greenhouse:rocketems  # Rocket EMS
+greenhouse:rocketlawyer  # Rocket Lawyer
+greenhouse:rtwinvestments  # RTW Investments
+greenhouse:ruggedrobotics  # Rugged Robotics
+greenhouse:saltxc  # SALT XC
+greenhouse:samayaai  # Samaya
+greenhouse:scminternships  # Stevens Capital Management
+greenhouse:seurat  # Seurat Technologies
+greenhouse:shyftsolutionsllc  # Shyft Solutions
+greenhouse:silananotechnologies  # Sila Nanotechnologies
+greenhouse:simpletechnologysolutions  # Simple Technology Solutions
+greenhouse:sixgeninc  # SixGen
+greenhouse:skyryse  # Skyryse
+greenhouse:sleepdoctor  # Sleep Doctor
+greenhouse:sonothera  # SonoThera
+greenhouse:spotonproduct  # SpotOn
+greenhouse:stackav  # StackAV
+greenhouse:successkpiinc  # SuccessKPI 
+greenhouse:summitpartnerslp  # Summit Partners
+greenhouse:taxreliefadvocates  # Tax Relief Advocates
+greenhouse:technergetics  # Technergetics
+greenhouse:terranorbitalcorporation  # Terran Orbital
+greenhouse:testnisc  # National Information Solutions Cooperative (NISC)
+greenhouse:thehealthmanagementacademy  # The Health Management Academy 
+greenhouse:thumbtack  # Thumbtack
+greenhouse:transcendinc  # Transcend
+greenhouse:traversal  # Traversal
+greenhouse:uareai  # Uare.ai
+greenhouse:universityofchicago  # Becker Friedman Institute for Economics
+greenhouse:vipvermontinformationprocessing2  # Vermont Information Processing
+greenhouse:virturecruitinghidden  # Virtu Financial
+greenhouse:voloridgeinvestmentmanagement  # Voloridge
+greenhouse:whitewatermidstream  # WhiteWater Midstream
+greenhouse:withumsmithbrown  # Withum
+greenhouse:worldsurfleague  # World Surf League
+lever:aifund  # AI Fund
+lever:anticapital  # Anti Capital
+lever:aprio  # Aprio
+lever:attentive  # Attentive
+lever:autoroboto  # Autoroboto
+lever:aviahealth  # Avia Health
+lever:bellese  # Bellese
+lever:bellwetheram-2  # Bellwether
+lever:bestegg  # Best Egg
+lever:cascademgt  # Cascade Asset Management Company
+lever:catalist  # Catalist
+lever:catbird  # Catbird
+lever:cesiumastro  # CesiumAstro
+lever:clearer  # Clearer.io
+lever:color  # Color
+lever:cordtechnologies  # Encord
+lever:dnagenotek  # OraSure Technologies
+lever:eliyan  # Eliyan
+lever:energyvault  # Energy Vault
+lever:envedabio  # Enveda Biosciences
+lever:evrealty-us  # EV Realty
+lever:gr0  # Gr0
+lever:grid  # Grid
+lever:ibility  # Ibility
+lever:ideasunited  # Ideas United
+lever:istaridigital.ai  # Istari Digital
+lever:lcbcchurch  # LCBC Church
+lever:leolabs-2  # LeoLabs
+lever:lexeotx  # Lexeo Therapeutics
+lever:linkllc  # Link
+lever:lumindigital  # Lumin Digital
+lever:machinalabs  # Machina Labs
+lever:mbrdna  # Mercedes-Benz
+lever:mti-inc  # Monterey Technologies
+lever:nimbleai  # Nimble Robotics
+lever:njstateofficeofinnovation  # New Jersey Innovation Authority
+lever:quandri  # Quandri
+lever:quantumworkplace  # Quantum Workplace
+lever:salesdemo-jr  # Parkdepot
+lever:sanctuary  # Sanctuary AI
+lever:sensortower  # Sensor Tower
+lever:simberobotics  # Simbe Robotics
+lever:southwestwater  # South West Water
+lever:sprinterhealth  # Sprinter Health
+lever:sprucesystems  # SpruceID
+lever:symmetrysystems  # Symmetry Systems
+lever:telligen  # Telligen
+lever:topanga  # Topanga
+lever:trend-health-partners  # Trend Health Partners
+lever:veeva  # Veeva Systems
+lever:welocalize  # Welocalize
+lever:wolve  # Wolverine Trading
+lever:xpansiv%20  # Xpansiv
+ashby:8vc  # 8VC
+ashby:aditude  # Aditude
+ashby:airspace-intelligence.com  # Airspace Intelligence
+ashby:algo1  # algo1
+ashby:allen-control-systems  # Allen Control Systems
+ashby:atomic-invest  # Atomic Invest (AtomicVest)
+ashby:augmodo  # Augmodo
+ashby:authorium  # Authorium
+ashby:basis-research  # Basis Research Institute
+ashby:batoncorporation  # Baton Corporation
+ashby:binance.us  # Binance
+ashby:blitzy  # Blitzy
+ashby:capy  # Capy
+ashby:centerfield  # Centerfield
+ashby:cerebras  # Cerebras
+ashby:citizen%20health  # Citizen Health
+ashby:conductorone  # ConductorOne
+ashby:confido  # Confido
+ashby:cylake-inc  # Cylake
+ashby:dittoai  # Ditto AI
+ashby:dosespot  # DoseSpot
+ashby:dryft  # Dryft
+ashby:encord  # Encord
+ashby:ether.fi  # ether.fi
+ashby:evenup  # EvenUp
+ashby:fermat  # Fermat
+ashby:flagright.com  # Flagright
+ashby:flashpoint.io  # Flashpoint
+ashby:flock%20safety  # Flock Safety
+ashby:gallatin  # Gallatin AI
+ashby:generalist  # Generalist
+ashby:genesis-therapeutics  # Genesis Therapeutics
+ashby:glimp-se  # Glimpse Engineering
+ashby:golinks  # GoLinks
+ashby:heidihealth.com.au  # Heidi Health
+ashby:hippocratic%20ai  # Hippocratic AI
+ashby:human-computer-lab  # Human Computer Lab
+ashby:iwoca.co.uk  # iwoca
+ashby:jerry.ai  # Jerry
+ashby:kikoff  # KIKOFF Leagues
+ashby:kos.ai  # kos.ai
+ashby:linqapp  # LINQ
+ashby:lunon  # Lunon
+ashby:marathon%20fusion  # Marathon Fusion
+ashby:mentis  # Mentis AI
+ashby:newlantern  # New Lantern
+ashby:niural  # Niural
+ashby:orbitalindustries  # Orbital Industries
+ashby:orbitalmaterials  # Orbital Materials
+ashby:outmarket  # Outmarket AI
+ashby:par%20technology  # PAR Tech
+ashby:persona.ai  # Persona AI
+ashby:personainc.ai  # Persona AI
+ashby:preference-model  # Preference Model
+ashby:probook  # Probook
+ashby:remedy%20scientific  # Remedy Scientific
+ashby:remi  # Remi
+ashby:rivet  # Rivet Industries
+ashby:rivianvw.tech  # Rivian and Volkswagen Group Technologies
+ashby:silnahealth.com  # Silna Health
+ashby:squint.ai  # Squint
+ashby:starpath.space  # Starpath Robotics
+ashby:super.com  # Super
+ashby:tandempv  # Tandem PV
+ashby:telus-digital  # TELUS Digital
+ashby:tempo-io  # Tempo 
+ashby:the%20job%20sauce  # The Job Sauce
+ashby:tools%20for%20humanity  # Tools for Humanity
+ashby:treeswift  # Treeswift
+ashby:triumph-arcade  # Triumph
+ashby:tuesday-lab  # Tuesday Lab
+ashby:turion-space  # Turion Space
+ashby:united-talent-agency  # United Talent Agency
+ashby:verne%20robotics  # Verne Robotics
+ashby:wealth-com  # Wealth.com
+ashby:windborne-systems  # WindBorne Systems
