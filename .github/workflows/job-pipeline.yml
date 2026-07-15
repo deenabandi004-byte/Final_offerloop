@@ -108,3 +108,15 @@ jobs:
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ env.GOOGLE_APPLICATION_CREDENTIALS }}
         run: python -m backend.pipeline.main --crawl-ats --tier=hot
+
+      # Piece 1: rebuild companies/{slug} index. Aggregates the jobs
+      # collection grouped by canonical company, writes ~7K docs. Fast
+      # (~15s scan + ~30s writes at 7.5K/400 batches). Rylan's spec allows
+      # any cadence — piggybacking on the 2h full cron keeps it fresh
+      # without a separate workflow. `if: always()` so a hot-crawl failure
+      # doesn't block the index rebuild.
+      - name: Rebuild companies/{slug} index
+        if: always() && steps.mode.outputs.mode == 'full'
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ env.GOOGLE_APPLICATION_CREDENTIALS }}
+        run: python -m backend.scripts.build_companies_index
