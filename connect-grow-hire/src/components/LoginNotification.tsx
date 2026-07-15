@@ -9,10 +9,10 @@ import { useNotifications } from '@/hooks/useNotifications';
  * Shows ONCE per login (per uid, per browser session) in the top-left of the
  * page: a dark-blue card matching the dashboard hero, with white bold copy,
  * extra-bold counts, and a floating bell badge. It summarizes how many unread
- * replies and loop actions are waiting, then auto-dismisses.
+ * replies are waiting, then auto-dismisses.
  *
- * This is the only reply / loop-run notification surface. The old live
- * per-event toasts were removed; this card is login-only.
+ * This is the only reply notification surface. The old live per-event toasts
+ * were removed; this card is login-only.
  */
 
 const SHOWN_KEY = 'offerloop:login-summary-shown-uid';
@@ -24,7 +24,7 @@ export function LoginNotification() {
   const { user } = useFirebaseAuth();
   const { notifications, loaded } = useNotifications();
   const [visible, setVisible] = useState(false);
-  const [counts, setCounts] = useState({ replies: 0, loops: 0 });
+  const [counts, setCounts] = useState({ replies: 0 });
   const decidedRef = useRef(false);
 
   // Reset when the user signs out so a fresh login re-shows the summary.
@@ -47,12 +47,11 @@ export function LoginNotification() {
     try { sessionStorage.setItem(SHOWN_KEY, user.uid); } catch {}
 
     const replies = notifications.unreadReplyCount;
-    const loops = notifications.unreadLoopRunCount;
-    if (replies + loops === 0) return; // nothing waiting — stay quiet
+    if (replies === 0) return; // nothing waiting — stay quiet
 
-    setCounts({ replies, loops });
+    setCounts({ replies });
     setVisible(true);
-  }, [user, loaded, notifications.unreadReplyCount, notifications.unreadLoopRunCount]);
+  }, [user, loaded, notifications.unreadReplyCount]);
 
   // Auto-dismiss.
   useEffect(() => {
@@ -63,7 +62,7 @@ export function LoginNotification() {
 
   if (!visible) return null;
 
-  const { replies, loops } = counts;
+  const { replies } = counts;
   const Num = ({ n }: { n: number }) => (
     <span className="font-extrabold tabular-nums">{n}</span>
   );
@@ -99,16 +98,7 @@ export function LoginNotification() {
             Welcome back, {firstNameOf(user?.name)}
           </p>
           <p className="mt-0.5 text-[12px] font-semibold leading-snug text-white/90">
-            {replies > 0 && loops > 0 && (
-              <>You have <Num n={replies} /> unread {replies === 1 ? 'reply' : 'replies'} and{' '}
-              <Num n={loops} /> loop {loops === 1 ? 'action' : 'actions'} to review.</>
-            )}
-            {replies > 0 && loops === 0 && (
-              <>You have <Num n={replies} /> unread {replies === 1 ? 'reply' : 'replies'} to review.</>
-            )}
-            {replies === 0 && loops > 0 && (
-              <>You have <Num n={loops} /> loop {loops === 1 ? 'action' : 'actions'} to review.</>
-            )}
+            You have <Num n={replies} /> unread {replies === 1 ? 'reply' : 'replies'} to review.
           </p>
         </div>
       </div>

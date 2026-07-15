@@ -81,6 +81,12 @@ def run_loop_cycle_job(uid: str, loop_id: str, cycle_id: str | None = None) -> d
         try_claim_cycle_lock,
     )
 
+    # Loops feature removed from UI — hard-stop all cycle execution so we
+    # don't burn PDL/Hunter/OpenAI credits on background work no user can see.
+    # Revert this block to bring Loops back.
+    logger.info("run_loop_cycle_job: loops disabled globally, skipping loop=%s", loop_id)
+    return {"status": "skipped", "reason": "loops_disabled"}
+
     db = get_db()
     loop_ref = (
         db.collection("users").document(uid)

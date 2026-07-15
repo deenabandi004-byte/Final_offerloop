@@ -13,8 +13,6 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { AppHeader } from "@/components/AppHeader";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
-import { useUsageBreakdown } from "@/hooks/useLoops";
-import { LOOP_COPY } from "@/lib/loopCopy";
 import { db, storage, auth } from '@/lib/firebase';
 import { signOut as firebaseSignOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
@@ -223,9 +221,6 @@ export default function AccountSettings() {
   const navigate = useNavigate();
   const { user, signOut, updateUser } = useFirebaseAuth();
   console.log("⚙️ [ACCOUNT SETTINGS] User state:", { hasUser: !!user, email: user?.email || "none" });
-
-  // Phase 8 — usage breakdown for the "Where my credits went" panel.
-  const usageQuery = useUsageBreakdown();
 
   // Active section for sidebar
   const [activeSection, setActiveSection] = useState('personal');
@@ -2656,81 +2651,6 @@ export default function AccountSettings() {
                           <CreditCard className="w-4 h-4" />
                           Manage Subscription
                         </button>
-                      </div>
-
-                      {/* Phase 8 — Where my credits went */}
-                      <div
-                        style={{
-                          padding: '20px',
-                          background: '#FAFBFF',
-                          border: '1px solid rgba(59, 130, 246, 0.12)',
-                          borderRadius: '12px',
-                        }}
-                      >
-                        <h3 style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '2px' }}>
-                          {LOOP_COPY.usageBreakdown.title}
-                        </h3>
-                        <p style={{ fontSize: '12.5px', color: '#64748B', marginBottom: '14px' }}>
-                          {LOOP_COPY.usageBreakdown.subtitle}
-                        </p>
-                        {usageQuery.isLoading && (
-                          <p style={{ fontSize: '12.5px', color: '#94A3B8' }}>Loading…</p>
-                        )}
-                        {usageQuery.data && usageQuery.data.total === 0 && (
-                          <p style={{ fontSize: '12.5px', color: '#94A3B8' }}>
-                            No credits spent yet this month.
-                          </p>
-                        )}
-                        {usageQuery.data && usageQuery.data.total > 0 && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {Object.entries(usageQuery.data.buckets)
-                              .filter(([, v]) => v > 0)
-                              .sort((a, b) => b[1] - a[1])
-                              .map(([key, value]) => {
-                                const label =
-                                  LOOP_COPY.usageBreakdown.labels[
-                                    key as keyof typeof LOOP_COPY.usageBreakdown.labels
-                                  ] || key;
-                                const pct = Math.round((value / usageQuery.data!.total) * 100);
-                                return (
-                                  <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    <span style={{ fontSize: '12.5px', color: '#334155', flex: '0 0 160px' }}>
-                                      {label}
-                                    </span>
-                                    <div
-                                      style={{
-                                        flex: 1,
-                                        height: '6px',
-                                        background: '#E2E8F0',
-                                        borderRadius: '3px',
-                                        overflow: 'hidden',
-                                      }}
-                                    >
-                                      <div
-                                        style={{
-                                          width: `${pct}%`,
-                                          height: '100%',
-                                          background: '#1B2A44',
-                                          transition: 'width 300ms ease-out',
-                                        }}
-                                      />
-                                    </div>
-                                    <span
-                                      style={{
-                                        fontSize: '12px',
-                                        color: '#64748B',
-                                        flex: '0 0 70px',
-                                        textAlign: 'right',
-                                        fontVariantNumeric: 'tabular-nums',
-                                      }}
-                                    >
-                                      {value} cr
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                          </div>
-                        )}
                       </div>
 
                       {/* Sign Out */}
