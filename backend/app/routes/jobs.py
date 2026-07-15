@@ -550,11 +550,19 @@ def _get_feed_impl(_perf_t0=None):
         # Collapse title variants ("Teller (Full Time)" + "Teller (Part Time)" → one),
         # then cap per company so a single batch poster can't fill the feed.
         deduped = _dedup_by_title_company(raw)
-        # US-first ordering (2026-07-15 pre-launch): us_priority=1 (US-based)
-        # surfaces before us_priority=2 (remote, unclear country), before
-        # us_priority=3 (clearly non-US). Missing field defaults to 3 (safe
-        # for legacy docs written before this field was stamped). Within each
-        # priority band, most recent posted_at wins.
+        # US-only feed (2026-07-15 pre-launch): Sid flagged Thailand /
+        # Kuala Lumpur / Bulgaria jobs surfacing. Drop us_priority=3 outright
+        # (confirmed non-US). Legacy jobs without us_priority stamped default
+        # to keeping — they came through _is_international_job's keyword
+        # filter above, so anything that reached this point that's ALSO
+        # missing us_priority is very likely US-adjacent.
+        # Users in different US cities keep seeing all US jobs (LA user sees
+        # NYC jobs) — the filter is country-level only, not city-level.
+        deduped = [j for j in deduped if j.get("us_priority") != 3]
+        # Sort remaining US-first (us_priority=1) then remote (=2), then
+        # legacy-unstamped (defaults to 3 in sort but 3s just filtered above,
+        # so this effectively puts stamped-US before legacy-unknown). Within
+        # each band, most recent posted_at wins.
         def _feed_sort_key(j: dict):
             pa = j.get("posted_at")
             if hasattr(pa, "timestamp"):
