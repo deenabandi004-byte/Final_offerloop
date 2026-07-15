@@ -505,38 +505,43 @@ def _slugify_company(name: str) -> str:
 
 
 def _company_job_count(name: str) -> int:
-    """Feed-eligible (tier 1-2) job count for a company. Reads the precomputed
-    `companies` index when it exists (Piece 1), else falls back to a live count
-    so this works before the index lands."""
+    """Total job count for a company, from Sid's Piece-1 `companies` index.
+
+    Slug the input DIRECTLY — do NOT re-canonicalize here. This app backend still
+    carries the OLD passthrough canonicalize_company; Sid's real normalizer is on
+    main and is what wrote the index + job `company` fields. Re-normalizing with
+    the stale function would MISS the index for anything it should merge (Palantir
+    Technologies, Morgan Stanley…). Suggestion names arrive already-canonical and
+    the index slug is case-insensitive, so a direct slug hits reliably."""
     from app.extensions import get_db
-    from backend.pipeline.normalizer import canonicalize_company
-    canon = canonicalize_company(name) or (name or "").strip()
-    if not canon:
+    nm = (name or "").strip()
+    if not nm:
         return 0
-    key = canon.lower()
+    slug = _slugify_company(nm)
+    if not slug:
+        return 0
     now = time.time()
     with _company_count_lock:
-        hit = _company_count_cache.get(key)
+        hit = _company_count_cache.get(slug)
         if hit and now - hit[0] < _COMPANY_COUNT_TTL:
             return hit[1]
     db = get_db()
     total = 0
     try:
-        idx = db.collection("companies").document(_slugify_company(canon)).get()
+        idx = db.collection("companies").document(slug).get()
         if idx.exists:
             jc = (idx.to_dict() or {}).get("jobCount") or {}
-            total = int(jc.get("tier1", 0)) + int(jc.get("tier2", 0))
+            total = int(jc.get("total", 0)) or (
+                int(jc.get("tier1", 0)) + int(jc.get("tier2", 0)) + int(jc.get("tier3", 0))
+            )
         else:
-            # Fallback: live count by canonical company (single-field, no
-            # composite index needed). All tiers — good enough to filter zeros
-            # and rank; the index will give tiered counts once it exists.
             from google.cloud.firestore_v1.base_query import FieldFilter
-            q = db.collection("jobs").where(filter=FieldFilter("company", "==", canon))
-            total = int(q.count().get()[0][0].value)
+            total = int(db.collection("jobs").where(
+                filter=FieldFilter("company", "==", nm)).count().get()[0][0].value)
     except Exception:
         total = 0
     with _company_count_lock:
-        _company_count_cache[key] = (now, total)
+        _company_count_cache[slug] = (now, total)
     return total
 
 
