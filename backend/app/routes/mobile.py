@@ -524,6 +524,90 @@ def save_preferences():
     return jsonify({'ok': True, **patch}), 200
 
 
+@mobile_bp.get('/feedback')
+@require_firebase_auth
+def list_feedback():
+    """The user's own feedback thread, oldest first, so the chat screen can
+    replay what they've sent. The founder-facing view reads the top-level
+    `feedback` collection across all users."""
+    db = get_db()
+    uid = request.firebase_user['uid']
+    try:
+        # Read the per-user subcollection (ordered by createdAt only — no
+        # composite index needed, unlike a where(uid)+order_by on the top-level
+        # collection). The top-level `feedback` collection is the founder view.
+        docs = (
+            db.collection('users').document(uid).collection('feedback')
+            .order_by('createdAt')
+            .limit(200)
+            .stream()
+        )
+        items = []
+        for d in docs:
+            x = d.to_dict() or {}
+            items.append({
+                'id': d.id,
+                'message': x.get('message', ''),
+                'createdAt': (x.get('createdAt').isoformat()
+                              if hasattr(x.get('createdAt'), 'isoformat') else None),
+            })
+        return jsonify({'items': items}), 200
+    except Exception:
+        logger.exception('list_feedback failed for uid=%s', uid)
+        return jsonify({'items': []}), 200
+
+
+@mobile_bp.post('/feedback')
+@require_firebase_auth
+def submit_feedback():
+    """Store one feedback message. Written to a TOP-LEVEL `feedback` collection
+    (not under the user) so the founders can read everything in one query, with
+    uid + email so we can follow up. This is the "goes directly to the founders"
+    channel — no AI, no auto-reply; a human reads it."""
+    db = get_db()
+    uid = request.firebase_user['uid']
+    data = request.get_json(silent=True) or {}
+    message = (data.get('message') or '').strip()
+    if not message:
+        return jsonify({'error': 'message is required'}), 400
+    if len(message) > 4000:
+        message = message[:4000]
+
+    email = request.firebase_user.get('email') or ''
+    try:
+        u = db.collection('users').document(uid).get().to_dict() or {}
+        name = u.get('name') or ''
+        tier = str(u.get('subscriptionTier') or u.get('tier') or 'free')
+    except Exception:
+        name, tier = '', 'free'
+
+    doc = {
+        'uid': uid,
+        'email': email,
+        'name': name,
+        'tier': tier,
+        'message': message,
+        'platform': 'ios',
+        'createdAt': datetime.now(timezone.utc),
+        'read': False,   # founder-side triage flag
+    }
+    try:
+        # Top-level = founders read everything in one query. Per-user
+        # subcollection = the app replays this user's thread without a composite
+        # index. Same id in both so they're easy to correlate.
+        ref = db.collection('feedback').document()
+        ref.set(doc)
+        db.collection('users').document(uid).collection('feedback').document(ref.id).set(doc)
+        return jsonify({
+            'ok': True,
+            'id': ref.id,
+            'createdAt': doc['createdAt'].isoformat(),
+        }), 200
+    except Exception:
+        logger.exception('submit_feedback failed for uid=%s', uid)
+        return jsonify({'error': 'could not save feedback'}), 500
+
+
 @mobile_bp.post('/notifications/read')
 @require_firebase_auth
 def mark_notifications_read():
