@@ -1380,6 +1380,32 @@ def _matches_post_filters(
     return True
 
 
+def _resolve_company_via_index(db, name: str) -> str:
+    """Resolve a company name to its canonical form via Sid's `companies` index
+    (shared Firestore), so search-by-company matches the stored canonical names.
+
+    This app backend still carries the OLD passthrough canonicalize_company;
+    rather than port Sid's writer-side resolver (which depends on vendored jobhive
+    CSVs that aren't in git), we read the exact canonical `name` he already
+    computed. The index slug is case-insensitive, so the app's lowercased
+    "stripe" resolves to the stored "Stripe". Falls back to the legacy
+    canonicalize (then the raw input) when a company isn't in the index."""
+    raw = (name or "").strip()
+    if not raw:
+        return ""
+    slug = re.sub(r"[^a-z0-9]+", "-", raw.lower()).strip("-")
+    if slug:
+        try:
+            doc = db.collection("companies").document(slug).get()
+            if doc.exists:
+                nm = (doc.to_dict() or {}).get("name")
+                if nm:
+                    return str(nm)
+        except Exception:
+            pass
+    return canonicalize_company(raw) or raw
+
+
 @jobs_bp.route("/api/jobs/search", methods=["GET"])
 @require_firebase_auth
 def search_jobs():
@@ -1435,7 +1461,7 @@ def search_jobs():
         primary_token = max(tokens, key=len)
         extra_tokens = [t for t in tokens if t != primary_token]
 
-    canonical_company = canonicalize_company(company_in) if company_in else ""
+    canonical_company = _resolve_company_via_index(db, company_in) if company_in else ""
 
     # Pick the primary Firestore filter. Order of preference:
     #   1. search_terms (most selective when q is provided)
