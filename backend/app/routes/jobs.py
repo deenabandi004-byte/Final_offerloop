@@ -54,15 +54,14 @@ _FEED_OFFSET_STRIDE = 100
 # Generous headroom so ingest growth widens reach instead of churning it.
 _RERANK_CANDIDATE_LIMIT = 20000
 
-# The ranked feed (AND its explore pool, which samples from the same in-memory
-# `all_jobs`) draws only from relevance tiers 1-2 (~8.8k quality jobs), not the
-# full 118k. When the crawl jumped to 118k the cold rank stalled 10s+ pulling the
-# whole pool; tier-3 is ~101k globally-low-relevance postings that shouldn't fill
-# the swipe deck. TRADEOFF: tier-3 is now feed-excluded entirely — it stays
-# reachable via company pages (search-by-company does NOT tier-filter), but not
-# via the deck or explore. If tier-3 should keep feed serendipity, sample the
-# explore pool from a separate full-catalog query. Mirrors the website's feed
-# narrowing; composite index (relevance_tier, posted_at DESC) is deployed.
+# The RANKED deck draws only from relevance tiers 1-2 (~8.8k quality jobs), not
+# the full 118k. When the crawl jumped to 118k the cold rank stalled 17s pulling
+# the whole pool; tier-3 is ~101k globally-low-relevance postings that shouldn't
+# fill the swipe deck. Tier-3 is NOT lost, though: the explore pool samples it
+# (see _background_rerank) so the deck's rare discovery card still reaches it, and
+# company pages don't tier-filter at all. So: tier-3 out of the ranked deck, in
+# via explore + company pages. Mirrors the website's feed narrowing; composite
+# index (relevance_tier, posted_at DESC) is deployed.
 _FEED_RELEVANCE_TIERS = [1, 2]
 
 # Jobs sampled from OUTSIDE the personalized ranking, cached per user and
@@ -70,6 +69,10 @@ _FEED_RELEVANCE_TIERS = [1, 2]
 # personalization from doubling as a cage: it decides what's most relevant, not
 # what's reachable.
 _EXPLORE_POOL_SIZE = 400
+# How many recent tier-3 jobs to pull (id-only) into the explore pool per rerank,
+# so the deck's rare explore card can still reach the low-relevance tail the tier
+# filter keeps out of the ranked deck. Bounded + recency-ordered = cheap.
+_EXPLORE_TIER3_SAMPLE = 600
 
 # Share of each hydrated deck reserved for those off-ranking jobs. 3% — roughly
 # one card in thirty. Trimmed from 5% now that the catalog is scaling into the
@@ -1169,18 +1172,41 @@ def _background_rerank(uid: str):
 
         # Explore pool: a random sample of jobs that did NOT make the ranking.
         # Personalization decides what's most relevant; it should not also decide
-        # what's REACHABLE. Without this a user's entire universe is the ~790
-        # that survive ranking + company caps, and the other ~7,400 in the
-        # catalog are invisible forever, however hard they swipe. Sampled here
-        # (we already hold the pool in memory) and hydrated by job_id at feed
-        # time, so serendipity costs no extra queries on the request path.
+        # what's REACHABLE. Two sources, mixed:
+        #   1. tier-1,2 jobs that didn't survive ranking + company caps (held in
+        #      memory already — free).
+        #   2. a recency-bounded, id-only slice of TIER-3 — the ~101k globally-
+        #      low-relevance postings the ranked deck now excludes. These are the
+        #      literal "jobs personalization would never surface," so the explore
+        #      slot is exactly where they belong; without this they'd be reachable
+        #      only from a company page. Read is cheap: id-only projection, bounded.
         top_ids = {j["job_id"] for j in top_jobs}
         explore_pool = [
             j["job_id"] for j in all_jobs
             if j.get("job_id") and j["job_id"] not in top_ids
         ]
         random.shuffle(explore_pool)
-        explore_ids = explore_pool[:_EXPLORE_POOL_SIZE]
+        tier3_ids: list[str] = []
+        try:
+            for d in (
+                db.collection("jobs")
+                .where(filter=FieldFilter("relevance_tier", "==", 3))
+                .order_by("posted_at", direction="DESCENDING")
+                .limit(_EXPLORE_TIER3_SAMPLE)
+                .select(["job_id"])
+                .stream()
+            ):
+                jid = (d.to_dict() or {}).get("job_id") or d.id
+                if jid and jid not in top_ids:
+                    tier3_ids.append(jid)
+            random.shuffle(tier3_ids)
+        except Exception as e:
+            logger.warning("tier-3 explore sample failed for %s: %s", uid, e)
+        # Reserve roughly half the explore slots for tier-3 serendipity, the rest
+        # for the tier-1,2 unranked tail; interleave so neither dominates.
+        half = _EXPLORE_POOL_SIZE // 2
+        explore_ids = explore_pool[:half] + tier3_ids[: _EXPLORE_POOL_SIZE - half]
+        random.shuffle(explore_ids)
 
         cache_data = {
             "job_ids": [j["job_id"] for j in top_jobs],

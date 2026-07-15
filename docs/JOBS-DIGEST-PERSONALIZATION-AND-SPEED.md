@@ -218,8 +218,9 @@ worker-offload. The catalog can 10× and a request stays O(page), not O(catalog)
       (Sid; both writers, verified). My "92% missing" claim was wrong (§2).
 - ✅ Website feed speed: `WHERE relevance_tier IN [1,2]` narrows 7k→~1.5k, index
       deployed — **Sid, shipping now**.
-- ⏳ App feed: same `relevance_tier IN [1,2]` narrowing (118k cold-load stall) —
-      us (see below / §6).
+- ✅ App feed: `relevance_tier IN [1,2]` narrowing — shipped (17s→6s cold read).
+      Tier-3 kept out of the ranked deck but folded into the explore pool (recent
+      id-only sample) + still on company pages, so nothing goes dark.
 - ⏳ Lazy structured-enrichment on click for `skipped_low_priority` jobs — both
       surfaces, post-launch.
 - ⏳ Positive US-detection + preference-aware international — ranking layer.
