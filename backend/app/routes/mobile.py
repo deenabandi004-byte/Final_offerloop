@@ -565,6 +565,79 @@ def company_counts():
     return jsonify({'counts': counts}), 200
 
 
+# --- Sector-derived vibe companies (Piece 3) ---------------------------------
+_vibe_sector_cache: dict = {}      # sector -> (ts, [names ranked by inventory])
+_vibe_sector_lock = threading.Lock()
+_VIBE_SECTOR_TTL = 3600
+_VIBE_SKIP_SECTORS = {"", "other", "none"}
+# Drop obvious non-employer noise from sector suggestions — staffing/lead-gen
+# shells and canonicalization leftovers ("…glassdoor") a student wouldn't mean.
+_VIBE_JUNK_RE = re.compile(r"glassdoor|staffing|talent platform|recruit(?:ing|ers?)|lead gen", re.I)
+
+
+def _top_companies_in_sector(sector: str, limit: int = 10) -> list:
+    """Top companies in a sector, ranked by real job inventory (jobCount.total).
+    Reads Sid's `companies` index (sector tags from Piece 3). Cached per sector."""
+    s = (sector or "").strip().lower()
+    if s in _VIBE_SKIP_SECTORS:
+        return []
+    now = time.time()
+    with _vibe_sector_lock:
+        hit = _vibe_sector_cache.get(s)
+        if hit and now - hit[0] < _VIBE_SECTOR_TTL:
+            return hit[1][:limit]
+    from app.extensions import get_db
+    from google.cloud.firestore_v1.base_query import FieldFilter
+    db = get_db()
+    ranked: list = []
+    try:
+        rows = []
+        for d in (db.collection("companies")
+                    .where(filter=FieldFilter("sector", "==", s))
+                    .select(["name", "jobCount"]).limit(1500).stream()):
+            j = d.to_dict() or {}
+            nm = j.get("name")
+            if not nm or _VIBE_JUNK_RE.search(str(nm)):
+                continue
+            rows.append((int((j.get("jobCount") or {}).get("total") or 0), str(nm)))
+        rows.sort(key=lambda r: r[0], reverse=True)
+        ranked = [nm for _, nm in rows]
+    except Exception:
+        ranked = []
+    with _vibe_sector_lock:
+        _vibe_sector_cache[s] = (now, ranked)
+    return ranked[:limit]
+
+
+@mobile_bp.get('/vibe-companies')
+@require_firebase_auth
+def vibe_companies():
+    """Live pool companies for a vibe, ranked by inventory. Powers pool-derived
+    Scout suggestions: ?sector=fintech, or ?like=Stripe (resolves Stripe's sector
+    from the index, returns its peers). Empty when the sector is unknown/other or
+    the reference company isn't classified yet — the app then falls back to its
+    curated maps."""
+    sector = (request.args.get('sector') or '').strip().lower()
+    like = (request.args.get('like') or '').strip()
+    try:
+        limit = max(1, min(int(request.args.get('limit', 10)), 20))
+    except Exception:
+        limit = 10
+    resolved = sector
+    if like and not resolved:
+        from app.extensions import get_db
+        try:
+            d = get_db().collection('companies').document(_slugify_company(like)).get()
+            if d.exists:
+                resolved = str((d.to_dict() or {}).get('sector') or '').strip().lower()
+        except Exception:
+            resolved = ''
+    names = _top_companies_in_sector(resolved, limit) if resolved else []
+    if like:  # don't suggest the reference company back to itself
+        names = [n for n in names if n.strip().lower() != like.strip().lower()]
+    return jsonify({'sector': resolved or None, 'companies': names[:limit]}), 200
+
+
 @mobile_bp.post('/preferences')
 @require_firebase_auth
 def save_preferences():
