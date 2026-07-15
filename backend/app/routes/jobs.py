@@ -152,6 +152,42 @@ def _interleave_exploration(ranked: list[dict], explore: list[dict]) -> list[dic
     return out
 
 
+def _space_by_company(jobs: list[dict], min_gap: int = 4) -> list[dict]:
+    """Spread same-company jobs apart so the deck doesn't serve runs of one
+    employer.
+
+    cap_per_company already limits how MANY jobs a company contributes, but not
+    where they land: same-company jobs share a match_score, so they sort adjacent
+    and the user swipes "5 Anthropic roles in a row." That's repetitive AND it
+    drives the duplicate-employee problem — drafting several roles at one company
+    in a row reaches the same handful of people. Per-company depth belongs on the
+    company page (the Roles tab), not the swipe deck.
+
+    Greedy and rank-preserving: walk the deck in order and, at each slot, take the
+    highest-ranked job whose company hasn't appeared in the last `min_gap-1`
+    picks. If every remaining job is same-company (the tail of a low-diversity
+    pool), relax and take the top one. O(n·gap) — cheap for a 300-card page.
+    """
+    if min_gap <= 1 or len(jobs) < 3:
+        return jobs
+    from collections import deque
+
+    remaining = list(jobs)
+    recent: deque[str] = deque(maxlen=min_gap - 1)
+    out: list[dict] = []
+    while remaining:
+        pick = 0  # fallback: everyone's too recent -> keep rank order
+        for i, job in enumerate(remaining):
+            comp = (job.get("company") or "").lower().strip()
+            if comp not in recent:
+                pick = i
+                break
+        job = remaining.pop(pick)
+        out.append(job)
+        recent.append((job.get("company") or "").lower().strip())
+    return out
+
+
 def _format_freshness(minutes: int | None) -> str:
     if minutes is None:
         return "Unknown"
@@ -752,6 +788,10 @@ def get_feed():
             offset=feed_offset + cursor,
             want=int(page_limit * _EXPLORE_RATIO),
         ))
+        # Spread same-company jobs before weaving in explore cards, so the deck
+        # never serves a run of one employer (repetitive, and it reaches the same
+        # people when drafting). Per-company depth lives on the company Roles tab.
+        top_jobs = _space_by_company(top_jobs)
         if explore:
             top_jobs = _interleave_exploration(top_jobs, explore)
 
@@ -862,6 +902,10 @@ def get_feed():
             offset=page_start,
             want=int(page_limit * _EXPLORE_RATIO),
         ))
+        # Spread same-company jobs before weaving in explore cards, so the deck
+        # never serves a run of one employer (repetitive, and it reaches the same
+        # people when drafting). Per-company depth lives on the company Roles tab.
+        top_jobs = _space_by_company(top_jobs)
         if explore:
             top_jobs = _interleave_exploration(top_jobs, explore)
 
@@ -920,6 +964,7 @@ def get_feed():
         top_jobs = [d.to_dict() for d in top_query.stream()]
         top_jobs = [j for j in top_jobs if not _is_international_job(j) and not _is_excluded_job(j)]
         top_jobs = cap_per_company(top_jobs, max_per_company=10)[:300]
+        top_jobs = _space_by_company(top_jobs)
         for j in top_jobs:
             j["match_score"] = None
             j["match_reason"] = None
@@ -951,6 +996,7 @@ def get_feed():
     top_jobs = [d.to_dict() for d in top_query.stream()]
     top_jobs = [j for j in top_jobs if not _is_international_job(j) and not _is_excluded_job(j)]
     top_jobs = cap_per_company(top_jobs, max_per_company=10)[:300]
+    top_jobs = _space_by_company(top_jobs)
     for j in top_jobs:
         j["match_score"] = None
         j["match_reason"] = None
