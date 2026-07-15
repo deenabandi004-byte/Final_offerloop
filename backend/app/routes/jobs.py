@@ -78,6 +78,11 @@ _DECK_LOW_WATER = 60
 # response never hydrates more than this many. Also the hard ceiling on ?limit.
 MAX_DISPLAY_TOP_JOBS = 300
 
+# How many recently-posted "new_matches" ride along on page 0. The bucket can be
+# ~105; sending all of them made page 0 a 168-card payload for a session that
+# swipes a couple dozen. The rest still reach the user through the ranked deck.
+_NEW_MATCHES_ON_PAGE0 = 25
+
 
 def _advance_feed_offset(current: int, cache_len: int, stride: int = _FEED_OFFSET_STRIDE) -> tuple[int, bool]:
     """Return (new_offset, wrapped) for the next refresh slice.
@@ -785,6 +790,13 @@ def get_feed():
         if cursor == 0:
             new_matches_raw, nm_from_cache = _fetch_new_matches(cached_scores, cached_reasons)
             new_matches = _enrich(new_matches_raw)
+            # Page 0 was 60 ranked + ALL ~105 new_matches = 168 cards, which is
+            # most of the app-open payload. A session swipes 20-40, so front-
+            # loading 100+ recent postings buys nothing but weight. Cap the inline
+            # new-matches; the rest aren't lost — the ranked deck now covers the
+            # whole catalog (exposure fix), so recent jobs surface there and on the
+            # next session's fresh new_matches fetch.
+            new_matches = new_matches[:_NEW_MATCHES_ON_PAGE0]
         else:
             new_matches, nm_from_cache = [], True
         _mark(f"new_matches(cached={nm_from_cache})")
@@ -856,6 +868,13 @@ def get_feed():
         if cursor == 0:
             new_matches_raw, nm_from_cache = _fetch_new_matches(cached_scores, cached_reasons)
             new_matches = _enrich(new_matches_raw)
+            # Page 0 was 60 ranked + ALL ~105 new_matches = 168 cards, which is
+            # most of the app-open payload. A session swipes 20-40, so front-
+            # loading 100+ recent postings buys nothing but weight. Cap the inline
+            # new-matches; the rest aren't lost — the ranked deck now covers the
+            # whole catalog (exposure fix), so recent jobs surface there and on the
+            # next session's fresh new_matches fetch.
+            new_matches = new_matches[:_NEW_MATCHES_ON_PAGE0]
         else:
             new_matches, nm_from_cache = [], True
 
