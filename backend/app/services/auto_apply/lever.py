@@ -187,28 +187,16 @@ def run_lever_filler(
                         "failure_reason": None,
                     }
 
-                # Needs-verification escalation: Lever's apply form ships
-                # hCaptcha on every tenant. Even when our fill is perfect
-                # and there are no unanswered required fields, the submit
-                # click triggers an interactive hCaptcha challenge that
-                # would reject a headless Browserless session. Route to
-                # the verification UX so the user finishes the application
-                # in their own browser (real device, real IP — hCaptcha
-                # scores them as human).
-                captcha = common.detect_captcha_challenge(page)
-                if captcha and not dry_run:
-                    return {
-                        "status": "needs_verification",
-                        "filled": filled,
-                        "unmapped": unmapped,
-                        "pending_questions": [],
-                        "prepared_answers": prepared_answers,
-                        "captcha": captcha,
-                        "apply_url": page.url or apply_url,
-                        "screenshot_b64": screenshot_b64,
-                        "failure_reason": None,
-                    }
-
+                # NOTE: The previous early-bail on detect_captcha_challenge
+                # was removed. Lever ships hCaptcha on every tenant, but
+                # widget presence in the DOM is not the same as "the
+                # challenge fired and rejected us." Bailing on widget
+                # presence meant we never attempted submit for any Lever
+                # job. Browserbase's solveCaptchas is built to handle
+                # hCaptcha challenges automatically; let it try. If the
+                # score-check does bounce us back, the post-submit branch
+                # below catches it (form still present + hCaptcha still
+                # on page → route to needs_verification).
                 status = "dry_run_complete"
                 failure_reason: Optional[str] = None
                 if not dry_run:
@@ -296,6 +284,25 @@ def run_lever_filler(
                                         "— most likely unmapped required questions."
                                     )
                             elif form_still_present:
+                                # Form is still there, no aria-invalid, no
+                                # success URL. Most likely hCaptcha bounced
+                                # our submit (score too low or challenge
+                                # not solved). Route to needs_verification
+                                # so the user finishes in their own browser
+                                # instead of eating the failure.
+                                captcha = common.detect_captcha_challenge(page)
+                                if captcha:
+                                    return {
+                                        "status": "needs_verification",
+                                        "filled": filled,
+                                        "unmapped": unmapped,
+                                        "pending_questions": [],
+                                        "prepared_answers": prepared_answers,
+                                        "captcha": captcha,
+                                        "apply_url": page.url or apply_url,
+                                        "screenshot_b64": screenshot_b64,
+                                        "failure_reason": None,
+                                    }
                                 status = "submit_failed"
                                 failure_reason = (
                                     "form is still on the page after Submit — "

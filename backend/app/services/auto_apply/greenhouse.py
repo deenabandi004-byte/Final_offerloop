@@ -1098,31 +1098,42 @@ def _fill_custom_questions(
             continue
 
         if meta.get("is_checkbox_group"):
-            # Multi-checkbox "select all that apply" group. The LLM/profile
-            # answer is the option TEXT (e.g. "LinkedIn"). Find the member
-            # checkbox whose option_text matches and check ONLY that one.
+            # Multi-checkbox "select all that apply" group. The answer can
+            # be either a single option string (legacy LLM/profile output)
+            # or a list of option strings (drawer multi-select). Normalize
+            # to a list, then check every member whose option_text matches
+            # any element.
             members = meta.get("group_members") or []
-            ans_lower = str(answer).strip().lower()
-            picked = None
-            # 1. Exact match
-            for m in members:
-                if (m["option_text"] or "").strip().lower() == ans_lower:
-                    picked = m
-                    break
-            # 2. Substring either direction
-            if not picked:
+            if isinstance(answer, (list, tuple, set)):
+                requested = [str(a).strip() for a in answer if str(a).strip()]
+            else:
+                requested = [str(answer).strip()] if str(answer).strip() else []
+            picked: List[Dict[str, Any]] = []
+            for req in requested:
+                req_lower = req.lower()
+                match = None
+                # 1. Exact match
                 for m in members:
-                    opt = (m["option_text"] or "").strip().lower()
-                    if opt and (opt in ans_lower or ans_lower in opt):
-                        picked = m
+                    if (m["option_text"] or "").strip().lower() == req_lower:
+                        match = m
                         break
+                # 2. Substring either direction
+                if not match:
+                    for m in members:
+                        opt = (m["option_text"] or "").strip().lower()
+                        if opt and (opt in req_lower or req_lower in opt):
+                            match = m
+                            break
+                if match and match not in picked:
+                    picked.append(match)
             if picked:
-                sel = _id_selector(picked["field_id"])
-                _check_checkbox(page, sel, True, filled, unmapped,
-                                picked["field_id"], meta["label"])
+                for m in picked:
+                    sel = _id_selector(m["field_id"])
+                    _check_checkbox(page, sel, True, filled, unmapped,
+                                    m["field_id"], meta["label"])
                 print(
-                    f"[auto_apply.fill] checkbox-group: picked option "
-                    f"{picked['option_text']!r} (field_id={picked['field_id']!r}) "
+                    f"[auto_apply.fill] checkbox-group: picked "
+                    f"{[p['option_text'] for p in picked]!r} "
                     f"from {len(members)} group members for answer {answer!r}",
                     flush=True,
                 )

@@ -50,7 +50,9 @@ export function NeedsAttentionDrawer({
   const requiredQids = pending.filter((q) => q.required).map((q) => q.field_id);
   const allRequiredAnswered = requiredQids.every((qid) => {
     const v = answers[qid];
-    return v !== undefined && v !== "" && v !== null;
+    if (v === undefined || v === null || v === "") return false;
+    if (Array.isArray(v)) return v.length > 0;
+    return true;
   });
 
   const handleSubmit = async () => {
@@ -387,7 +389,49 @@ function QuestionInput({ question, value, onChange }: QuestionInputProps) {
         </div>
       );
 
-    case "checkbox":
+    case "checkbox": {
+      // Multi-select "select all that apply" groups arrive here with
+      // options=[...] — the backend collapses them into one virtual field.
+      // Render one checkbox per option and store the answer as string[].
+      // Single-boolean consent checkboxes (I agree to terms, etc.) arrive
+      // with no options; keep the original yes/no render for those.
+      const options = question.options || [];
+      if (options.length > 0) {
+        const selected = Array.isArray(value) ? (value as string[]) : [];
+        const toggle = (opt: string) => {
+          const next = selected.includes(opt)
+            ? selected.filter((o) => o !== opt)
+            : [...selected, opt];
+          onChange(next);
+        };
+        return (
+          <div>
+            {labelEl}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {options.map((opt) => (
+                <label
+                  key={opt}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    fontSize: 13,
+                    color: "#0F172A",
+                    cursor: "pointer",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(opt)}
+                    onChange={() => toggle(opt)}
+                  />
+                  {opt}
+                </label>
+              ))}
+            </div>
+          </div>
+        );
+      }
       return (
         <div>
           <label
@@ -412,6 +456,7 @@ function QuestionInput({ question, value, onChange }: QuestionInputProps) {
           </label>
         </div>
       );
+    }
 
     case "number":
       return (
