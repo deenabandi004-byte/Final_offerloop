@@ -167,18 +167,272 @@ _COMPANY_ALIASES: dict[str, str] = {
     "bcg": "Boston Consulting Group",
     "bain & co": "Bain & Company",
     "bain and company": "Bain & Company",
+    # Brands where jobhive / raw scrapes commonly land as all-lowercase or
+    # otherwise mis-cased (2026-07-15 backfill audit). Explicit map here
+    # forces the canonical display casing so search + companies index work.
+    "openai": "OpenAI",
+    "1password": "1Password",
+    "cursor": "Cursor",
+    "anthropic": "Anthropic",
+    "notion": "Notion",
+    "linear": "Linear",
+    "ramp": "Ramp",
+    "deel": "Deel",
+    "replit": "Replit",
+    "supabase": "Supabase",
+    "vercel": "Vercel",
+    "figma": "Figma",
+    "canva": "Canva",
+    "airbnb": "Airbnb",
+    "stripe": "Stripe",
+    "brex": "Brex",
+    "mercury": "Mercury",
+    "coinbase": "Coinbase",
+    "robinhood": "Robinhood",
+    "chime": "Chime",
+    "plaid": "Plaid",
+    "spotify": "Spotify",
+    "netflix": "Netflix",
+    "uber": "Uber",
+    "doordash": "DoorDash",
+    "doordashusa": "DoorDash",
+    "instacart": "Instacart",
+    "lyft": "Lyft",
+    "pinterest": "Pinterest",
+    "reddit": "Reddit",
+    "discord": "Discord",
+    "twitch": "Twitch",
+    "snap": "Snap",
+    "snapchat": "Snap",
+    "shopify": "Shopify",
+    "atlassian": "Atlassian",
+    "asana": "Asana",
+    "monday": "Monday.com",
+    "clickup": "ClickUp",
+    "miro": "Miro",
+    "airtable": "Airtable",
+    "webflow": "Webflow",
+    "loom": "Loom",
+    "zapier": "Zapier",
+    "postman": "Postman",
+    "gitlab": "GitLab",
+    "cloudflare": "Cloudflare",
+    "datadog": "Datadog",
+    "elastic": "Elastic",
+    "mongodb": "MongoDB",
+    "databricks": "Databricks",
+    "snowflake": "Snowflake",
+    "hubspot": "HubSpot",
+    "zendesk": "Zendesk",
+    "twilio": "Twilio",
+    "sendgrid": "SendGrid",
+    "amplitude": "Amplitude",
+    "mixpanel": "Mixpanel",
+    "posthog": "PostHog",
+    "segment": "Segment",
+    "grammarly": "Grammarly",
+    "duolingo": "Duolingo",
+    "gusto": "Gusto",
+    "rippling": "Rippling",
+    "carta": "Carta",
+    "faire": "Faire",
+    "verkada": "Verkada",
+    "scaleai": "Scale AI",
+    "scale ai": "Scale AI",
+    "anduril": "Anduril",
+    "palantir": "Palantir",
+    "palantirtech": "Palantir",
+    "spacex": "SpaceX",
+    "shieldai": "Shield AI",
+    "shield ai": "Shield AI",
+    "cohere": "Cohere",
+    "perplexity": "Perplexity",
+    "mistralai": "Mistral AI",
+    "mistral ai": "Mistral AI",
+    "togetherai": "Together AI",
+    "together ai": "Together AI",
+    "huggingface": "Hugging Face",
+    "hugging face": "Hugging Face",
+    "modal": "Modal",
+    "replicate": "Replicate",
+    "langchain": "LangChain",
+    "pinecone": "Pinecone",
+    "weaviate": "Weaviate",
+    "wandb": "Weights & Biases",
+    "weights and biases": "Weights & Biases",
+    "runway": "Runway",
+    "raycast": "Raycast",
+    "clerk": "Clerk",
+    "resend": "Resend",
+    "beehiiv": "Beehiiv",
+    "ghost": "Ghost",
+    "substack": "Substack",
+    "loops": "Loops",
 }
 
 
+# Legal / geo suffixes stripped from company names during canonicalization.
+# Order matters — longer patterns first so "united states" gets stripped
+# before falling to bare "us". All applied case-insensitively at token
+# boundaries. Kept broad on purpose: we'd rather over-strip and produce
+# tight canonicals than leave variants split ("Stripe" vs "Stripe Inc.").
+_LEGAL_SUFFIX_RE = re.compile(
+    r"[,\s]+("
+    r"incorporated|corporation|holdings|technologies|technology|"
+    r"international|group|labs|systems|solutions|services|company|co|"
+    r"llc|llp|ltd|limited|inc|corp|pbc|plc|gmbh|sa|nv|"
+    r"united\s+states|usa|us|"
+    r"\(us\)|\(usa\)"
+    r")\.?\s*$",
+    re.I,
+)
+
+# Trailing region tags like "- US", "— USA", " (US)" applied before suffix strip.
+_GEO_TAG_RE = re.compile(r"\s*[-–—]\s*(us|usa|united\s+states)\s*$", re.I)
+
+# Aggressive whitespace + punctuation collapse. Preserves ampersands
+# (Bain & Company) but drops commas, dots, parens.
+_PUNCT_COLLAPSE_RE = re.compile(r"[.,;:()\[\]{}]+")
+_MULTI_SPACE_RE = re.compile(r"\s+")
+
+
+def _strip_suffixes(name: str) -> str:
+    """Peel legal + geo suffixes off a company name. Iterates in case a name
+    stacks multiple ("Foo Inc. Ltd." → "Foo")."""
+    prev = None
+    current = name
+    while prev != current:
+        prev = current
+        current = _GEO_TAG_RE.sub("", current)
+        current = _LEGAL_SUFFIX_RE.sub("", current).strip()
+    return current
+
+
+# Concatenated-suffix strip (applied to the space-less lookup key). Handles
+# names like "Doordashusa" or "StripeInc" where the source system mashed the
+# suffix on without a space. Only stripped from the key used for matching,
+# never from the display form.
+_KEY_TAIL_STRIP_RE = re.compile(
+    r"(usa|us|inc|corp|llc|llp|ltd|ltd|holdings|technologies|group|co)$",
+    re.I,
+)
+
+
+def _canonical_key(name: str) -> str:
+    """Lowercased normalized key for alias-map lookup + jobhive matching.
+    Collapses `DoorDash`, `Doordashusa`, `DoorDash Inc.` → `doordash`.
+
+    Two passes: (1) strip suffixes at word boundaries (handles "DoorDash Inc"),
+    (2) strip common tails from the concatenated form (handles "Doordashusa").
+    """
+    if not name:
+        return ""
+    s = name.strip()
+    s = _strip_suffixes(s)
+    s = _PUNCT_COLLAPSE_RE.sub(" ", s)
+    s = _MULTI_SPACE_RE.sub(" ", s).strip()
+    key = s.lower().replace(" ", "")
+    # Second pass: strip common tail suffixes off the concatenated form.
+    # Iterate up to 3 rounds in case of stacked tails ("fooinc" → "foo",
+    # "foousainc" → "foousa" → "foo"). Preserve minimum 3-char stem to avoid
+    # over-stripping short names like "USI".
+    for _ in range(3):
+        stripped = _KEY_TAIL_STRIP_RE.sub("", key)
+        if stripped == key or len(stripped) < 3:
+            break
+        key = stripped
+    return key
+
+
+# Reverse-lookup cache populated on first call: canonical_key → display name
+# pulled from vendored jobhive CSVs. Jobhive ships proper-cased names
+# ("Stripe", "1Password"), so we borrow those as the canonical display form.
+_JOBHIVE_DISPLAY_CACHE: dict[str, str] | None = None
+
+
+def _build_jobhive_display_cache() -> dict[str, str]:
+    """Load canonical display names from vendored jobhive CSVs. Keyed by
+    _canonical_key(name). First one wins if multiple entries collide (rare).
+    """
+    global _JOBHIVE_DISPLAY_CACHE
+    if _JOBHIVE_DISPLAY_CACHE is not None:
+        return _JOBHIVE_DISPLAY_CACHE
+    from pathlib import Path
+    import csv
+    cache: dict[str, str] = {}
+    data_dir = Path(__file__).parent / "data" / "ats_companies"
+    for ats in ("greenhouse", "lever", "ashby"):
+        path = data_dir / f"{ats}.csv"
+        if not path.exists():
+            continue
+        try:
+            with path.open() as f:
+                for row in csv.DictReader(f):
+                    display_raw = (row.get("name") or "").strip()
+                    if not display_raw:
+                        continue
+                    # Skip all-lowercase jobhive entries (e.g. "cursor",
+                    # "openai") — they're not canonical display forms.
+                    # The alias map above handles those explicitly; falling
+                    # through here lets the input's own casing win instead.
+                    if not any(c.isupper() for c in display_raw):
+                        continue
+                    # Strip legal/geo suffixes off the display name too — jobhive
+                    # sometimes stores "DoorDash USA" for slug doordashusa; we
+                    # want the clean brand "DoorDash" as the canonical form.
+                    display = _strip_suffixes(_PUNCT_COLLAPSE_RE.sub(" ", display_raw))
+                    display = _MULTI_SPACE_RE.sub(" ", display).strip() or display_raw
+                    key = _canonical_key(display)
+                    if key and key not in cache:
+                        cache[key] = display
+        except Exception as e:
+            logger.warning("jobhive display cache load failed for %s: %s", ats, e)
+    _JOBHIVE_DISPLAY_CACHE = cache
+    return cache
+
+
 def canonicalize_company(raw_company: str | None) -> str:
-    """Return the canonical brand string for a scraped company name. Unknown
-    strings pass through (stripped). Public so the backfill script and other
-    services can reuse the exact same mapping.
+    """Merge scraped company-name variants into ONE canonical display form.
+
+    Fragmentation before this fix (verified against prod 2026-07-15):
+      "OpenAI" (331) + "Openai" (310) + "openai" (0) → three fragmented keys
+      "DoorDash" (1) + "Doordashusa" (271) → two fragmented keys
+
+    Resolution priority:
+      1. _COMPANY_ALIASES (hand-curated big-name mappings — parents to brands,
+         acronyms to full names)
+      2. Jobhive CSV display cache (canonical proper-cased names for every
+         slug we crawl — "Stripe", "1Password", etc.)
+      3. Cleaned original with legal/geo suffixes stripped (fallback for
+         companies not in jobhive or the alias map)
+
+    Never returns an empty string for a non-empty input.
     """
     if not raw_company:
         return ""
     cleaned = raw_company.strip()
-    return _COMPANY_ALIASES.get(cleaned.lower(), cleaned)
+    if not cleaned:
+        return ""
+
+    key = _canonical_key(cleaned)
+    if not key:
+        return cleaned
+
+    # 1. Hand-curated aliases first (they carry parent→brand rewrites like
+    # "Alphabet Inc" → "Google", which no downstream cache would guess).
+    aliased = _COMPANY_ALIASES.get(cleaned.lower()) or _COMPANY_ALIASES.get(key)
+    if aliased:
+        return aliased
+
+    # 2. Jobhive display cache (canonical brand casing for known slugs).
+    display = _build_jobhive_display_cache().get(key)
+    if display:
+        return display
+
+    # 3. Fallback: strip suffixes off the cleaned form. Preserves casing.
+    stripped = _strip_suffixes(_PUNCT_COLLAPSE_RE.sub(" ", cleaned))
+    stripped = _MULTI_SPACE_RE.sub(" ", stripped).strip()
+    return stripped or cleaned
 
 # ---------------------------------------------------------------------------
 # Job type normalization
