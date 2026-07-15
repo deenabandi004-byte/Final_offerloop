@@ -10,6 +10,7 @@ import calendar
 import os
 import re
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
 from datetime import datetime, timedelta, timezone
 
@@ -489,6 +490,74 @@ def _clean_str_list(value, cap=20):
         if s and s not in out:
             out.append(s)
     return out[:cap]
+
+
+# --- Company inventory counts (Piece 2: pool-aware Scout suggestions) ---------
+# In-process cache: counts barely move, and Scout re-asks the same vibe firms.
+_company_count_cache: dict = {}
+_company_count_lock = threading.Lock()
+_COMPANY_COUNT_TTL = 3600
+_company_count_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="co-count")
+
+
+def _slugify_company(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", (name or "").strip().lower()).strip("-")
+
+
+def _company_job_count(name: str) -> int:
+    """Feed-eligible (tier 1-2) job count for a company. Reads the precomputed
+    `companies` index when it exists (Piece 1), else falls back to a live count
+    so this works before the index lands."""
+    from app.extensions import get_db
+    from backend.pipeline.normalizer import canonicalize_company
+    canon = canonicalize_company(name) or (name or "").strip()
+    if not canon:
+        return 0
+    key = canon.lower()
+    now = time.time()
+    with _company_count_lock:
+        hit = _company_count_cache.get(key)
+        if hit and now - hit[0] < _COMPANY_COUNT_TTL:
+            return hit[1]
+    db = get_db()
+    total = 0
+    try:
+        idx = db.collection("companies").document(_slugify_company(canon)).get()
+        if idx.exists:
+            jc = (idx.to_dict() or {}).get("jobCount") or {}
+            total = int(jc.get("tier1", 0)) + int(jc.get("tier2", 0))
+        else:
+            # Fallback: live count by canonical company (single-field, no
+            # composite index needed). All tiers — good enough to filter zeros
+            # and rank; the index will give tiered counts once it exists.
+            from google.cloud.firestore_v1.base_query import FieldFilter
+            q = db.collection("jobs").where(filter=FieldFilter("company", "==", canon))
+            total = int(q.count().get()[0][0].value)
+    except Exception:
+        total = 0
+    with _company_count_lock:
+        _company_count_cache[key] = (now, total)
+    return total
+
+
+@mobile_bp.get('/company-counts')
+@require_firebase_auth
+def company_counts():
+    """Batch: how many open roles we have per company. Powers grounding Scout's
+    company suggestions in real inventory (drop firms with 0, rank by count).
+    Query: ?companies=Stripe,Plaid,Circle  ->  {counts: {Stripe: 714, ...}}."""
+    raw = (request.args.get('companies') or '').strip()
+    names = [c.strip() for c in raw.split(',') if c.strip()][:8]
+    if not names:
+        return jsonify({'counts': {}}), 200
+    futs = {name: _company_count_pool.submit(_company_job_count, name) for name in names}
+    counts = {}
+    for name, fut in futs.items():
+        try:
+            counts[name] = int(fut.result(timeout=6) or 0)
+        except Exception:
+            counts[name] = 0
+    return jsonify({'counts': counts}), 200
 
 
 @mobile_bp.post('/preferences')
