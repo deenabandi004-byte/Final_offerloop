@@ -197,6 +197,13 @@ NON_US_LOCATION_KEYWORDS = [
     "taiwan", "new zealand", "portugal", "switzerland", "austria",
     "belgium", "czech", "romania", "hungary", "greece", "ukraine",
     "argentina", "colombia", "chile", "peru", "costa rica",
+    "slovenia", "croatia", "serbia", "slovakia", "bulgaria",
+    "lithuania", "latvia", "estonia", "luxembourg", "iceland",
+    "cyprus", "malta", "russia", "belarus", "kazakhstan", "armenia",
+    "azerbaijan", "morocco", "tunisia", "ghana", "ethiopia", "uganda",
+    "tanzania", "ecuador", "uruguay", "paraguay", "bolivia", "venezuela",
+    "panama", "guatemala", "dominican republic", "nepal", "cambodia",
+    "myanmar", "mongolia", "uzbekistan", "moldova",
     # International cities / hubs
     "bengaluru", "bangalore", "mumbai", "delhi", "hyderabad",
     "chennai", "pune", "kolkata", "ahmedabad", "noida", "gurgaon",

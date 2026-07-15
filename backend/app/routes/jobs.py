@@ -669,7 +669,11 @@ def get_feed():
         deduped = _dedup_by_title_company(raw)
         # _dedup_by_title_company sorts by score; for unranked new_matches we want recency.
         deduped.sort(key=lambda j: (j.get("posted_at") or 0), reverse=True)
-        new_matches = cap_per_company(deduped, max_per_company=8)[:150]
+        # Cap tighter (8 -> 4) AND space by company: new_matches shows at the top
+        # of page 0, and a company that posted a batch recently was filling the
+        # first thing the user scrolls with a run of its own roles. Space it like
+        # the ranked deck so the top of the feed reads varied.
+        new_matches = _space_by_company(cap_per_company(deduped, max_per_company=4)[:150])
         # Persist new_matches to cache (fire-and-forget)
         try:
             user_ref.update({
@@ -851,7 +855,7 @@ def get_feed():
             # new-matches; the rest aren't lost — the ranked deck now covers the
             # whole catalog (exposure fix), so recent jobs surface there and on the
             # next session's fresh new_matches fetch.
-            new_matches = new_matches[:_NEW_MATCHES_ON_PAGE0]
+            new_matches = _space_by_company(new_matches)[:_NEW_MATCHES_ON_PAGE0]
         else:
             new_matches, nm_from_cache = [], True
         _mark(f"new_matches(cached={nm_from_cache})")
@@ -933,7 +937,7 @@ def get_feed():
             # new-matches; the rest aren't lost — the ranked deck now covers the
             # whole catalog (exposure fix), so recent jobs surface there and on the
             # next session's fresh new_matches fetch.
-            new_matches = new_matches[:_NEW_MATCHES_ON_PAGE0]
+            new_matches = _space_by_company(new_matches)[:_NEW_MATCHES_ON_PAGE0]
         else:
             new_matches, nm_from_cache = [], True
 
