@@ -39,6 +39,7 @@ Voice transcripts contain recognition errors: silently fix obvious ones (company
 """ + classifier_vocab_block() + """
 Spoken firm names arrive phonetically mangled — 'Molly's', 'Molise', 'Mose', and 'mo ellis' are all Moelis; 'ever core' is Evercore; 'set Evercore' means 'at Evercore'. When a token where a company belongs (role + at/with/for + X) phonetically resembles a known firm, output the canonical firm name in company and cleaned_ask and set repaired=true. Only repair when the ENTIRE company mention is the near-miss: if it carries extra words naming a different real business ('Molly's Cupcakes') or the role/context clearly isn't professional networking ('baristas at'), keep the user's words verbatim with repaired=false. If nothing on the list is phonetically close, keep verbatim with repaired=false — NEVER substitute a firm that isn't phonetically close to what they said.
 Rules: a role + company noun-phrase ("2 analysts at Bain") is draft_outreach. "show me / who works at" is find_people. Job-hunting phrasings ("find me a PM role") are find_jobs even when phrased as questions. When they want emails SENT, still draft_outreach with wants_send=true. Count capped at 5, default 1. Leave fields empty when absent — NEVER invent a company or location the user didn't say.
+MOTIVATION vs REQUEST (reason carefully): an ask often states WHY separately from WHAT to search. Extract role/company from the actual request — the clause tied to the find/reach-out/email/show verb — NOT from the background goal. Example: "I need to find a new CTO for my company, can you find software engineers at Spotify I could reach out to?" → role="software engineers", company="Spotify" (the CTO and "my company" are the motivation; they are NOT the target). The person they want to REACH is the target; the person/role they're hiring-for or the company they work AT is context. When two roles or two companies appear, pick the one governed by the search verb ("find/reach/message ___ at ___"), not the one in the goal clause.
 TARGETING DOCTRINE (product rule): regular employees are ALWAYS the default target — the database has far more employees than recruiters, so employee asks fill and recruiter asks starve. hiring_manager=true when and ONLY when the words "hiring manager", "recruiter", or "talent" appear in the ask — then it is true even if an industry or location is also named. "Employees", "people", "someone", or plain role words mean employees: hiring_manager=false. An INDUSTRY ("tech", "the tech industry", "investment banking", "consulting", "finance") is NEVER a company — leave company empty and keep the industry words in role or cleaned_ask so the app can offer real firms in that industry."""
 
 _TOOL = {
@@ -80,11 +81,12 @@ def _empty(ask: str, error: str = "") -> Dict[str, Any]:
 def classify_scout_ask(db, ask: str) -> Dict[str, Any]:
     """Classify one ask. Never raises — on any failure returns intent
     'question' with an error field so the app falls back gracefully."""
-    # Salt history: v2 = vocabulary + repaired-field prompt; v3 = the
-    # targeting-doctrine prompt (employees default, industry is
-    # never a company) obsoletes v2 entries — a cached hiring_manager=true
-    # for a broad ask must not be served for its 14-day TTL.
-    key = hashlib.md5(("v3|" + ask.lower().strip()).encode()).hexdigest()
+    # Salt history: v2 = vocabulary + repaired-field prompt; v3 = targeting
+    # doctrine (employees default, industry is never a company); v4 = motivation-
+    # vs-request disambiguation + gpt-4o reasoning. Bumping the salt stops a stale
+    # v3 misclassification (e.g. role="CTO" for a "find SWEs at Spotify" ask) from
+    # being served for its 14-day TTL.
+    key = hashlib.md5(("v4|" + ask.lower().strip()).encode()).hexdigest()
 
     with _mem_lock:
         hit = _mem_cache.get(key)
@@ -110,7 +112,11 @@ def classify_scout_ask(db, ask: str) -> Dict[str, Any]:
         return _empty(ask, "no_llm")
     try:
         resp = client.chat.completions.create(
-            model="gpt-4o-mini",
+            # gpt-4o (not -mini): classification is a small, high-leverage call and
+            # -mini fumbles multi-clause asks (grabbing the motivation's role over
+            # the request's). The 14-day cache means only NOVEL asks pay for the
+            # bigger model; repeats are free. Worth it for "ask almost anything."
+            model="gpt-4o",
             messages=[
                 {"role": "system", "content": _SYSTEM},
                 {"role": "user", "content": ask[:500]},
