@@ -179,19 +179,38 @@ _PARTNER_EXCEPTIONS = ("channel partner", "partner manager", "partner success")
 _MANAGER_EXCEPTIONS = ("product manager", "program manager")
 
 NON_US_LOCATION_KEYWORDS = [
-    # Countries
-    "india", "brazil", "canada", "singapore", "united kingdom",
-    "australia", "germany", "france", "netherlands",
-    "china", "japan", "mexico", "ireland", "poland", "spain",
-    "italy", "sweden", "denmark", "finland", "norway",
+    # Countries — expanded 2026-07-15 to match normalizer._EXCLUDED_COUNTRIES.
+    # Sid explicitly flagged Kuala Lumpur/Bulgaria slipping through the feed;
+    # the earlier list was missing those + ~30 other common non-US countries.
+    # Europe
+    "united kingdom", "uk", "germany", "france", "netherlands", "ireland",
+    "poland", "spain", "italy", "sweden", "denmark", "finland", "norway",
+    "belgium", "switzerland", "austria", "portugal", "greece",
+    "czech republic", "czechia", "hungary", "romania", "bulgaria",
+    "ukraine", "belarus", "estonia", "latvia", "lithuania", "slovakia",
+    "slovenia", "croatia",
+    # Asia-Pacific
+    "india", "china", "japan", "singapore", "malaysia", "thailand",
+    "philippines", "vietnam", "indonesia", "pakistan", "bangladesh",
+    "sri lanka", "south korea", "korea", "taiwan", "hong kong",
+    "australia", "new zealand",
+    # Americas (non-US)
+    "canada", "brazil", "mexico", "argentina", "colombia", "chile",
+    "peru", "ecuador", "venezuela", "uruguay", "costa rica", "panama",
+    # Middle East / Africa
+    "israel", "uae", "united arab emirates", "saudi arabia", "turkey",
+    "egypt", "south africa", "nigeria", "kenya", "morocco", "ghana",
     # Indian cities
     "bengaluru", "bangalore", "mumbai", "delhi", "hyderabad",
     "chennai", "pune", "kolkata", "ahmedabad", "noida", "gurgaon",
     # Other international cities
     "toronto", "vancouver", "montreal", "london", "manchester",
     "berlin", "amsterdam", "paris", "sydney", "melbourne",
-    "hong kong", "tokyo", "beijing", "shanghai",
-    "mexico city", "sao paulo", "dublin", "warsaw",
+    "tokyo", "beijing", "shanghai", "seoul", "taipei", "bangkok",
+    "kuala lumpur", "jakarta", "manila", "ho chi minh",
+    "mexico city", "sao paulo", "buenos aires", "santiago",
+    "dublin", "warsaw", "prague", "budapest", "sofia", "bucharest",
+    "tel aviv", "dubai", "istanbul", "cairo", "cape town", "lagos",
 ]
 
 # "uk" needs word-boundary matching to avoid false positives on substrings
