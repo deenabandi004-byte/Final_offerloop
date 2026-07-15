@@ -39,6 +39,34 @@ mobile_bp = Blueprint('mobile', __name__, url_prefix='/api/mobile')
 DRAFT_BURST_MAX = 10               # drafts…
 DRAFT_BURST_WINDOW_SECONDS = 600   # …per 10 minutes
 
+# Founder accounts that get a push when new feedback lands. Comma-separated
+# emails, env-overridable (FOUNDER_ALERT_EMAILS). Each must be signed into the
+# app with notifications on to receive it. Resolved to uids once and cached.
+FOUNDER_ALERT_EMAILS = [
+    e.strip().lower()
+    for e in (os.getenv('FOUNDER_ALERT_EMAILS')
+              or 'rylanbohnett@gmail.com,deena.bandi004@gmail.com').split(',')
+    if e.strip()
+]
+_founder_uid_cache: list | None = None
+
+
+def _founder_alert_uids() -> list:
+    """Resolve founder emails -> uids (cached). Best-effort; a lookup miss just
+    drops that founder from the alert list."""
+    global _founder_uid_cache
+    if _founder_uid_cache is not None:
+        return _founder_uid_cache
+    from firebase_admin import auth as _auth
+    out = []
+    for em in FOUNDER_ALERT_EMAILS:
+        try:
+            out.append(_auth.get_user_by_email(em).uid)
+        except Exception:
+            logger.warning('founder alert: no account for %s', em)
+    _founder_uid_cache = out
+    return out
+
 # App Store demo account(s), exempt from the anti-burst guard so a reviewer can
 # hammer the swipe feature without hitting a 429 mid-review. Overridable via env
 # (REVIEWER_EMAILS, comma-separated) if the demo account ever changes.
@@ -600,21 +628,23 @@ def submit_feedback():
         ref.set(doc)
         db.collection('users').document(uid).collection('feedback').document(ref.id).set(doc)
 
-        # Ping the founders so nobody has to watch the Firestore console. Best
-        # effort, off the request path — a Telegram hiccup must not fail the
-        # user's feedback. Reuses the same TELEGRAM_BOT_TOKEN/CHAT_ID the spend
-        # alerts use; no-ops if those aren't configured.
+        # Ping the founders on their phones so nobody has to watch the Firestore
+        # console. Best effort, off the request path — a push hiccup must not fail
+        # the user's feedback. Each founder must be signed into the app with
+        # notifications on for this to land; the feedback is stored regardless.
         def _alert():
             try:
-                from app.services.spend_alerts import send_telegram
+                from app.services.push_service import send_push
                 who = name or email or uid[:8]
-                send_telegram(
-                    f"\U0001F4AC New app feedback\n"
-                    f"From: {who} ({email or 'no email'}) · {tier}\n\n"
-                    f"{message}"
-                )
+                title = 'New feedback'
+                body = f'{who} ({tier}): {message[:120]}'
+                for fuid in _founder_alert_uids():
+                    try:
+                        send_push(fuid, title, body, data={'url': '/feedback', 'type': 'founder_feedback'})
+                    except Exception:
+                        logger.exception('feedback push to founder %s failed', fuid)
             except Exception:
-                logger.exception('feedback telegram alert failed')
+                logger.exception('feedback founder alert failed')
         threading.Thread(target=_alert, daemon=True).start()
 
         return jsonify({
