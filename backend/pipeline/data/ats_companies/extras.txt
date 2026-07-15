@@ -282,3 +282,71 @@ ashby:united-talent-agency  # United Talent Agency
 ashby:verne%20robotics  # Verne Robotics
 ashby:wealth-com  # Wealth.com
 ashby:windborne-systems  # WindBorne Systems
+
+# --- YC directory pull (66 new slugs) ---
+greenhouse:bloom  # Bloom
+greenhouse:icarus  # Icarus
+greenhouse:osmosis  # Osmosis
+greenhouse:retrofit  # Retrofit
+greenhouse:shepherd  # Shepherd
+greenhouse:whitespace  # Whitespace
+lever:mosaic-2  # Mosaic
+lever:revi  # Revi
+ashby:ambral  # Ambral
+ashby:answerthis  # AnswerThis
+ashby:apolink  # Apolink
+ashby:assemble  # Assemble
+ashby:beyondreachlabs  # Beyond Reach Labs
+ashby:bild-ai  # Bild AI
+ashby:bootloop  # BootLoop
+ashby:brumby  # Brumby (Formerly GrazeMate)
+ashby:bucket-robotics  # Bucket Robotics
+ashby:butter  # Butter
+ashby:cardboard  # Cardboard
+ashby:careswift  # CareSwift
+ashby:chronicle-labs  # Chronicle Labs
+ashby:comena  # Comena
+ashby:complir  # Complir
+ashby:constellationspace  # Constellation Space
+ashby:cyberdesk  # Cyberdesk
+ashby:dedalus-labs  # Dedalus Labs
+ashby:diligencesquared  # DiligenceSquared
+ashby:fernstone  # Fernstone
+ashby:finto  # Finto
+ashby:fleetline  # Fleetline
+ashby:flowtel  # Flowtel
+ashby:fort  # Fort
+ashby:humanarchive  # Human Archive
+ashby:hypercubic  # Hypercubic
+ashby:hyperspell  # Hyperspell
+ashby:infera  # Infera
+ashby:infinite  # Infinite
+ashby:innate  # Innate
+ashby:jeevyfabrication  # Jeevy Fabrication
+ashby:kaizen  # Kaizen
+ashby:lingodotdev  # Lingo.dev
+ashby:lucis  # Lucis
+ashby:mangodesk  # MangoDesk
+ashby:mastra  # Mastra
+ashby:minerva  # Minerva
+ashby:misolabs  # Miso Labs
+ashby:opennote  # Opennote
+ashby:outship  # Outship
+ashby:panacea  # Panacea
+ashby:pave-robotics  # Pave Robotics
+ashby:pax-historia  # Pax Historia
+ashby:pingo  # Pingo
+ashby:polymath  # Polymath
+ashby:sazabi  # Sazabi
+ashby:sf-tensor  # SF Tensor
+ashby:sim  # Sim
+ashby:sol  # Sol
+ashby:solidroad  # Solidroad
+ashby:sphinx  # Sphinx
+ashby:stilta  # Stilta
+ashby:sygaldry-technologies  # Sygaldry Technologies
+ashby:the-token-company  # The Token Company
+ashby:truthsystems  # truthsystems
+ashby:tsenta  # Tsenta
+ashby:vela  # Vela
+ashby:verahealth  # Vera Health
