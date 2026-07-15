@@ -120,3 +120,15 @@ jobs:
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ env.GOOGLE_APPLICATION_CREDENTIALS }}
         run: python -m backend.scripts.build_companies_index
+
+      # Piece 3: classify newly-added companies into sector tags. Idempotent
+      # by design (only touches companies with sector=null / missing), so
+      # steady-state cost is near-zero — most 2h runs will classify 0 or a
+      # handful of new companies. Full backfill was done manually once.
+      # `|| true` so a rare OpenAI outage doesn't fail the whole pipeline.
+      - name: Classify new company sectors
+        if: always() && steps.mode.outputs.mode == 'full'
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ env.GOOGLE_APPLICATION_CREDENTIALS }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python -m backend.scripts.classify_company_sectors || true
