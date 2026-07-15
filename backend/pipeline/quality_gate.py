@@ -152,23 +152,21 @@ _COLD_TIER_BLOCKLIST_TITLE = re.compile(
 
 
 def _matches_cold_allowlist(doc: dict) -> bool:
-    """Cold-tier admission: title must be either early-career OR a target
-    function AND must not be blue-collar / clinical.
+    """Cold-tier admission: admit any title not in the blue-collar / clinical
+    blocklist.
 
-    Loosened 2026-07-14 (Phase 2 volume push) — target-function titles are
-    now admitted unconditionally, not gated on description scanning. Rationale:
-    the senior-title exclusion in evaluate() step 4 already drops Senior/Staff/
-    Lead titles, so what survives to this check is mid/junior IC. Indexing
-    those is a net positive at the cold-tier scale we're targeting.
+    Loosened 2026-07-15 (pre-launch volume sprint) — dropped the requirement
+    that titles match either the early-career vocab OR the target-function
+    list. The senior-title exclusion in evaluate() step 4 already drops
+    Senior/Staff/Lead at the drop-list stage, so what survives here is
+    mid/junior IC across the full title space. Pre-launch = maximum pool
+    size wins over selectivity. Post-launch, if feed quality suffers,
+    revert this to the previous "target-function OR early-career" gate.
     """
     title = doc.get("title") or ""
     if _COLD_TIER_BLOCKLIST_TITLE.search(title):
         return False
-    if _EARLY_CAREER_TITLE.search(title):
-        return True
-    if _TARGET_FUNCTION_TITLE.search(title):
-        return True
-    return False
+    return True
 
 
 def compute_relevance_tier(doc: dict) -> int:

@@ -37,8 +37,11 @@ EXTRAS = DATA_DIR / "extras.txt"
 HOT = DATA_DIR / "hot_slugs.txt"
 
 SOURCES = [
-    ("simplify-summer", "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/dev/.github/scripts/listings.json"),
-    ("simplify-newgrad", "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/.github/scripts/listings.json"),
+    ("simplify-summer-2026", "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/dev/.github/scripts/listings.json"),
+    ("simplify-newgrad",     "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/.github/scripts/listings.json"),
+    # Older season — many companies still active on the same slugs; catches
+    # anything the current-season repos dropped.
+    ("simplify-summer-2025", "https://raw.githubusercontent.com/SimplifyJobs/Summer2025-Internships/dev/.github/scripts/listings.json"),
 ]
 
 # Regex per ATS to peel the slug out of a canonical apply URL. First capture
