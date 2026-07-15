@@ -10,9 +10,18 @@ import calendar
 import os
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request
+
+# Bounded pool for interactive Scout contact searches. A single PDL search can
+# retry 3x at a 30s timeout (fine for background batch drafts, brutal for a live
+# Scout ask), so we run it here and enforce a hard wall-clock budget — the orphan
+# thread finishes into cache in the background rather than pinning the UI to the
+# 40s client watchdog with dead air.
+_scout_find_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="scout-find")
+_SCOUT_FIND_BUDGET_S = 24
 
 from app.config import TIER_CONFIGS
 from app.extensions import get_db, require_firebase_auth
@@ -1232,10 +1241,26 @@ def scout_ask():
             'actions': [], 'askId': ask_id,
             'error': {'code': 'needs_company', 'detail': ''},
         }), 200
+    # No location named? Search nationally instead of bailing. The underlying
+    # search REQUIRES a location and returns [] on empty — so "software engineers
+    # at Spotify" (no city) used to come back empty. "United States" resolves to a
+    # country_only strategy: one broad, US-scoped search, which is also what an
+    # American student wants by default.
+    search_location = location or 'United States'
     try:
-        contacts = search_contacts_with_smart_location_strategy(
-            role or 'professional', company, location or '', max_contacts=5,
-        ) or []
+        _fut = _scout_find_pool.submit(
+            search_contacts_with_smart_location_strategy,
+            role or 'professional', company, search_location, max_contacts=5,
+        )
+        contacts = _fut.result(timeout=_SCOUT_FIND_BUDGET_S) or []
+    except _FuturesTimeout:
+        # Orphan the slow search (it finishes into cache); don't pin the UI.
+        return jsonify({
+            'say': f"That search is taking longer than usual — nothing was charged. "
+                   f"Try again in a moment, or narrow it (a role at {company}).",
+            'actions': [], 'askId': ask_id,
+            'error': {'code': 'search_timeout', 'detail': ''},
+        }), 200
     except Exception:
         contacts = []
     items = []
