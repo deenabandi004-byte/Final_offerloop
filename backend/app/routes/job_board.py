@@ -9505,8 +9505,12 @@ def generate_cover_letter():
             "coverLetter": cover_letter,
             "creditsUsed": COVER_LETTER_CREDIT_COST,
             "creditsRemaining": new_credits,
+            # Backfill for the client so the download filename and any
+            # follow-up UI reflect what we actually resolved from the URL.
+            "company": company,
+            "jobTitle": job_title,
         }), 200
-        
+
     except Exception as e:
         logger.error(f"[JobBoard] Cover letter generation error: {e}")
         return jsonify({"error": str(e)}), 500
@@ -9523,13 +9527,50 @@ def generate_cover_letter_pdf_endpoint():
         data = request.get_json(force=True, silent=True) or {}
         content = data.get("content", "")
         company = data.get("company", "")
-        
+
         if not content:
             return jsonify({"error": "Cover letter content is required"}), 400
-        
+
+        # Pull the applicant's contact info from the stored resume + user
+        # profile so the PDF header can carry name / phone / email / LinkedIn.
+        # Best-effort: any missing fields are just skipped in the header.
+        applicant: Dict[str, str] = {}
+        try:
+            user_id = request.firebase_user.get("uid")
+            db = get_db()
+            if db and user_id:
+                user_doc = db.collection("users").document(user_id).get()
+                if user_doc.exists:
+                    user_data = user_doc.to_dict() or {}
+                    raw_resume = user_data.get("resumeParsed") or {}
+                    user_resume = sanitize_firestore_data(raw_resume, depth=0, max_depth=20) or {}
+                    contact = user_resume.get("contact") if isinstance(user_resume.get("contact"), dict) else {}
+                    applicant = {
+                        "name": (
+                            user_resume.get("name")
+                            or user_data.get("displayName")
+                            or user_data.get("name")
+                            or ""
+                        ),
+                        "email": (
+                            contact.get("email")
+                            or user_data.get("email")
+                            or request.firebase_user.get("email")
+                            or ""
+                        ),
+                        "phone": contact.get("phone") or user_data.get("phone") or "",
+                        "linkedin": contact.get("linkedin") or user_data.get("linkedin") or "",
+                    }
+        except Exception:
+            logger.warning("[JobBoard] Failed to load applicant info for PDF header", exc_info=True)
+
         # Generate PDF
-        pdf_buffer = generate_cover_letter_pdf(content)
-        
+        pdf_buffer = generate_cover_letter_pdf(
+            content,
+            company=company or None,
+            applicant=applicant or None,
+        )
+
         # Create filename: companyname_cover_letter.pdf
         import re
         if company:

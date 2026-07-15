@@ -243,41 +243,102 @@ async def build_resume_pdf_from_text(resume_text: str) -> bytes:
         return fallback.read()
 
 
-def generate_cover_letter_pdf(content: str) -> BytesIO:
-    """Generate a PDF from cover letter text content"""
+def generate_cover_letter_pdf(
+    content: str,
+    *,
+    company: Optional[str] = None,
+    applicant: Optional[Dict[str, str]] = None,
+    letter_date: Optional[str] = None,
+) -> BytesIO:
+    """Generate a professionally-formatted cover letter PDF.
+
+    Layout follows recruiter-preferred conventions for consulting, IB, and
+    tech applications: 1-inch margins, Times New Roman, left-aligned block
+    paragraphs, name header + contact line, date, recipient (company), then
+    the letter body (which already includes the salutation and signoff).
+
+    Args:
+        content: The letter body starting with the salutation and ending
+            with the signature block. Rendered as-is under the header.
+        company: Target company; rendered as the recipient block. Skipped
+            when empty.
+        applicant: Optional applicant contact info. Recognized keys:
+            name, email, phone, linkedin, city. Missing keys are silently
+            omitted so the header stays clean.
+        letter_date: Overrides the date line. Defaults to today formatted
+            as "July 15, 2026".
+    """
     try:
+        # Belt-and-suspenders: sanitize em dashes that may have slipped
+        # through the prompt-level kill-list. The PDF is the last surface.
+        from app.utils.em_dash import strip_em_dashes
+        content = strip_em_dashes(content or "")
+
         buffer = BytesIO()
         doc = SimpleDocTemplate(
             buffer,
             pagesize=letter,
-            topMargin=36,
-            bottomMargin=36
+            leftMargin=inch,
+            rightMargin=inch,
+            topMargin=inch,
+            bottomMargin=inch,
+            title="Cover Letter",
         )
-        styles = getSampleStyleSheet()
+
+        name_style = ParagraphStyle(
+            "CLName", fontName="Times-Bold", fontSize=15,
+            textColor="#000000", leading=17, spaceAfter=2, alignment=TA_LEFT,
+        )
+        contact_style = ParagraphStyle(
+            "CLContact", fontName="Times-Roman", fontSize=10.5,
+            textColor="#000000", leading=12, spaceAfter=16, alignment=TA_LEFT,
+        )
+        meta_style = ParagraphStyle(
+            "CLMeta", fontName="Times-Roman", fontSize=11,
+            textColor="#000000", leading=13, spaceAfter=14, alignment=TA_LEFT,
+        )
+        body_style = ParagraphStyle(
+            "CLBody", fontName="Times-Roman", fontSize=11,
+            textColor="#000000", leading=13, spaceAfter=10, alignment=TA_LEFT,
+        )
+
         story: List = []
 
-        body_style = ParagraphStyle(
-            "Body",
-            parent=styles["BodyText"],
-            fontSize=11,
-            leading=14,
-            alignment=TA_LEFT,
-            spaceAfter=6,
-        )
+        info = applicant or {}
+        name = str(info.get("name") or "").strip()
+        if name:
+            story.append(Paragraph(name, name_style))
+            contact_parts = [
+                str(info.get(k) or "").strip()
+                for k in ("city", "phone", "email", "linkedin")
+            ]
+            contact_parts = [p for p in contact_parts if p]
+            if contact_parts:
+                story.append(Paragraph(" &nbsp;|&nbsp; ".join(contact_parts), contact_style))
+            else:
+                story.append(Spacer(1, 10))
 
-        paragraphs = content.split('\n\n')
-        for para in paragraphs:
-            if para.strip():
-                para_text = para.replace('\n', '<br/>')
-                story.append(_safe_paragraph(para_text, body_style))
-                story.append(Spacer(1, 0.1 * inch))
+        now = datetime.now()
+        date_text = (letter_date or f"{now.strftime('%B')} {now.day}, {now.year}").strip()
+        story.append(Paragraph(date_text, meta_style))
+
+        company_clean = (company or "").strip()
+        if company_clean:
+            story.append(Paragraph(company_clean, meta_style))
+
+        for para in content.split("\n\n"):
+            para = para.strip()
+            if not para:
+                continue
+            html = para.replace("\n", "<br/>")
+            story.append(Paragraph(html, body_style))
 
         doc.build(story)
         buffer.seek(0)
         return buffer
 
     except Exception as exc:
-        print(f"Cover letter PDF generation failed: {exc}")
+        logger.error(f"Cover letter PDF generation failed: {exc}")
         import traceback
         traceback.print_exc()
         fallback = BytesIO()

@@ -40,7 +40,9 @@ SYSTEM_PROMPT = (
 )
 
 
-# Recruiter-flagged AI tells and clichés. Expanded from Perplexity research.
+# Recruiter-flagged AI tells and clichés. Expanded from Perplexity research
+# and from the Wikipedia "Signs of AI writing" catalogue that editors use
+# to spot LLM-generated prose.
 KILL_LIST = """
 - "I am writing to express my interest in..."
 - "I am writing to apply for..."
@@ -53,6 +55,11 @@ KILL_LIST = """
 - "deeply" (as an intensifier)
 - "leverage" (as a verb)
 - "synergy", "streamline", "facilitate", "foster", "underscore", "delve"
+- "enhance", "emphasize", "garner", "showcase", "highlight" (as verbs)
+- "meticulous", "pivotal", "robust", "vibrant", "seamless(ly)", "cutting-edge",
+  "groundbreaking", "invaluable", "profound", "innovative"
+- "tapestry", "landscape" (as in "evolving landscape"), "interplay", "ecosystem"
+- "boasts" (meaning "has"), "bolstered", "align with", "commitment to"
 - "testament to my..."  /  "a beacon of..."
 - "drive digital transformation" or grand corporate phrases without a concrete example
 - "It's important to remember that..."  /  "It is worth noting that..."
@@ -60,8 +67,31 @@ KILL_LIST = """
 - "As you can see from my resume..."  /  "Per my resume..."
 - "I believe my background makes me a strong fit"  (vague self-praise)
 - "fast-paced environment"  /  "hit the ground running"  /  "wear many hats"
+- "Overall,..." / "In conclusion,..." wrap-up sentences
+- Curly / smart quotes and apostrophes (' " ' " ). Use straight ' and ".
 - Repeating the same "By doing X, I achieved Y" sentence pattern across paragraphs
 - Starting every paragraph with the same word (especially "I")
+""".strip()
+
+
+# Structural AI tells: the shapes and rhythms recruiters and Wikipedia
+# editors both flag as LLM cadence, even when the vocabulary is clean.
+STRUCTURAL_AI_TELLS = """
+- "Not X, but Y" and "Not just X, but also Y" inversions. These read as
+  chatbot rhetoric. Rewrite as a plain declarative sentence.
+- Rule of three: three adjectives or three parallel phrases stacked in a
+  single sentence ("thoughtful, rigorous, and driven"; "analyzing markets,
+  building models, and presenting findings"). Cut to one specific noun or
+  verb.
+- Dressed-up copulas: "serves as", "stands as", "marks", "represents" as
+  substitutes for plain "is". Use "is" or a concrete verb.
+- Trailing "-ing" analysis clauses ("... contributing to broader industry
+  trends", "... reflecting a commitment to excellence"). Cut them entirely;
+  they add no fact.
+- Formulaic paragraph shape: opener sentence, three-part elaboration, tidy
+  wrap-up sentence. Vary the shape.
+- Two-clause sentences hinged on "while", "as", or "with" that could be
+  two shorter sentences ("I built X while managing Y, ensuring Z").
 """.strip()
 
 
@@ -172,9 +202,19 @@ JD. Pick ONE of these opening patterns - do not use a generic one:
   variant. Do NOT name the role title in the first sentence.
 
 PARAGRAPH 2 - "Why I'm the right fit" (110-160 words)
-Pick 2 (max 3) specific experiences from the resume that map onto specific
-requirements from the JD. For each one, name:
+Before writing, identify the 1-2 requirements the JD emphasizes most (repeated
+language, bulleted "must-haves", top-of-list responsibilities). Paragraph 2
+must lead with the experience that best answers those top priorities - do not
+open with a weaker experience just because it is chronologically recent.
+
+Pick 2 (max 3) specific experiences from the resume that map onto those
+priorities. For each one, name:
   - The project, employer, club, or class by its actual name from the resume
+  - What kind of experience it is - if it is a class project, club, competition,
+    research assistantship, or student org, call it that. Do not inflate a
+    coursework project into "consulting engagement" or a club role into a
+    "leadership position". Applicants are undergrads; the reader knows this
+    and rewards honesty over puffery.
   - What the applicant actually did (verb + object, no abstractions)
   - The outcome with a number when the resume gives one (% gain, $ raised,
     users reached, hours saved, ranking, prize, accepted-paper, etc.)
@@ -182,8 +222,15 @@ requirements from the JD. For each one, name:
     named in the JD
 
 Do NOT list more than 3 experiences. Do NOT just paraphrase the resume.
-Every example must connect explicitly to the JD. If the JD names a tool,
-skill, or workflow the resume also names, surface that overlap.
+Every example must connect explicitly to the JD.
+
+TERM MIRRORING - if the JD names a specific tool, framework, methodology,
+certification, or process (e.g., "Excel modeling", "React", "SQL", "DCF",
+"Bloomberg", "Series 7", "Agile", "A/B testing") AND the resume shows the
+applicant has used it, use the JD's exact term when you reference the
+matching experience. Do not paraphrase ("spreadsheet modeling" when JD says
+"Excel modeling") - echo the exact term. Do NOT claim a tool the resume
+does not list.
 
 PARAGRAPH 3 - Close (40-70 words)
 One sentence on the through-line: what these experiences together suggest
@@ -204,6 +251,11 @@ HARD RULES
 
 3. KILL-LIST - do not use any of the following phrases or words, ever:
 {KILL_LIST}
+
+3a. STRUCTURAL AI TELLS - avoid these shapes even when the vocabulary is
+    otherwise clean. Wikipedia editors and recruiters both flag them as
+    LLM cadence:
+{STRUCTURAL_AI_TELLS}
 
 4. NO INVENTION. Every claim about the applicant must trace to the
    resume text. Every claim about the company must trace to the JD or
