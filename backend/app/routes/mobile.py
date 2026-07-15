@@ -7,6 +7,7 @@ single mobile-shaped call. Everything is behind @require_firebase_auth and
 reuses existing services, not new business logic.
 """
 import calendar
+import os
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -36,6 +37,15 @@ mobile_bp = Blueprint('mobile', __name__, url_prefix='/api/mobile')
 # bypassed. Deliberately loose: a normal session should never touch it.
 DRAFT_BURST_MAX = 10               # drafts…
 DRAFT_BURST_WINDOW_SECONDS = 600   # …per 10 minutes
+
+# App Store demo account(s), exempt from the anti-burst guard so a reviewer can
+# hammer the swipe feature without hitting a 429 mid-review. Overridable via env
+# (REVIEWER_EMAILS, comma-separated) if the demo account ever changes.
+REVIEWER_EMAILS = {
+    e.strip().lower()
+    for e in (os.getenv('REVIEWER_EMAILS') or 'applereview@offerloop.ai').split(',')
+    if e.strip()
+}
 
 PLAN_LABEL = {'free': 'Free', 'pro': 'Pro', 'elite': 'Elite'}
 
@@ -812,6 +822,12 @@ def create_draft_job_route():
     # So the pacing that actually mattered moves here, where it can't be
     # bypassed. This is a deliverability guard, not a paywall — it's deliberately
     # loose enough that a normal session never touches it.
+    #
+    # Exempt the App Store reviewer. A reviewer hammers a feature to test it, and
+    # a 429 mid-demo reads as a broken/limited app — an easy rejection. The demo
+    # account never sends real outreach that could burn a domain, so the
+    # deliverability rationale doesn't apply to it.
+    is_reviewer = (request.firebase_user.get('email') or '').strip().lower() in REVIEWER_EMAILS
     try:
         window_start = datetime.now(timezone.utc) - timedelta(seconds=DRAFT_BURST_WINDOW_SECONDS)
         recent = (
@@ -823,7 +839,7 @@ def create_draft_job_route():
             .limit(DRAFT_BURST_MAX + 1)
             .get()
         )
-        if len(recent) >= DRAFT_BURST_MAX:
+        if not is_reviewer and len(recent) >= DRAFT_BURST_MAX:
             mins = max(1, DRAFT_BURST_WINDOW_SECONDS // 60)
             return jsonify({
                 'error': 'rate_limited',
