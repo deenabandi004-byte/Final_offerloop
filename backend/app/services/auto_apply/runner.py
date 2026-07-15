@@ -382,6 +382,33 @@ def _build_student_context(
     if location:
         parts.append(f"LOCATION: {location}")
 
+    # Preferred work geographies the user chose in onboarding / profile. These
+    # answer "preferred office location(s)" style questions: the resolver matches
+    # them against the form's option list. "Select 1-3" is satisfied by ONE, so
+    # surfacing the whole list lets it pick a valid option and clear the field
+    # instead of escalating to the drawer. Gathered from the mobile top-level
+    # `preferredLocations` and the onboarding nested `location.preferredLocation`.
+    pref_raw: list[str] = []
+    top_pref = user.get("preferredLocations")
+    if isinstance(top_pref, list):
+        pref_raw += [str(x) for x in top_pref if x]
+    loc_doc2 = user.get("location") or {}
+    if isinstance(loc_doc2, dict):
+        nested = loc_doc2.get("preferredLocation") or loc_doc2.get("preferredLocations")
+        if isinstance(nested, list):
+            pref_raw += [str(x) for x in nested if x]
+        elif isinstance(nested, str) and nested.strip():
+            pref_raw.append(nested.strip())
+    seen_pl: set[str] = set()
+    pref_locs: list[str] = []
+    for p in pref_raw:
+        key = p.strip().lower()
+        if key and key not in seen_pl:
+            seen_pl.add(key)
+            pref_locs.append(p.strip())
+    if pref_locs:
+        parts.append(f"PREFERRED LOCATIONS: {'; '.join(pref_locs[:6])}")
+
     # Current role — preview.fields derives this from resume.experience[0].
     # If the resume parser hasn't filled experience yet, fall back to
     # professionalInfo on the user doc (some Offerloop users set
