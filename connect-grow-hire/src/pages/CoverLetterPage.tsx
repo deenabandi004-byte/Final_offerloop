@@ -7,7 +7,7 @@
 // Presentation redesigned 2026-07-10 from the Claude Design handoff
 // (eyebrow / PageTitle / lead / 2-col grid with yeti + how-it-works rail).
 // Flow, handlers, and PDF preview logic unchanged.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { readScoutPrefill, SCOUT_PREFILL_EVENT } from "@/lib/scoutBridge";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -17,14 +17,7 @@ import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import {
-  Copy,
-  Download,
-  FileText,
-  Link2,
-  Briefcase,
-  Building2,
-} from "lucide-react";
+import { Copy, Download, FileText, Link2 } from "lucide-react";
 import { PageTitle } from "@/components/PageTitle";
 import yetiPrepUrl from "@/assets/scouts/yeti-prep.png";
 import { apiService } from "@/services/api";
@@ -67,40 +60,6 @@ const CoverLetterPage = () => {
   const [downloading, setDownloading] = useState(false);
   const [letter, setLetter] = useState<string | null>(null);
   const [needsResume, setNeedsResume] = useState(false);
-
-  // Paper preview: render the letter through the real /cover-letter-pdf
-  // endpoint (free, no credits) so what the user sees is the exact PDF they
-  // download. Debounced so typing in Edit mode doesn't spam the backend;
-  // the previous preview stays up until the new blob is ready.
-  const [viewMode, setViewMode] = useState<"preview" | "edit">("preview");
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const previewUrlRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (letter === null) return;
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      try {
-        const blob = await apiService.downloadCoverLetterPdf(letter, company.trim() || undefined);
-        if (cancelled) return;
-        const url = URL.createObjectURL(blob);
-        if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
-        previewUrlRef.current = url;
-        setPreviewUrl(url);
-      } catch {
-        // Keep the last good preview; the next edit retries.
-      }
-    }, 700);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [letter]);
-  useEffect(() => {
-    return () => {
-      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
-    };
-  }, []);
 
   const canGenerate =
     !generating && (!!jobUrl.trim() || jobDescription.trim().length >= MIN_JD_LENGTH);
@@ -218,33 +177,15 @@ const CoverLetterPage = () => {
                   className="bg-white border border-line rounded-xl"
                   style={{ padding: "26px", boxShadow: "0 1px 2px rgba(26,26,26,0.05)" }}
                 >
-                  {/* Step 1 */}
-                  <div className="flex items-center" style={{ gap: "8px" }}>
-                    <span
-                      className="inline-flex items-center justify-center"
-                      style={{
-                        width: "20px",
-                        height: "20px",
-                        borderRadius: "99px",
-                        background: "#EEF1FB",
-                        color: "#4A60A8",
-                        fontFamily: "Inter, system-ui, sans-serif",
-                        fontSize: "11px",
-                        fontWeight: 700,
-                      }}
-                    >
-                      1
-                    </span>
-                    <span
-                      style={{
-                        fontFamily: "Inter, system-ui, sans-serif",
-                        fontSize: "12.5px",
-                        fontWeight: 600,
-                        color: "#1E2D4D",
-                      }}
-                    >
-                      Point Scout at the job
-                    </span>
+                  <div
+                    style={{
+                      fontFamily: "Inter, system-ui, sans-serif",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      color: "#1E2D4D",
+                    }}
+                  >
+                    Point Scout at the job
                   </div>
 
                   {/* URL input with Link2 leading icon */}
@@ -321,80 +262,6 @@ const CoverLetterPage = () => {
                     </span>
                   </div>
 
-                  {/* Step 2 */}
-                  <div className="mt-5 flex items-center" style={{ gap: "8px" }}>
-                    <span
-                      className="inline-flex items-center justify-center"
-                      style={{
-                        width: "20px",
-                        height: "20px",
-                        borderRadius: "99px",
-                        background: "#EEF1FB",
-                        color: "#4A60A8",
-                        fontFamily: "Inter, system-ui, sans-serif",
-                        fontSize: "11px",
-                        fontWeight: 700,
-                      }}
-                    >
-                      2
-                    </span>
-                    <span
-                      style={{
-                        fontFamily: "Inter, system-ui, sans-serif",
-                        fontSize: "12.5px",
-                        fontWeight: 600,
-                        color: "#1E2D4D",
-                      }}
-                    >
-                      Confirm the target — optional
-                    </span>
-                  </div>
-
-                  {/* Job title + Company grid */}
-                  <div
-                    className="mt-3 grid gap-3"
-                    style={{ gridTemplateColumns: "1fr 1fr" }}
-                  >
-                    <div className="relative">
-                      <Briefcase
-                        className="absolute pointer-events-none"
-                        style={{
-                          left: "13px",
-                          top: "50%",
-                          transform: "translateY(-50%)",
-                          width: "16px",
-                          height: "16px",
-                          color: "#94A3B8",
-                        }}
-                      />
-                      <Input
-                        value={jobTitle}
-                        onChange={(e) => setJobTitle(e.target.value)}
-                        placeholder="Job title"
-                        style={{ paddingLeft: "38px" }}
-                      />
-                    </div>
-                    <div className="relative">
-                      <Building2
-                        className="absolute pointer-events-none"
-                        style={{
-                          left: "13px",
-                          top: "50%",
-                          transform: "translateY(-50%)",
-                          width: "16px",
-                          height: "16px",
-                          color: "#94A3B8",
-                        }}
-                      />
-                      <Input
-                        value={company}
-                        onChange={(e) => setCompany(e.target.value)}
-                        placeholder="Company"
-                        style={{ paddingLeft: "38px" }}
-                      />
-                    </div>
-                  </div>
-
                   {/* Primary button with credits pill */}
                   <button
                     disabled={!canGenerate}
@@ -451,6 +318,98 @@ const CoverLetterPage = () => {
                       <Button size="sm" onClick={() => navigate("/resume")}>
                         Go to Resume
                       </Button>
+                    </div>
+                  )}
+
+                  {letter !== null && (
+                    <div className="mt-5 pt-5 border-t border-line">
+                      <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+                        <div
+                          style={{
+                            fontFamily: "Inter, system-ui, sans-serif",
+                            fontSize: "14px",
+                            fontWeight: 600,
+                            color: "#1E2D4D",
+                          }}
+                        >
+                          Your cover letter
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={handleCopy}
+                            className="inline-flex items-center transition-colors"
+                            style={{
+                              background: "#fff",
+                              color: "#1E2D4D",
+                              border: "1px solid #D6DEF3",
+                              borderRadius: "8px",
+                              padding: "7px 12px",
+                              fontFamily: "Inter, system-ui, sans-serif",
+                              fontSize: "13px",
+                              fontWeight: 600,
+                              cursor: "pointer",
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = "#EEF1FB";
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = "#fff";
+                            }}
+                          >
+                            <Copy className="w-3.5 h-3.5 mr-1.5" />
+                            Copy
+                          </button>
+                          <button
+                            type="button"
+                            disabled={downloading}
+                            onClick={handleDownload}
+                            className="inline-flex items-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            style={{
+                              background: "#4A60A8",
+                              color: "#fff",
+                              border: "none",
+                              borderRadius: "8px",
+                              padding: "7px 14px",
+                              fontFamily: "Inter, system-ui, sans-serif",
+                              fontSize: "13px",
+                              fontWeight: 600,
+                              boxShadow: "0 3px 10px rgba(74,96,168,0.22)",
+                              cursor: downloading ? "not-allowed" : "pointer",
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!downloading) e.currentTarget.style.background = "#3C4F8E";
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!downloading) e.currentTarget.style.background = "#4A60A8";
+                            }}
+                            onMouseDown={(e) => {
+                              if (!downloading) e.currentTarget.style.background = "#34457A";
+                            }}
+                            onMouseUp={(e) => {
+                              if (!downloading) e.currentTarget.style.background = "#3C4F8E";
+                            }}
+                          >
+                            <Download className="w-3.5 h-3.5 mr-1.5" />
+                            {downloading ? "Preparing..." : "Download PDF"}
+                          </button>
+                        </div>
+                      </div>
+                      <Textarea
+                        value={letter}
+                        onChange={(e) => setLetter(e.target.value)}
+                        className="min-h-[180px] max-h-[320px] font-mono text-[12.5px] leading-relaxed"
+                      />
+                      <p
+                        className="mt-2"
+                        style={{
+                          fontFamily: "Inter, system-ui, sans-serif",
+                          fontSize: "11.5px",
+                          color: "#64748B",
+                        }}
+                      >
+                        Edit inline if you want — the PDF matches what you see.
+                      </p>
                     </div>
                   )}
                 </div>
@@ -581,73 +540,6 @@ const CoverLetterPage = () => {
                 </div>
               </div>
 
-              {/* Result card — unchanged from prior implementation */}
-              {letter !== null && (
-                <div className="mt-6 rounded-xl border border-line bg-white p-5">
-                  <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-                    <h2 className="text-[15px] font-semibold text-ink">Your cover letter</h2>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant={viewMode === "preview" ? "secondary" : "outline"}
-                        size="sm"
-                        onClick={() => setViewMode("preview")}
-                      >
-                        Preview
-                      </Button>
-                      <Button
-                        variant={viewMode === "edit" ? "secondary" : "outline"}
-                        size="sm"
-                        onClick={() => setViewMode("edit")}
-                      >
-                        Edit text
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={handleCopy}>
-                        <Copy className="w-4 h-4 mr-1.5" />
-                        Copy
-                      </Button>
-                      <Button size="sm" disabled={downloading} onClick={handleDownload}>
-                        <Download className="w-4 h-4 mr-1.5" />
-                        {downloading ? "Preparing..." : "Download PDF"}
-                      </Button>
-                    </div>
-                  </div>
-                  {viewMode === "preview" ? (
-                    <div
-                      className="rounded-lg border border-line overflow-hidden"
-                      style={{ background: "#525659" }}
-                    >
-                      {previewUrl ? (
-                        <iframe
-                          src={`${previewUrl}#toolbar=0&navpanes=0&view=FitH`}
-                          title="Cover letter PDF preview"
-                          style={{
-                            width: "100%",
-                            aspectRatio: "8.5 / 11",
-                            border: "none",
-                            display: "block",
-                          }}
-                        />
-                      ) : (
-                        <div
-                          className="flex items-center justify-center text-sm text-white/80"
-                          style={{ width: "100%", aspectRatio: "8.5 / 11" }}
-                        >
-                          Rendering preview…
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <Textarea
-                      value={letter}
-                      onChange={(e) => setLetter(e.target.value)}
-                      className="min-h-[380px] font-mono text-[13px] leading-relaxed"
-                    />
-                  )}
-                  <p className="text-[12px] text-muted-foreground mt-2">
-                    Generated from your stored resume. The preview is the exact PDF you'll download.
-                  </p>
-                </div>
-              )}
             </div>
           </div>
         </MainContentWrapper>
