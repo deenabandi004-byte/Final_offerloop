@@ -349,9 +349,20 @@ def _ensure_form_visible(page) -> bool:
     """Ashby pages sometimes hide the application form behind an Apply
     button. Click it if present, then wait for the form to render.
     Returns True if the form is visible after the (possible) click."""
-    # If the standard fields are already visible, nothing to do.
-    if page.query_selector('input#_systemfield_name, input#_systemfield_email'):
+    # Ashby renders the form CLIENT-SIDE, so right after domcontentloaded the
+    # `_systemfield_*` inputs usually aren't in the DOM yet. The old code did a
+    # single synchronous query_selector here, saw an un-hydrated page, found no
+    # Apply button on the /application URL (the form is inline there, no button),
+    # and returned False — so every candidate URL reported "form did not render"
+    # even though it was about to. WAIT for the form to hydrate before giving up.
+    try:
+        page.wait_for_selector(
+            'input#_systemfield_name, input#_systemfield_email',
+            timeout=12_000,
+        )
         return True
+    except Exception:
+        pass
     # Try clicking an Apply button — could be a `<a>` or `<button>` with
     # the text "Apply" / "Apply for this job".
     apply_button = None
