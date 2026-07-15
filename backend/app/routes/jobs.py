@@ -543,8 +543,21 @@ def _get_feed_impl(_perf_t0=None):
         # Collapse title variants ("Teller (Full Time)" + "Teller (Part Time)" → one),
         # then cap per company so a single batch poster can't fill the feed.
         deduped = _dedup_by_title_company(raw)
-        # _dedup_by_title_company sorts by score; for unranked new_matches we want recency.
-        deduped.sort(key=lambda j: (j.get("posted_at") or 0), reverse=True)
+        # US-first ordering (2026-07-15 pre-launch): us_priority=1 (US-based)
+        # surfaces before us_priority=2 (remote, unclear country), before
+        # us_priority=3 (clearly non-US). Missing field defaults to 3 (safe
+        # for legacy docs written before this field was stamped). Within each
+        # priority band, most recent posted_at wins.
+        def _feed_sort_key(j: dict):
+            pa = j.get("posted_at")
+            if hasattr(pa, "timestamp"):
+                ts = pa.timestamp()
+            elif isinstance(pa, (int, float)):
+                ts = float(pa)
+            else:
+                ts = 0.0
+            return (j.get("us_priority") or 3, -ts)
+        deduped.sort(key=_feed_sort_key)
         new_matches = cap_per_company(deduped, max_per_company=8)[:150]
         # Persist new_matches to cache (fire-and-forget)
         try:

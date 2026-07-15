@@ -516,9 +516,23 @@ def normalize_job(raw: dict) -> dict | None:
 # Countries to exclude — jobs with these in location are filtered out even if remote,
 # since "Remote, Singapore" means the job is based internationally.
 _EXCLUDED_COUNTRIES = {
-    "india", "canada", "united kingdom", "uk", "australia", "germany", "france",
-    "netherlands", "singapore", "brazil", "mexico", "china", "japan", "ireland",
+    # Europe
+    "united kingdom", "uk", "germany", "france", "netherlands", "ireland",
     "poland", "spain", "italy", "sweden", "denmark", "finland", "norway",
+    "belgium", "switzerland", "austria", "portugal", "greece", "czech republic",
+    "czechia", "hungary", "romania", "bulgaria", "ukraine", "belarus",
+    "estonia", "latvia", "lithuania", "slovakia", "slovenia", "croatia",
+    # Asia-Pacific
+    "india", "china", "japan", "singapore", "malaysia", "thailand",
+    "philippines", "vietnam", "indonesia", "pakistan", "bangladesh",
+    "sri lanka", "south korea", "korea", "taiwan", "hong kong",
+    "australia", "new zealand",
+    # Americas (non-US)
+    "canada", "brazil", "mexico", "argentina", "colombia", "chile",
+    "peru", "ecuador", "venezuela", "uruguay", "costa rica", "panama",
+    # Middle East / Africa
+    "israel", "uae", "united arab emirates", "saudi arabia", "turkey", "egypt",
+    "south africa", "nigeria", "kenya", "morocco", "ghana",
 }
 
 
@@ -538,6 +552,83 @@ def _is_non_us_non_remote(job: dict) -> bool:
         if country in location:
             return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# US-priority tagging (Phase 2 pre-launch: US-first feed ordering)
+# ---------------------------------------------------------------------------
+# Attaches an integer sort key to every ingested job so the feed can order
+# US > remote > rest without dropping any postings. Client-side sort in
+# jobs.py uses this field — no Firestore index or backfill required (missing
+# field defaults to tier 3, safe).
+
+_US_STATE_FULL = re.compile(
+    r"\b(alabama|alaska|arizona|arkansas|california|colorado|connecticut|"
+    r"delaware|florida|georgia|hawaii|idaho|illinois|indiana|iowa|"
+    r"kansas|kentucky|louisiana|maine|maryland|massachusetts|michigan|"
+    r"minnesota|mississippi|missouri|montana|nebraska|nevada|"
+    r"new\s+hampshire|new\s+jersey|new\s+mexico|new\s+york|"
+    r"north\s+carolina|north\s+dakota|ohio|oklahoma|oregon|pennsylvania|"
+    r"rhode\s+island|south\s+carolina|south\s+dakota|tennessee|texas|"
+    r"utah|vermont|virginia|washington|west\s+virginia|wisconsin|wyoming)\b",
+    re.I,
+)
+
+# State abbrevs — only match after a comma to avoid "or", "in", "me", etc. matching as words.
+_US_STATE_ABBREV = re.compile(
+    r",\s*(al|ak|az|ar|ca|co|ct|de|fl|ga|hi|id|il|in|ia|ks|ky|la|me|md|ma|"
+    r"mi|mn|ms|mo|mt|ne|nv|nh|nj|nm|ny|nc|nd|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|"
+    r"vt|va|wa|wv|wi|wy|dc)\b",
+    re.I,
+)
+
+_US_EXPLICIT = re.compile(
+    r"\b(united\s+states|usa|u\.s\.a\.|u\.s\.)\b|\(us\)|\bus\s*only\b",
+    re.I,
+)
+
+
+def _looks_like_us(location: str) -> bool:
+    if not location:
+        return False
+    return bool(
+        _US_EXPLICIT.search(location)
+        or _US_STATE_FULL.search(location)
+        or _US_STATE_ABBREV.search(location)
+    )
+
+
+def infer_us_priority(job: dict) -> int:
+    """1 = US-based, 2 = remote (unclear country), 3 = clearly non-US.
+
+    Feed orders by this ASC — US jobs always surface first, non-US jobs
+    keep their spot at the tail. Never drops postings.
+    """
+    loc = job.get("location") or ""
+    if isinstance(loc, dict):
+        loc = loc.get("name") or loc.get("city") or str(loc)
+    elif isinstance(loc, list):
+        loc = " ".join(str(x) for x in loc)
+    location = str(loc)
+    country = str(job.get("country") or "").strip().lower()
+
+    if country in ("united states", "us", "usa", "u.s.", "u.s.a."):
+        return 1
+    if _looks_like_us(location):
+        return 1
+    # Explicit non-US country tag OR location containing a non-US country name
+    if country and country not in ("", "remote"):
+        return 3
+    if any(c in location.lower() for c in _EXCLUDED_COUNTRIES):
+        return 3
+    # No US signal, no explicit non-US signal → check remote
+    if bool(job.get("remote")):
+        return 2
+    # Default: if location is empty/generic ("Remote"), treat as remote (2);
+    # otherwise unknown → tier 3
+    if location.strip().lower() in ("", "remote", "worldwide", "anywhere"):
+        return 2
+    return 3
 
 
 def normalize_all(raw_jobs: list[dict]) -> list[dict]:
