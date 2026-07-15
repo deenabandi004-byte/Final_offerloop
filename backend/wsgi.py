@@ -543,6 +543,33 @@ def create_app() -> Flask:
     else:
         _watchdog_logger.info("Daemon watchdog disabled via WATCHDOG_ENABLED=false")
 
+    # ---- Weekly feedback nudge ───────────────────────────────────────────────
+    #
+    # Invites users into the Feedback tab. Wakes daily; the per-user cadence
+    # (lastFeedbackNudgeAt, 7 days) lives in the service, so daily wakes don't
+    # over-nudge — they just make the "it's been a week" check timely.
+    _fb_nudge_logger = logging.getLogger("feedback_nudge")
+
+    def _feedback_nudge_loop():
+        ONE_DAY = 24 * 3600
+        # First run ~15 min after boot so it doesn't pile onto startup.
+        time.sleep(900)
+        while True:
+            try:
+                with app.app_context():
+                    from .app.services.feedback_nudge import run_feedback_nudge
+                    run_feedback_nudge()
+            except Exception:
+                _fb_nudge_logger.exception("Feedback nudge loop error")
+            time.sleep(ONE_DAY)
+
+    if _RUN_DAEMONS and os.getenv("FEEDBACK_NUDGE_ENABLED", "true").lower() == "true":
+        fb_nudge_thread = threading.Thread(target=_feedback_nudge_loop, daemon=True)
+        fb_nudge_thread.start()
+        _fb_nudge_logger.info("Feedback nudge daemon registered (first run in ~15 minutes)")
+    else:
+        _fb_nudge_logger.info("Feedback nudge disabled via FEEDBACK_NUDGE_ENABLED=false")
+
     # ---- Agent daemon thread (every 1 hour) ─────────────────────────────────
     #
     # Separate thread (NOT a 4th scanner) per daemon contract.

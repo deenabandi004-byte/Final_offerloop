@@ -9,6 +9,7 @@ reuses existing services, not new business logic.
 import calendar
 import os
 import re
+import threading
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request
@@ -598,6 +599,24 @@ def submit_feedback():
         ref = db.collection('feedback').document()
         ref.set(doc)
         db.collection('users').document(uid).collection('feedback').document(ref.id).set(doc)
+
+        # Ping the founders so nobody has to watch the Firestore console. Best
+        # effort, off the request path — a Telegram hiccup must not fail the
+        # user's feedback. Reuses the same TELEGRAM_BOT_TOKEN/CHAT_ID the spend
+        # alerts use; no-ops if those aren't configured.
+        def _alert():
+            try:
+                from app.services.spend_alerts import send_telegram
+                who = name or email or uid[:8]
+                send_telegram(
+                    f"\U0001F4AC New app feedback\n"
+                    f"From: {who} ({email or 'no email'}) · {tier}\n\n"
+                    f"{message}"
+                )
+            except Exception:
+                logger.exception('feedback telegram alert failed')
+        threading.Thread(target=_alert, daemon=True).start()
+
         return jsonify({
             'ok': True,
             'id': ref.id,
