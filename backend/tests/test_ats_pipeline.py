@@ -251,27 +251,25 @@ def test_apply_stamps_relevance_tier_on_kept_docs():
         assert "relevance_tier" in d, "quality_gate.apply must stamp relevance_tier"
 
 
-def test_cold_mode_admits_target_function_titles():
-    """Cold gate was loosened 2026-07-14 (Phase 2 volume push): admit
-    target-function titles (Software Engineer, Product Manager, Consultant,
-    etc.) even without an early-career marker. Senior-title exclusion in
-    evaluate() step 4 still drops Senior/Staff/Lead so what gets through
-    is mid/junior IC.
-
-    Off-target and blue-collar titles must still be dropped.
+def test_cold_mode_admits_any_non_blocklist_title():
+    """Cold gate loosened 2026-07-15 (pre-launch volume sprint): admit any
+    title not in the blue-collar/clinical blocklist. Senior/Staff/Lead still
+    dropped upstream by _SENIOR_TITLE in evaluate() step 4. Only the
+    blocklist test below (blue-collar drops) still asserts drops.
     """
     docs = [
         {"title": "Product Manager", "description_raw": "Established PM role" * 20, "posted_at": "2026-07-14"},
         {"title": "Software Engineer Intern", "description_raw": "Internship for university students" * 20, "posted_at": "2026-07-14"},
-        {"title": "Community Coordinator", "description_raw": "Community role" * 20, "posted_at": "2026-07-14"},  # off-target
+        {"title": "Community Coordinator", "description_raw": "Community role" * 20, "posted_at": "2026-07-14"},
     ]
     kept_cold, drops_cold = quality_gate.apply([dict(d) for d in docs], mode="cold")
 
     admitted_titles = {d["title"] for d in kept_cold}
-    assert "Product Manager" in admitted_titles, "cold mode now admits target functions"
+    # All 3 admitted — loosened gate intentionally admits generic off-target titles
+    assert "Product Manager" in admitted_titles
     assert "Software Engineer Intern" in admitted_titles
-    assert "Community Coordinator" not in admitted_titles, "off-target still dropped"
-    assert drops_cold.get("cold_tier_allowlist_miss") == 1
+    assert "Community Coordinator" in admitted_titles
+    assert drops_cold.get("cold_tier_allowlist_miss", 0) == 0
 
 
 def test_cold_mode_drops_blue_collar_titles():
