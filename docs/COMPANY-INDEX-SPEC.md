@@ -1,5 +1,15 @@
 # Company canonicalization + index — spec for Sid (Pieces 0 & 1)
 
+> **⚠️ START WITH PIECE 0 — it unblocks everything.** `canonicalize_company()` is
+> a verified passthrough, so company names are fragmented in the pool. That one
+> bug is currently breaking, all at once: (1) the **company page** — `search?company=openai`
+> returns 0 of OpenAI's 641 roles; (2) **Scout's inventory-grounded suggestions**
+> (Piece 2, already shipped) — counts miss on name mismatches, so it can only
+> rank, not filter; (3) the **companies index** (Piece 1) — it'd be built on
+> fragmented keys. Fix the normalizer + backfill and all three become correct.
+> The rest of this doc depends on it. Everything on the app side (endpoint + Scout
+> ranking) is already live and waiting on this.
+
 Goal: make company identity consistent and give both surfaces a fast
 "what do we have for company X" lookup. Prereq for pool-aware Scout suggestions
 (surface real firms + their open roles) and it also fixes the company-page
