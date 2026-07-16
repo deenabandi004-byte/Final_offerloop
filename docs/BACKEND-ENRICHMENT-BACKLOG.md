@@ -31,12 +31,17 @@ Two bugs stacked on the same path (`/api/jobs/search?company=`):
    it in and delete the shim so search and write share ONE normalizer. Until
    then the shim is correct but only as complete as the `companies` index.
 
-### B. Resume upload persistence — investigating, may NOT be yours
-`/api/parse-resume` isn't persisting the resume/parsed fields on at least one
-account (offerloop0). Leading theory is client-side (phone behind on the OTA that
-carries the upload wiring), NOT the endpoint — still confirming server-side. Do
-**not** action yet; flagging so it's on your radar if I trace it to token-verify
-on the endpoint. Will update this line with a verdict.
+### B. Resume upload persistence — RESOLVED, not a server bug (no action)
+Verified `/api/parse-resume` server-side against prod with a real token + real
+PDF: for a signed-in user **with an existing user doc** it persists correctly
+(resumeText, resumeUrl in storage, full `resumeParsed`). The offerloop0 miss was
+**client-side OTA staleness** (phone build wasn't sending the authed upload), not
+the endpoint. Nothing for you here.
+
+Minor latent note (optional hardening, not urgent): `save_resume_to_firebase`
+uses `db.collection('users').document(uid).update(...)`, which raises if the doc
+doesn't exist yet. Onboarding creates the user doc first, so real users never hit
+it — but a `.set(..., merge=True)` would make it robust to a doc-less upload.
 
 ---
 
