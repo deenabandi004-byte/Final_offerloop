@@ -168,6 +168,46 @@ def create_app() -> Flask:
     print("🚀 Initializing app extensions...")
     init_app_extensions(app)
     print("✅ App extensions initialized")
+
+    # Security headers on every response. Enumerated script-src so a compromised
+    # subdomain can't inject; default/connect stay `https:` so we don't have to
+    # keep chasing Firebase/PostHog/Sentry subdomains as they add hosts.
+    CSP_POLICY = (
+        "default-src 'self' https:; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' "
+        "https://apis.google.com https://accounts.google.com "
+        "https://js.stripe.com https://checkout.stripe.com "
+        "https://subscribe-forms.beehiiv.com "
+        "https://*.posthog.com https://us-assets.i.posthog.com "
+        "https://browser.sentry-cdn.com https://*.sentry.io; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' data: https://fonts.gstatic.com; "
+        "img-src 'self' data: blob: https:; "
+        "connect-src 'self' https: wss:; "
+        "frame-src 'self' https://js.stripe.com https://checkout.stripe.com "
+        "https://accounts.google.com https://*.firebaseapp.com; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self' https:; "
+        "frame-ancestors 'self'; "
+        "upgrade-insecure-requests"
+    )
+
+    @app.after_request
+    def _security_headers(response):
+        response.headers.setdefault(
+            "Strict-Transport-Security",
+            "max-age=31536000; includeSubDomains; preload",
+        )
+        response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "geolocation=(), microphone=(), camera=(), payment=(self \"https://js.stripe.com\" \"https://checkout.stripe.com\")",
+        )
+        response.headers.setdefault("Content-Security-Policy", CSP_POLICY)
+        return response
     
     # Initialize Sentry error tracking
     from app.utils.sentry_config import init_sentry
