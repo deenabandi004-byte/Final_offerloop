@@ -72,6 +72,58 @@ SECTORS = [
 
 SECTOR_LIST_STR = ", ".join(SECTORS)
 
+
+# Hard-coded overrides for companies where the LLM keeps mis-categorizing
+# despite prompt rules — usually well-branded services companies that sound
+# like tech firms. Applied AFTER the LLM call, so overrides always win.
+# Keyed by companies/{slug} doc ID (canonicalize_company → lower → dashes).
+# Rylan's 2026-07-15 QA notes are the source of truth for this list.
+SECTOR_OVERRIDES: dict[str, str] = {
+    # Insurance sales / agent recruitment networks
+    "horace-mann": "other",
+    "horace-mann-agent-opportunities": "other",
+    "ao-garcia-agency": "other",
+    "symmetry-financial": "other",
+    "symmetry-financial-group": "other",
+    "family-first-life": "other",
+    # Personal-injury / plaintiff law firms mass-hiring paralegals
+    "morgan-morgan": "other",
+    "morgan-and-morgan": "other",
+    "cellino-law": "other",
+    "cellino-and-barnes": "other",
+    # B2B lead-gen / demand-gen agencies (not edtech)
+    "infuse": "other",
+    "infuse-lead-gen": "other",
+    # Sports data / betting networks (not gaming = video game studios)
+    "genius-sports": "other",
+    "genius-sports-statistician-network": "other",
+    "genius-sports-group": "other",
+    "bjak": "other",
+    # Consumer product brands (LLM tends to mis-route to consumer_social)
+    "monster-energy": "consumer_marketplace",
+    "red-bull": "consumer_marketplace",
+    # Construction / utility contractors (not climate_energy)
+    "michels": "other",
+    "michels-corporation": "other",
+    # Staffing / gig-network agencies
+    "liquidpersonnel": "other",
+    "liquid-personnel": "other",
+    # MLM / pyramid schemes
+    "global-elite-empire-consultants": "other",
+    "ao-globe-life": "other",
+    # Healthcare services (mass-hire clinicians, not health-tech product)
+    "centria-autism": "other",
+    "bayada": "other",
+    "bayada-home-health-care": "other",
+    # Consumer app publisher (not devtools)
+    "air-apps": "consumer_marketplace",
+    # Auto marketplace (was going to consumer_social or other)
+    "carvana": "consumer_marketplace",
+    # Veterinary services (health services, not health-tech)
+    "veterinaryemergencygroupst": "other",
+    "veterinary-emergency-group": "other",
+}
+
 SYSTEM_PROMPT = (
     "You classify companies into ONE sector from this controlled list:\n"
     f"{SECTOR_LIST_STR}\n\n"
@@ -211,6 +263,13 @@ def main() -> None:
     for i in range(0, total, BATCH_SIZE):
         batch = candidates[i : i + BATCH_SIZE]
         name_to_sector = _call_llm(client, batch)
+
+        # Apply hand-curated overrides — LLM output loses to the overrides map
+        # for companies Rylan explicitly flagged where the LLM keeps missing.
+        for name, sector in list(name_to_sector.items()):
+            doc_id = id_by_name.get(name)
+            if doc_id and doc_id in SECTOR_OVERRIDES:
+                name_to_sector[name] = SECTOR_OVERRIDES[doc_id]
 
         # Write this batch immediately
         if name_to_sector and not args.dry_run:
