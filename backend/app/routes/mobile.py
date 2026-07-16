@@ -773,6 +773,45 @@ def sector_jobs():
     return jsonify({'jobs': interleaved[:limit]}), 200
 
 
+_REFERRAL_GOAL = 5
+
+
+@mobile_bp.get('/referral')
+@require_firebase_auth
+def get_referral():
+    """The signed-in user's referral code, share link, and live progress toward
+    the free-Elite reward. The app only DISPLAYS this + shares the link — the
+    reward (Elite at goal) is granted web-side, so the app sells/grants nothing."""
+    import hashlib
+    uid = request.firebase_user['uid']
+    db = get_db()
+    user_ref = db.collection('users').document(uid)
+    u = (user_ref.get().to_dict() or {})
+    code = u.get('referralCode')
+    if not code:
+        code = hashlib.sha1(uid.encode()).hexdigest()[:7].upper()
+        try:
+            user_ref.set({'referralCode': code}, merge=True)
+        except Exception:
+            logger.exception('referral: could not persist code for %s', uid)
+    # Live count of users who joined with this code. Falls back to a stored
+    # counter the web can maintain if the query isn't indexed.
+    joined = None
+    try:
+        from google.cloud.firestore_v1.base_query import FieldFilter
+        joined = int(db.collection('users').where(
+            filter=FieldFilter('referredBy', '==', code)).count().get()[0][0].value)
+    except Exception:
+        joined = int(u.get('referralJoinedCount') or 0)
+    return jsonify({
+        'code': code,
+        'shareUrl': f'https://offerloop.ai/?ref={code}',
+        'joined': joined,
+        'goal': _REFERRAL_GOAL,
+        'unlocked': joined >= _REFERRAL_GOAL,
+    }), 200
+
+
 @mobile_bp.post('/account/delete')
 @require_firebase_auth
 def delete_account():
