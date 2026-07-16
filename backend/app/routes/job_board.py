@@ -8988,6 +8988,16 @@ def find_hiring_manager_endpoint():
         generate_emails = data.get('generateEmails', True)
         create_drafts = data.get('createDrafts', True)
 
+        # Preview mode — frontend already sends mode='preview' from the initial
+        # search; the backend was ignoring it. When preview, force off the
+        # expensive Perplexity verify + email gen + draft creation and return
+        # PDL-ranked contacts fast. Drafts are created by /emails/generate-and-draft
+        # when the user clicks Draft, same contract as the People flow.
+        mode = (data.get('mode') or 'draft').lower()
+        if mode == 'preview':
+            generate_emails = False
+            create_drafts = False
+
         # Find hiring managers
         result = find_hiring_manager(
             company_name=company,
@@ -9002,6 +9012,7 @@ def find_hiring_manager_endpoint():
             resume_text=resume_text,
             role_type="hiring_manager",
             uid=user_id,
+            mode=mode,
         )
         
         # Check if we got results

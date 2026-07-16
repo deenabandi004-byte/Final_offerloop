@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 # Configuration for iterative fetching
 OVERFETCH_MULTIPLIER = float(os.getenv('FIRM_SEARCH_OVERFETCH_MULTIPLIER', '2.5'))  # Initial multiplier
 RETRY_MULTIPLIER = float(os.getenv('FIRM_SEARCH_RETRY_MULTIPLIER', '3.0'))  # Multiplier for retries
-MAX_ITERATIONS = int(os.getenv('FIRM_SEARCH_MAX_ITERATIONS', '2'))  # Maximum retry attempts (reduced from 3 for speed)
-MAX_TOTAL_FIRMS_MULTIPLIER = float(os.getenv('FIRM_SEARCH_MAX_TOTAL_MULTIPLIER', '5.0'))  # limit × this = absolute cap
+MAX_ITERATIONS = int(os.getenv('FIRM_SEARCH_MAX_ITERATIONS', '3'))  # Maximum retry attempts. Was 2 "for speed" but the location filter kills 50-70% of candidates, so 2 iters bails too early on narrow searches (Find 8 → 5). Pair with looser location filter (see company_search._firm_in_nearby_metro).
+MAX_TOTAL_FIRMS_MULTIPLIER = float(os.getenv('FIRM_SEARCH_MAX_TOTAL_MULTIPLIER', '8.0'))  # limit × this = absolute cap. Raised 5.0 → 8.0 so iter 3 has room to try new firm names before dedup starves it.
 MIN_BATCH_BUFFER = 5  # Always generate at least needed + this many firms per iteration
 
 # Filtering success rate tracking for adaptive multipliers (in-memory)

@@ -299,6 +299,32 @@ RECRUITER_TITLES_BY_JOB_TYPE = {
         "financial recruiter",
         "accounting recruiter",
     ],
+    "consulting": [
+        "consulting recruiter",
+        "management consulting recruiter",
+        "strategy recruiter",
+    ],
+    "investment_banking": [
+        "investment banking recruiter",
+        "banking recruiter",
+        "IB recruiter",
+        "capital markets recruiter",
+    ],
+    "product": [
+        "product recruiter",
+        "product management recruiter",
+    ],
+    "data_science": [
+        "data science recruiter",
+        "data recruiter",
+        "analytics recruiter",
+        "machine learning recruiter",
+    ],
+    "design": [
+        "design recruiter",
+        "UX recruiter",
+        "creative recruiter",
+    ],
     "intern": [
         "university recruiter",
         "campus recruiter",
@@ -457,7 +483,6 @@ HIRING_MANAGER_PRIORITY_TIERS = {
     3: {  # Tier 3: Organizational Influence (Priority 9-12) - Medium Priority
         "priority_range": (9, 12),
         "titles": [
-            "hr business partner",
             "staffing manager",
             "director",
             "vp"
@@ -469,7 +494,11 @@ HIRING_MANAGER_PRIORITY_TIERS = {
         "titles": [
             "people operations",
             "employee in similar role",  # Generic - will be job-type-specific
-            "executive assistant"
+            "executive assistant",
+            # HRBPs process, they don't hire. Kept in the pool as a possible
+            # referral route to real hiring managers, but base 20 (Tier 4)
+            # not 40 (Tier 3) — so they only surface when higher tiers dry up.
+            "hr business partner",
         ],
         "base_score": 20
     },
@@ -1529,33 +1558,50 @@ def search_recruiters_with_fallback(
 def get_hiring_manager_titles_for_tier(tier: int, job_type: str) -> List[str]:
     """
     Get list of hiring manager titles for a specific tier, customized by job type.
-    
+
     Args:
         tier: Tier number (1-5)
         job_type: Job type (engineering, sales, etc.)
-    
+
     Returns:
         List of job titles to search for
     """
     if tier not in HIRING_MANAGER_PRIORITY_TIERS:
         return []
-    
+
+    # Tier 1 function-scope: PDL has no sub-role granularity for recruiters
+    # (job_title_sub_role only offers "recruiting" — confirmed in PDL docs
+    # v28.0). The ONLY way to distinguish "engineering recruiter" from
+    # "campus recruiter" from "healthcare recruiter" is via the raw
+    # job_title string. When we know the job_type, swap the generic
+    # ["recruiter", "talent acquisition specialist", "recruiting coordinator"]
+    # wildcard for function-specific titles from RECRUITER_TITLES_BY_JOB_TYPE.
+    # "hiring manager" stays — it's function-agnostic and always relevant.
+    # Fall back to the generic tier titles when job_type is unknown or
+    # doesn't have a mapping.
+    if (
+        tier == 1
+        and job_type in RECRUITER_TITLES_BY_JOB_TYPE
+        and job_type not in ("general", "unknown")
+    ):
+        return ["hiring manager", *RECRUITER_TITLES_BY_JOB_TYPE[job_type]]
+
     tier_data = HIRING_MANAGER_PRIORITY_TIERS[tier]
     titles = tier_data["titles"].copy()
-    
+
     # Replace generic titles with job-type-specific ones
     if "engineering manager" in titles and job_type in DEPARTMENT_MANAGER_BY_JOB_TYPE:
         # Replace "engineering manager" with job-type-specific manager
-        titles = [t if t != "engineering manager" else DEPARTMENT_MANAGER_BY_JOB_TYPE[job_type][0] 
+        titles = [t if t != "engineering manager" else DEPARTMENT_MANAGER_BY_JOB_TYPE[job_type][0]
                  for t in titles]
         # Also add other department managers for this job type
         titles.extend(DEPARTMENT_MANAGER_BY_JOB_TYPE[job_type][1:])
-    
+
     if "employee in similar role" in titles:
         # For Tier 4, we'll search for people with similar job titles
         # This is handled separately in the search logic
         titles.remove("employee in similar role")
-    
+
     return titles
 
 
@@ -1756,6 +1802,29 @@ def rank_hiring_managers(
             # is low-conf "no" — demote so real hits float above them.
             score -= 20
 
+        # Actively-hiring signal from Perplexity (verify_hiring_managers_v2).
+        # This is the single strongest "right person right now" signal we
+        # have — Perplexity was checking LinkedIn/news for hiring activity
+        # in the last 30 days but the result was silently discarded.
+        # +40 outweighs seniority + location combined so a mid-level lead
+        # who is hiring right now beats a senior who isn't.
+        actively = manager.get("_actively_hiring")
+        if actively == "yes":
+            score += 40
+        elif actively == "no":
+            score -= 15
+
+        # Verified email is a tiebreaker, not a trump card. Previously the
+        # selection step put ALL verified contacts ahead of ANY unverified,
+        # so an HRBP-with-email could beat a real VP without a Hunter hit.
+        # +15 lets verified email nudge close scores without overriding
+        # a full tier gap (Tier 1 base 100 vs Tier 3 base 40 = 60-point
+        # gap that no email verification should close).
+        if manager.get('EmailVerified') or manager.get('is_verified_email') or manager.get('email_verified'):
+            email_val = manager.get('Email')
+            if email_val and email_val != "Not available":
+                score += 15
+
         return score
     
     # Sort by score descending
@@ -1779,6 +1848,7 @@ def find_hiring_manager(
     role_type: str = "hiring_manager",
     uid: Optional[str] = None,
     seed_hiring_manager_name: Optional[str] = None,
+    mode: str = "draft",
 ) -> Dict:
     """
     Find hiring managers at a company using tiered search strategy.
@@ -2053,9 +2123,14 @@ def find_hiring_manager(
         # Perplexity verification — drop stale PDL candidates before Hunter so we
         # don't burn email-verify quota on people who already left. Behind a flag;
         # falls through cleanly on any failure.
+        # Preview mode skips this entire block — matches the People-flow pattern
+        # where /prompt-search returns raw ranked contacts fast and enrichment
+        # deferred until the user actually asks to draft. Saves 2-5s per search.
         perplexity_dropped = 0
         perplexity_title_corrections = 0
-        if candidate_pool:
+        if mode == "preview" and candidate_pool:
+            print(f"[HiringManagerFinder] Preview mode: skipping Perplexity verify for {len(candidate_pool)} candidates")
+        if candidate_pool and mode != "preview":
             from .perplexity_client import verify_hiring_managers_v2
             pool_before = len(candidate_pool)
             perplexity_start = time.time()
@@ -2146,32 +2221,26 @@ def find_hiring_manager(
             print(f"[HiringManagerFinder] Hunter.io verification failed: {hunter_error}")
             verify_time = time.time() - verify_start
         
-        # ✅ FIX: Sort by verified emails first, then by existing ranking
-        verified_contacts = []
-        unverified_contacts = []
-        
-        for manager in candidate_pool:
-            # Check if email is verified (enrich_contacts_with_hunter sets EmailVerified and is_verified_email)
-            email_verified = (
-                manager.get('EmailVerified', False) or 
-                manager.get('is_verified_email', False) or
-                manager.get('email_verified', False)
-            )
-            
-            # Also check if email exists and is not "Not available"
-            has_email = manager.get('Email') and manager.get('Email') != "Not available"
-            
-            # Only consider verified if both email exists and is verified
-            if has_email and email_verified:
-                verified_contacts.append(manager)
-            else:
-                unverified_contacts.append(manager)
-        
-        print(f"[HiringManagerFinder] After verification: {len(verified_contacts)} verified, {len(unverified_contacts)} unverified")
-        
-        # ✅ FIX: Select final results - verified first, then unverified as fallback
-        # Firecrawl seeds always make the final cut (they came from the actual
-        # job posting — user explicitly opted in by pasting the URL).
+        # Re-rank now that Hunter results are in — score_hiring_manager
+        # applies a +15 for verified email, so post-Hunter re-rank lets that
+        # boost land. Firecrawl seeds still float to the top explicitly.
+        candidate_pool = rank_hiring_managers(
+            candidate_pool,
+            job_type,
+            cleaned_company,
+            location,
+            job_title,
+        )
+        if firecrawl_seed_used:
+            _seeds = [c for c in candidate_pool if (c.get("_source") or "").startswith("firecrawl_seed")]
+            _others = [c for c in candidate_pool if not (c.get("_source") or "").startswith("firecrawl_seed")]
+            candidate_pool = _seeds + _others
+
+        # Select top max_results from the ranked pool, deduped on (name, company).
+        # Previously we split verified/unverified and put all verified first —
+        # that meant an HRBP with a Hunter email beat a real VP without one.
+        # Now the ranking function's verified-email boost (+15) does the work
+        # within the tier structure, and we just take top-N.
         final_hiring_managers = []
         seen_ids = set()
 
@@ -2179,14 +2248,6 @@ def find_hiring_manager(
             return (c.get("FirstName", ""), c.get("LastName", ""), c.get("Company", ""))
 
         for contact in candidate_pool:
-            if (contact.get("_source") or "").startswith("firecrawl_seed"):
-                k = _key(contact)
-                if k not in seen_ids:
-                    final_hiring_managers.append(contact)
-                    seen_ids.add(k)
-
-        # Add verified contacts next (up to max_results)
-        for contact in verified_contacts:
             if len(final_hiring_managers) >= max_results:
                 break
             k = _key(contact)
@@ -2195,16 +2256,6 @@ def find_hiring_manager(
             final_hiring_managers.append(contact)
             seen_ids.add(k)
 
-        # If we still need more, add unverified contacts
-        for contact in unverified_contacts:
-            if len(final_hiring_managers) >= max_results:
-                break
-            k = _key(contact)
-            if k in seen_ids:
-                continue
-            final_hiring_managers.append(contact)
-            seen_ids.add(k)
-        
         verified_count = len([c for c in final_hiring_managers if (
             c.get('EmailVerified', False) or
             c.get('is_verified_email', False) or

@@ -12,6 +12,35 @@
 
 import React, { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { industries } from '@/data/industries';
+
+/**
+ * Cheap sanity check: is this firm a known player in this industry?
+ * Prevents nonsense chips like "Investment Banking roles at IBM" —
+ * the user's targetIndustries and targetFirms can be independent inputs
+ * and blindly crossing them produces garbage suggestions.
+ *
+ * Strict on purpose: only matches against the industry's top_companies
+ * list (data/industries.ts). Firms that legit belong to the industry but
+ * aren't in the top-5 list won't pair — that's an acceptable false negative
+ * because slots 1/3/4 of buildStarters still cover the firm via other
+ * intents (alumni, hiring managers, grads in field).
+ */
+function firmMatchesIndustry(firm: string, industry: string): boolean {
+  if (!firm || !industry) return false;
+  const industryLower = industry.toLowerCase();
+  const match = industries.find((i) =>
+    i.name.toLowerCase() === industryLower ||
+    i.name.toLowerCase().includes(industryLower) ||
+    industryLower.includes(i.name.toLowerCase())
+  );
+  if (!match) return false;
+  const firmLower = firm.toLowerCase().trim();
+  return (match.top_companies || []).some((c) => {
+    const cLower = c.toLowerCase().trim();
+    return cLower === firmLower || cLower.includes(firmLower) || firmLower.includes(cLower);
+  });
+}
 
 interface QuickStartersProps {
   visible: boolean;
@@ -63,11 +92,14 @@ export function buildStarters({
   else if (f1) starters.push(`People at ${f1}`);
 
   // 2) role at a second company
+  // Only cross industry × firm when the firm is actually in that industry
+  // (see firmMatchesIndustry above). Falls through to a company-only chip
+  // when the pairing would be nonsense — e.g., IBM × Investment Banking.
   const f2 = nextFirm();
   if (f2 && role) starters.push(`${role}s at ${f2}`);
-  else if (f2 && industry) starters.push(`${industry} roles at ${f2}`);
-  else if (school && industry) starters.push(`${school} grads in ${industry}`);
+  else if (f2 && industry && firmMatchesIndustry(f2, industry)) starters.push(`${industry} roles at ${f2}`);
   else if (f2) starters.push(`People at ${f2}`);
+  else if (school && industry) starters.push(`${school} grads in ${industry}`);
 
   // 3) hiring managers at a third company (or in a field)
   const f3 = nextFirm();
