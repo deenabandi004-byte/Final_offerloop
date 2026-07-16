@@ -159,6 +159,19 @@ def main() -> None:
     # Batched writes with merge=True so sector (owned by classify_company_sectors)
     # survives rebuild. Other fields (name, jobCount, topTitles, updatedAt) get
     # overwritten on every rebuild as intended.
+    # Zombie prune: when canonicalize_company merges variants (e.g. moves all
+    # "monsterenergy" jobs to "Monster Energy" / slug=monster-energy), the OLD
+    # slug's doc becomes orphaned in the index with stale counts. `set(merge=True)`
+    # never deletes, so those docs persist forever with wrong data. Read all
+    # existing slug IDs before writing, subtract this run's written set, delete
+    # the difference. Also drops any zero-job docs from prior runs.
+    logger.info("collecting existing slug IDs for zombie-prune diff...")
+    existing_slugs: set[str] = {doc.id for doc in companies_coll.stream()}
+    written_slugs: set[str] = {slug for slug, _ in docs_to_write}
+    zombies = existing_slugs - written_slugs
+    logger.info("existing: %d, will-write: %d, zombies: %d",
+                len(existing_slugs), len(written_slugs), len(zombies))
+
     written = 0
     if not args.dry_run:
         batch = db.batch()
@@ -176,6 +189,24 @@ def main() -> None:
             batch.commit()
             written += batch_size
 
+    # Prune zombies. Batched deletes (Firestore batch = 500 op cap, we use 400).
+    pruned = 0
+    if not args.dry_run and zombies:
+        batch = db.batch()
+        batch_size = 0
+        for slug in zombies:
+            batch.delete(companies_coll.document(slug))
+            batch_size += 1
+            if batch_size >= BATCH_WRITE_SIZE:
+                batch.commit()
+                pruned += batch_size
+                logger.info("  pruned %d zombies (running %d)", batch_size, pruned)
+                batch = db.batch()
+                batch_size = 0
+        if batch_size:
+            batch.commit()
+            pruned += batch_size
+
     # Summary
     print()
     print("=" * 60)
@@ -187,6 +218,7 @@ def main() -> None:
     print(f"  skipped (< min-jobs):    {skipped_below_min:,}")
     print(f"  companies indexed:       {len(docs_to_write):,}")
     print(f"  writes committed:        {written:,}")
+    print(f"  zombies pruned:          {pruned:,}  (stale docs from prior canonical merges)")
     print()
     print("top 10 companies by total jobs:")
     top = sorted(groups.items(), key=lambda x: -x[1]["total"])[:10]
