@@ -109,11 +109,22 @@ def generate_and_draft():
     career_interest = payload.get("careerInterests")
     fit_context = payload.get("fitContext")  # NEW: Job fit analysis context
 
-    # If frontend didn't send resume text, download PDF from resume URL and extract
+    # If frontend didn't send resume text, backfill in priority order:
+    # (1) Firestore `resumeText` — saved at upload time, no download cost.
+    # (2) Download the PDF from `resumeUrl` and re-extract as last resort.
     print(f"[EmailGen] resume_text from payload: {repr(resume_text)[:100] if resume_text else 'None/empty'} "
           f"(len={len(resume_text) if resume_text else 0})")
     if not resume_text or len(resume_text.strip()) < 50:
-        print("[EmailGen] resume_text missing or too short, attempting backfill from URL...")
+        print("[EmailGen] resume_text missing or too short, checking Firestore cache...")
+        _user_doc = db.collection("users").document(uid).get()
+        _user_data = _user_doc.to_dict() or {}
+        _cached_text = _user_data.get("resumeText")
+        if _cached_text and len(_cached_text.strip()) >= 50:
+            resume_text = _cached_text
+            print(f"[EmailGen] Using cached resumeText from user doc ({len(resume_text)} chars)")
+
+    if not resume_text or len(resume_text.strip()) < 50:
+        print("[EmailGen] resume_text still missing after cache check, attempting backfill from URL...")
         _resume_url = payload.get("resumeUrl")
         _url_source = "payload" if _resume_url else None
         if not _resume_url:
@@ -218,6 +229,33 @@ def generate_and_draft():
     # Read personalNote and dreamCompanies for enhanced personalization
     personal_note = user_data.get("personalNote", "")
     dream_companies = user_data.get("dreamCompanies", [])
+
+    # Perplexity hiring-signal enrichment (opt-in via payload flag). The HM
+    # preview flow skips verify_hiring_managers_v2 for speed, which drops the
+    # "Hiring now" badge. Re-run it here so the badge populates on drafted
+    # rows before send — the review-before-send moment is when the signal
+    # actually matters. Adds ~3-5s to draft, gated per-request.
+    if payload.get("enrichHiringSignal") and contacts:
+        _enrich_ctx = payload.get("enrichContext") or {}
+        _enrich_company = _enrich_ctx.get("company") or (contacts[0].get("Company") or contacts[0].get("company") or "")
+        _enrich_job_title = _enrich_ctx.get("jobTitle") or ""
+        if _enrich_company:
+            try:
+                from app.services.perplexity_client import verify_hiring_managers_v2
+                _verifications = verify_hiring_managers_v2(
+                    hms=contacts,
+                    company=_enrich_company,
+                    job_title=_enrich_job_title,
+                )
+                for _c, _v in zip(contacts, _verifications):
+                    _c["_actively_hiring"] = _v.get("actively_hiring", "unknown")
+                    _signal = _v.get("recent_hiring_signal", "")
+                    if _signal:
+                        _c["_recent_hiring_signal"] = _signal
+                _yes_count = sum(1 for _c in contacts if _c.get("_actively_hiring") == "yes")
+                print(f"[EmailGen] Perplexity hiring-signal enrichment: {_yes_count}/{len(contacts)} actively hiring")
+            except Exception as _perp_err:
+                print(f"[EmailGen] Perplexity hiring-signal enrichment failed, continuing: {_perp_err}")
 
     # Only generate emails for contacts that don't have them
     results = {}
@@ -536,7 +574,12 @@ def generate_and_draft():
                 "draftId": draft_id,
                 "messageId": message_id,
                 "threadId": thread_id,
-                "gmailUrl": gmail_url
+                "gmailUrl": gmail_url,
+                # Perplexity hiring-signal fields — populated when the request
+                # sets enrichHiringSignal=True (HM flow). Absent for regular
+                # People-flow drafts.
+                "activelyHiring": c.get("_actively_hiring"),
+                "recentHiringSignal": c.get("_recent_hiring_signal"),
             })
             
             # Save/update contact in Firestore with draft info (even if no threadId yet)
@@ -675,3 +718,288 @@ def generate_and_draft():
         "drafts": created,
         **({"skipped_count": skipped_count} if skipped_count > 0 else {}),
     }), 200
+
+
+def _send_one_draft(gmail_service_or_creds, uid, draft_id):
+    """Send a single Gmail draft by id. Returns a result dict, never raises.
+
+    Accepts either a pre-built gmail_service (safe when called from a
+    single-threaded context) OR a google.oauth2 Credentials object (safe
+    from concurrent threads — a fresh service is built here so each thread
+    has its own httplib2.Http socket). Sharing a single service across
+    threads corrupts the underlying HTTP transport and produces
+    CannotSendHeader / HTTP 400 with garbled body — see send_drafts_batch
+    for the load-once-build-per-thread pattern.
+
+    Result shape:
+      {"draftId": ..., "success": True,  "messageId": ..., "threadId": ...}
+      {"draftId": ..., "success": False, "error": "draft_not_found"}   # 404
+      {"draftId": ..., "success": False, "error": "gmail_token_expired"}
+      {"draftId": ..., "success": False, "error": "send_failed", "message": ...}
+
+    Email quality is preserved verbatim — Gmail sends the exact bytes of
+    the existing draft, no re-composition or re-attachment happens here.
+    """
+    from googleapiclient.errors import HttpError
+
+    # If we were handed credentials (concurrent path), build a per-thread
+    # service. If we were handed a service directly (serial path), use it.
+    # Detect by presence of `users` attribute — Resource objects have it,
+    # Credentials objects don't.
+    if hasattr(gmail_service_or_creds, "users"):
+        gmail_service = gmail_service_or_creds
+    else:
+        from app.services.gmail_client import _gmail_service
+        gmail_service = _gmail_service(gmail_service_or_creds)
+
+    # Look up the recipient email for this draft (best-effort — used only
+    # for log diagnostics). Firestore lookup adds ~50ms per send but the
+    # signal is priceless when a send returns 200 from Gmail but the
+    # message never appears in the Sent folder or gets silently dropped.
+    _recipient_hint = ""
+    try:
+        db = get_db()
+        _matches = list(
+            db.collection("users").document(uid).collection("contacts")
+              .where("gmailDraftId", "==", draft_id).limit(1).stream()
+        )
+        if _matches:
+            _data = _matches[0].to_dict() or {}
+            _recipient_hint = _data.get("email") or _data.get("draftToEmail") or ""
+    except Exception:
+        pass
+
+    try:
+        sent = gmail_service.users().drafts().send(
+            userId="me", body={"id": draft_id}
+        ).execute()
+    except HttpError as e:
+        status = getattr(getattr(e, "resp", None), "status", None)
+        # Pull the Gmail error body — usually has {"error": {"message": "..."}}
+        # with the real reason (rate limit, invalid recipient, etc.).
+        try:
+            err_body = e.content.decode("utf-8", errors="ignore") if hasattr(e, "content") else ""
+        except Exception:
+            err_body = ""
+        if status == 404:
+            print(f"[SendDraft] draft={draft_id[:16]}... to={_recipient_hint or 'unknown'} status=404 draft_not_found (already sent or deleted)")
+            _mark_contact_sent_by_draft(uid, draft_id, message_id=None, thread_id=None)
+            return {"draftId": draft_id, "success": False, "error": "draft_not_found"}
+        if status in (401, 403):
+            print(f"[SendDraft] draft={draft_id[:16]}... to={_recipient_hint or 'unknown'} status={status} gmail_token_expired body={err_body[:300]}")
+            return {"draftId": draft_id, "success": False, "error": "gmail_token_expired"}
+        print(f"[SendDraft] draft={draft_id[:16]}... to={_recipient_hint or 'unknown'} status={status} send_failed body={err_body[:500]}")
+        return {"draftId": draft_id, "success": False, "error": "send_failed", "message": str(e)}
+    except Exception as e:
+        err_str = str(e).lower()
+        if "invalid_grant" in err_str or "token has been expired or revoked" in err_str:
+            print(f"[SendDraft] draft={draft_id[:16]}... to={_recipient_hint or 'unknown'} gmail_token_expired (auth exception) err={str(e)[:300]}")
+            return {"draftId": draft_id, "success": False, "error": "gmail_token_expired"}
+        print(f"[SendDraft] draft={draft_id[:16]}... to={_recipient_hint or 'unknown'} send_failed (non-HttpError) type={type(e).__name__} err={str(e)[:500]}")
+        return {"draftId": draft_id, "success": False, "error": "send_failed", "message": str(e)}
+
+    message_id = sent.get("id") or sent.get("message", {}).get("id")
+    thread_id = sent.get("threadId") or sent.get("message", {}).get("threadId")
+    print(f"[SendDraft] draft={draft_id[:16]}... to={_recipient_hint or 'unknown'} ✅ sent messageId={(message_id or 'none')[:20]}...")
+    _mark_contact_sent_by_draft(uid, draft_id, message_id, thread_id)
+    return {
+        "draftId": draft_id,
+        "success": True,
+        "messageId": message_id,
+        "threadId": thread_id,
+    }
+
+
+@emails_bp.post("/send-draft/<draft_id>")
+@require_firebase_auth
+def send_draft(draft_id):
+    """Send an existing Gmail draft by draftId.
+
+    Powers the Find page's per-row "Send" button.
+    Response shape matches the frontend contract in api.ts sendDraft():
+      - success:      {"success": True, "messageId": ..., "threadId": ...}
+      - already gone: HTTP 200 {"success": False, "error": "draft_not_found"}
+                      (frontend treats this as sent — draft was consumed elsewhere)
+      - auth broken:  HTTP 401 {"error": "gmail_token_expired", ...}
+      - other:        HTTP 502 {"success": False, "error": "send_failed", ...}
+    """
+    if not draft_id or not draft_id.strip():
+        return jsonify({"success": False, "error": "missing_draft_id"}), 400
+
+    uid = request.firebase_user["uid"]
+    user_email = request.firebase_user.get("email")
+    gmail_service = get_gmail_service_for_user(user_email, user_id=uid)
+    if not gmail_service:
+        return jsonify({
+            "error": "gmail_not_connected",
+            "message": "Please connect your Gmail account to send emails.",
+        }), 401
+
+    result = _send_one_draft(gmail_service, uid, draft_id)
+
+    if result["success"]:
+        return jsonify({
+            "success": True,
+            "messageId": result.get("messageId"),
+            "threadId": result.get("threadId"),
+        }), 200
+    if result["error"] == "draft_not_found":
+        return jsonify({"success": False, "error": "draft_not_found"}), 200
+    if result["error"] == "gmail_token_expired":
+        return jsonify({
+            "error": "gmail_token_expired",
+            "message": "Your Gmail connection has expired. Please reconnect Gmail.",
+        }), 401
+    return jsonify({
+        "success": False,
+        "error": "send_failed",
+        "message": result.get("message", ""),
+    }), 502
+
+
+@emails_bp.post("/send-drafts-batch")
+@require_firebase_auth
+def send_drafts_batch():
+    """Send N existing Gmail drafts in parallel.
+
+    Request:  {"draftIds": ["r-123", "r-456", ...]}
+    Response: {
+        "success": True,                    # true if ≥1 send succeeded
+        "sent_count": 12,                   # includes draft_not_found (already sent)
+        "failed_count": 3,
+        "results": [                        # aligned with input order
+            {"draftId": "r-123", "success": True,  "messageId": "m1", "threadId": "t1"},
+            {"draftId": "r-456", "success": False, "error": "draft_not_found"},
+            {"draftId": "r-789", "success": False, "error": "send_failed", "message": "..."},
+        ],
+    }
+
+    Special: if Gmail auth is dead, returns 401 {"error": "gmail_token_expired"}
+    without attempting any sends (all N would fail identically). If the entire
+    batch is auth-blocked mid-flight, still returns 200 with per-item errors
+    so the frontend can render partial progress.
+
+    Parallelism capped at 5 workers to stay within Gmail's per-user quota
+    (250 units/sec; messages.send costs 100 units → 2.5 sends/sec sustained).
+    Email content is not re-generated; the exact draft bytes are sent as-is.
+    """
+    uid = request.firebase_user["uid"]
+    user_email = request.firebase_user.get("email")
+
+    payload = request.get_json(silent=True) or {}
+    draft_ids = payload.get("draftIds") or []
+    if not isinstance(draft_ids, list):
+        return jsonify({"error": "invalid_payload", "message": "draftIds must be a list"}), 400
+    # De-dupe and strip while preserving order
+    seen = set()
+    cleaned = []
+    for did in draft_ids:
+        if not isinstance(did, str):
+            continue
+        d = did.strip()
+        if d and d not in seen:
+            seen.add(d)
+            cleaned.append(d)
+    if not cleaned:
+        return jsonify({
+            "success": False,
+            "sent_count": 0,
+            "failed_count": 0,
+            "results": [],
+        }), 200
+
+    # Cap batch size to prevent runaway requests (Elite tier max is 15 contacts)
+    MAX_BATCH = 50
+    if len(cleaned) > MAX_BATCH:
+        return jsonify({
+            "error": "batch_too_large",
+            "message": f"Maximum {MAX_BATCH} drafts per batch send.",
+        }), 400
+
+    # Thread-safety fix: load credentials once, hand them to each worker so
+    # each thread builds its own gmail_service (fresh httplib2.Http socket).
+    # Sharing a single service across threads corrupted the transport under
+    # concurrent .execute() calls — produced CannotSendHeader + HTTP 400 with
+    # HTML garbage body → users saw "1 of 3 sent" with no explanation.
+    # If per-user OAuth creds aren't available (rare — user never connected
+    # Gmail), fall back to the shared token.pickle service under serial send.
+    from app.services.gmail_client import _load_user_gmail_creds
+    from concurrent.futures import ThreadPoolExecutor
+
+    creds = _load_user_gmail_creds(uid)
+    if creds:
+        service_or_creds = creds
+        max_workers = min(5, len(cleaned))
+    else:
+        # Shared account fallback — thread-unsafe, so serialize.
+        shared = get_gmail_service_for_user(user_email, user_id=uid)
+        if not shared:
+            return jsonify({
+                "error": "gmail_not_connected",
+                "message": "Please connect your Gmail account to send emails.",
+            }), 401
+        service_or_creds = shared
+        max_workers = 1
+
+    results_by_id = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_send_one_draft, service_or_creds, uid, did): did for did in cleaned}
+        for fut in futures:
+            did = futures[fut]
+            try:
+                results_by_id[did] = fut.result()
+            except Exception as e:
+                results_by_id[did] = {
+                    "draftId": did,
+                    "success": False,
+                    "error": "send_failed",
+                    "message": str(e),
+                }
+
+    # Preserve input order in response
+    ordered = [results_by_id[d] for d in cleaned]
+    # draft_not_found counts as sent — the draft is gone (either sent elsewhere
+    # or user deleted it in Gmail). Frontend flips row to "Sent" in both cases.
+    sent_count = sum(1 for r in ordered if r["success"] or r.get("error") == "draft_not_found")
+    failed_count = len(ordered) - sent_count
+
+    return jsonify({
+        "success": sent_count > 0,
+        "sent_count": sent_count,
+        "failed_count": failed_count,
+        "results": ordered,
+    }), 200
+
+
+def _mark_contact_sent_by_draft(uid, draft_id, message_id, thread_id):
+    """Stamp the contact doc owning this draft as sent.
+
+    Idempotent: safe to call on the 404 "already gone" path (message_id may
+    be None; we only refresh timestamps and pipeline stage in that case).
+    Never raises — send success must not be lost to a Firestore hiccup.
+    """
+    try:
+        db = get_db()
+        contacts_ref = db.collection("users").document(uid).collection("contacts")
+        matches = list(contacts_ref.where("gmailDraftId", "==", draft_id).limit(1).stream())
+        if not matches:
+            return
+        now_iso = datetime.utcnow().isoformat()
+        update = {
+            "pipelineStage": "email_sent",
+            "emailSentAt": now_iso,
+            "lastActivityAt": now_iso,
+            "updatedAt": now_iso,
+            "draftStillExists": False,
+            "inOutbox": True,
+        }
+        if message_id:
+            update["gmailMessageId"] = message_id
+        if thread_id:
+            update["gmailThreadId"] = thread_id
+        matches[0].reference.update(update)
+    except Exception as exc:
+        import logging
+        logging.getLogger("emails").warning(
+            "send_draft contact update failed draft=%s: %s", draft_id, exc
+        )

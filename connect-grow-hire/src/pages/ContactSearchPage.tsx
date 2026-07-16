@@ -439,16 +439,22 @@ const ContactSearchPage: React.FC<{
         toast({ description: 'No drafts available to send.' });
         return;
       }
-      let sent = 0;
-      for (const id of draftIds) {
-        try {
-          const r = await apiService.sendDraft(id);
-          if (r?.success || r?.error === 'draft_not_found') sent++;
-        } catch (e) {
-          console.error('[SendAll] send failed', e);
-        }
-      }
-      setLastResults((prev) => prev.map((c: any) => (c.gmailDraftId ? { ...c, emailSent: true } : c)));
+      // Batch send — one HTTP round trip, backend fans out with max 5 concurrent
+      // Gmail sends. Reads exact draft bytes; email content is unchanged.
+      const batch = await apiService.sendDraftsBatch(draftIds);
+      const sent = batch?.sent_count ?? 0;
+      // Mark only the drafts that actually sent (or were already gone) —
+      // hard failures stay un-flipped so the user can retry per-row.
+      const sentIds = new Set(
+        (batch?.results ?? [])
+          .filter((r) => r.success || r.error === 'draft_not_found')
+          .map((r) => r.draftId)
+      );
+      setLastResults((prev) =>
+        prev.map((c: any) =>
+          c.gmailDraftId && sentIds.has(c.gmailDraftId) ? { ...c, emailSent: true } : c
+        )
+      );
       toast({
         title: sent > 0 ? 'Emails sent' : 'Send failed',
         description: `${sent} of ${draftIds.length} sent from your Gmail.`,

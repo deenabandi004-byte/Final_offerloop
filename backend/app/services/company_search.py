@@ -719,15 +719,47 @@ def _get_rejection_reason(firm_location: Dict[str, Any], requested_location: Dic
     return "location_mismatch"
 
 
+def _firm_in_nearby_metro(firm_city: str, firm_state: str, req_key: str) -> bool:
+    """Check if firm's HQ is in a metro adjacent to the requested locality/metro.
+
+    Uses NEARBY_LOCATIONS (defined later in this module) to accept firms
+    that Perplexity returns with an adjacent-metro HQ. Fixes the biggest
+    silent dropper in firm discovery: a Boston-HQ firm getting rejected
+    from a "New York" search even though Boston is one hop over.
+    Returns False when NEARBY_LOCATIONS has no entry for req_key.
+    """
+    if not req_key:
+        return False
+    nearby = NEARBY_LOCATIONS.get(req_key.lower().strip(), [])
+    if not nearby:
+        return False
+    firm_city_l = (firm_city or "").lower().strip()
+    firm_state_l = (firm_state or "").lower().strip()
+    combined = f"{firm_city_l} {firm_state_l}".strip()
+    for nearby_loc in nearby:
+        n = nearby_loc.lower().strip()
+        if not n:
+            continue
+        # Direct city or state match, or substring either direction (handles
+        # "Northern Virginia" ↔ state "virginia", "Silicon Valley" ↔ SF metro).
+        if n == firm_city_l or n == firm_state_l:
+            return True
+        if n in combined or (firm_city_l and firm_city_l in n):
+            return True
+    return False
+
+
 def firm_location_matches(firm_location: Dict[str, Any], requested_location: Dict[str, Optional[str]], search_id: Optional[str] = None) -> bool:
     """
     Check if a firm's location matches the requested location criteria.
-    Uses normalization to handle abbreviations and variations.
-    
+    Uses normalization to handle abbreviations and variations. Falls back
+    to NEARBY_LOCATIONS metro-adjacency before rejecting — so a Boston-HQ
+    firm still passes a "New York" search.
+
     Args:
         firm_location: Firm's location dict with keys: city, state, country
         requested_location: Requested location dict with keys: locality, region, metro, country
-    
+
     Returns:
         True if firm location matches requested location, False otherwise
     """
@@ -781,10 +813,20 @@ def firm_location_matches(firm_location: Dict[str, Any], requested_location: Dic
             # Check if any metro city matches (including normalized versions)
             for metro_city in metro_cities_list:
                 metro_city_normalized = normalize_location_string(metro_city)
-                if (metro_city in firm_location_str or 
+                if (metro_city in firm_location_str or
                     metro_city_normalized in firm_location_str or
                     locations_match(firm_city, metro_city)):
                     return True
+            # Metro-adjacency fallback: accept firms in neighboring metros
+            # (e.g., Boston-HQ firm for a New York search). Big lever —
+            # firm-search's silent under-delivery is driven mostly by
+            # Perplexity returning global HQ where the user wanted local.
+            if _firm_in_nearby_metro(firm_city, firm_state, metro):
+                logger.debug("company_search_nearby_metro_accepted", extra={
+                    "search_id": search_id, "firm_city": firm_city,
+                    "firm_state": firm_state, "requested_metro": metro,
+                })
+                return True
             # If no match found for metro, fail
             return False
     
@@ -870,7 +912,16 @@ def firm_location_matches(firm_location: Dict[str, Any], requested_location: Dic
             # Partial match (e.g., "new york" matches "new york city")
             if req_city_lower in firm_city_lower or firm_city_lower in req_city_lower:
                 return True
-        
+
+        # Metro-adjacency fallback: accept firms whose HQ is in a metro
+        # adjacent to the requested city (Boston ↔ NYC, SF ↔ Silicon Valley).
+        if _firm_in_nearby_metro(firm_city, firm_state, req_city):
+            logger.debug("company_search_nearby_locality_accepted", extra={
+                "search_id": search_id, "firm_city": firm_city,
+                "firm_state": firm_state, "requested_locality": req_city,
+            })
+            return True
+
         # If we have a city requirement but no match, fail
         return False
     

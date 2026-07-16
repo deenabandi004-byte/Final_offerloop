@@ -377,7 +377,16 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
       Company: m.company,
       Title: m.title,
     }));
-    const res = await apiService.generateAndDraftEmails({ contacts });
+    // HM flow re-runs Perplexity hiring-signal enrichment at draft time
+    // (skipped in preview for speed). The "Hiring now" badge populates on
+    // drafted rows before send — the moment the signal actually matters.
+    const _enrichCompany = toDraft[0]?.company || '';
+    const _enrichJobTitle = toDraft[0]?.jobTitle || '';
+    const res = await apiService.generateAndDraftEmails({
+      contacts,
+      enrichHiringSignal: true,
+      enrichContext: { company: _enrichCompany, jobTitle: _enrichJobTitle },
+    });
     if (!res || (res as any).error) {
       toast({
         title: 'Couldn’t create drafts',
@@ -401,6 +410,11 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
         gmailDraftUrl: d.gmailUrl ?? m.gmailDraftUrl,
         emailSubject: d.subject ?? m.emailSubject,
         emailBody: d.body ?? m.emailBody,
+        // Perplexity signals populated during this /generate-and-draft call
+        // (enrichHiringSignal=true). Falls back to prior value if backend
+        // didn't return one for this contact.
+        activelyHiring: d.activelyHiring ?? m.activelyHiring,
+        recentHiringSignal: d.recentHiringSignal ?? m.recentHiringSignal,
       };
     });
     setFoundManagers(merged);
@@ -459,16 +473,18 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
         toast({ description: 'No drafts available to send.' });
         return;
       }
-      let sent = 0;
-      for (const id of draftIds) {
-        try {
-          const r = await apiService.sendDraft(id);
-          if (r?.success || r?.error === 'draft_not_found') sent++;
-        } catch (e) {
-          console.error('[SendAll] send failed', e);
-        }
-      }
-      setFoundManagers((prev) => prev.map((m: any) => (m.gmailDraftId ? { ...m, emailSent: true } : m)));
+      const batch = await apiService.sendDraftsBatch(draftIds);
+      const sent = batch?.sent_count ?? 0;
+      const sentIds = new Set(
+        (batch?.results ?? [])
+          .filter((r) => r.success || r.error === 'draft_not_found')
+          .map((r) => r.draftId)
+      );
+      setFoundManagers((prev) =>
+        prev.map((m: any) =>
+          m.gmailDraftId && sentIds.has(m.gmailDraftId) ? { ...m, emailSent: true } : m
+        )
+      );
       toast({
         title: sent > 0 ? 'Emails sent' : 'Send failed',
         description: `${sent} of ${draftIds.length} sent from your Gmail.`,
@@ -712,11 +728,21 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
               linkedin: linkedinUrl,
               // "Why this person" line for the sparkle row, mirroring People.
               briefing: jobTitleValue ? `Hiring for ${jobTitleValue}` : '',
+              // Stored on the card so ensureDraftsForAll can pass it as
+              // enrichContext.jobTitle to /generate-and-draft's Perplexity
+              // hiring-signal enrichment.
+              jobTitle: jobTitleValue || '',
               alreadySaved,
               gmailDraftUrl: draftInfo?.draft_url || '',
               gmailDraftId: draftInfo?.draft_id || '',
               emailSubject: emailInfo?.subject || '',
               emailSent: !!sentInfo,
+              // Perplexity signals — surfaced as badges. Backend sets these
+              // on the manager dict from verify_hiring_managers_v2 but the
+              // frontend mapper was stripping them by not copying them here.
+              activelyHiring: manager._actively_hiring || '',
+              recentHiringSignal: manager._recent_hiring_signal || '',
+              cohort: manager._cohort || '',
             };
           });
           setFoundManagers(managerCards);
@@ -1081,9 +1107,35 @@ const RecruiterSpreadsheetPage: React.FC<{ embedded?: boolean; isDevPreview?: bo
                                     {initials}
                                   </div>
                                   <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0, flexWrap: 'wrap' }}>
                                       <span style={{ fontSize: 15, fontWeight: 700, color: '#0F172A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</span>
-                                      <span style={{ padding: '2px 9px', borderRadius: 100, background: 'rgba(74,96,168,0.12)', color: 'var(--accent, #4A60A8)', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }}>Hiring manager</span>
+                                      {/* Cohort badge — replaces the old generic "Hiring manager" pill.
+                                          Backend classifies each contact as likely_hm (real HM signal
+                                          from Firecrawl seed or tight PDL match), team_lead (loose
+                                          tier match with hiring input), or adjacent (execs, HRBPs,
+                                          referral routes). Setting user expectations honestly beats
+                                          calling every result a "Hiring manager". */}
+                                      {(() => {
+                                        const cohort = m.cohort || 'likely_hm';
+                                        const meta = cohort === 'likely_hm'
+                                          ? { label: 'Hiring manager', bg: 'rgba(74,96,168,0.12)', fg: 'var(--accent, #4A60A8)', tip: 'Strong signal this person hires for the role.' }
+                                          : cohort === 'team_lead'
+                                          ? { label: 'Team lead', bg: 'rgba(59,130,246,0.10)', fg: '#2563EB', tip: 'Team lead with likely hiring input.' }
+                                          : { label: 'Referral route', bg: 'rgba(107,114,128,0.12)', fg: '#4B5563', tip: 'Not the hiring manager, but can route or refer you to them.' };
+                                        return (
+                                          <span title={meta.tip} style={{ padding: '2px 9px', borderRadius: 100, background: meta.bg, color: meta.fg, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                            {meta.label}
+                                          </span>
+                                        );
+                                      })()}
+                                      {m.activelyHiring === 'yes' && (
+                                        <span
+                                          title={m.recentHiringSignal || 'Perplexity found recent hiring activity for this person or their team.'}
+                                          style={{ padding: '2px 9px', borderRadius: 100, background: 'rgba(21,128,61,0.10)', color: '#15803D', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }}
+                                        >
+                                          Hiring now
+                                        </span>
+                                      )}
                                     </div>
                                     <div style={{ fontSize: 13, color: '#64748B', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                       {m.title}

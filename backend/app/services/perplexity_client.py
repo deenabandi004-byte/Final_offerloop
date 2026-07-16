@@ -783,7 +783,7 @@ def enrich_professional_presence(contacts: list[dict]) -> dict[int, dict]:
     return results
 
 
-def batch_enrich_contacts(contacts: list[dict]) -> dict[int, dict]:
+def batch_enrich_contacts(contacts: list[dict], max_workers: int = 5) -> dict[int, dict]:
     """Enrich contacts with NON-LinkedIn web presence.
 
     LinkedIn-sourced data is covered by the Apify pipeline; this call
@@ -792,33 +792,37 @@ def batch_enrich_contacts(contacts: list[dict]) -> dict[int, dict]:
     structured categories with a bullet-list fallback when the model
     doesn't produce clean JSON.
 
+    Runs contacts in parallel (max_workers concurrent Perplexity calls).
+    Same pattern as verify_hiring_managers_v2. Each iteration is fully
+    independent — no shared mutable state beyond the cache, which is
+    thread-safe via Firestore.
+
     Returns dict keyed by index:
         media_appearances, published_writing, news_mentions,
         talking_points (union, back-compat),
         recent_activity (raw), verified_role (bool), citations.
     """
     client = _get_client()
-    if not client:
+    if not client or not contacts:
         return {}
 
+    from concurrent.futures import ThreadPoolExecutor
     from app.services.enrichment_cache import get_cached, set_cached
-    results = {}
 
-    for idx, contact in enumerate(contacts):
+    def _enrich_one(indexed: tuple[int, dict]) -> tuple[int, dict]:
+        idx, contact = indexed
         name = f"{contact.get('FirstName', '')} {contact.get('LastName', '')}".strip()
         company = (contact.get("Company") or contact.get("company") or "").strip()
         title = (contact.get("Title") or contact.get("jobTitle") or "").strip()
 
         if not name or not company:
-            results[idx] = {}
-            continue
+            return idx, {}
 
         # v2 cache key — old payloads had a LinkedIn-overlapping shape.
         cache_key = ["contact_v2", name.lower(), company.lower()]
         cached = get_cached("contact_enrichment", cache_key)
         if cached:
-            results[idx] = cached
-            continue
+            return idx, cached
 
         prompt = (
             f"Find NON-LinkedIn web presence of {name}, {title} at {company} "
@@ -872,43 +876,50 @@ def batch_enrich_contacts(contacts: list[dict]) -> dict[int, dict]:
                 "verified_role": verified,
                 "citations": _extract_citations(response),
             }
-            results[idx] = enrichment
             set_cached("contact_enrichment", cache_key, enrichment)
+            return idx, enrichment
         except Exception:
             logger.warning("Perplexity enrichment failed for %s", name, exc_info=True)
-            results[idx] = {}
+            return idx, {}
 
-    return results
+    workers = min(max_workers, len(contacts))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        pairs = list(pool.map(_enrich_one, enumerate(contacts)))
+    return dict(pairs)
 
 
-def batch_enrich_company_news(contacts: list[dict]) -> dict[int, dict]:
+def batch_enrich_company_news(contacts: list[dict], max_workers: int = 5) -> dict[int, dict]:
     """Fetch recent company news via Perplexity, batched per unique company.
 
     Groups contacts by normalized company name; one search per company.
+    Unique-company searches run in parallel (max_workers concurrent).
     Shared cache means cross-user/cross-batch dedup too.
 
     Returns dict keyed by contact index:
         {company_recent_news: list[str], company_description: str}
     """
     client = _get_client()
-    if not client:
+    if not client or not contacts:
         return {}
 
+    from concurrent.futures import ThreadPoolExecutor
     from app.services.enrichment_cache import get_cached, set_cached
 
     name_to_indices: dict[str, list[int]] = {}
+    display_names: dict[str, str] = {}
     for idx, c in enumerate(contacts):
         name = (c.get("Company") or c.get("company") or "").strip()
         if not name:
             continue
-        name_to_indices.setdefault(name.lower(), []).append(idx)
+        key = name.lower()
+        name_to_indices.setdefault(key, []).append(idx)
+        display_names.setdefault(key, name)
 
     if not name_to_indices:
         return {}
 
-    results: dict[int, dict] = {}
-    for key, indices in name_to_indices.items():
-        display_name = (contacts[indices[0]].get("Company") or contacts[indices[0]].get("company") or key).strip()
+    def _fetch_company(key: str) -> tuple[str, dict]:
+        display_name = display_names[key]
 
         # v2 cache key — old "company_news" entries had hedging bullets that
         # leaked through ("no major announcement", "outside the window", etc).
@@ -916,50 +927,58 @@ def batch_enrich_company_news(contacts: list[dict]) -> dict[int, dict]:
         cache_key = ["company_news_v2", key]
         cached = get_cached("company_enrichment", cache_key)
         if cached:
-            payload = cached
-        else:
-            try:
-                response = client.chat.completions.create(
-                    model="sonar",
-                    messages=[{
-                        "role": "user",
-                        "content": (
-                            f"What notable developments has {display_name} announced "
-                            f"in the last 60 days? Cover product launches, funding "
-                            f"rounds, leadership changes, major hires, or notable news. "
-                            f"Reply as 3-5 short bullet points, each one specific and "
-                            f"factual. If nothing notable, reply with EXACTLY 'NONE'. "
-                            f"DO NOT include hedging or meta-commentary like 'no major "
-                            f"announcement', 'closest notable item is', 'outside the "
-                            f"requested window', 'I can't verify', 'the result only "
-                            f"confirms', or anything that admits the lack of a fact. "
-                            f"Only return concrete, dated, verifiable announcements."
-                        ),
-                    }],
-                    extra_body={"search_recency_filter": "month"},
-                )
-                content = response.choices[0].message.content or ""
-                if "NONE" in content.upper()[:20]:
-                    news = []
-                else:
-                    news = _parse_bullet_points(content)
-                    # Defensive: drop any bullet that's actually hedging rather
-                    # than a fact. Belt-and-suspenders with the tightened prompt.
-                    news = [item for item in news if not _is_hedging_bullet(item)]
-                payload = {
-                    "company_recent_news": news,
-                    "company_description": content[:500] if news else "",
-                }
-                if news:
-                    set_cached("company_enrichment", cache_key, payload)
-            except Exception:
-                logger.warning("Perplexity batch_enrich_company_news failed for %s", display_name, exc_info=True)
-                payload = {}
+            return key, cached
 
+        try:
+            response = client.chat.completions.create(
+                model="sonar",
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        f"What notable developments has {display_name} announced "
+                        f"in the last 60 days? Cover product launches, funding "
+                        f"rounds, leadership changes, major hires, or notable news. "
+                        f"Reply as 3-5 short bullet points, each one specific and "
+                        f"factual. If nothing notable, reply with EXACTLY 'NONE'. "
+                        f"DO NOT include hedging or meta-commentary like 'no major "
+                        f"announcement', 'closest notable item is', 'outside the "
+                        f"requested window', 'I can't verify', 'the result only "
+                        f"confirms', or anything that admits the lack of a fact. "
+                        f"Only return concrete, dated, verifiable announcements."
+                    ),
+                }],
+                extra_body={"search_recency_filter": "month"},
+            )
+            content = response.choices[0].message.content or ""
+            if "NONE" in content.upper()[:20]:
+                news = []
+            else:
+                news = _parse_bullet_points(content)
+                # Defensive: drop any bullet that's actually hedging rather
+                # than a fact. Belt-and-suspenders with the tightened prompt.
+                news = [item for item in news if not _is_hedging_bullet(item)]
+            payload = {
+                "company_recent_news": news,
+                "company_description": content[:500] if news else "",
+            }
+            if news:
+                set_cached("company_enrichment", cache_key, payload)
+            return key, payload
+        except Exception:
+            logger.warning("Perplexity batch_enrich_company_news failed for %s", display_name, exc_info=True)
+            return key, {}
+
+    keys = list(name_to_indices.keys())
+    workers = min(max_workers, len(keys))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        per_company = dict(pool.map(_fetch_company, keys))
+
+    results: dict[int, dict] = {}
+    for key, indices in name_to_indices.items():
+        payload = per_company.get(key)
         if payload:
             for idx in indices:
                 results[idx] = payload
-
     return results
 
 

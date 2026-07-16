@@ -29,6 +29,7 @@ import { apiService } from "@/services/api";
 import type { Firm, SearchHistoryItem } from "@/services/api";
 import FirmSearchResults from "@/components/FirmSearchResults";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
+import { Progress } from "@/components/ui/progress";
 import { MainContentWrapper } from "@/components/MainContentWrapper";
 import { StickyCTA } from "@/components/StickyCTA";
 
@@ -1059,7 +1060,30 @@ const FirmSearchPage: React.FC<{
                         inputValue={query}
                         submitAriaLabel="Search companies"
                         submitIcon={isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUp className="w-4 h-4" />}
-                        footer={!hasSearched && !isSearching ? (
+                        footer={isSearching ? (
+                          // Inline loading banner — matches ContactSearchPage's
+                          // minimal thin-bar aesthetic. No modal, no icon, no
+                          // "10-20 seconds" copy. The step message + count carry
+                          // all the informative signal from the old modal.
+                          <div style={{ marginTop: 16 }}>
+                            <div className="flex items-center justify-between mb-2">
+                              <span style={{ fontSize: 12, color: '#4A4F5B' }}>
+                                {searchProgress?.step || `Finding ${batchSize} companies matching your criteria`}
+                              </span>
+                              <span style={{ fontSize: 11, color: '#8A8F97', fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.04em' }}>
+                                {searchProgress
+                                  ? `${searchProgress.current} / ${searchProgress.total}`
+                                  : ''}
+                              </span>
+                            </div>
+                            <Progress
+                              value={searchProgress
+                                ? Math.max(2, Math.min(98, (searchProgress.current / searchProgress.total) * 100))
+                                : 10}
+                              className="h-0.5 rounded-none"
+                            />
+                          </div>
+                        ) : !hasSearched ? (
                         <div style={{
                           marginTop: 16,
                           opacity: inputFocused && query.trim() ? 0.4 : 1,
@@ -1259,6 +1283,50 @@ const FirmSearchPage: React.FC<{
                         </p>
                       )}
 
+                      {/* Broaden-your-search chips — surfaces the backend's
+                          _build_firm_search_suggestions when the discovery
+                          service returned fewer firms than the slider asked
+                          for. Uses adjacent industries + nearby metros. Clicking
+                          a chip reruns the search with the broader query. */}
+                      {hasSearched && firmSuggestions.length > 0 && results.length < batchSize && (
+                        <div style={{ marginTop: 20 }}>
+                          <div style={{ marginBottom: 8 }}>
+                            <span style={{
+                              fontSize: 10, fontWeight: 500, color: 'var(--ink-3, #8A8F9A)',
+                              fontFamily: "'Libre Baskerville', Georgia, serif",
+                              letterSpacing: '0.08em', textTransform: 'uppercase',
+                            }}>
+                              Wanted {batchSize}, found {results.length} — try broadening
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                            {firmSuggestions.map((sugg, i) => (
+                              <button
+                                key={`${sugg.query || sugg.label}-${i}`}
+                                type="button"
+                                onClick={() => {
+                                  const q = sugg.query || sugg.label;
+                                  setQuery(q);
+                                  handleSearch(q);
+                                }}
+                                disabled={isSearching}
+                                style={{
+                                  fontSize: 12, color: '#111418',
+                                  background: '#FAFAF8', border: '1px solid #E5E3DE',
+                                  borderRadius: 3, padding: '6px 12px',
+                                  fontFamily: 'inherit', cursor: isSearching ? 'not-allowed' : 'pointer',
+                                  opacity: isSearching ? 0.5 : 1, transition: 'background .12s, border-color .12s',
+                                }}
+                                onMouseEnter={e => { if (!isSearching) { (e.currentTarget as HTMLButtonElement).style.background = '#F0EEE8'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#D4D0C7'; } }}
+                                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#FAFAF8'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#E5E3DE'; }}
+                              >
+                                {sugg.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       {/* Back to recommendations link */}
                       {hasSearched && (
                         <button
@@ -1439,65 +1507,6 @@ const FirmSearchPage: React.FC<{
                   ))
                 )}
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* Loading Modal */}
-        {isSearching && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
-            <div className="bg-white p-8 max-w-md w-full mx-4 animate-in zoom-in-95 duration-200" style={{ borderRadius: 3, border: '1px solid #E2E8F0', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-              {/* Animated Icon */}
-              <div className="w-20 h-20 flex items-center justify-center mx-auto mb-6 relative" style={{ background: '#EEF2F8', borderRadius: 3 }}>
-                <div className="absolute inset-0 animate-pulse" style={{ background: 'rgba(59,130,246,0.10)', borderRadius: 3 }}></div>
-                <Building2 className="w-10 h-10 relative z-10" style={{ color: '#0F172A' }} />
-              </div>
-
-              {/* Title */}
-              <h3 className="text-2xl font-bold mb-2" style={{ color: '#0F172A', fontFamily: "'Lora', Georgia, serif" }}>Searching for companies</h3>
-
-              {/* Status Message */}
-              <p className="mb-6 text-sm min-h-[20px]" style={{ color: '#6B7280' }}>
-                {searchProgress?.step || `Finding ${batchSize} companies matching your criteria`}
-              </p>
-
-              {/* Progress Bar Container */}
-              <div className="mb-4">
-                <div className="w-full h-3 overflow-hidden" style={{ background: '#EEF2F8', borderRadius: 3 }}>
-                  <div
-                    className="h-3 transition-all duration-500 ease-out relative overflow-hidden"
-                    style={{
-                      background: '#3B82F6',
-                      borderRadius: 3,
-                      width: searchProgress
-                        ? `${Math.max(2, Math.min(98, (searchProgress.current / searchProgress.total) * 100))}%`
-                        : '10%'
-                    }}
-                  >
-                    {/* Shimmer effect */}
-                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-loading-shimmer bg-[length:200%_100%]"></div>
-                  </div>
-                </div>
-
-                {/* Progress Text */}
-                <div className="flex items-center justify-between mt-3 text-xs">
-                  <span className="font-medium" style={{ color: '#3B82F6' }}>
-                    {searchProgress
-                      ? `${searchProgress.current} of ${searchProgress.total} companies`
-                      : 'Starting...'}
-                  </span>
-                  <span style={{ color: '#6B7280' }}>
-                    {searchProgress
-                      ? `${Math.round((searchProgress.current / searchProgress.total) * 100)}%`
-                      : '0%'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Estimated Time */}
-              <p className="text-xs mt-4" style={{ color: '#94A3B8' }}>
-                This usually takes 10-20 seconds
-              </p>
             </div>
           </div>
         )}

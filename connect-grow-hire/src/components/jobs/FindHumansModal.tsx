@@ -435,14 +435,25 @@ export function FindHumansModal({ open, onOpenChange, job, kind = "recruiter", c
       const info = await ensureDrafts();
       if (!info) return;
       const next = { ...info };
-      let sent = 0;
+      // Collect draftIds that haven't been sent, tracking the row-key for each
+      // so we can flip the right rows after the batch response comes back.
+      const pending: Array<{ key: string; draftId: string }> = [];
       for (const r of withEmail) {
         const k = cleanEmail(r).toLowerCase();
         const di = next[k];
-        if (di?.draftId && !di.sent) {
-          const sres = await apiService.sendDraft(di.draftId);
-          if (sres.success) {
-            next[k] = { ...di, sent: true };
+        if (di?.draftId && !di.sent) pending.push({ key: k, draftId: di.draftId });
+      }
+      let sent = 0;
+      if (pending.length > 0) {
+        const batch = await apiService.sendDraftsBatch(pending.map((p) => p.draftId));
+        const sentDraftIds = new Set(
+          (batch?.results ?? [])
+            .filter((res) => res.success || res.error === "draft_not_found")
+            .map((res) => res.draftId)
+        );
+        for (const { key, draftId } of pending) {
+          if (sentDraftIds.has(draftId)) {
+            next[key] = { ...next[key], sent: true };
             sent += 1;
           }
         }

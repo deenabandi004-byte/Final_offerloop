@@ -382,49 +382,59 @@ def prompt_search():
         # Trim to the originally requested count (whether or not dedup ran)
         contacts = contacts[:max_contacts]
 
-        # Enrich contacts with non-LinkedIn web presence (Perplexity)
+        # Enrichment — deferred out of preview mode. Perplexity talking points,
+        # Apify LinkedIn posts, and Perplexity company news are consumed only
+        # by batch_generate_emails at draft time. The preview UI renders none
+        # of these fields (grep-verified in connect-grow-hire/src/pages/
+        # ContactSearchPage.tsx), so running them here just makes GET wait
+        # ~10-15s for data no one looks at. When the user hits Draft/Send,
+        # batch_generate_emails runs on freshly-enriched contacts as usual.
         enrichment_data = {}
-        try:
-            from app.services.perplexity_client import batch_enrich_contacts
-            enrichment_data = batch_enrich_contacts(contacts)
-            for idx, contact in enumerate(contacts):
-                enrich = enrichment_data.get(idx, {})
-                if enrich.get("talking_points"):
-                    contact["enrichment_talking_points"] = enrich["talking_points"]
-                if enrich.get("recent_activity"):
-                    contact["enrichment_recent_activity"] = enrich["recent_activity"]
-                if enrich.get("media_appearances"):
-                    contact["perplexity_media_appearances"] = enrich["media_appearances"]
-                if enrich.get("published_writing"):
-                    contact["perplexity_published_writing"] = enrich["published_writing"]
-                if enrich.get("news_mentions"):
-                    contact["perplexity_news_mentions"] = enrich["news_mentions"]
-        except Exception:
-            print("⚠️ Contact enrichment failed, continuing without", flush=True)
+        if outreach_mode != "preview":
+            # Non-LinkedIn web presence (Perplexity, parallelized)
+            try:
+                from app.services.perplexity_client import batch_enrich_contacts
+                enrichment_data = batch_enrich_contacts(contacts)
+                for idx, contact in enumerate(contacts):
+                    enrich = enrichment_data.get(idx, {})
+                    if enrich.get("talking_points"):
+                        contact["enrichment_talking_points"] = enrich["talking_points"]
+                    if enrich.get("recent_activity"):
+                        contact["enrichment_recent_activity"] = enrich["recent_activity"]
+                    if enrich.get("media_appearances"):
+                        contact["perplexity_media_appearances"] = enrich["media_appearances"]
+                    if enrich.get("published_writing"):
+                        contact["perplexity_published_writing"] = enrich["published_writing"]
+                    if enrich.get("news_mentions"):
+                        contact["perplexity_news_mentions"] = enrich["news_mentions"]
+            except Exception:
+                print("⚠️ Contact enrichment failed, continuing without", flush=True)
 
-        # Enrich contacts with LinkedIn recent posts (Apify)
-        try:
-            from app.services.apify_client import batch_enrich_linkedin_posts_via_apify
-            apify_results = batch_enrich_linkedin_posts_via_apify(contacts) or {}
-            for idx, contact in enumerate(contacts):
-                payload = apify_results.get(idx, {})
-                if payload.get("linkedin_recent_posts"):
-                    contact["linkedin_recent_posts"] = payload["linkedin_recent_posts"]
-        except Exception:
-            print("⚠️ Apify LinkedIn enrichment failed, continuing", flush=True)
+            # LinkedIn recent posts (Apify, single batched HTTP call)
+            try:
+                from app.services.apify_client import batch_enrich_linkedin_posts_via_apify
+                apify_results = batch_enrich_linkedin_posts_via_apify(contacts) or {}
+                for idx, contact in enumerate(contacts):
+                    payload = apify_results.get(idx, {})
+                    if payload.get("linkedin_recent_posts"):
+                        contact["linkedin_recent_posts"] = payload["linkedin_recent_posts"]
+            except Exception:
+                print("⚠️ Apify LinkedIn enrichment failed, continuing", flush=True)
 
-        # Enrich contacts with company news (Perplexity, batched per company)
-        try:
-            from app.services.perplexity_client import batch_enrich_company_news
-            company_enrichment = batch_enrich_company_news(contacts) or {}
-            for idx, contact in enumerate(contacts):
-                co = company_enrichment.get(idx, {})
-                if co.get("company_recent_news"):
-                    contact["company_recent_news"] = co["company_recent_news"]
-                if co.get("company_description"):
-                    contact["company_description"] = co["company_description"]
-        except Exception:
-            print("⚠️ Perplexity company enrichment failed, continuing", flush=True)
+            # Company news (Perplexity, batched per unique company, parallelized)
+            try:
+                from app.services.perplexity_client import batch_enrich_company_news
+                company_enrichment = batch_enrich_company_news(contacts) or {}
+                for idx, contact in enumerate(contacts):
+                    co = company_enrichment.get(idx, {})
+                    if co.get("company_recent_news"):
+                        contact["company_recent_news"] = co["company_recent_news"]
+                    if co.get("company_description"):
+                        contact["company_description"] = co["company_description"]
+            except Exception:
+                print("⚠️ Perplexity company enrichment failed, continuing", flush=True)
+        else:
+            print(f"[Runs] Preview mode: skipping Perplexity + Apify enrichment for {len(contacts)} contacts")
 
         # Cost telemetry — single line per search so spend impact is visible.
         try:
@@ -490,24 +500,35 @@ def prompt_search():
 
         auth_display_name = (getattr(request, "firebase_user", None) or {}).get("name") or ""
 
-        # Download resume PDF and extract text for email personalization
+        # Resume assets — only fetched when we're actually going to draft/send.
+        # Preview mode returns contact info only, so skip the download entirely.
         resume_url = (user_data or {}).get("resumeUrl") or (user_data or {}).get("resumeURL")
         resume_text = None
         resume_content = None
         resume_filename = None
-        if resume_url:
+        if outreach_mode != "preview" and resume_url:
+            # Prefer the pre-extracted resumeText saved on the user doc at upload
+            # (see resume.py:save_resume_to_firebase). Avoids a pdfplumber pass
+            # every run — the text hasn't changed since upload.
+            _cached_text = (user_data or {}).get("resumeText")
+            if _cached_text and len(_cached_text.strip()) > 50:
+                resume_text = _cached_text
+                print(f"[Runs] Using cached resumeText from user doc ({len(resume_text)} chars)")
+
             try:
-                print(f"[Runs] Downloading resume for text extraction: {resume_url[:80]}...")
+                print(f"[Runs] Downloading resume bytes for attachment: {resume_url[:80]}...")
                 _content, _fname = download_resume_from_url(resume_url)
                 if _content:
                     resume_content = _content
                     resume_filename = _fname
-                    resume_text = extract_text_from_pdf_bytes(_content)
-                    if resume_text and len(resume_text.strip()) > 50:
-                        print(f"[Runs] Extracted {len(resume_text)} chars from resume PDF")
-                    else:
-                        print(f"[Runs] Resume text extraction too short ({len(resume_text or '')} chars)")
-                        resume_text = None
+                    # Only re-extract if the cached text was missing / too short.
+                    if not resume_text:
+                        resume_text = extract_text_from_pdf_bytes(_content)
+                        if resume_text and len(resume_text.strip()) > 50:
+                            print(f"[Runs] Extracted {len(resume_text)} chars from resume PDF")
+                        else:
+                            print(f"[Runs] Resume text extraction too short ({len(resume_text or '')} chars)")
+                            resume_text = None
                 else:
                     print("[Runs] Resume download returned no content")
             except Exception as e:
@@ -588,12 +609,17 @@ def prompt_search():
             _qg_user_university = (user_profile or {}).get("university", "")
 
             def _quality_check_and_regen(item):
-                """Check one email; regen if needed. Returns (index, was_regenerated)."""
+                """Check one email; regen if needed. Stamps the item with the
+                final quality result under `_finalQualityResult` so the
+                Firestore log loop below can reuse it instead of running
+                check_email_quality a third time. Returns (index, was_regenerated).
+                """
                 contact = item["contact"]
                 subject = item["email_subject"]
                 body = item["email_body"]
                 result = check_email_quality(subject, body, contact, _qg_user_university)
                 if result["passed"]:
+                    item["_finalQualityResult"] = result
                     return (item["index"], False)
                 # Attempt regeneration
                 original = {"subject": subject, "body": body}
@@ -613,6 +639,9 @@ def prompt_search():
                     contact["emailBody"] = improved["body"]
                     item["email_subject"] = improved["subject"]
                     item["email_body"] = improved["body"]
+                    item["_finalQualityResult"] = improved_result
+                else:
+                    item["_finalQualityResult"] = result
                 contact["_qualityRegenerated"] = True
                 return (item["index"], True)
 
@@ -631,13 +660,17 @@ def prompt_search():
             if regen_count > 0:
                 print(f"[Runs] Quality gate: regenerated {regen_count}/{len(contacts_with_emails)} emails")
 
-            # Log quality gate results to Firestore
+            # Log quality gate results to Firestore — reuse the final result
+            # stamped on each item by the executor above. Saves one full
+            # check_email_quality call per contact.
             if db and user_id and contacts_with_emails:
                 try:
                     quality_ref = db.collection("email_quality_logs")
                     for item in contacts_with_emails:
                         contact = item["contact"]
-                        qr = check_email_quality(item["email_subject"], item["email_body"], contact, _qg_user_university)
+                        qr = item.get("_finalQualityResult") or check_email_quality(
+                            item["email_subject"], item["email_body"], contact, _qg_user_university
+                        )
                         quality_ref.add({
                             "userId": user_id,
                             "contactId": contact.get("pdlId", ""),

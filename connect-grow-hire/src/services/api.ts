@@ -1440,15 +1440,41 @@ class ApiService {
   /**
    * Send a Gmail draft that was created server-side during a search.
    * Used by the Find-page draft review row's "Send" button. Returns
-   * { success, messageId, threadId } on success; { success: false,
-   * error: "draft_not_found" } (HTTP 410) if the draft was already sent
-   * or no longer exists — the UI should still flip to "Sent" in that case.
+   * { success: true, messageId, threadId } on success; HTTP 200 with
+   * { success: false, error: "draft_not_found" } if the draft was already
+   * sent or no longer exists — the UI should still flip to "Sent" in that
+   * case. Returns 200 (not 410) because makeRequest throws on non-2xx,
+   * and the "already-sent-is-success" branch needs to run without throwing.
    */
   async sendDraft(draftId: string): Promise<{ success: boolean; messageId?: string; threadId?: string; error?: string; message?: string }> {
     const headers = await this.getAuthHeaders();
     return this.makeRequest(`/emails/send-draft/${encodeURIComponent(draftId)}`, {
       method: 'POST',
       headers,
+    });
+  }
+
+  /**
+   * Send N Gmail drafts in parallel via a single backend call. Replaces the
+   * per-draft for...await loop that made "Send All" scale linearly with N.
+   * Backend caps concurrency at 5 (Gmail per-user quota); email content is
+   * sent as-is from the existing draft — no re-generation, no quality drift.
+   * Per-draft results are aligned with input order. `draft_not_found`
+   * counts as sent (draft was consumed elsewhere), matching sendDraft().
+   */
+  async sendDraftsBatch(draftIds: string[]): Promise<{
+    success: boolean;
+    sent_count: number;
+    failed_count: number;
+    results: Array<{ draftId: string; success: boolean; messageId?: string; threadId?: string; error?: string; message?: string }>;
+    error?: string;
+    message?: string;
+  }> {
+    const headers = await this.getAuthHeaders();
+    return this.makeRequest('/emails/send-drafts-batch', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ draftIds }),
     });
   }
 
@@ -1462,14 +1488,26 @@ class ApiService {
   async generateAndDraftEmails(payload: {
     contacts: Array<{ Name?: string; Email: string; Company?: string; Title?: string; [k: string]: any }>;
     emailTemplate?: EmailTemplate | null;
+    // HM flow opts into a Perplexity verify_hiring_managers_v2 pass so the
+    // "Hiring now" badge populates on drafted rows before send. Skipped in
+    // preview for speed; re-run here where the signal actually matters
+    // (review-before-send). ~3-5s added when enabled.
+    enrichHiringSignal?: boolean;
+    enrichContext?: { company?: string; jobTitle?: string };
   }): Promise<
-    | { success: boolean; draft_count: number; drafts: Array<{ index?: number; to: string; draftId: string; messageId?: string; threadId?: string; gmailUrl?: string; subject?: string; body?: string }>; connected_email?: string; skipped_count?: number }
+    | { success: boolean; draft_count: number; drafts: Array<{ index?: number; to: string; draftId: string; messageId?: string; threadId?: string; gmailUrl?: string; subject?: string; body?: string; activelyHiring?: string; recentHiringSignal?: string }>; connected_email?: string; skipped_count?: number }
     | { error: string; message?: string }
   > {
     const headers = await this.getAuthHeaders();
     const body: Record<string, unknown> = { contacts: payload.contacts };
     if (payload.emailTemplate && hasEmailTemplateValues(payload.emailTemplate)) {
       body.emailTemplate = payload.emailTemplate;
+    }
+    if (payload.enrichHiringSignal) {
+      body.enrichHiringSignal = true;
+    }
+    if (payload.enrichContext) {
+      body.enrichContext = payload.enrichContext;
     }
     return this.makeRequest('/emails/generate-and-draft', {
       method: 'POST',

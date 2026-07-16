@@ -1460,8 +1460,10 @@ def create_drafts_parallel(contacts_with_emails, resume_bytes=None, resume_filen
         except Exception as e:
             print(f"⚠️ Could not download resume from URL in create_drafts_parallel: {e}")
     
-    # Use semaphore-like behavior with max 5 concurrent workers
-    max_workers = min(5, len(contacts_with_emails))
+    # Gmail per-user quota: 250 units/sec; drafts.create costs 10 units → 25
+    # sustained draft creations/sec. 10 concurrent workers stay well inside
+    # the budget while cutting Elite's 15-draft run from 3 waves to 2.
+    max_workers = min(10, len(contacts_with_emails))
     results = []
     results_lock = threading.Lock()
     
