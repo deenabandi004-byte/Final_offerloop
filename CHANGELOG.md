@@ -2,6 +2,17 @@
 
 All notable changes to Offerloop will be documented in this file.
 
+## [0.1.12.0] - 2026-07-15
+
+### Fixed
+- **Pricing slider now charges what it shows.** Dragging the Pro slider to 3K credits ($19.99) or 4K credits ($24.99) was silently charging the 2K/$14.99 legacy Stripe SKU because `STRIPE_PRICE_CATALOG` only had a Price ID wired for the 2K default stop, and `resolvePriceId()` returning `''` fell back to `LEGACY_PRO_PRICE_ID`. Same problem on Elite 3K and 7K stops.
+  - `POST /api/create-checkout-session` now accepts `tier + credits + cadence + audience` alongside `priceId`. Backend verifies that the passed Price ID's catalog metadata actually matches the slider selection; if not, it looks up the dollar amount from `SLIDER_STOPS` server-side (client-sent credits/audience validated against the canonical price sheet — no arbitrary amounts) and builds inline recurring `price_data` so Stripe charges exactly what the pricing card displayed. Wired SKUs still win when they exist (`STRIPE_PRO_MONTHLY_STUDENT_2K` and `STRIPE_ELITE_MONTHLY_STUDENT_5K` continue to route through the catalog).
+  - `handle_checkout_completed` now grants `session.metadata.credits` instead of `TIER_CONFIGS[tier].credits`, so a 3K purchase actually lands 3,000 credits (previously would have landed 2,000 — the tier default). Guardrail: if metadata credits < tier default, keep the tier default so a bad metadata value can't shrink an existing subscriber.
+  - Frontend `handleStripeCheckout` sends the selected slider stop (`tier/credits/cadence/audience`) with every request.
+
+### Known follow-ups
+- `/api/update-subscription` (existing subscribers changing tier via `stripe.Subscription.modify`) still requires a real Stripe Price ID, so non-default stops on that path still resolve to the legacy SKU. Rare path — most tier changes route through checkout — but wire real Stripe SKUs (`STRIPE_PRO_MONTHLY_STUDENT_1K/3K/4K`, `STRIPE_ELITE_MONTHLY_STUDENT_3K/7K`) in Render env when this becomes a revenue issue.
+
 ## [0.1.11.0] - 2026-07-07
 
 ### Added

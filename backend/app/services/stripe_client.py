@@ -5,7 +5,7 @@ import os
 import stripe
 from datetime import datetime
 from flask import request, jsonify
-from app.config import STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, TIER_CONFIGS, STRIPE_PRO_PRICE_ID, STRIPE_ELITE_PRICE_ID, STRIPE_PRICE_CATALOG, STRIPE_COUPONS, TRIAL_DAYS_STUDENT, TRIAL_DAYS_NON_STUDENT
+from app.config import STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, TIER_CONFIGS, STRIPE_PRO_PRICE_ID, STRIPE_ELITE_PRICE_ID, STRIPE_PRICE_CATALOG, STRIPE_COUPONS, TRIAL_DAYS_STUDENT, TRIAL_DAYS_NON_STUDENT, SLIDER_STOPS
 from app.extensions import get_db
 from app.services.auth import check_and_reset_credits
 
@@ -86,6 +86,25 @@ def _trial_days_for_price(price_id: str) -> int:
     if not meta:
         return 0
     return TRIAL_DAYS_STUDENT if meta['audience'] == 'student' else TRIAL_DAYS_NON_STUDENT
+
+
+def _lookup_slider_amount_cents(tier: str, credits: int, audience: str) -> int:
+    """Server-authoritative dollar amount for a (tier, credits, audience) slider
+    selection. Returns cents suitable for Stripe `unit_amount`. Returns 0 if the
+    selection doesn't match a real slider stop — caller must reject.
+
+    Client can spoof the credits/audience it sends, but SLIDER_STOPS is the
+    canonical price sheet so no matter what they send we only ever charge a real
+    listed price."""
+    stops = SLIDER_STOPS.get(tier) or []
+    for stop in stops:
+        if stop.get('credits') == credits:
+            price_key = 'student' if audience == 'student' else 'list'
+            price = stop.get(price_key)
+            if price is None:
+                return 0
+            return int(round(float(price) * 100))
+    return 0
 
 
 # ============================================================================
@@ -288,12 +307,56 @@ def create_checkout_session():
         user_id = request.firebase_user.get('uid')
         user_email = request.firebase_user.get('email')
         price_id = data.get('priceId')
-        
+        # Slider selection — used when the catalog doesn't have a real Price ID
+        # wired for this (tier, credits, cadence, audience) combination. The
+        # frontend always sends these so the backend can build inline price_data
+        # matching what the pricing card actually showed.
+        slider_tier = (data.get('tier') or '').lower() or None
+        slider_credits_raw = data.get('credits')
+        slider_cadence = (data.get('cadence') or 'monthly').lower()
+        slider_audience = (data.get('audience') or 'student').lower()
+        try:
+            slider_credits = int(slider_credits_raw) if slider_credits_raw is not None else None
+        except (TypeError, ValueError):
+            slider_credits = None
+
         # Validate required fields
         if not user_id:
             return jsonify({'error': 'User ID is required'}), 400
         if not user_email:
             return jsonify({'error': 'User email is required'}), 400
+
+        # Prefer a catalog-backed Price ID when one exists AND it actually
+        # matches the slider selection. The frontend falls back to the legacy
+        # 2K default SKU whenever a stop lacks a wired SKU, so we must verify
+        # the Price ID's (tier, credits, audience, cadence) match what the user
+        # picked — otherwise a 3K/$19.99 selection would silently charge the
+        # 2K/$14.99 legacy SKU.
+        catalog_meta = _PRICE_ID_INDEX.get(price_id) if price_id else None
+        catalog_matches_slider = bool(catalog_meta) and (
+            slider_tier is None
+            or (
+                catalog_meta.get('tier') == slider_tier
+                and (slider_credits is None or catalog_meta.get('credits') == slider_credits)
+                and (not slider_audience or catalog_meta.get('audience') == slider_audience)
+                and (not slider_cadence or catalog_meta.get('cadence') == slider_cadence)
+            )
+        )
+        use_inline = (
+            not catalog_matches_slider
+            and slider_tier in ('pro', 'elite')
+            and slider_credits is not None
+        )
+        inline_amount_cents = 0
+        if use_inline:
+            inline_amount_cents = _lookup_slider_amount_cents(
+                slider_tier, slider_credits, slider_audience
+            )
+            if inline_amount_cents <= 0:
+                return jsonify({
+                    'error': 'Invalid slider selection',
+                    'detail': f'No listed price for tier={slider_tier} credits={slider_credits} audience={slider_audience}',
+                }), 400
         
         # Determine base URL based on environment
         if request.url_root and 'localhost' in request.url_root:
@@ -310,16 +373,40 @@ def create_checkout_session():
         print(f"Success URL: {success_url}")
         print(f"Cancel URL: {cancel_url}")
         
-        # Intended tier from price ID so webhook can use it as fallback if price ID mapping fails
-        intended_tier = get_tier_from_price_id(price_id) if price_id else 'pro'
-        # Trial length is driven by the price's audience (student vs list) so
-        # checkout matches the trial copy on the pricing card. handle_checkout_completed
-        # writes trialUsedAt when sub_status=='trialing', and _user_has_used_trial
-        # below enforces one-per-account regardless of which path granted it.
-        trial_days = _trial_days_for_price(price_id)
+        # Intended tier: prefer the slider selection (which the pricing card
+        # displayed) over price-ID lookup. Falls back to price-ID → tier for
+        # the legacy path, then 'pro' as last resort.
+        if slider_tier in ('pro', 'elite'):
+            intended_tier = slider_tier
+        elif price_id:
+            intended_tier = get_tier_from_price_id(price_id)
+        else:
+            intended_tier = 'pro'
+        # Trial length: for the inline slider path we drive off audience directly
+        # (SLIDER_STOPS is the price sheet, not the catalog). For the catalog
+        # path keep the existing price-ID-driven resolution so trial length can't
+        # drift from what the wired SKU implies.
+        if use_inline:
+            trial_days = TRIAL_DAYS_STUDENT if slider_audience == 'student' else TRIAL_DAYS_NON_STUDENT
+        else:
+            trial_days = _trial_days_for_price(price_id)
         if trial_days > 0 and _user_has_used_trial(user_id):
             print(f"[Stripe] user {user_id} already used their trial; checkout will not grant another.")
             trial_days = 0
+        # Metadata carries the slider selection so the webhook grants the exact
+        # credit allocation the user paid for (TIER_CONFIGS[tier].credits is
+        # only the default stop — a 3K Pro purchase must land 3K credits, not 2K).
+        metadata = {
+            'user_id': user_id,
+            'tier': intended_tier,
+        }
+        if slider_credits is not None:
+            metadata['credits'] = str(slider_credits)
+        if slider_audience:
+            metadata['audience'] = slider_audience
+        if slider_cadence:
+            metadata['cadence'] = slider_cadence
+
         # Prepare session parameters
         session_params = {
             'payment_method_types': ['card'],
@@ -328,39 +415,46 @@ def create_checkout_session():
             'cancel_url': cancel_url,
             'customer_email': user_email,
             'allow_promotion_codes': True,
-            'metadata': {
-                'user_id': user_id,
-                'tier': intended_tier,
-            },
+            'metadata': metadata,
         }
         # Stripe rejects trial_period_days < 1, so only attach subscription_data
         # when trial_days resolved to >= 1 (i.e., a recognized price the user
         # hasn't already burned a trial on).
         if trial_days > 0:
             session_params['subscription_data'] = {'trial_period_days': trial_days}
-        
+
         # Create checkout session
-        if price_id:
-            # Use the provided price ID
+        if use_inline:
+            # Slider stop without a wired SKU — build inline recurring price_data
+            # from SLIDER_STOPS so Stripe charges exactly the amount the card
+            # displayed. Amount was server-looked-up above so client can't spoof it.
+            interval = 'year' if slider_cadence == 'annual' else 'month'
+            product_name = f"Offerloop {intended_tier.title()} — {slider_credits:,} credits/mo"
+            session_params['line_items'] = [{
+                'price_data': {
+                    'currency': 'usd',
+                    'product_data': {
+                        'name': product_name,
+                    },
+                    'unit_amount': inline_amount_cents,
+                    'recurring': {
+                        'interval': interval,
+                    },
+                },
+                'quantity': 1,
+            }]
+        elif catalog_matches_slider or (price_id and slider_tier is None):
+            # Catalog-backed SKU — use the pre-created Stripe Price. The second
+            # branch preserves the legacy path (no slider params sent at all).
             session_params['line_items'] = [{
                 'price': price_id,
                 'quantity': 1,
             }]
         else:
-            # Fallback to inline price data if no priceId provided
-            session_params['line_items'] = [{
-                'price_data': {
-                    'currency': 'usd',
-                    'product_data': {
-                        'name': 'Offerloop Pro',
-                    },
-                    'unit_amount': 1999,  # $19.99
-                    'recurring': {
-                        'interval': 'month',
-                    },
-                },
-                'quantity': 1,
-            }]
+            return jsonify({
+                'error': 'Missing checkout target',
+                'detail': 'Either a wired priceId or (tier, credits) slider selection is required',
+            }), 400
         
         try:
             session = stripe.checkout.Session.create(**session_params)
@@ -504,14 +598,29 @@ def handle_checkout_completed(session):
             tier = tier_from_metadata
 
         tier_config = TIER_CONFIGS.get(tier, TIER_CONFIGS['pro'])
-        print(f"[Stripe] User upgraded to {tier} (metadata={tier_from_metadata}, price_id={price_id})")
+        # Prefer slider credits from metadata over the tier default. A user who
+        # paid $19.99 for the 3K Pro stop must get 3K, not the 2K default that
+        # TIER_CONFIGS['pro'] carries. Falls back to the tier default when the
+        # legacy flow ran without slider metadata.
+        credits_from_metadata = (session.get('metadata') or {}).get('credits')
+        granted_credits = tier_config['credits']
+        if credits_from_metadata:
+            try:
+                parsed = int(credits_from_metadata)
+                # Guardrail: don't grant less than the tier default (protects
+                # against a bad metadata value shrinking a Pro user).
+                if parsed >= tier_config['credits']:
+                    granted_credits = parsed
+            except (TypeError, ValueError):
+                pass
+        print(f"[Stripe] User upgraded to {tier} with {granted_credits} credits (metadata={tier_from_metadata}, price_id={price_id})")
 
         user_ref = db.collection('users').document(user_id)
         update_payload = {
             'subscriptionTier': tier,
             'tier': tier,  # Keep for backward compatibility
-            'maxCredits': tier_config['credits'],
-            'credits': tier_config['credits'],
+            'maxCredits': granted_credits,
+            'credits': granted_credits,
             'stripeSubscriptionId': subscription_id,
             'stripeCustomerId': session.get('customer'),
             'subscriptionStatus': sub_status,
