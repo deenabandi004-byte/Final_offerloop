@@ -1,42 +1,47 @@
-# Sector classifier — QA flags for Sid
+# Sector + index QA — final handoff for Sid
 
-From spot-checking the top companies BY VOLUME in each sector (those are the ones
-that rank #1–3 and actually surface in Scout's pool-derived suggestions). Two
-buckets: wrong sector, and canonicalization leftovers. Low priority — the app
-keeps curated names primary, so these only show in niche vibes — but worth a
-classifier-prompt tweak / spot-fix since they lead their sectors by volume.
+Verified against prod after the alias-merge + backfill (2026-07-15, 7,481/7,481
+classified). Good news: **jobs merged correctly** at the source — `Monster
+Energy`=133 / `monsterenergy`=0, `Horace Mann`=416 / `Horace Mann - Agent
+Opportunities`=0, `Morgan & Morgan`=334 / `Morgan & Morgan P A`=0. Two things
+didn't fully land, one new:
 
-## A. High-volume misclassifications (company · jobs · current → suggested)
-- **Horace Mann - Agent Opportunities** · 383 · `finance_investment_bank` → insurance sales recruiting, not IB (also strip the "- Agent Opportunities" suffix)
-- **Morgan & Morgan P A** · 334 · `consulting_professional` → personal-injury **law firm**, not consulting
-- **INFUSE** · 183 · `edtech` → B2B lead-gen/demand-gen agency, not edtech
-- **Genius Sports Statistician Network** · 449 · `gaming` → sports-data/betting (+ a gig "network"), not a game studio
-- **Betsson** · 98 · `gaming` → gambling/betting, not video games
-- **michelscorporation** · 489 · `climate_energy` → Michels Corp, a construction/utility contractor
-- **Air Apps** · 429 · `devtools_infra` → consumer app publisher, not dev tools
-- **Omada ai** · 259 · `ai_ml` → almost certainly Omada Health → `healthtech`
-- **Harvey** · 173 · `consulting_professional` → Harvey **AI** (legal AI) → `ai_ml`
-- **CHAOS Industries** · 102 · `cybersecurity` → defense hardware → `defense_aerospace`
-- **monsterenergy** · 133 · `consumer_social` → Monster Energy (beverage/CPG), not social
-- **Lyft** · 107 · `consumer_social` → rideshare → `consumer_marketplace`
+## 1. NEW — `companies` index has stale zombie docs (Piece 1)
+The jobs moved to canonical names, but the OLD fragmented company docs still exist
+in the index with their pre-merge counts:
+```
+companies/monsterenergy                  total=133  (real jobs now 0)
+companies/monster-energy                 total=133  (the real one)
+companies/horace-mann-agent-opportunities total=383 (real jobs now 0)
+companies/morgan-morgan-p-a              total=334  (real jobs now 0)
+```
+The 2h rebuild looks **upsert-only** — it never zeroes/deletes a company that
+dropped to 0 jobs, so every merge leaves a zombie. Fix: rebuild the index
+delete-first (or prune docs whose recomputed total is 0). Affects the company
+page, `/company-counts`, and Scout suggestions (dupes show).
 
-Pattern: high-volume **mass-hirers** (insurance agents, law firms, staffing arms,
-gig networks) get pulled into a plausible-sounding tech sector. If the prompt can
-distinguish "hires-at-scale services co" from "product/tech co," most of these fix.
+## 2. Services-vs-product mislabels that PERSIST (the --force list you asked for)
+Re-classification kept these on the canonical docs — they're mass-hire *services*
+firms sitting atop tech sectors by volume:
+- **Horace Mann** (416) `finance_investment_bank` → insurance agents → `other`
+- **Morgan & Morgan** (334) `consulting_professional` → law firm → `other`
+- **Genius Sports Statistician Network** (449) `gaming` → sports-data gig network → `other`
+- **Betsson** (98) `gaming` → gambling, not video games → `other` (or media)
+- **Bjak** (747) `ai_ml` → Malaysian insurance marketplace → `fintech`/`other` (it ranks #1 in ai_ml, so this one hurts)
+- **TSMG** (559) `ai_ml` → verify (unknown; #3 in ai_ml by volume)
 
-## B. Canonicalization leftovers (name → should be)
-- **Paytm Payments** (476) + **Paytm** (127) — two docs, same firm → merge to **Paytm**
-- **jdsportsfr** (595) → **JD Sports** (stray "fr" locale suffix)
-- **n2publishingglassdoor** (188) → **N2 Publishing** (stray "glassdoor" source suffix)
-- **monsterenergy** (133) → **Monster Energy** (missing space)
-- **michelscorporation** (489) → **Michels Corporation** (missing space)
+Clear sector corrections (product cos in the wrong bucket):
+- **Harvey** (173) `consulting_professional` → legal **AI** → `ai_ml`
+- **Omada Health** `ai_ml` (was "Omada ai") → `healthtech`
+- **CHAOS Industries** (102) `cybersecurity` → defense hardware → `defense_aerospace`
+- **Lyft** (107) `consumer_social` → rideshare → `consumer_marketplace`
+- **Monster Energy** (133) `consumer_social` → beverage/CPG → `consumer_marketplace`/`other`
 
-The "…glassdoor" / "…fr" source-suffix and no-space concatenations look like a
-scrape-artifact class the normalizer could strip. (Scout's endpoint already drops
-`glassdoor`/`staffing`/`talent platform`/`recruiting` names from suggestions, but
-fixing them at the source helps the company page + counts too.)
+Prompt lever: the recurring failure is **"hires-at-scale services co" (insurance
+agents, law firms, staffing/gig networks) → getting a plausible tech sector.** A
+rule that routes those to `other` fixes most of #2.
 
-## Not flagged (judgment calls, taxonomy not error)
-`healthtech` reads broad — Pulse/LifeStance/Centria/BAYADA are healthcare *services*
-that mass-hire, not health *tech*. Fine if that's the intended bucket; flagging in
-case you want a services-vs-tech split later.
+## Not an error (taxonomy call)
+`healthtech` is broad — Pulse/LifeStance/Centria/BAYADA are healthcare *services*
+that mass-hire, not health *tech*. Fine if intended; flag for a services-vs-tech
+split only if you want it.
