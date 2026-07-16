@@ -15,6 +15,7 @@ from app.services.stripe_client import (
     update_subscription_tier,
     apply_post_checkout_upsell,
     record_post_checkout_upsell_decline,
+    user_is_student_eligible,
 )
 from app.services.refund_service import create_refund_request
 from app.services.topup_service import create_topup_session
@@ -179,6 +180,15 @@ def create_season_pass_session_route():
 
     data = request.get_json() or {}
     audience = data.get('audience') or 'list'
+
+    # Student pricing is .edu-gated on the server, not just in the UI. If the
+    # caller asks for student audience but doesn't clear the eligibility bar,
+    # silently downgrade to list pricing rather than fail — season pass has no
+    # "no discount" cancel path in the UI, so falling through to list is the
+    # correct fallback.
+    if audience == 'student' and not user_is_student_eligible(user_id, user_email or ''):
+        print(f"[SeasonPass] downgrading student->list: user_id={user_id} email={user_email}")
+        audience = 'list'
 
     base = request.url_root.rstrip('/')
     if 'localhost' in base:

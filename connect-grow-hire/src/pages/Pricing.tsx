@@ -230,10 +230,6 @@ const Pricing = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const [billingCadence, setBillingCadence] = useState<'monthly' | 'annual'>('monthly');
-  // showStudentPrice is a visual toggle — lets visitors SEE the .edu discount
-  // before signing up. Real checkout uses the student SKU only when the user's
-  // Firestore `isStudent` flag is true; the server re-validates audience match.
-  const [showStudentPrice, setShowStudentPrice] = useState(true);
   const [navbarScrolled, setNavbarScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   // Higgsfield-style in-tier credit slider — selected stop index per tier.
@@ -244,6 +240,13 @@ const Pricing = () => {
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const navigate = useNavigate();
   const { user, updateUser, checkCredits, isLoading: authLoading } = useFirebaseAuth();
+
+  // Student pricing is derived from the signed-in user's email — never a UI
+  // toggle. A .edu on the primary sign-up email, OR a .edu added on the profile
+  // step (surfaced as Firestore `isStudent`), unlocks the discount. Unsigned
+  // visitors see list pricing. Server re-validates audience at checkout.
+  const userEmailIsEdu = (user?.email || '').toLowerCase().trim().endsWith('.edu');
+  const showStudentPrice = Boolean((user as any)?.isStudent) || userEmailIsEdu;
 
   // Pull runtime tier config (cached via React Query). Drives prices, slider
   // stops, Stripe SKUs, trial days, active promos, top-up packs. Falls back to
@@ -1086,57 +1089,46 @@ const Pricing = () => {
               animationDelay: '.05s',
             }}
           >
-            {/* .edu Student Price toggle - the primary discount lever */}
-            <div
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 10,
-                background: showStudentPrice ? T.primary100 : T.paper,
-                border: `1px solid ${showStudentPrice ? T.primary : T.border}`,
-                borderRadius: 100,
-                padding: '8px 14px',
-                boxShadow: '0 1px 3px rgba(15,37,69,0.06)',
-                transition: `all .2s ${EASE}`,
-              }}
-            >
-              <GraduationCap size={15} style={{ color: showStudentPrice ? T.primary : T.ink3 }} />
-              <span style={{ fontSize: 13, fontWeight: 600, color: showStudentPrice ? T.heading : T.ink3 }}>
-                {showStudentPrice ? '.edu student price, ~50% off' : 'Show .edu student price (~50% off)'}
-              </span>
-              <button
-                onClick={() => setShowStudentPrice(!showStudentPrice)}
-                role="switch"
-                aria-checked={showStudentPrice}
-                aria-label="Toggle student price display"
+            {/* .edu student pricing badge — static, non-interactive. Eligibility
+                is derived from the signed-in user's email (see showStudentPrice
+                above) and cannot be toggled from the UI. */}
+            {showStudentPrice ? (
+              <div
                 style={{
-                  position: 'relative',
                   display: 'inline-flex',
                   alignItems: 'center',
-                  width: 40,
-                  height: 22,
+                  gap: 8,
+                  background: T.primary100,
+                  border: `1px solid ${T.primary}`,
                   borderRadius: 100,
-                  border: 'none',
-                  cursor: 'pointer',
-                  background: showStudentPrice ? T.primary : '#CBD5E1',
-                  transition: `background .2s ${EASE}`,
-                  flexShrink: 0,
+                  padding: '8px 14px',
+                  boxShadow: '0 1px 3px rgba(15,37,69,0.06)',
                 }}
               >
-                <span
-                  style={{
-                    display: 'inline-block',
-                    width: 18,
-                    height: 18,
-                    borderRadius: '50%',
-                    background: '#fff',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
-                    transform: showStudentPrice ? 'translateX(19px)' : 'translateX(3px)',
-                    transition: `transform .2s ${EASE}`,
-                  }}
-                />
-              </button>
-            </div>
+                <GraduationCap size={15} style={{ color: T.primary }} />
+                <span style={{ fontSize: 13, fontWeight: 600, color: T.heading }}>
+                  .edu student price applied, ~50% off
+                </span>
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  background: T.paper,
+                  border: `1px solid ${T.border}`,
+                  borderRadius: 100,
+                  padding: '8px 14px',
+                  boxShadow: '0 1px 3px rgba(15,37,69,0.06)',
+                }}
+              >
+                <GraduationCap size={15} style={{ color: T.ink3 }} />
+                <span style={{ fontSize: 13, fontWeight: 600, color: T.ink3 }}>
+                  .edu email required for ~50% off
+                </span>
+              </div>
+            )}
 
             {/* Monthly / Annual pill with sliding navy thumb */}
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>

@@ -88,6 +88,33 @@ def _trial_days_for_price(price_id: str) -> int:
     return TRIAL_DAYS_STUDENT if meta['audience'] == 'student' else TRIAL_DAYS_NON_STUDENT
 
 
+def user_is_student_eligible(user_id: str, user_email: str) -> bool:
+    """True iff this user can be sold a 'student' audience Stripe price.
+
+    Match rules (any one satisfies):
+      - Sign-up email ends in .edu
+      - Firestore `isStudent` flag is true (set by onboarding when a .edu is
+        present on the primary email or added on the profile step)
+      - Firestore `eduEmail` field ends in .edu (added post-onboarding)
+
+    Server-side gate — the frontend hides the student toggle, but any caller
+    can POST a student price ID directly. Rejecting here is the actual bar.
+    """
+    if (user_email or '').lower().strip().endswith('.edu'):
+        return True
+    db = get_db()
+    if not db or not user_id:
+        return False
+    snap = db.collection('users').document(user_id).get()
+    if not snap.exists:
+        return False
+    data = snap.to_dict() or {}
+    if data.get('isStudent'):
+        return True
+    edu = (data.get('eduEmail') or '').lower().strip()
+    return edu.endswith('.edu')
+
+
 def _lookup_slider_amount_cents(tier: str, credits: int, audience: str) -> int:
     """Server-authoritative dollar amount for a (tier, credits, audience) slider
     selection. Returns cents suitable for Stripe `unit_amount`. Returns 0 if the
@@ -357,7 +384,23 @@ def create_checkout_session():
                     'error': 'Invalid slider selection',
                     'detail': f'No listed price for tier={slider_tier} credits={slider_credits} audience={slider_audience}',
                 }), 400
-        
+
+        # Student pricing is .edu-gated on the server, not just in the UI. The
+        # effective audience is either the slider selection (inline path) or the
+        # catalog SKU's audience (catalog path). Reject 'student' if the caller
+        # doesn't clear the eligibility bar — the frontend hides the toggle but
+        # any client can POST student params directly.
+        effective_audience = (
+            slider_audience if use_inline
+            else (catalog_meta.get('audience') if catalog_meta else None)
+        )
+        if effective_audience == 'student' and not user_is_student_eligible(user_id, user_email):
+            print(f"[Stripe] blocking student-audience checkout: user_id={user_id} email={user_email} price_id={price_id} slider=({slider_tier},{slider_credits},{slider_cadence})")
+            return jsonify({
+                'error': 'student_audience_requires_edu',
+                'message': 'Student pricing requires a verified .edu email.',
+            }), 403
+
         # Determine base URL based on environment
         if request.url_root and 'localhost' in request.url_root:
             base_url = 'http://localhost:8080'  # Frontend dev server runs on port 8080
