@@ -1381,7 +1381,7 @@ def _find_jobs(query: str, limit: Any = None) -> Dict[str, Any]:
             q = db.collection("jobs").order_by("posted_at", direction="DESCENDING")
             if primary:
                 q = q.where(filter=FieldFilter("search_terms", "array_contains", primary))
-            for snap in q.limit(60).stream():
+            for snap in q.limit(150).stream():
                 if snap.id in candidates:
                     continue
                 d = snap.to_dict() or {}
@@ -1398,12 +1398,20 @@ def _find_jobs(query: str, limit: Any = None) -> Dict[str, Any]:
                     "company": company[:120],
                     "location": loc[:120],
                     "auto_apply_eligible": bool(is_eligible(d)),
+                    "apply_url": _job_text(d.get("apply_url") or d.get("url") or "")[:2000],
                     "_score": score,
                 }
             if candidates:
                 break
-        ranked = sorted(candidates.values(), key=lambda j: j["_score"], reverse=True)
-        jobs = [{k: v for k, v in j.items() if k != "_score"} for j in ranked[:limit]]
+        # Prefer to surface ONLY jobs Scout can actually submit for the user:
+        # eligible matches take the whole result set, and ineligible ones
+        # only appear when there is no eligible match at all. Returning fewer
+        # eligible jobs beats padding with ineligible ones the user would
+        # have to apply to by hand.
+        by_score = sorted(candidates.values(), key=lambda j: j["_score"], reverse=True)
+        eligible = [j for j in by_score if j.get("auto_apply_eligible")]
+        pool = eligible if eligible else by_score
+        jobs = [{k: v for k, v in j.items() if k != "_score"} for j in pool[:limit]]
         # query rides along so the harness can prefill the Job Board chip.
         return {"count": len(jobs), "jobs": jobs, "query": query}
     except Exception as e:
