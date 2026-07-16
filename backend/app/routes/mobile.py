@@ -773,6 +773,44 @@ def sector_jobs():
     return jsonify({'jobs': interleaved[:limit]}), 200
 
 
+@mobile_bp.post('/account/delete')
+@require_firebase_auth
+def delete_account():
+    """Permanently delete the signed-in user's account + data. REQUIRED by Apple
+    5.1.1(v) for any app with account creation — no store approval without it.
+    Removes the Firestore user doc (and its subcollections) and the Firebase Auth
+    user, which is what actually revokes the account."""
+    uid = request.firebase_user['uid']
+    db = get_db()
+    user_ref = db.collection('users').document(uid)
+    # 1. Firestore data — recursive delete (doc + all subcollections). Fall back
+    #    to sweeping the known subcollections if recursive_delete isn't available.
+    try:
+        db.recursive_delete(user_ref)
+    except Exception:
+        try:
+            for sub in ('contacts', 'integrations', 'recruiters', 'manual_firms',
+                        'scoutConversations', 'coffee-chat-preps', 'scoutChats',
+                        'messages', 'notifications', 'activity', 'searchHistory',
+                        'firmSearches', 'exports', 'goals', 'autoApplyJobs',
+                        'devices', 'feedback', 'jobPreferences', 'calendar_events'):
+                for d in user_ref.collection(sub).stream():
+                    d.reference.delete()
+            user_ref.delete()
+        except Exception:
+            logger.exception('account delete: firestore cleanup failed for %s', uid)
+    # 2. The Auth user — this is what actually removes the account. If this fails
+    #    we must NOT report success (Apple treats a still-usable login as no delete).
+    try:
+        from firebase_admin import auth as fb_auth
+        fb_auth.delete_user(uid)
+    except Exception:
+        logger.exception('account delete: auth delete failed for %s', uid)
+        return jsonify({'ok': False, 'error': 'delete_failed'}), 500
+    logger.info('account deleted for %s', uid)
+    return jsonify({'ok': True}), 200
+
+
 @mobile_bp.post('/preferences')
 @require_firebase_auth
 def save_preferences():
