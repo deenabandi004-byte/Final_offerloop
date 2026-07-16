@@ -19,6 +19,7 @@ import base64
 import json
 import logging
 import random
+import re
 import threading
 
 logger = logging.getLogger(__name__)
