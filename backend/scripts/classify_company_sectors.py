@@ -78,8 +78,33 @@ SYSTEM_PROMPT = (
     "Rules:\n"
     "- Pick the DOMINANT sector. If a company clearly does two, pick the "
     "one most students would associate with the brand.\n"
-    "- Use 'other' ONLY when the company is clearly outside all listed "
-    "sectors (blue-collar staffing, MLM, unknown/vague).\n"
+    "- CRITICAL — services companies that mass-hire agents/reps/contractors "
+    "go to 'other', NOT the sector their clients operate in. Examples:\n"
+    "  * Insurance sales agent networks (Horace Mann, AO Garcia, Symmetry "
+    "Financial) → 'other' (NOT finance_investment_bank)\n"
+    "  * Personal-injury law firms (Morgan & Morgan, Cellino) → 'other' "
+    "(NOT consulting_professional)\n"
+    "  * B2B lead-gen / demand-gen agencies (INFUSE) → 'other' (NOT edtech "
+    "or saas_enterprise)\n"
+    "  * Sports betting / gambling data (Genius Sports, Betsson, Bjak) → "
+    "'other' (NOT gaming — that's for video-game studios)\n"
+    "  * Construction / utility contractors (Michels) → 'other' (NOT "
+    "climate_energy — that's for clean-energy PRODUCT companies)\n"
+    "  * Healthcare staffing / in-home care agencies (BAYADA, Bntria, "
+    "LifeStance's in-home network) → 'other' (NOT healthtech — that's "
+    "for digital-health PRODUCT companies)\n"
+    "- Consumer product brands (Monster Energy, Red Bull) → "
+    "'consumer_marketplace' or 'media_entertainment' based on business, "
+    "NOT 'consumer_social'.\n"
+    "- Rideshare / delivery / marketplace (Lyft, Uber, DoorDash, Instacart) "
+    "→ 'consumer_marketplace', NOT 'consumer_social'.\n"
+    "- AI companies: only 'ai_ml' if their CORE PRODUCT is AI/ML "
+    "infrastructure or models (OpenAI, Anthropic, Harvey AI, LangChain). "
+    "Companies that USE AI in their product (Omada Health uses AI for "
+    "clinical guidance → 'healthtech'; CHAOS Industries builds AI-enabled "
+    "defense hardware → 'defense_aerospace') go to their vertical sector.\n"
+    "- Use 'other' when a company is genuinely outside all listed sectors "
+    "(MLM, unknown/vague, staffing).\n"
     "- Return JSON: {\"classifications\": [{\"name\": ..., \"sector\": ...}, ...]}\n"
     "- Preserve input names exactly."
 )
@@ -174,41 +199,43 @@ def main() -> None:
         print("nothing to classify. exiting.")
         return
 
-    # Batch classify
-    classifications: dict[str, str] = {}  # doc_id → sector
+    # Batch classify + per-batch write (progress visible in prod as it runs).
+    # Trade: ~300 Firestore commits instead of ~20, but each is tiny (25 docs)
+    # and we can watch progress in real time.
+    classifications: dict[str, str] = {}  # doc_id → sector (running total)
     id_by_name: dict[str, str] = {c["name"]: c["id"] for c in candidates}
     total = len(candidates)
     completed = 0
+    written = 0
     start = time.time()
     for i in range(0, total, BATCH_SIZE):
         batch = candidates[i : i + BATCH_SIZE]
         name_to_sector = _call_llm(client, batch)
-        for name, sector in name_to_sector.items():
-            doc_id = id_by_name.get(name)
-            if doc_id:
-                classifications[doc_id] = sector
-        completed += len(batch)
-        if completed % 500 == 0 or completed == total:
-            rate = completed / max(time.time() - start, 0.1)
-            logger.info("  progress: %d/%d (%.0f/s), classified so far: %d",
-                        completed, total, rate, len(classifications))
 
-    # Write back
-    written = 0
-    if not args.dry_run:
-        batch = db.batch()
-        batch_size = 0
-        for doc_id, sector in classifications.items():
-            batch.update(coll.document(doc_id), {"sector": sector})
-            batch_size += 1
-            if batch_size >= BATCH_WRITE_SIZE:
-                batch.commit()
-                written += batch_size
-                batch = db.batch()
-                batch_size = 0
-        if batch_size:
-            batch.commit()
-            written += batch_size
+        # Write this batch immediately
+        if name_to_sector and not args.dry_run:
+            fs_batch = db.batch()
+            for name, sector in name_to_sector.items():
+                doc_id = id_by_name.get(name)
+                if doc_id:
+                    fs_batch.update(coll.document(doc_id), {"sector": sector})
+                    classifications[doc_id] = sector
+            fs_batch.commit()
+            written += len(name_to_sector)
+        elif name_to_sector:
+            # Dry-run: just track the classifications
+            for name, sector in name_to_sector.items():
+                doc_id = id_by_name.get(name)
+                if doc_id:
+                    classifications[doc_id] = sector
+
+        completed += len(batch)
+        # Log every batch — we want visibility on this run
+        rate = completed / max(time.time() - start, 0.1)
+        logger.info("  batch %d/%d done: %d/%d classified (%.1f/s)",
+                    i // BATCH_SIZE + 1, (total + BATCH_SIZE - 1) // BATCH_SIZE,
+                    completed, total, rate)
+        sys.stdout.flush()  # defeat any stdout buffering
 
     # Summary
     dist = Counter(classifications.values())
