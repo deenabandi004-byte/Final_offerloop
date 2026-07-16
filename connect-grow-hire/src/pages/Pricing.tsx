@@ -609,6 +609,11 @@ const Pricing = () => {
       // legacy live SKU if cofounders haven't wired the new audience/cadence/
       // credits combination yet (resolvePriceId returns '' on miss).
       const priceId = tier === 'elite' ? elitePriceId : proPriceId;
+      // Also send the raw slider selection so the backend can build inline
+      // price_data for stops without a wired SKU (e.g. Pro 3K = $19.99). Backend
+      // looks the amount up from SLIDER_STOPS server-side, so a client can't
+      // spoof the price.
+      const selectedStop = tier === 'elite' ? eliteStop : proStop;
 
       const response = await fetch(`${API_URL}/api/create-checkout-session`, {
         method: 'POST',
@@ -618,6 +623,10 @@ const Pricing = () => {
         },
         body: JSON.stringify({
           priceId: priceId,
+          tier,
+          credits: selectedStop.credits,
+          cadence: billingCadence,
+          audience,
           userId: user.uid,
           userEmail: user.email,
           successUrl: `${window.location.origin}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
