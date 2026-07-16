@@ -198,6 +198,17 @@ export interface ScoutPrepJob {
   contact_name: string;
 }
 
+/** A single job match surfaced by find_jobs. Rendered as a card in the
+ *  chat thread with per-job actions (Auto Apply / Job Posting). */
+export interface ScoutJobMatch {
+  job_id: string;
+  title: string;
+  company: string;
+  location: string;
+  auto_apply_eligible: boolean;
+  apply_url: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -228,6 +239,9 @@ export interface ChatMessage {
   toolEvents?: ScoutToolEvent[];
   // A meeting prep Scout kicked off this turn; drives the status poller.
   prepJob?: ScoutPrepJob | null;
+  // Structured job matches from find_jobs — drives the ScoutJobsList card
+  // renderer. When set, the prose stays short and the cards do the layout.
+  jobs?: ScoutJobMatch[] | null;
   // Strategist briefing payload (Phase 3B). Set on briefing-* messages only.
   coverage?: ScoutCoverage | null;
   activeStrategy?: ScoutActiveStrategy | null;
@@ -567,6 +581,7 @@ export function useScoutChat(currentPageOverride?: string): UseScoutChatReturn {
                     ctas: data.ctas || null,
                     plan: data.plan || null,
                     prepJob: (data.prep_job as ScoutPrepJob) || null,
+                    jobs: Array.isArray(data.jobs) ? (data.jobs as ScoutJobMatch[]) : null,
                   } : m
                 ));
               } else if (eventType === 'error') {

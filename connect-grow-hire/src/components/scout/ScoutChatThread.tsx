@@ -42,6 +42,7 @@ import { BriefingButton } from '@/components/scout/BriefingButton';
 import { CompletenessGauge } from '@/components/scout/CompletenessGauge';
 import { ActiveStrategyCard } from '@/components/scout/ActiveStrategyCard';
 import { ScoutApproveCard } from '@/components/ScoutApproveCard';
+import { ScoutJobsList } from '@/components/scout/ScoutJobsList';
 import {
   ScoutModePill,
   ScoutToolPill,
@@ -611,6 +612,19 @@ export function ScoutChatThread({ variant, emptyStateExtra }: ScoutChatThreadPro
                                 <ScoutToolPill key={evt.id} event={evt} />
                               ))}
                             </div>
+                          )}
+                          {/* Structured job matches from find_jobs. Rendered
+                              as cards so the user gets neat spacing + per-job
+                              Auto Apply / Job Posting actions instead of a
+                              plain-text numbered list. */}
+                          {message.jobs && message.jobs.length > 0 && !message.isStreaming && (
+                            <ScoutJobsList
+                              jobs={message.jobs}
+                              onAutoApply={(job) => {
+                                const label = [job.title, job.company].filter(Boolean).join(' at ');
+                                void sendMessage(`apply to ${label || 'this job'}`);
+                              }}
+                            />
                           )}
                           {/* Plan checklist */}
                           {message.plan && (

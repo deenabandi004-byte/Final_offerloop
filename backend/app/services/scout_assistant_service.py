@@ -455,7 +455,7 @@ You CAN write a cover letter with generate_cover_letter (5 credits) and score/ta
 You CAN run a real meeting prep yourself with run_meeting_prep. When the user asks to be prepped for a meeting, call, or coffee chat with a NAMED person ("I have a call with Veronica Wittig, prep me for it"), call run_meeting_prep with that name immediately - the explicit ask is consent, it costs 30 credits, and the person's LinkedIn URL is resolved from their saved contacts automatically. Do NOT navigate to /coffee-chat-prep for this and do NOT ask for a LinkedIn URL up front. Pass linkedin_url only when the user pasted one in chat. On started=true, answer that the prep for that person is running, takes about a minute, and the packet with the PDF will land right here in the chat - NEVER describe the prep's contents or say it is ready, it has not finished. On CONTACT_NOT_FOUND or NO_LINKEDIN, ask once for the person's LinkedIn URL, then call run_meeting_prep again with it next turn. On INSUFFICIENT_CREDITS say the numbers; on LIMIT_REACHED say their plan's meeting prep limit is used and cta to /pricing; on NEEDS_RESUME point them to Account Settings to upload a resume.
 
 ## Finding jobs from chat
-When the user asks you to find them a job or role ("find me a job at Lyft", "any data roles at Spotify?"), use find_jobs and SURFACE THE MATCHES IN THE CHAT: title, company, location, and whether each supports auto-apply, then offer the next step (apply with the consent rules below, or the Job Board via the cta with prefill.query set for more). Do NOT answer a specific job ask with a bare navigate to /job-board - that shows the user a generic board instead of the jobs they asked for. Navigate to /job-board only when they want to browse.
+When the user asks you to find them a job or role ("find me a job at Lyft", "any data roles at Spotify?"), use find_jobs and SURFACE THE MATCHES IN THE CHAT ON THIS SAME TURN — do NOT reply with only a summary count ("Found 5 roles matching that query") and then wait for a follow-up to actually list them. The user gets structured cards for each job automatically (auto-generated from the tool result), so your prose should stay short: one sentence acknowledging what you found, then either name a next step ("say 'apply to all eligible' and I'll submit up to 3") or ask which ones they want to apply to. Do NOT reprint the full title/company/location list in prose — the cards handle that. Do NOT ask "want me to pull more?" as the first response; the "See more on the Job Board" chip already covers that. Do NOT answer a specific job ask with a bare navigate to /job-board — that shows the user a generic board instead of the jobs they asked for. Navigate to /job-board only when they want to browse.
 
 ## Applying to jobs from chat
 You CAN submit auto-apply applications directly from this chat, and it is the one action you execute yourself. A request to apply or auto-apply to jobs is ALWAYS a jobs task: handle it with this flow or a /job-board navigate. NEVER route an apply request to /find - that page finds people to email, not jobs. The flow is strict:
@@ -1071,6 +1071,7 @@ class ScoutAssistantService:
             result = self._enrich_workflow_ctas(result, helper_results)
             result = self._enrich_network_ctas(result, helper_results)
             result = self._ensure_cover_letter_prefill(result, helper_results)
+            result = self._attach_job_matches(result, helper_results)
             # An answer colored by user-specific state must never be promoted
             # into the shared answer cache. That covers reading or writing
             # the active strategy this turn (strategy_touched), AND any
@@ -2079,6 +2080,50 @@ class ScoutAssistantService:
                 chip["prefill"] = prefill
         except Exception as e:
             print(f"[ScoutChat] cover letter prefill normalization failed: {e}")
+        return result
+
+    def _attach_job_matches(
+        self,
+        result: Dict[str, Any],
+        helper_results: Optional[List[Dict[str, Any]]],
+    ) -> Dict[str, Any]:
+        """Surface structured find_jobs matches so the frontend can render
+        cards with per-job actions (Auto Apply / Job Posting) instead of
+        relying on the model's prose list.
+
+        Only reads from the most recent find_jobs helper call this turn.
+        Silent no-op when nothing matched or when the model wasn't running
+        find_jobs.
+        """
+        try:
+            if result.get("tool") != "answer":
+                return result
+            for h in reversed(helper_results or []):
+                if h.get("name") != "find_jobs":
+                    continue
+                res = h.get("result")
+                if not isinstance(res, dict):
+                    return result
+                jobs = res.get("jobs") or []
+                if not isinstance(jobs, list) or not jobs:
+                    return result
+                slim = []
+                for j in jobs:
+                    if not isinstance(j, dict) or not j.get("job_id"):
+                        continue
+                    slim.append({
+                        "job_id": str(j.get("job_id") or ""),
+                        "title": str(j.get("title") or "")[:160],
+                        "company": str(j.get("company") or "")[:120],
+                        "location": str(j.get("location") or "")[:120],
+                        "auto_apply_eligible": bool(j.get("auto_apply_eligible")),
+                        "apply_url": str(j.get("apply_url") or "")[:2000],
+                    })
+                if slim:
+                    result["jobs"] = slim
+                return result
+        except Exception as e:
+            print(f"[ScoutChat] job matches enrichment failed: {e}")
         return result
 
     # Claim-of-work detectors for the broken-promise guard. Shapes seen in
