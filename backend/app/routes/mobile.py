@@ -638,6 +638,141 @@ def vibe_companies():
     return jsonify({'sector': resolved or None, 'companies': names[:limit]}), 200
 
 
+# --- Sector jobs: entry-friendly, US, from the full pool (not the feed) --------
+_sector_jobs_cache: dict = {}      # sector -> (ts, [serialized jobs])
+_sector_jobs_lock = threading.Lock()
+_SECTOR_JOBS_TTL = 1800
+
+
+_US_STATES = {
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL",
+    "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT",
+    "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI",
+    "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC",
+}
+_US_STATE_NAMES_RE = re.compile(
+    r"\b(alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|"
+    r"florida|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|"
+    r"maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri|montana|"
+    r"nebraska|nevada|new hampshire|new jersey|new mexico|new york|north carolina|"
+    r"north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|"
+    r"south dakota|tennessee|texas|utah|vermont|virginia|washington|west virginia|"
+    r"wisconsin|wyoming)\b", re.I)
+
+
+def _job_looks_us(job: dict) -> bool:
+    """POSITIVE US-detection — keep only jobs that affirmatively read US, instead
+    of trusting the blocklist (which misses bare foreign cities like 'Faridabad').
+    Remote / unknown pass; a US state/'United States'/', NY' passes; everything
+    else is treated as non-US."""
+    loc = job.get("location")
+    if isinstance(loc, dict):
+        loc = loc.get("city") or loc.get("location") or ""
+    s = str(loc or "").strip()
+    if not s:
+        return True  # unknown — don't over-filter
+    low = s.lower()
+    if "remote" in low or "united states" in low or "usa" in low or "u.s." in low:
+        return True
+    if _US_STATE_NAMES_RE.search(low):
+        return True
+    m = re.search(r",\s*([A-Za-z]{2})\b", s)
+    return bool(m and m.group(1).upper() in _US_STATES)
+
+
+def _serialize_pool_job(j: dict) -> dict:
+    """Slim job for Scout's job cards — matches what the app's mapJob reads."""
+    from app.services.auto_apply.ats_detector import is_eligible, detect_platform
+    return {
+        "job_id": j.get("job_id"),
+        "title": j.get("title"),
+        "company": j.get("company"),
+        "location": j.get("location"),
+        "remote": j.get("remote"),
+        "type": j.get("type"),
+        "salary_display": j.get("salary_display"),
+        "structured": j.get("structured"),
+        "employer_logo": j.get("employer_logo"),
+        "apply_url": j.get("apply_url"),
+        "ats_platform": detect_platform(j),
+        "auto_apply_eligible": is_eligible(j),
+    }
+
+
+@mobile_bp.get('/sector-jobs')
+@require_firebase_auth
+def sector_jobs():
+    """Entry-friendly (tier 1-2), US, recent jobs at a sector's top companies —
+    from the FULL 129k pool, not the user's ranked feed. Powers Scout job search
+    for 'fintech jobs for a college junior' etc. ?sector=fintech&limit=8."""
+    sector = (request.args.get('sector') or '').strip().lower()
+    try:
+        limit = max(1, min(int(request.args.get('limit', 8)), 15))
+    except Exception:
+        limit = 8
+    if not sector or sector in _VIBE_SKIP_SECTORS:
+        return jsonify({'jobs': []}), 200
+    now = time.time()
+    with _sector_jobs_lock:
+        hit = _sector_jobs_cache.get(sector)
+        if hit and now - hit[0] < _SECTOR_JOBS_TTL:
+            return jsonify({'jobs': hit[1][:limit]}), 200
+
+    from app.extensions import get_db
+    from google.cloud.firestore_v1.base_query import FieldFilter
+    from app.utils.job_ranking import _is_non_us, _is_excluded
+    db = get_db()
+    companies = _top_companies_in_sector(sector, 8)
+
+    def _company_jobs(name: str) -> list:
+        out = []
+        try:
+            for d in (db.collection("jobs")
+                        .where(filter=FieldFilter("company", "==", name))
+                        .order_by("posted_at", direction="DESCENDING").limit(15).stream()):
+                job = d.to_dict() or {}
+                # Entry-friendly for an EXPLICIT sector search = US + not senior.
+                # POSITIVE US-detection (not the blocklist — it misses bare foreign
+                # cities like Faridabad); _is_excluded drops senior/manager titles,
+                # the real "not entry-level" filter. No tier-1/2 gate: that's the
+                # passive feed's personalization signal and it's too scarce (~1-10%
+                # of a company's jobs) — it emptied the recent window.
+                if not _job_looks_us(job) or _is_excluded(job):
+                    continue
+                # Foreign-language title (accented chars) → foreign-remote leak
+                # (e.g. Pennylane's French "Comptabilité" roles marked Remote).
+                if re.search(r"[À-ÿ]", str(job.get("title") or "")):
+                    continue
+                out.append(job)
+                if len(out) >= 5:
+                    break
+        except Exception:
+            pass
+        return out
+
+    per: list = []
+    if companies:
+        with ThreadPoolExecutor(max_workers=min(8, len(companies))) as ex:
+            per = list(ex.map(_company_jobs, companies))
+    # Round-robin interleave so no one employer dominates. Dedup by job_id AND by
+    # (title, company) — the same role posted across cities showed as "Finance
+    # Associate @ Brex" three times.
+    interleaved, seen_ids, seen_tc = [], set(), set()
+    for i in range(5):
+        for jobs in per:
+            if i < len(jobs):
+                j = jobs[i]
+                jid = j.get("job_id")
+                tc = ((j.get("title") or "").strip().lower(), (j.get("company") or "").strip().lower())
+                if jid and jid not in seen_ids and tc not in seen_tc:
+                    seen_ids.add(jid)
+                    seen_tc.add(tc)
+                    interleaved.append(_serialize_pool_job(j))
+    with _sector_jobs_lock:
+        _sector_jobs_cache[sector] = (now, interleaved)
+    return jsonify({'jobs': interleaved[:limit]}), 200
+
+
 @mobile_bp.post('/preferences')
 @require_firebase_auth
 def save_preferences():
