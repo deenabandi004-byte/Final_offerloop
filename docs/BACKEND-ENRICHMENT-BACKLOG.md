@@ -6,6 +6,40 @@ submission — these are quality/coverage.)
 
 ---
 
+## Session update — 2026-07-15 (Rylan)
+
+### A. search-by-company was 500ing in prod — patched with a workaround; wants your real normalizer — HIGH
+Two bugs stacked on the same path (`/api/jobs/search?company=`):
+
+1. **NameError → HTTP 500 on every company query.** `jobs.py` used `re.sub` in a
+   helper but only imported `re as _re` (function-local), so `?company=stripe`
+   (and every other company) raised at runtime and returned 500. The app's
+   company pages showed "No open roles at <firm>" for firms that have hundreds
+   (Stripe 702, Anthropic 472). Fixed with a module-level `import re`.
+   **Commit `f3851d17` on `staging/mobile-field`, deployed & verified** (Stripe
+   returns roles again). `q=` / `type=` queries were never affected.
+
+2. **Why the helper exists (the part for you):** this app backend still carries
+   the OLD **passthrough** `canonicalize_company` (`backend/pipeline/normalizer`),
+   so search-by-company didn't match the canonical names your crawler *stores*.
+   Rather than port your writer-side resolver (it depends on the vendored jobhive
+   CSVs that aren't in git), I added `_resolve_company_via_index(db, name)` in
+   `jobs.py` (~line 1383): it slugs the input and reads **your** `companies/{slug}.name`
+   index to get the canonical name (lowercase "stripe" → stored "Stripe"), then
+   falls back to the legacy canonicalize. It's a read-only shim over your index.
+   **Ask:** when you have a git-portable version of the real canonicalizer, drop
+   it in and delete the shim so search and write share ONE normalizer. Until
+   then the shim is correct but only as complete as the `companies` index.
+
+### B. Resume upload persistence — investigating, may NOT be yours
+`/api/parse-resume` isn't persisting the resume/parsed fields on at least one
+account (offerloop0). Leading theory is client-side (phone behind on the OTA that
+carries the upload wiring), NOT the endpoint — still confirming server-side. Do
+**not** action yet; flagging so it's on your radar if I trace it to token-verify
+on the endpoint. Will update this line with a verdict.
+
+---
+
 ## 1. ATS coverage: crawl Workday (finance/consulting are ~empty) — HIGH
 The pool is Greenhouse/Lever/Ashby only, so it's tech-heavy. Verified against prod:
 ```
