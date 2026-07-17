@@ -47,6 +47,7 @@ from .app.routes.agent import agent_bp
 from .app.routes.loop_notifications import loop_notifications_bp
 from .app.routes.loops import loops_bp
 from .app.routes.metrics import metrics_bp
+from .app.routes.mobile_handoff import mobile_handoff_bp, web_handoff_bp
 from .app.extensions import init_app_extensions
 
 # Do THIS process's background daemons run here?
@@ -248,6 +249,8 @@ def create_app() -> Flask:
     app.register_blueprint(loops_bp)
     app.register_blueprint(loop_notifications_bp)
     app.register_blueprint(metrics_bp)
+    app.register_blueprint(mobile_handoff_bp)    # /api/mobile/web-handoff (app -> web checkout)
+    app.register_blueprint(web_handoff_bp)       # /api/web/handoff-exchange (web burn code -> custom token)
 
     # --- Debug route to check frontend build (dev only) ---
     @app.route('/api/debug/frontend')
