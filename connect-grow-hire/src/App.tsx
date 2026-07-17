@@ -43,6 +43,8 @@ const DynamicGradientBackground = React.lazy(() =>
 const AboutUs = React.lazy(() => import("./pages/AboutUs"));
 const ConnectorSetup = React.lazy(() => import("./pages/ConnectorSetup"));
 const ForStudentsPage = React.lazy(() => import("./pages/ForStudentsPage"));
+const HowItWorks = React.lazy(() => import("./pages/HowItWorks"));
+const Waitlist = React.lazy(() => import("./pages/Waitlist"));
 const PromoPage = React.lazy(() => import("./pages/PromoPage"));
 const CoffeeChatLibrary = React.lazy(() => import("./pages/CoffeeChatLibrary"));
 const ContactUs = React.lazy(() => import("./pages/ContactUs"));
@@ -446,6 +448,8 @@ const AppRoutes: React.FC = () => {
       <Route path="/about" element={<Suspense fallback={<PageLoader />}><AboutUs /></Suspense>} />
       <Route path="/connector" element={<Suspense fallback={<PageLoader />}><ConnectorSetup /></Suspense>} />
       <Route path="/for-students" element={<Suspense fallback={<PageLoader />}><ForStudentsPage /></Suspense>} />
+      <Route path="/how-it-works" element={<Suspense fallback={<PageLoader />}><HowItWorks /></Suspense>} />
+      <Route path="/waitlist" element={<Suspense fallback={<PageLoader />}><Waitlist /></Suspense>} />
       <Route path="/promo" element={<Suspense fallback={<PageLoader />}><PromoPage /></Suspense>} />
       <Route path="/contact" element={<Navigate to="/contact-us" replace />} />
       <Route path="/contact-us" element={<Suspense fallback={<PageLoader />}><ContactUs /></Suspense>} />

@@ -60,6 +60,7 @@ from .app.routes.shares import shares_bp
 from .app.routes.lifecycle import lifecycle_bp
 from .app.routes.beehiiv_webhook import beehiiv_webhook_bp
 from .app.routes.mobile_handoff import mobile_handoff_bp, web_handoff_bp
+from .app.routes.waitlist import waitlist_bp
 from .app.extensions import init_app_extensions
 
 def create_app() -> Flask:
@@ -306,6 +307,7 @@ def create_app() -> Flask:
     app.register_blueprint(beehiiv_webhook_bp)   # /api/beehiiv/webhook (inbound unsub sync)
     app.register_blueprint(mobile_handoff_bp)    # /api/mobile/web-handoff (app -> web checkout)
     app.register_blueprint(web_handoff_bp)       # /api/web/handoff-exchange (web burn code -> custom token)
+    app.register_blueprint(waitlist_bp)          # /api/waitlist/join (iOS app waitlist)
 
     # --- MCP server (anonymous IP-based, mounts /mcp + /api/mcp/health) ---
     # Skippable for local dev: the MCP mount refuses to boot against the prod

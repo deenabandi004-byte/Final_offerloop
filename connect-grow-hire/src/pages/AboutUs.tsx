@@ -4,6 +4,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Menu, X, ArrowRight, Linkedin } from 'lucide-react';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
 import OfferloopLogo from '@/assets/offerloop_logo2.png';
+import MarketingHeader from '@/components/MarketingHeader';
 import MountainsLake from '@/assets/for-students/mountains-lake.png';
 import CTAMountain from '@/assets/for-students/cta-mountain.png';
 import NickPhoto from '@/assets/founders/Nick-Wittig.png';
@@ -101,13 +102,13 @@ const AboutUs = () => {
       }}
     >
       <Helmet>
-        <title>About Offerloop — AI Networking Platform for College Students</title>
+        <title>About Offerloop: AI Networking Platform for College Students</title>
         <meta
           name="description"
           content="Offerloop was founded in 2025 by USC students to help college students network into consulting, investment banking, and tech. Meet the team."
         />
         <link rel="canonical" href="https://offerloop.ai/about" />
-        <meta property="og:title" content="About Offerloop — AI Networking Platform for College Students" />
+        <meta property="og:title" content="About Offerloop: AI Networking Platform for College Students" />
         <meta property="og:description" content="Founded in 2025 by USC students. 300+ users across 6+ universities. Meet the team behind Offerloop." />
         <meta property="og:url" content="https://offerloop.ai/about" />
         <meta property="og:type" content="website" />
@@ -241,141 +242,9 @@ const AboutUs = () => {
         }
       `}</style>
 
-      {/* ═══════════════ NAVBAR (matches Index / ForStudents pattern) ═══════════════ */}
-      <header
-        className="fixed top-0 left-0 right-0 z-50 h-14 flex items-center justify-between px-6 md:px-12 relative"
-        style={{
-          background: navbarScrolled ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.88)',
-          backdropFilter: 'blur(16px) saturate(1.4)',
-          WebkitBackdropFilter: 'blur(16px) saturate(1.4)',
-          borderBottom: `1px solid ${navbarScrolled ? 'rgba(214, 222, 240, 0.8)' : 'rgba(214, 222, 240, 0.6)'}`,
-          transition: 'all 0.3s ease',
-        }}
-      >
-        <div className="flex items-center">
-          <img
-            src={OfferloopLogo}
-            alt="Offerloop"
-            className="h-16 cursor-pointer"
-            onClick={() => navigate('/')}
-          />
-        </div>
+      {/* ═══════════════ NAVBAR ═══════════════ */}
+      <MarketingHeader active="about" />
 
-        <nav
-          className="hidden md:flex items-center"
-          style={{
-            position: 'absolute',
-            left: '50%',
-            top: '50%',
-            transform: 'translate(-50%, -50%)',
-            gap: 32,
-          }}
-        >
-          <Link to="/for-students" className="au-nav-link">For Students</Link>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-            <Link to="/pricing" className="au-nav-link">Pricing</Link>
-            <Link to="/about" className="au-nav-link is-active" aria-current="page">About</Link>
-          </div>
-        </nav>
-
-        <div className="hidden md:flex items-center" style={{ marginLeft: 'auto', flexShrink: 0 }}>
-          {user ? (
-            <button
-              onClick={() => navigate('/find')}
-              className="btn-ghost"
-              style={{ fontSize: 13, fontWeight: 700, padding: '8px 16px' }}
-            >
-              Find people
-            </button>
-          ) : (
-            <button
-              onClick={() => navigate('/signin')}
-              style={{
-                background: C.brand,
-                color: '#fff',
-                fontSize: 13,
-                fontWeight: 600,
-                fontFamily: "'Libre Baskerville', Georgia, serif",
-                padding: '8px 20px',
-                borderRadius: 100,
-                border: 'none',
-                cursor: 'pointer',
-                transition: 'background 0.15s ease, transform 0.15s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#1D4ED8';
-                e.currentTarget.style.transform = 'translateY(-1px)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = C.brand;
-                e.currentTarget.style.transform = 'translateY(0)';
-              }}
-            >
-              Sign in
-            </button>
-          )}
-        </div>
-
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="md:hidden p-2"
-          style={{ color: C.navBlue }}
-        >
-          {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </button>
-      </header>
-
-      {/* Mobile Menu */}
-      {mobileMenuOpen && (
-        <div
-          className="fixed top-[72px] left-4 right-4 md:hidden z-40"
-          style={{
-            background: 'rgba(255,255,255,0.98)',
-            border: '1px solid rgba(37,99,235,0.1)',
-            borderRadius: 16,
-            boxShadow: '0 4px 24px rgba(37,99,235,0.08)',
-            backdropFilter: 'blur(16px)',
-          }}
-        >
-          <nav className="flex flex-col p-3 gap-1">
-            <Link
-              to="/for-students"
-              onClick={() => setMobileMenuOpen(false)}
-              className="text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50"
-              style={{ color: C.navBlue, fontFamily: "'Libre Baskerville', Georgia, serif", textDecoration: 'none' }}
-            >
-              For Students
-            </Link>
-            <Link
-              to="/pricing"
-              onClick={() => setMobileMenuOpen(false)}
-              className="text-left px-4 py-3 text-sm font-medium rounded-lg hover:bg-gray-50"
-              style={{ color: C.navBlue, fontFamily: "'Libre Baskerville', Georgia, serif", textDecoration: 'none' }}
-            >
-              Pricing
-            </Link>
-            <Link
-              to="/about"
-              onClick={() => setMobileMenuOpen(false)}
-              className="text-left px-4 py-3 text-sm font-semibold rounded-lg"
-              style={{ color: '#fff', background: C.brand, fontFamily: "'Libre Baskerville', Georgia, serif", textDecoration: 'none' }}
-            >
-              About
-            </Link>
-            <div className="border-t mt-2 pt-2" style={{ borderColor: 'rgba(37,99,235,0.08)' }}>
-              <button
-                onClick={() => { navigate('/signin'); setMobileMenuOpen(false); }}
-                className="w-full text-center py-3 text-sm font-semibold"
-                style={{ background: C.brand, color: '#fff', borderRadius: 100, fontFamily: "'Libre Baskerville', Georgia, serif" }}
-              >
-                Sign in
-              </button>
-            </div>
-          </nav>
-        </div>
-      )}
-
-      <div className="h-14" />
 
       {/* ═══════════════ HERO with mountains backdrop ═══════════════ */}
       <section
@@ -465,7 +334,7 @@ const AboutUs = () => {
               maxWidth: 680,
             }}
           >
-            Offerloop is a networking and outreach platform — not an email
+            Offerloop is a networking and outreach platform, not an email
             provider. Founded in 2025 at the University of Southern California
             by three students frustrated with the manual grind of recruiting,
             we built the tool we wished we had.
@@ -505,8 +374,8 @@ const AboutUs = () => {
           </h2>
 
           {[
-            "During recruiting season at USC, we spent hundreds of hours doing the same thing every other student was doing — searching for professionals on LinkedIn, guessing email addresses, writing personalized outreach messages one by one, and tracking everything in messy spreadsheets. It was exhausting, inefficient, and it took away from the experiences that make college worth it.",
-            "We realized the tools that existed — LinkedIn, Handshake, Apollo — weren't built for students. LinkedIn doesn't give you email addresses. Handshake only has job postings. Apollo costs $50–500/month and is designed for enterprise sales teams. There was nothing that helped a college student find the right person, write a great email, send it, and track the response — all in one place.",
+            "During recruiting season at USC, we spent hundreds of hours doing the same thing every other student was doing: searching for professionals on LinkedIn, guessing email addresses, writing personalized outreach messages one by one, and tracking everything in messy spreadsheets. It was exhausting, inefficient, and it took away from the experiences that make college worth it.",
+            "We realized the tools that existed, like LinkedIn, Handshake, and Apollo, weren't built for students. LinkedIn doesn't give you email addresses. Handshake only has job postings. Apollo costs $50 to $500 a month and is designed for enterprise sales teams. There was nothing that helped a college student find the right person, write a great email, send it, and track the response, all in one place.",
             "So we built Offerloop. What started as a side project in a dorm room in 2025 is now used by students at USC, UCLA, Michigan, NYU, Georgetown, UPenn, and more. We're still students ourselves, which means we use Offerloop every day and understand the challenges firsthand.",
           ].map((p, i) => (
             <p
@@ -680,8 +549,8 @@ const AboutUs = () => {
             Make professional networking accessible to every college student.
             Recruiting for competitive roles in consulting, investment banking,
             and tech shouldn&apos;t require hundreds of hours of manual work.
-            Offerloop automates the busywork — finding contacts, writing emails,
-            tracking conversations — so students can focus on building real
+            Offerloop automates the busywork, finding contacts, writing emails,
+            and tracking conversations, so students can focus on building real
             relationships and preparing for the opportunities that matter.
           </p>
         </div>
