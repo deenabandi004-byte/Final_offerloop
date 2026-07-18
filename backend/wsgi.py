@@ -59,6 +59,7 @@ from .app.routes.find_people_public import find_people_public_bp
 from .app.routes.shares import shares_bp
 from .app.routes.lifecycle import lifecycle_bp
 from .app.routes.beehiiv_webhook import beehiiv_webhook_bp
+from .app.routes.mobile_handoff import mobile_handoff_bp, web_handoff_bp
 from .app.extensions import init_app_extensions
 
 def create_app() -> Flask:
@@ -303,6 +304,8 @@ def create_app() -> Flask:
     app.register_blueprint(find_people_public_bp)
     app.register_blueprint(lifecycle_bp)         # /api/lifecycle/tick + unsubscribe
     app.register_blueprint(beehiiv_webhook_bp)   # /api/beehiiv/webhook (inbound unsub sync)
+    app.register_blueprint(mobile_handoff_bp)    # /api/mobile/web-handoff (app -> web checkout)
+    app.register_blueprint(web_handoff_bp)       # /api/web/handoff-exchange (web burn code -> custom token)
 
     # --- MCP server (anonymous IP-based, mounts /mcp + /api/mcp/health) ---
     # Skippable for local dev: the MCP mount refuses to boot against the prod
