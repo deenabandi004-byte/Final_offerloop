@@ -253,8 +253,6 @@ Credits reset at calendar month boundary (not billing cycle). Atomic Firestore d
 
 **Stripe Price IDs**: Pro = `price_1ScLXrERY2WrVHp1bYgdMAu4`, Elite = `price_1ScLcfERY2WrVHp1c5rcONJ3`. 30-day free trial.
 
-**KNOWN PRICING ISSUE**: `Pricing.tsx` displays Pro at $14.99/mo but `STRIPE_PRO_PRICE_ID` still charges $9.99. Create new Stripe Price at $14.99 + rotate constant, or revert displayed price.
-
 **TODO**: Annual price IDs (`VITE_STRIPE_PRO_ANNUAL_PRICE_ID`, `VITE_STRIPE_ELITE_ANNUAL_PRICE_ID`) aren't set yet — annual CTA falls back to monthly checkout.
 
 **TODO**: `isStudent` field is read by `Pricing.tsx:152` via `(user as any).isStudent` but not yet populated during onboarding when a .edu email is verified.
