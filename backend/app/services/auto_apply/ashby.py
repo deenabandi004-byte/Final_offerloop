@@ -335,9 +335,27 @@ def run_ashby_filler(
 def _ensure_form_visible(page) -> bool:
     """Ashby pages sometimes hide the application form behind an Apply
     button. Click it if present, then wait for the form to render.
-    Returns True if the form is visible after the (possible) click."""
-    # If the standard fields are already visible, nothing to do.
-    if page.query_selector('input#_systemfield_name, input#_systemfield_email'):
+    Returns True if the form is visible after the (possible) click.
+
+    Selector broadened 2026-07-20: OpenAI + Interplay + other modern Ashby
+    tenants were failing with "form not visible after Apply click" (3/5 of
+    the render-failure audit sample). Newer Ashby templates don't always
+    use the legacy `#_systemfield_*` ids; the form fields end up with
+    plain `name="name"` / `name="email"` or autocomplete markers. This
+    check now matches either family.
+    """
+    _FORM_MARKERS = ",".join([
+        "input#_systemfield_name",
+        "input#_systemfield_email",
+        'input[name="_systemfield_name"]',
+        'input[name="_systemfield_email"]',
+        'input[name="name"]',
+        'input[name="email"]',
+        'input[autocomplete="email"]',
+        'input[autocomplete="name"]',
+    ])
+    # If any recognizable form field is already visible, nothing to do.
+    if page.query_selector(_FORM_MARKERS):
         return True
     # Try clicking an Apply button — could be a `<a>` or `<button>` with
     # the text "Apply" / "Apply for this job".
@@ -363,13 +381,37 @@ def _ensure_form_visible(page) -> bool:
             element = apply_button.as_element()
             if element:
                 element.click()
-                page.wait_for_selector(
-                    'input#_systemfield_name, input#_systemfield_email',
-                    timeout=8_000,
-                )
+                page.wait_for_selector(_FORM_MARKERS, timeout=8_000)
                 return True
         except Exception:
-            return False
+            pass  # fall through to DOM peek logging + return False
+    # DOM peek on failure: dump what inputs ARE on the page so the next
+    # audit run reveals the actual field structure of failing tenants
+    # (OpenAI, Interplay, etc). Cheap, runs only on failure.
+    try:
+        peek = page.evaluate(
+            """() => {
+                const inputs = Array.from(
+                    document.querySelectorAll('input, textarea, select')
+                ).slice(0, 20).map(el => ({
+                    tag: el.tagName.toLowerCase(),
+                    id: el.id || null,
+                    name: el.getAttribute('name'),
+                    type: el.getAttribute('type'),
+                    aria: el.getAttribute('aria-label'),
+                }));
+                return {
+                    title: document.title,
+                    input_count: document.querySelectorAll('input').length,
+                    apply_button_found: !!document.querySelector('[role="button"], button, a'),
+                    inputs,
+                };
+            }"""
+        )
+        logger.warning("ashby form-not-visible DOM peek: %s", peek)
+        print(f"[auto_apply] ashby form-not-visible DOM peek: {peek}", flush=True)
+    except Exception:
+        pass
     return False
 
 

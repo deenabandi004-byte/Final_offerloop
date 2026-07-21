@@ -83,6 +83,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--days", type=int, default=30)
     parser.add_argument("--top", type=int, default=15)
+    parser.add_argument(
+        "--dump-render-failures",
+        type=int,
+        default=5,
+        help="Dump the last N 'form did not render' failures with attempted_urls + attempt_log + dom_peek (default 5, set 0 to skip)",
+    )
     args = parser.parse_args()
 
     since = datetime.now(timezone.utc) - timedelta(days=args.days)
@@ -94,6 +100,7 @@ def main():
     pending_labels = Counter()
     by_platform = Counter()
     by_status_platform = Counter()
+    render_failures = []
 
     for job in _iter_recent_jobs(db, since):
         total += 1
@@ -104,7 +111,12 @@ def main():
         by_status_platform[(platform, status)] += 1
 
         if status in {"submit_failed", "failed"}:
-            fail_reasons[_short(job.get("failure_reason") or "")] += 1
+            reason = job.get("failure_reason") or ""
+            fail_reasons[_short(reason)] += 1
+            if "form did not render" in reason.lower():
+                render_failures.append(
+                    (_parse_created_at(job.get("created_at")), job)
+                )
         if status == "needs_attention":
             for q in (job.get("pending_questions") or []):
                 label = (q.get("label") or q.get("question") or "").strip()
@@ -145,6 +157,57 @@ def main():
         print(f"\nTop {args.top} pending-question labels (needs_attention):")
         for label, count in pending_labels.most_common(args.top):
             print(f"  {count:4d}  {label}")
+
+    if render_failures and args.dump_render_failures > 0:
+        render_failures.sort(
+            key=lambda t: (t[0] is None, -(t[0].timestamp() if t[0] else 0))
+        )
+        n = min(args.dump_render_failures, len(render_failures))
+        print(
+            f"\n=== Last {n} 'form did not render' failures "
+            f"(of {len(render_failures)} total) ==="
+        )
+        for i, (created, job) in enumerate(render_failures[:n], 1):
+            ts = created.isoformat() if created else "(no timestamp)"
+            print(f"\n[{i}] created_at={ts}  job_id={job.get('job_id') or job.get('_id')}")
+            reason = job.get("failure_reason") or ""
+            print(f"    failure_reason: {reason[:200]}")
+            apply_url = job.get("apply_url") or job.get("job_apply_url") or ""
+            if apply_url:
+                print(f"    original apply_url: {apply_url}")
+            for k in ("platform", "ats"):
+                if job.get(k):
+                    print(f"    {k}: {job[k]}")
+            attempted = job.get("attempted_urls") or []
+            if attempted:
+                print(f"    attempted_urls ({len(attempted)}):")
+                for u in attempted:
+                    print(f"      - {u}")
+            attempt_log = job.get("attempt_log") or []
+            if attempt_log:
+                print(f"    attempt_log ({len(attempt_log)}):")
+                for entry in attempt_log:
+                    if isinstance(entry, dict):
+                        parts = [f"result={entry.get('result')!r}"]
+                        if entry.get("final_url"):
+                            parts.append(f"final_url={entry['final_url']}")
+                        if entry.get("url"):
+                            parts.append(f"url={entry['url']}")
+                        print(f"      - {'  '.join(parts)}")
+                        # DOM peek — the actual field structure of the
+                        # failing tenant. Newly added 2026-07-20; audits
+                        # BEFORE that date won't have it.
+                        peek = entry.get("dom_peek")
+                        if peek and isinstance(peek, dict):
+                            print(f"        dom_peek: title={peek.get('title')!r}  input_count={peek.get('input_count')}")
+                            for inp in (peek.get("inputs") or [])[:10]:
+                                if isinstance(inp, dict):
+                                    fields = ", ".join(
+                                        f"{k}={v!r}" for k, v in inp.items() if v
+                                    )
+                                    print(f"          - {fields}")
+                    else:
+                        print(f"      - {entry}")
 
     print()
 

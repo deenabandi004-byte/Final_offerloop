@@ -154,10 +154,24 @@ def run_greenhouse_filler(
                                 "final_url": final_url,
                             })
                             continue
-                        page.wait_for_selector("#first_name", timeout=12_000)
+                        # Multi-selector wait: not every Greenhouse tenant uses
+                        # `#first_name`. Custom form templates (seen on
+                        # Cloudflare + MSF's `job-boards.greenhouse.io` runs
+                        # 2026-07-14) render with `name="job_application[..]"`
+                        # or `autocomplete="given-name"` styling instead. Wait
+                        # for ANY of the known first-name shapes — Playwright
+                        # comma-separated wait resolves on the first match.
+                        _FIRST_NAME_MARKERS = ",".join([
+                            "#first_name",
+                            'input[name="job_application[first_name]"]',
+                            'input[name="candidate[first_name]"]',
+                            'input[autocomplete="given-name"]',
+                            'input[aria-label*="first name" i]',
+                        ])
+                        page.wait_for_selector(_FIRST_NAME_MARKERS, timeout=12_000)
                         landed_on = candidate
                         attempt_log.append({"url": candidate, "result": "ok"})
-                        print(f"[auto_apply]     SUCCESS: #first_name selector found, page is the Greenhouse form", flush=True)
+                        print(f"[auto_apply]     SUCCESS: form field found, page is the Greenhouse form", flush=True)
                         print(f"[auto_apply]     page title: {page.title()!r}", flush=True)
                         break
                     except PWTimeout:
@@ -165,11 +179,40 @@ def run_greenhouse_filler(
                             final_url = page.url
                         except Exception:
                             final_url = candidate
-                        attempt_log.append({
+                        # DOM peek on failure: capture the top form inputs on
+                        # the page so the next audit reveals whether the form
+                        # was there under a different selector, or genuinely
+                        # missing. Cheap (~1 evaluate), only runs on failure.
+                        dom_peek = None
+                        try:
+                            dom_peek = page.evaluate(
+                                """() => {
+                                    const inputs = Array.from(
+                                        document.querySelectorAll('input, textarea, select')
+                                    ).slice(0, 20).map(el => ({
+                                        tag: el.tagName.toLowerCase(),
+                                        id: el.id || null,
+                                        name: el.getAttribute('name'),
+                                        type: el.getAttribute('type'),
+                                        aria: el.getAttribute('aria-label'),
+                                    }));
+                                    return {
+                                        title: document.title,
+                                        input_count: document.querySelectorAll('input').length,
+                                        inputs,
+                                    };
+                                }"""
+                            )
+                        except Exception:
+                            pass
+                        entry = {
                             "url": candidate,
-                            "result": "no #first_name",
+                            "result": "no first-name selector matched",
                             "final_url": final_url,
-                        })
+                        }
+                        if dom_peek:
+                            entry["dom_peek"] = dom_peek
+                        attempt_log.append(entry)
                     except Exception as exc:
                         attempt_log.append({
                             "url": candidate,
