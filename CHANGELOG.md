@@ -2,6 +2,11 @@
 
 All notable changes to Offerloop will be documented in this file.
 
+## [0.1.12.1] - 2026-07-20
+
+### Fixed
+- **Resume PDF preview renders again on production.** The Resume page builds the live PDF preview via `URL.createObjectURL(blob)` and loads that `blob:` URL into an iframe. Production's CSP `frame-src` allowlist covered Stripe, Google, and Firebase but not `blob:`, so Chrome refused to load the iframe and rendered its own "This content is blocked" placeholder. Localhost was unaffected because Vite dev server doesn't inject the CSP header. Added `blob:` to `frame-src` in `backend/wsgi.py`.
+
 ## [0.1.12.0] - 2026-07-15
 
 ### Fixed
