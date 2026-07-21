@@ -186,7 +186,7 @@ def create_app() -> Flask:
         "font-src 'self' data: https://fonts.gstatic.com; "
         "img-src 'self' data: blob: https:; "
         "connect-src 'self' https: wss:; "
-        "frame-src 'self' https://js.stripe.com https://checkout.stripe.com "
+        "frame-src 'self' blob: https://js.stripe.com https://checkout.stripe.com "
         "https://accounts.google.com https://*.firebaseapp.com; "
         "object-src 'none'; "
         "base-uri 'self'; "
