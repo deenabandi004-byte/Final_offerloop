@@ -295,28 +295,42 @@ def harvest_combobox_options(page, selector: str) -> Optional[List[str]]:
             pass
         return None
 
-    try:
-        options = page.evaluate(
-            """(sel) => {
-                const el = document.querySelector(sel);
-                if (!el) return null;
-                const ownsId = el.getAttribute && (
-                    el.getAttribute('aria-owns') || el.getAttribute('aria-controls')
-                );
-                let listbox = ownsId ? document.getElementById(ownsId) : null;
-                if (!listbox) {
-                    const all = document.querySelectorAll('[role="listbox"]');
-                    if (all.length > 0) listbox = all[all.length - 1];
-                }
-                if (!listbox) return null;
-                return Array.from(listbox.querySelectorAll('[role="option"]'))
-                    .map(o => (o.textContent || '').trim())
-                    .filter(Boolean);
-            }""",
-            selector,
-        )
-    except Exception:
-        options = None
+    # Poll for options up to ~2400ms. Many location / office multi-selects
+    # are async react-selects — the listbox opens with a "Loading…" placeholder
+    # while the client fetches from the server. A one-shot read at 300ms
+    # returned empty for those, so the harvest returned None and the LLM was
+    # asked to pick from an empty option list → NEEDS_USER → drawer. The
+    # audit on 2026-07-20 showed "Location (City)" as the #1 drawer question
+    # (12/22 needs_attention hits) and #4 failure reason — all traceable to
+    # this timing.
+    read_options = """(sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const ownsId = el.getAttribute && (
+            el.getAttribute('aria-owns') || el.getAttribute('aria-controls')
+        );
+        let listbox = ownsId ? document.getElementById(ownsId) : null;
+        if (!listbox) {
+            const all = document.querySelectorAll('[role="listbox"]');
+            if (all.length > 0) listbox = all[all.length - 1];
+        }
+        if (!listbox) return null;
+        return Array.from(listbox.querySelectorAll('[role="option"]'))
+            .map(o => (o.textContent || '').trim())
+            .filter(Boolean);
+    }"""
+    options: Optional[List[str]] = None
+    _LOADING = ("loading", "searching", "no options", "type to search")
+    for _ in range(12):  # ~2400ms budget in 200ms slices
+        try:
+            options = page.evaluate(read_options, selector)
+        except Exception:
+            options = None
+        if isinstance(options, list) and options:
+            # Reject placeholder-only listboxes ("Loading…") and keep polling.
+            if not (len(options) == 1 and options[0].strip().lower() in _LOADING):
+                break
+        page.wait_for_timeout(200)
 
     try:
         page.keyboard.press("Escape")

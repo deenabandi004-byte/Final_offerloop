@@ -2,6 +2,17 @@
 
 All notable changes to Offerloop will be documented in this file.
 
+## [0.1.13.0] - 2026-07-20
+
+### Fixed
+- **Auto-apply submit rate: baseline was 5% (5/100 runs over the last 30 days). Four fixes target the top three failure buckets.**
+  - **Pre-submit halt removed on all three ATSes** (`greenhouse.py`, `ashby.py`, `lever.py`). Any single required-but-unmapped field was routing whole runs to `needs_attention` before Submit was ever clicked. The classifier over-flags required (e.g., "* Optional Personal Preferences" trips it), and 22% of runs died here in the audit — top offenders were "Location (City)" (12x), "First Name" (5x), "Additional Information*" (3x). Now the runner clicks Submit anyway and uses the ATS's own `aria-invalid` response as the authoritative signal; the existing refill-and-resubmit path handles fields the ATS actually needed.
+  - **Location multi-select harvest polls for async-loaded options** (`_form_filler_common.py`). `harvest_combobox_options` waited a single 300ms after opening a react-select listbox, then read `[role="option"]` once. For async-loaded location dropdowns (company office lists fetched from the server) that returned an empty list or `["Loading…"]` — the LLM got nothing to pick from and routed to the drawer. Now polls up to ~2400ms in 200ms slices and ignores placeholder text. Directly targets "Location (City)" (the #1 drawer question, 12/22 needs_attention hits) and the 4 "wouldn't accept an automated answer" failures.
+  - **Playwright Chromium binary installed at build time** (`render-build.sh`). `pip install playwright` only lands the Python package; the Chromium binary that `sync_playwright().chromium.connect_over_cdp(...)` needs at runtime has to be installed explicitly. Cold Render pods without a cached binary were crashing with "playwright not installed" (2 runs in the audit).
+
+### Added
+- **`backend/scripts/audit_auto_apply_outcomes.py`** — read-only Firestore audit for `autoApplyJobs`. Buckets last N days by status, computes per-platform submit rate, and dumps the top failure reasons + top pending-question labels so we can measure the impact of these fixes and pick the next bucket to tackle. Zero external API cost.
+
 ## [0.1.12.1] - 2026-07-20
 
 ### Fixed

@@ -173,19 +173,12 @@ def run_lever_filler(
                 screenshot_bytes = page.screenshot(full_page=True)
                 screenshot_b64 = base64.b64encode(screenshot_bytes).decode("ascii")
 
-                # Needs-attention escalation: any REQUIRED field still
-                # unanswered after profile + library + LLM. Don't submit.
-                pending = [u for u in unmapped if u.get("required") is True]
-                if pending and not dry_run:
-                    return {
-                        "status": "needs_attention",
-                        "filled": filled,
-                        "unmapped": unmapped,
-                        "pending_questions": pending,
-                        "prepared_answers": prepared_answers,
-                        "screenshot_b64": screenshot_b64,
-                        "failure_reason": None,
-                    }
+                # Aggressive-submit: don't halt pre-submit when the classifier
+                # thinks required fields are unmapped. Lever's post-submit
+                # validation is the authoritative signal — matches greenhouse.py.
+                pre_submit_pending_count = sum(1 for u in unmapped if u.get("required") is True)
+                if pre_submit_pending_count and not dry_run:
+                    print(f"[auto_apply]   lever: classifier flagged {pre_submit_pending_count} required field(s) as unmapped — submitting anyway", flush=True)
 
                 # NOTE: The previous early-bail on detect_captcha_challenge
                 # was removed. Lever ships hCaptcha on every tenant, but

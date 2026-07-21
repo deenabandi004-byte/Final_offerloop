@@ -22,3 +22,13 @@ cd ..
 echo "==> Installing backend Python deps"
 pip install --upgrade pip
 pip install -r backend/requirements.txt --break-system-packages
+
+# Playwright ships as a Python package + a separate browser binary. `pip
+# install` alone only lands the package; the Chromium binary that
+# `sync_playwright().chromium.connect_over_cdp(...)` (used by every
+# auto-apply filler) needs at runtime has to be installed explicitly.
+# Without this step, cold Render pods raise ImportError-style failures on
+# import and the run dies with "playwright not installed" — confirmed on
+# the 2026-07-20 audit.
+echo "==> Installing Playwright Chromium binary"
+python -m playwright install chromium
