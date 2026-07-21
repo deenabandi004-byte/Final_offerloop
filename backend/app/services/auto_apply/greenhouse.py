@@ -223,23 +223,22 @@ def run_greenhouse_filler(
                 screenshot_bytes = page.screenshot(full_page=True)
                 screenshot_b64 = base64.b64encode(screenshot_bytes).decode("ascii")
 
-                # Needs-attention escalation: if any REQUIRED field is still
-                # unanswered after profile + library + LLM, don't submit. The
-                # runner will write status=needs_attention and surface
-                # pending_questions to the user.
-                pending = [u for u in unmapped if u.get("required") is True]
-                pending = _dedupe_pending_by_label(pending)
-                if pending and not dry_run:
-                    print(f"[auto_apply]   pre-submit pending questions (deduped): {len(pending)}", flush=True)
-                    return {
-                        "status": "needs_attention",
-                        "filled": filled,
-                        "unmapped": unmapped,
-                        "pending_questions": pending,
-                        "prepared_answers": prepared_answers,
-                        "screenshot_b64": screenshot_b64,
-                        "failure_reason": None,
-                    }
+                # Aggressive-submit: click Submit even if the classifier thinks
+                # some required fields are unmapped. The classifier over-flags
+                # required (e.g., ATS marks a field optional at the server but
+                # we saw the * asterisk in the DOM), and Greenhouse's own
+                # aria-invalid response is the authoritative signal. If real
+                # required fields are empty the post-submit refill-and-resubmit
+                # path (below) will catch them and re-run the resolver, or
+                # escalate to needs_attention on the SECOND miss. Halting here
+                # was routing lots of otherwise-submittable jobs to the drawer
+                # (baseline audit 2026-07-20: 22% of runs landed in
+                # needs_attention pre-submit, most on "Location (City)",
+                # "First Name", or "* Optional Personal Preferences" false
+                # positives).
+                pre_submit_pending_count = sum(1 for u in unmapped if u.get("required") is True)
+                if pre_submit_pending_count and not dry_run:
+                    print(f"[auto_apply]   classifier flagged {pre_submit_pending_count} required field(s) as unmapped — submitting anyway, aria-invalid will be authoritative", flush=True)
 
                 # NOTE: The previous early-bail on detect_captcha_challenge was
                 # removed in the Browserbase migration. Greenhouse's reCAPTCHA
