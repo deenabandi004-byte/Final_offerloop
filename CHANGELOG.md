@@ -2,6 +2,17 @@
 
 All notable changes to Offerloop will be documented in this file.
 
+## [0.1.13.1] - 2026-07-20
+
+### Fixed
+- **Auto-apply: broadened form-detection selectors for Greenhouse + Ashby.** Follow-up to v0.1.13.0. Second audit pass showed 14/100 runs died with "form did not render at any candidate URL" — biggest single bucket after the pre-submit halt was removed. Root cause: the wait selectors were too narrow.
+  - **Greenhouse** (`greenhouse.py:157`): `#first_name` alone missed tenants using `job_application[first_name]`, `candidate[first_name]`, `autocomplete="given-name"`, or `aria-label*="first name"`. Now waits for a UNION of 5 selectors (Playwright resolves on first match). Targets Cloudflare + MSF Careers (both failed with the wait timeout on URLs that DID render the form, just under a different id).
+  - **Ashby** (`ashby.py:337 _ensure_form_visible`): the `#_systemfield_*` legacy IDs don't cover newer Ashby templates. Broadened to 8 selectors covering both legacy and modern (`name="name"`, `autocomplete="email"`). Targets OpenAI + Interplay (3/5 render-failure samples).
+  - **Both** now capture a DOM peek on failure — top 20 form inputs (id, name, type, aria-label) written to `attempt_log[i].dom_peek`. Next audit surfaces the exact field structure of any remaining failing tenant so we can add the missing selector without guessing.
+
+### Changed
+- **`backend/scripts/audit_auto_apply_outcomes.py`** — the audit now surfaces `dom_peek` data from failing runs, so the diagnostic loop is closed: audit → see actual field IDs → patch selectors → re-audit.
+
 ## [0.1.13.0] - 2026-07-20
 
 ### Fixed
