@@ -413,10 +413,12 @@ def generate_and_draft():
     if resume_url:
         resume_url = _normalize_drive_url(resume_url)
 
-    # Download resume once before the loop (avoid N repeated downloads)
+    # Download resume once before the loop (avoid N repeated downloads).
+    # Skipped in fallback mode: the resume attachment is only used when
+    # building the MIME message for a Gmail draft.
     _cached_resume_data = None
     _cached_resume_ctype = None
-    if resume_url:
+    if resume_url and not fallback_mode:
         try:
             resume_url = validate_fetch_url(resume_url)
             _resume_res = requests.get(
@@ -571,44 +573,9 @@ def generate_and_draft():
         # Add HTML signature
         html_body += signature_html
 
-        # --- Build MIME message ---
-        msg = MIMEMultipart("mixed")
-        msg["to"] = to_addr
-        msg["subject"] = r["subject"]
-
-        alt = MIMEMultipart("alternative")
-        alt.attach(MIMEText(body, "plain", "utf-8"))
-        alt.attach(MIMEText(html_body, "html", "utf-8"))
-        msg.attach(alt)
-
-        # --- Attach resume if available (uses pre-downloaded bytes) ---
-        if _cached_resume_data is not None:
-            try:
-                data = _cached_resume_data
-                filename = resume_filename or "Resume.pdf"
-                # If filename missing extension, try to pull one from the cached content-type
-                if "." not in filename and _cached_resume_ctype and "/" in _cached_resume_ctype:
-                    ext = mimetypes.guess_extension(_cached_resume_ctype.split(";")[0].strip()) or ".pdf"
-                    filename += ext
-
-                # Infer MIME type
-                ctype_clean = (_cached_resume_ctype or "").split(";", 1)[0].strip()
-                if "/" in ctype_clean:
-                    main, sub = ctype_clean.split("/", 1)
-                else:
-                    main, sub = _infer_mime_type(filename)
-
-                part = MIMEBase(main, sub)
-                part.set_payload(data)
-                encoders.encode_base64(part)
-                part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
-                msg.attach(part)
-            except Exception as e:
-                print(f"[{i}] Could not attach resume: {e}")
-
-
-
         # --- Fallback delivery: no Gmail integration, return content directly ---
+        # Handled here, before MIME assembly, since fallback mode doesn't need
+        # the multipart message or resume attachment built below.
         if fallback_mode:
             created.append({
                 "index": i,
@@ -649,9 +616,52 @@ def generate_and_draft():
                     contact_data["email"] = to_addr_clean
                     contact_data["createdAt"] = datetime.utcnow().isoformat()
                     contacts_ref.document().set(contact_data)
+
+                # Persist warmth tier + seniority bucket for Phase 2 aggregation,
+                # same as the Gmail draft branch below.
+                _w_info = warmth_data.get(i) if warmth_data else None
+                _persist_warmth_on_send(
+                    db, uid, to_addr_clean, _w_info,
+                    c.get("Title") or c.get("jobTitle") or "",
+                )
             except Exception as e:
                 print(f"[{i}] Failed to save fallback contact: {e}")
             continue
+
+        # --- Build MIME message ---
+        msg = MIMEMultipart("mixed")
+        msg["to"] = to_addr
+        msg["subject"] = r["subject"]
+
+        alt = MIMEMultipart("alternative")
+        alt.attach(MIMEText(body, "plain", "utf-8"))
+        alt.attach(MIMEText(html_body, "html", "utf-8"))
+        msg.attach(alt)
+
+        # --- Attach resume if available (uses pre-downloaded bytes) ---
+        if _cached_resume_data is not None:
+            try:
+                data = _cached_resume_data
+                filename = resume_filename or "Resume.pdf"
+                # If filename missing extension, try to pull one from the cached content-type
+                if "." not in filename and _cached_resume_ctype and "/" in _cached_resume_ctype:
+                    ext = mimetypes.guess_extension(_cached_resume_ctype.split(";")[0].strip()) or ".pdf"
+                    filename += ext
+
+                # Infer MIME type
+                ctype_clean = (_cached_resume_ctype or "").split(";", 1)[0].strip()
+                if "/" in ctype_clean:
+                    main, sub = ctype_clean.split("/", 1)
+                else:
+                    main, sub = _infer_mime_type(filename)
+
+                part = MIMEBase(main, sub)
+                part.set_payload(data)
+                encoders.encode_base64(part)
+                part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
+                msg.attach(part)
+            except Exception as e:
+                print(f"[{i}] Could not attach resume: {e}")
 
         # --- Create Gmail draft ---
         try:
