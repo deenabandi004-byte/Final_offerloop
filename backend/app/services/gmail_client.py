@@ -991,8 +991,11 @@ def get_gmail_service_for_user(user_email, user_id=None):
     2. Shared token.pickle account (fallback)
     """
     try:
-        if not user_email:
-            print("[GmailClient] No user email provided")
+        # user_email is only an identity hint — credentials are loaded by uid.
+        # Apple sign-in tokens can omit email entirely, so only bail when we
+        # have neither an email nor a uid to work with.
+        if not user_email and not user_id:
+            print("[GmailClient] No user email or user id provided")
             return None
 
         # Priority 1: Try per-user OAuth credentials if user_id is provided

@@ -291,7 +291,6 @@ def create_referral_trial_checkout(user_id: str, user_email: str) -> dict:
         session = stripe.checkout.Session.create(
             payment_method_types=['card'],
             mode='subscription',
-            customer_email=user_email,
             success_url=f"{base_url}/account-settings?referral=claimed",
             cancel_url=f"{base_url}/account-settings?referral=cancelled",
             line_items=[{'price': STRIPE_ELITE_PRICE_ID, 'quantity': 1}],
@@ -301,6 +300,10 @@ def create_referral_trial_checkout(user_id: str, user_email: str) -> dict:
                 'tier': 'elite',
                 'referral_reward': 'true',
             },
+            # Stripe rejects customer_email='' — omit it when the user doc has
+            # no email (Apple sign-in can have none) and let the hosted
+            # checkout page collect the address instead.
+            **({'customer_email': user_email} if user_email else {}),
         )
     except stripe.error.StripeError as e:
         return {'error': f'stripe_checkout_failed: {e}'}
@@ -332,7 +335,22 @@ def create_checkout_session():
         
         data = request.get_json() or {}
         user_id = request.firebase_user.get('uid')
-        user_email = request.firebase_user.get('email')
+        # Preference order: Firestore user doc email (source of truth) → the
+        # Firebase token's email → "". Apple sign-in tokens can omit email
+        # entirely or carry a privaterelay.appleid.com address; the Firestore
+        # doc captured at signup is more likely to have a usable address.
+        token_email = request.firebase_user.get('email') or ''
+        user_doc_email = ''
+        if user_id:
+            try:
+                db = get_db()
+                if db:
+                    snap = db.collection('users').document(user_id).get()
+                    if snap.exists:
+                        user_doc_email = (snap.to_dict() or {}).get('email') or ''
+            except Exception as e:
+                print(f"[Stripe] Could not load user doc email: {e}")
+        user_email = user_doc_email or token_email
         price_id = data.get('priceId')
         # Slider selection — used when the catalog doesn't have a real Price ID
         # wired for this (tier, credits, cadence, audience) combination. The
@@ -347,11 +365,12 @@ def create_checkout_session():
         except (TypeError, ValueError):
             slider_credits = None
 
-        # Validate required fields
+        # Validate required fields. Email is NOT required — Stripe Checkout
+        # collects it on the hosted page when customer_email is omitted, which
+        # covers users whose token/user-doc both lack an email (e.g. Apple
+        # sign-in with "Hide My Email" and no address captured at signup).
         if not user_id:
             return jsonify({'error': 'User ID is required'}), 400
-        if not user_email:
-            return jsonify({'error': 'User email is required'}), 400
 
         # Prefer a catalog-backed Price ID when one exists AND it actually
         # matches the slider selection. The frontend falls back to the legacy
@@ -450,15 +469,17 @@ def create_checkout_session():
         if slider_cadence:
             metadata['cadence'] = slider_cadence
 
-        # Prepare session parameters
+        # Prepare session parameters. Only pass customer_email when we
+        # actually have one — Stripe accepts its omission and collects the
+        # address on the hosted checkout page instead.
         session_params = {
             'payment_method_types': ['card'],
             'mode': 'subscription',
             'success_url': success_url,
             'cancel_url': cancel_url,
-            'customer_email': user_email,
             'allow_promotion_codes': True,
             'metadata': metadata,
+            **({'customer_email': user_email} if user_email else {}),
         }
         # Stripe rejects trial_period_days < 1, so only attach subscription_data
         # when trial_days resolved to >= 1 (i.e., a recognized price the user

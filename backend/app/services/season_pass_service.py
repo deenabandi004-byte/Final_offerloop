@@ -97,13 +97,16 @@ def create_season_pass_session(user_id: str, user_email: str, audience: str,
         session = stripe.checkout.Session.create(
             mode='payment',
             payment_method_types=['card'],
-            customer_email=user_email,
             success_url=success_url,
             cancel_url=cancel_url,
             line_items=[{'price': price_id, 'quantity': 1}],
             allow_promotion_codes=False,
             metadata=metadata,
             payment_intent_data={'metadata': metadata},
+            # Stripe rejects customer_email='' — omit it when no email is on
+            # file (Apple sign-in can have none) and let the hosted checkout
+            # page collect the address instead.
+            **({'customer_email': user_email} if user_email else {}),
         )
     except stripe.error.StripeError as e:
         logger.error("Stripe season-pass session error: %s", e)

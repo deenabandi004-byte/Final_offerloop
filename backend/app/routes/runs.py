@@ -169,6 +169,10 @@ def prompt_search():
                 user_doc = user_ref.get()
                 if user_doc.exists:
                     user_data = user_doc.to_dict()
+                    # Firestore user doc is the source of truth for identity;
+                    # the Firebase token's email can be missing (Apple with no
+                    # shared email) or a privaterelay.appleid.com address.
+                    user_email = user_data.get("email") or user_email
                     credits_available = check_and_reset_credits(user_ref, user_data)
                     user_tier = user_data.get("subscriptionTier", user_data.get("tier", "free"))
                     if user_tier not in TIER_CONFIGS:
@@ -470,7 +474,7 @@ def prompt_search():
                     pi = prof_doc.to_dict()
                     user_profile = {
                         "name": f"{pi.get('firstName', '')} {pi.get('lastName', '')}".strip() or user_email or "",
-                        "email": user_email,
+                        "email": user_email or "",
                         "university": pi.get("university", ""),
                         "major": pi.get("fieldOfStudy", ""),
                         "year": pi.get("graduationYear", ""),
