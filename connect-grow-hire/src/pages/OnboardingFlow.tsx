@@ -4,6 +4,7 @@ import { ArrowLeft, Check } from "lucide-react";
 import { OnboardingSlides } from "./OnboardingSlides";
 import { OnboardingSource, type SourceResult } from "./OnboardingSource";
 import { OnboardingBuilder } from "./OnboardingBuilder";
+import { OnboardingInbox } from "./OnboardingInbox";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { BACKEND_URL } from "@/services/api";
 import { toast } from "sonner";
@@ -13,8 +14,9 @@ import ScoutYeti from "@/assets/scout-wave-removebg-preview.png";
 // Hand-drawn circled step numbers (sliced from the design reference, bg removed).
 import StepNum1 from "@/assets/step-num-1.png";
 import StepNum2 from "@/assets/step-num-2.png";
+import StepNum3 from "@/assets/step-num-3.png";
 
-const STEP_NUM_IMAGES = [StepNum1, StepNum2];
+const STEP_NUM_IMAGES = [StepNum1, StepNum2, StepNum3];
 // All-white monochrome variant of offerloop_logo2.png (padding trimmed) — the
 // standard dark-surface lockup, legible directly on the navy rail.
 import OfferloopLogo from "@/assets/offerloop_logo2_allwhite.png";
@@ -23,12 +25,13 @@ import { trackFeatureActionCompleted } from "@/lib/analytics";
 
 // Resume-first onboarding: intro slides, then a single resume/LinkedIn page.
 // "builder" (the free resume generator) shares the resume phase on the rail.
-type Step = "slides" | "source" | "builder";
-const STEP_INDEX: Record<Step, number> = { slides: 0, source: 1, builder: 1 };
+type Step = "slides" | "source" | "builder" | "inbox";
+const STEP_INDEX: Record<Step, number> = { slides: 0, source: 1, builder: 1, inbox: 2 };
 
 const RAIL_STEPS: { label: string; optional?: boolean }[] = [
   { label: "What Offerloop does" },
   { label: "Your resume" },
+  { label: "Connect your inbox", optional: true },
 ];
 
 interface OnboardingFlowProps {
@@ -46,6 +49,12 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
   const [currentStep, setCurrentStep] = useState<Step>("slides");
   const [submitting, setSubmitting] = useState(false);
   const [source, setSource] = useState<SourceResult | null>(null);
+  // Completion is deferred until the inbox step resolves (connect or skip).
+  const [pendingCompletion, setPendingCompletion] = useState<{
+    prefill: ResumePrefill;
+    linkedinUrl: string;
+    step: string;
+  } | null>(null);
 
   // Onboarding analytics: fire-and-forget step events.
   const loggedSteps = useRef<Set<string>>(new Set());
@@ -75,7 +84,7 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
   // userType is intentionally NOT written: without the manual step's
   // student/professional question, the backend infers stage from the resume
   // instead of a hardcoded "student" locking professionals into the wrong voice.
-  const buildFinalData = (prefill: ResumePrefill, linkedinUrl: string) => {
+  const buildFinalData = (prefill: ResumePrefill, linkedinUrl: string, inboxSkipped: boolean) => {
     const fullName = prefill.name || user?.name || "";
     const nameParts = fullName.trim().split(/\s+/);
     const firstName = prefill.firstName || nameParts[0] || "";
@@ -103,6 +112,8 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
       targetIndustries: [],
       goals: { careerTrack: "", careerTracks: [], targetIndustries: [] },
       onboarding: { completedAt: new Date().toISOString() },
+      // Read by the Settings surface to badge the Gmail connect card later.
+      ...(inboxSkipped ? { inboxConnectSkipped: true } : {}),
     };
   };
 
@@ -121,12 +132,17 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
   };
 
   // Single completion path: every entry (resume, LinkedIn, builder) ends here.
-  const completeWithPrefill = async (prefill: ResumePrefill, linkedinUrl: string, step: string) => {
+  const completeWithPrefill = async (
+    prefill: ResumePrefill,
+    linkedinUrl: string,
+    step: string,
+    inboxSkipped: boolean,
+  ) => {
     if (submitting) return;
     setSubmitting(true);
     try {
       logOnboardingEvent("completed", step);
-      const finalData = buildFinalData(prefill, linkedinUrl);
+      const finalData = buildFinalData(prefill, linkedinUrl, inboxSkipped);
       // Set BEFORE completeOnboarding: that call flips needsOnboarding in the
       // auth context, which is the moment TourContext runs its auto-start
       // check and reads this flag to treat the account as a fresh signup.
@@ -155,10 +171,22 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
   };
   const handleSource = (data: SourceResult) => {
     setSource(data);
-    void completeWithPrefill(data.resolved, data.linkedinUrl, "source");
+    setPendingCompletion({ prefill: data.resolved, linkedinUrl: data.linkedinUrl, step: "source" });
+    setCurrentStep("inbox");
   };
   const handleBuilderComplete = (prefill: ResumePrefill) => {
-    void completeWithPrefill(prefill, "", "resume_builder");
+    setPendingCompletion({ prefill, linkedinUrl: "", step: "resume_builder" });
+    setCurrentStep("inbox");
+  };
+  const handleInboxDone = (skipped: boolean) => {
+    if (!pendingCompletion) return;
+    logOnboardingEvent("completed", "inbox", skipped);
+    void completeWithPrefill(
+      pendingCompletion.prefill,
+      pendingCompletion.linkedinUrl,
+      pendingCompletion.step,
+      skipped,
+    );
   };
 
   const handleBack = async () => {
@@ -171,6 +199,8 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
       navigate("/?signedOut=true", { replace: true });
     } else if (currentStep === "source") setCurrentStep("slides");
     else if (currentStep === "builder") setCurrentStep("source");
+    else if (currentStep === "inbox")
+      setCurrentStep(pendingCompletion?.step === "resume_builder" ? "builder" : "source");
   };
 
   // Slides bypass the Slate Split shell entirely (full-bleed navy).
@@ -213,6 +243,18 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
       headline: <>Let's build {em("your resume")}</>,
       sub: "Tell us what you've done. We'll turn it into a clean one-page resume, free.",
       footer: { mascot: 150 },
+    },
+    inbox: {
+      headline: <>Where should {em("your drafts")} go?</>,
+      sub: "Offerloop writes personalized outreach emails for you. Pick how you want to receive them.",
+      footer: {
+        hint: (
+          <>
+            Connect Gmail and every draft lands in your inbox, ready to send. Skip and your
+            emails arrive as one-tap downloads that open in any mail app, resume attached.
+          </>
+        ),
+      },
     },
   };
   const meta = STEP_META[currentStep];
@@ -429,6 +471,9 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
           )}
           {currentStep === "builder" && (
             <OnboardingBuilder onComplete={handleBuilderComplete} submitting={submitting} />
+          )}
+          {currentStep === "inbox" && (
+            <OnboardingInbox onDone={handleInboxDone} submitting={submitting} />
           )}
         </div>
       </div>
