@@ -144,6 +144,7 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
             letterSpacing: "-0.02em",
             margin: "0 0 18px",
             maxWidth: 640,
+            color: "#fff",
           }}
         >
           {slide.headline}
