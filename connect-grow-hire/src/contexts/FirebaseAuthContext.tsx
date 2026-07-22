@@ -13,6 +13,13 @@ import {
   browserLocalPersistence,
   getAdditionalUserInfo,
   GoogleAuthProvider,
+  OAuthProvider,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail,
+  sendEmailVerification,
+  updateProfile,
+  UserCredential,
 } from "firebase/auth";
 import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
@@ -60,6 +67,10 @@ type NextRoute = "onboarding" | "home";
 interface AuthContextType {
   user: User | null;
   signIn: (opts?: SignInOptions) => Promise<NextRoute>;
+  signInWithApple: () => Promise<NextRoute>;
+  signUpWithEmail: (name: string, email: string, password: string) => Promise<NextRoute>;
+  signInWithEmail: (email: string, password: string) => Promise<NextRoute>;
+  resetPassword: (email: string) => Promise<void>;
   signOut: () => void;
   updateUser: (updates: Partial<User>) => Promise<void>;
   updateCredits: (newCredits: number) => Promise<void>;
@@ -75,6 +86,32 @@ export const useFirebaseAuth = () => {
   const context = useContext(FirebaseAuthContext);
   if (!context) throw new Error("useFirebaseAuth must be used within a FirebaseAuthProvider");
   return context;
+};
+
+// Maps Firebase Auth error codes to plain copy for the sign-in UI.
+export const friendlyAuthError = (err: unknown): string => {
+  const code = (err as { code?: string })?.code || "";
+  switch (code) {
+    case "auth/email-already-in-use":
+      return "That email already has an account. Sign in instead, or use Google if you signed up with it.";
+    case "auth/account-exists-with-different-credential":
+      return "That email is registered with a different sign-in method. Try Google.";
+    case "auth/invalid-credential":
+    case "auth/wrong-password":
+    case "auth/user-not-found":
+      return "Incorrect email or password.";
+    case "auth/weak-password":
+      return "Password must be at least 6 characters.";
+    case "auth/invalid-email":
+      return "That email address doesn't look right.";
+    case "auth/too-many-requests":
+      return "Too many attempts. Wait a minute and try again.";
+    case "auth/popup-closed-by-user":
+    case "auth/cancelled-popup-request":
+      return "Sign-in was cancelled.";
+    default:
+      return "Sign-in failed. Please try again.";
+  }
 };
 
 // Stale-while-revalidate auth cache. We persist the last fully-loaded user
@@ -277,6 +314,53 @@ export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ childr
     }
   };
 
+// Shared post-auth pipeline: ensure the user doc exists, capture sign_up for
+// brand-new accounts, and decide where the app should route next.
+const finishSignIn = async (
+  result: UserCredential,
+  method: "google" | "apple" | "password",
+  nameOverride?: string,
+): Promise<NextRoute> => {
+  const info = getAdditionalUserInfo(result);
+  const uid = result.user.uid;
+  const ref = doc(db, "users", uid);
+  const snap = await getDoc(ref);
+
+  if (!snap.exists()) {
+    await setDoc(ref, {
+      uid,
+      email: result.user.email || "",
+      name: nameOverride || result.user.displayName || "",
+      // Firestore setDoc throws on undefined field values (no
+      // ignoreUndefinedProperties in our init), and password users have no
+      // photoURL — omit the key entirely when there's no photo.
+      ...(result.user.photoURL ? { picture: result.user.photoURL } : {}),
+      tier: "free",
+      credits: 300,
+      maxCredits: 300,
+      emailsMonthKey: getMonthKey(),
+      emailsUsedThisMonth: 0,
+      needsOnboarding: true,
+      createdAt: new Date().toISOString(),
+      lastSignIn: new Date().toISOString(),
+    });
+    // Brand-new account: no Firestore doc existed. Co-gate on Firebase's own
+    // isNewUser so this cannot misfire if a doc is ever missing for an
+    // existing account. No email or PII; attribution is handled by the
+    // onIdTokenChanged identify path.
+    if (info?.isNewUser) {
+      posthog.capture('sign_up', { signup_method: method });
+    }
+    return "onboarding";
+  }
+  await updateDoc(ref, { lastSignIn: new Date().toISOString() });
+
+  const data = snap.data() as Partial<User>;
+  const needs = data.needsOnboarding ?? !!info?.isNewUser;
+  console.log('✅ Sign-in complete. Needs onboarding:', needs);
+  return needs ? "onboarding" : "home";
+};
+
 const signIn = async (opts?: SignInOptions): Promise<NextRoute> => {
   try {
     setIsLoading(true);
@@ -289,44 +373,7 @@ const signIn = async (opts?: SignInOptions): Promise<NextRoute> => {
 
     console.log('🔐 Starting basic Google sign-in (no Gmail scopes)');
     const result = await signInWithPopup(auth, provider);
-    const info = getAdditionalUserInfo(result);
-
-    // Ensure user doc exists (without storing Gmail tokens)
-    const uid = result.user.uid;
-    const ref = doc(db, "users", uid);
-    const snap = await getDoc(ref);
-
-    if (!snap.exists()) {
-      await setDoc(ref, {
-        uid,
-        email: result.user.email || "",
-        name: result.user.displayName || "",
-        picture: result.user.photoURL || undefined,
-        tier: "free",
-        credits: 300,
-        maxCredits: 300,
-        emailsMonthKey: getMonthKey(),
-        emailsUsedThisMonth: 0,
-        needsOnboarding: true,
-        createdAt: new Date().toISOString(),
-        lastSignIn: new Date().toISOString(),
-      });
-      // Brand-new account: no Firestore doc existed. Co-gate on Firebase's own
-      // isNewUser so this cannot misfire if a doc is ever missing for an
-      // existing account. No email or PII; attribution is handled by the
-      // onIdTokenChanged identify path.
-      if (info?.isNewUser) {
-        posthog.capture('sign_up', { signup_method: 'google' });
-      }
-      return "onboarding";
-    } else {
-      await updateDoc(ref, { lastSignIn: new Date().toISOString() });
-    }
-
-    const data = snap.data() as Partial<User>;
-    const needs = data.needsOnboarding ?? !!info?.isNewUser;
-    console.log('✅ Sign-in complete. Needs onboarding:', needs);
-    return needs ? "onboarding" : "home";
+    return await finishSignIn(result, "google");
   } catch (error: any) {
     console.error("❌ Authentication failed:", error);
     console.error("Error code:", error.code);
@@ -336,6 +383,66 @@ const signIn = async (opts?: SignInOptions): Promise<NextRoute> => {
     setIsLoading(false);
   }
 };
+
+const signInWithApple = async (): Promise<NextRoute> => {
+  try {
+    setIsLoading(true);
+    const provider = new OAuthProvider("apple.com");
+    provider.addScope("email");
+    provider.addScope("name");
+    console.log('🔐 Starting Apple sign-in');
+    const result = await signInWithPopup(auth, provider);
+    return await finishSignIn(result, "apple");
+  } catch (error: any) {
+    console.error("❌ Apple authentication failed:", error);
+    console.error("Error code:", error.code);
+    console.error("Error message:", error.message);
+    throw error;
+  } finally {
+    setIsLoading(false);
+  }
+};
+
+const signUpWithEmail = async (name: string, email: string, password: string): Promise<NextRoute> => {
+  try {
+    setIsLoading(true);
+    console.log('🔐 Starting email/password sign-up');
+    const result = await createUserWithEmailAndPassword(auth, email, password);
+    if (name.trim()) {
+      await updateProfile(result.user, { displayName: name.trim() });
+    }
+    // Non-blocking: banner elsewhere, product not gated on verification.
+    sendEmailVerification(result.user).catch(() => {});
+    // result.user.displayName may still be stale on the credential object
+    // after updateProfile, so pass the name through explicitly.
+    return await finishSignIn(result, "password", name.trim());
+  } catch (error: any) {
+    console.error("❌ Email sign-up failed:", error);
+    console.error("Error code:", error.code);
+    console.error("Error message:", error.message);
+    throw error;
+  } finally {
+    setIsLoading(false);
+  }
+};
+
+const signInWithEmail = async (email: string, password: string): Promise<NextRoute> => {
+  try {
+    setIsLoading(true);
+    console.log('🔐 Starting email/password sign-in');
+    const result = await signInWithEmailAndPassword(auth, email, password);
+    return await finishSignIn(result, "password");
+  } catch (error: any) {
+    console.error("❌ Email sign-in failed:", error);
+    console.error("Error code:", error.code);
+    console.error("Error message:", error.message);
+    throw error;
+  } finally {
+    setIsLoading(false);
+  }
+};
+
+const resetPassword = (email: string): Promise<void> => sendPasswordResetEmail(auth, email);
 
 
   const signOut = async () => {
@@ -508,10 +615,14 @@ const signIn = async (opts?: SignInOptions): Promise<NextRoute> => {
 
   return (
     <FirebaseAuthContext.Provider
-      value={{ 
-        user, 
-        signIn, 
-        signOut, 
+      value={{
+        user,
+        signIn,
+        signInWithApple,
+        signUpWithEmail,
+        signInWithEmail,
+        resetPassword,
+        signOut,
         updateUser, 
         updateCredits, 
         checkCredits, 
