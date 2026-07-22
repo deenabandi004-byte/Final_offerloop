@@ -271,6 +271,107 @@ const SignIn: React.FC = () => {
             </button>
           </div>
 
+          {/* Google Sign-In Button (recommended path, shown first) */}
+          <div style={{ position: 'relative', marginTop: 4 }}>
+            <span
+              style={{
+                position: 'absolute',
+                top: -9,
+                right: 14,
+                zIndex: 1,
+                padding: '2px 10px',
+                borderRadius: 999,
+                background: '#2563EB',
+                color: 'white',
+                fontSize: '11px',
+                fontWeight: 600,
+                fontFamily: 'var(--font-body)',
+                boxShadow: '0 1px 3px rgba(37, 99, 235, 0.3)',
+              }}
+            >
+              Recommended
+            </span>
+            <button
+              onClick={handleGoogleAuth}
+              disabled={submitting || isLoading}
+              className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-[10px] text-sm font-medium transition-all"
+              style={{
+                background: 'white',
+                color: '#0F172A',
+                fontFamily: 'var(--font-body)',
+                fontSize: '15px',
+                fontWeight: 600,
+                border: '1px solid var(--border-light)',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                cursor: submitting || isLoading ? 'not-allowed' : 'pointer',
+                opacity: submitting || isLoading ? 0.6 : 1,
+              }}
+              onMouseEnter={(e) => {
+                if (!submitting && !isLoading) {
+                  e.currentTarget.style.background = '#F8FAFC';
+                  e.currentTarget.style.borderColor = '#CBD5E1';
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'white';
+                e.currentTarget.style.borderColor = 'var(--border-light)';
+              }}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" style={{ width: 18, height: 18, flexShrink: 0 }} aria-hidden="true">
+                <path
+                  fill="#FFC107"
+                  d="M43.611 20.083H42V20H24v8h11.303C33.96 32.99 29.453 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.06 0 5.84 1.154 7.949 3.042l5.657-5.657C34.869 6.057 29.706 4 24 4 12.954 4 4 12.954 4 24s8.954 20 20 20c10.493 0 19.128-8.08 19.128-20 0-1.341-.138-2.651-.4-3.917z"
+                />
+                <path
+                  fill="#FF3D00"
+                  d="M6.306 14.691l6.571 4.817C14.39 16.564 18.879 14 24 14c3.06 0 5.84 1.154 7.949 3.042l5.657-5.657C34.869 6.057 29.706 4 24 4c-7.668 0-14.266 4.343-17.694 10.691z"
+                />
+                <path
+                  fill="#4CAF50"
+                  d="M24 44c5.453 0 10.01-1.787 13.49-4.852l-6.23-5.253C29.207 35.385 26.78 36 24 36c-5.438 0-10.028-3.668-11.66-8.67l-6.5 5.01C8.257 38.926 15.44 44 24 44z"
+                />
+                <path
+                  fill="#1976D2"
+                  d="M43.611 20.083H42V20H24v8h11.303c-1.098 3.24-3.48 5.773-6.043 7.091l6.23 5.253C37.147 38.47 40 32.943 40 26c0-2.055-.222-3.92-.611-5.917z"
+                />
+              </svg>
+              {submitting ? "Connecting..." : activeTab === "signup" ? "Continue with Google" : "Sign in with Google"}
+            </button>
+          </div>
+
+          {/* Apple Sign-In Button (flagged off until Apple Developer setup is done) */}
+          {import.meta.env.VITE_ENABLE_APPLE_SIGNIN === "true" && (
+            <button
+              onClick={handleAppleAuth}
+              disabled={submitting || isLoading}
+              className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-[10px] text-sm font-medium transition-all mt-3"
+              style={{
+                background: 'white',
+                color: '#0F172A',
+                fontFamily: 'var(--font-body)',
+                fontSize: '15px',
+                fontWeight: 600,
+                border: '1px solid var(--border-light)',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                cursor: submitting || isLoading ? 'not-allowed' : 'pointer',
+              }}
+            >
+              <svg viewBox="0 0 24 24" style={{ width: 18, height: 18, flexShrink: 0 }} fill="currentColor" aria-hidden="true">
+                <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.53 4.08zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
+              </svg>
+              Continue with Apple
+            </button>
+          )}
+
+          {/* Divider */}
+          <div className="flex items-center gap-3 my-5">
+            <div style={{ flex: 1, height: 1, background: 'var(--border-light)' }} />
+            <span style={{ fontFamily: 'var(--font-body)', fontSize: '12px', color: 'var(--text-tertiary)' }}>
+              {activeTab === "signup" ? "or sign up with email" : "or sign in with email"}
+            </span>
+            <div style={{ flex: 1, height: 1, background: 'var(--border-light)' }} />
+          </div>
+
           {/* Email + password form */}
           <form onSubmit={handleEmailSubmit} className="space-y-3">
             {activeTab === "signup" && (
@@ -335,87 +436,6 @@ const SignIn: React.FC = () => {
               {submitting ? "Working..." : activeTab === "signup" ? "Create account" : "Sign in"}
             </button>
           </form>
-
-          {/* Divider */}
-          <div className="flex items-center gap-3 my-5">
-            <div style={{ flex: 1, height: 1, background: 'var(--border-light)' }} />
-            <span style={{ fontFamily: 'var(--font-body)', fontSize: '12px', color: 'var(--text-tertiary)' }}>or</span>
-            <div style={{ flex: 1, height: 1, background: 'var(--border-light)' }} />
-          </div>
-
-          {/* Google Sign-In Button */}
-          <button
-            onClick={handleGoogleAuth}
-            disabled={submitting || isLoading}
-            className="w-full flex items-center justify-center gap-3 py-3.5 rounded-[10px] text-sm font-medium transition-all"
-            style={{
-              background: '#0F172A',
-              color: 'white',
-              fontFamily: 'var(--font-body)',
-              fontSize: '15px',
-              fontWeight: 600,
-              border: 'none',
-              cursor: submitting || isLoading ? 'not-allowed' : 'pointer',
-              opacity: submitting || isLoading ? 0.6 : 1,
-              boxShadow: '0 1px 3px rgba(59, 130, 246, 0.2), 0 4px 12px rgba(59, 130, 246, 0.15)',
-            }}
-            onMouseEnter={(e) => {
-              if (!submitting && !isLoading) {
-                e.currentTarget.style.background = '#1E293B';
-                e.currentTarget.style.boxShadow = '0 2px 6px rgba(59, 130, 246, 0.3), 0 8px 20px rgba(59, 130, 246, 0.2)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = '#2563EB';
-              e.currentTarget.style.boxShadow = '0 1px 3px rgba(59, 130, 246, 0.2), 0 4px 12px rgba(59, 130, 246, 0.15)';
-            }}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="h-5 w-5" aria-hidden="true">
-              <path
-                fill="#FFC107"
-                d="M43.611 20.083H42V20H24v8h11.303C33.96 32.99 29.453 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.06 0 5.84 1.154 7.949 3.042l5.657-5.657C34.869 6.057 29.706 4 24 4 12.954 4 4 12.954 4 24s8.954 20 20 20c10.493 0 19.128-8.08 19.128-20 0-1.341-.138-2.651-.4-3.917z"
-              />
-              <path
-                fill="#FF3D00"
-                d="M6.306 14.691l6.571 4.817C14.39 16.564 18.879 14 24 14c3.06 0 5.84 1.154 7.949 3.042l5.657-5.657C34.869 6.057 29.706 4 24 4c-7.668 0-14.266 4.343-17.694 10.691z"
-              />
-              <path
-                fill="#4CAF50"
-                d="M24 44c5.453 0 10.01-1.787 13.49-4.852l-6.23-5.253C29.207 35.385 26.78 36 24 36c-5.438 0-10.028-3.668-11.66-8.67l-6.5 5.01C8.257 38.926 15.44 44 24 44z"
-              />
-              <path
-                fill="#1976D2"
-                d="M43.611 20.083H42V20H24v8h11.303c-1.098 3.24-3.48 5.773-6.043 7.091l6.23 5.253C37.147 38.47 40 32.943 40 26c0-2.055-.222-3.92-.611-5.917z"
-              />
-            </svg>
-            {submitting ? "Connecting..." : activeTab === "signup" ? "Continue with Google" : "Sign in with Google"}
-            <span style={{ marginLeft: 8, padding: '2px 8px', borderRadius: 999, background: 'rgba(255,255,255,0.16)', fontSize: '11px', fontWeight: 600 }}>
-              Recommended
-            </span>
-          </button>
-
-          {/* Apple Sign-In Button (flagged off until Apple Developer setup is done) */}
-          {import.meta.env.VITE_ENABLE_APPLE_SIGNIN === "true" && (
-            <button
-              onClick={handleAppleAuth}
-              disabled={submitting || isLoading}
-              className="w-full flex items-center justify-center gap-3 py-3.5 rounded-[10px] text-sm font-medium transition-all mt-3"
-              style={{
-                background: 'white',
-                color: '#0F172A',
-                fontFamily: 'var(--font-body)',
-                fontSize: '15px',
-                fontWeight: 600,
-                border: '1px solid var(--border-light)',
-                cursor: submitting || isLoading ? 'not-allowed' : 'pointer',
-              }}
-            >
-              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden="true">
-                <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.53 4.08zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
-              </svg>
-              Continue with Apple
-            </button>
-          )}
 
           {/* Trust signals */}
           <div className="mt-6 space-y-2">
