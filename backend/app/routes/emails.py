@@ -5,7 +5,7 @@ import os
 import base64
 import requests
 from datetime import datetime
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, Response
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
@@ -24,6 +24,7 @@ from app.utils.warmth_scoring import score_contacts_for_email
 from app.utils.users import get_outreach_email
 from ..extensions import get_db
 from email_templates import get_template_instructions
+from app.services.eml_builder import build_eml, eml_filename
 
 
 def _persist_warmth_on_send(db, uid, contact_email, warmth_info, job_title):
@@ -793,6 +794,66 @@ def generate_and_draft():
         "drafts": created,
         **({"skipped_count": skipped_count} if skipped_count > 0 else {}),
     }), 200
+
+
+@emails_bp.route("/eml", methods=["POST"])
+@require_firebase_auth
+def download_eml():
+    """Build a downloadable .eml draft for users without a connected inbox.
+
+    The frontend posts back the subject/body it received from
+    generate-and-draft in fallback mode; the user's resume (from their own
+    Firestore doc, never from the request) is attached when available.
+    """
+    uid = request.firebase_user["uid"]
+    payload = request.get_json(silent=True) or {}
+    to_addr = (payload.get("to") or "").strip()
+    subject = (payload.get("subject") or "").strip()
+    body = payload.get("body") or ""
+    if not to_addr or not subject or not body:
+        return jsonify({"error": "to, subject and body are required"}), 400
+
+    db = get_db()
+    user_data = (db.collection("users").document(uid).get().to_dict() or {})
+
+    resume_bytes = None
+    resume_ctype = None
+    resume_filename = user_data.get("resumeFileName") or "Resume.pdf"
+    resume_url = user_data.get("resumeUrl")
+    if resume_url:
+        try:
+            resume_url = validate_fetch_url(_normalize_drive_url(resume_url))
+            res = requests.get(resume_url, timeout=15, headers={"User-Agent": "Offerloop/1.0"})
+            res.raise_for_status()
+            content = res.content
+            # Mirror the guard in generate_and_draft() above: only reject
+            # when the payload is both small AND looks like an HTML sharing
+            # page (a real PDF/DOCX can legitimately be small).
+            looks_like_html_sharing_page = len(content) < 1024 and b"<html" in content[:2048].lower()
+            too_large = len(content) > 8 * 1024 * 1024
+            if looks_like_html_sharing_page:
+                print("[EML] resume URL returned HTML (likely a sharing page)")
+            elif too_large:
+                print(f"[EML] resume too large ({len(content)} bytes) — skipping")
+            else:
+                resume_bytes = content
+                resume_ctype = res.headers.get("content-type", "application/pdf")
+        except Exception as e:
+            print(f"[EML] resume download failed, sending without attachment: {e}")
+
+    html_body = "".join(
+        f'<p style="margin:12px 0; line-height:1.6;">{p.strip()}</p>'
+        for p in body.split("\n") if p.strip()
+    )
+    raw = build_eml(to_addr, subject, body, body_html=html_body,
+                    resume_bytes=resume_bytes, resume_filename=resume_filename,
+                    resume_ctype=resume_ctype)
+    filename = eml_filename(payload.get("firstName"), payload.get("company"))
+    return Response(
+        raw,
+        mimetype="message/rfc822",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def _send_one_draft(gmail_service_or_creds, uid, draft_id):
