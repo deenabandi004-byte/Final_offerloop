@@ -45,13 +45,21 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
           throw new Error(result.error);
         }
 
-        // Open Gmail with the draft
-        window.open(result.gmailUrl, '_blank');
-
-        toast({
-          title: 'Reply Draft Created',
-          description: 'Opening Gmail with your draft reply...',
-        });
+        // Open Gmail with the draft. Fallback delivery (no Gmail connected)
+        // returns no gmailUrl; this Gmail-centric surface just confirms the
+        // draft without opening anything.
+        if (result.gmailUrl) {
+          window.open(result.gmailUrl, '_blank');
+          toast({
+            title: 'Reply Draft Created',
+            description: 'Opening Gmail with your draft reply...',
+          });
+        } else {
+          toast({
+            title: 'Reply Draft Created',
+            description: 'Your draft reply is ready.',
+          });
+        }
 
         // Trigger state refresh
         onStateChange?.();

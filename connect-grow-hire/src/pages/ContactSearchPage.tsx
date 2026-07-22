@@ -37,6 +37,7 @@ import StarterChips from "@/components/find/StarterChips";
 import { SearchPromptBox, PEOPLE_SEARCH_HELPER_PREVIEW } from "@/components/find/SearchPromptBox";
 import { ResultActionButton } from "@/components/find/ResultActionButton";
 import { SendConfirmDialog } from "@/components/SendConfirmDialog";
+import DraftDeliveryActions from "@/components/DraftDeliveryActions";
 import { canUseOutreachMode } from "@/utils/featureAccess";
 import { UpgradeModal } from "@/components/gates/UpgradeModal";
 import { SetupNudgeModal, type SetupNudgeVariant } from "@/components/gates/SetupNudgeModal";
@@ -3453,17 +3454,19 @@ const ContactSearchPage: React.FC<{
                         {c.emailBody}
                       </div>
                       <div style={{ display: 'flex', gap: 12, marginTop: 12, alignItems: 'center' }}>
-                        {!isSent && c.gmailDraftUrl && (
-                          <ResultActionButton
-                            variant="primary"
-                            size="sm"
-                            href={c.gmailDraftUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                          >
-                            <Mail style={{ width: 13, height: 13 }} /> Open in Gmail
-                          </ResultActionButton>
+                        {!isSent && (
+                          <span onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                            <DraftDeliveryActions
+                              draft={{
+                                to: email,
+                                subject: c.emailSubject,
+                                body: c.emailBody,
+                                gmailUrl: c.gmailDraftUrl || undefined,
+                                firstName: c.FirstName,
+                                company: c.Company,
+                              }}
+                            />
+                          </span>
                         )}
                         {!isSent && c.gmailDraftId && (
                           <ResultActionButton

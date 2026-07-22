@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle, CheckCircle, Inbox, Linkedin, Loader2, Mail, Send, Table2, X } from "lucide-react";
+import DraftDeliveryActions from "@/components/DraftDeliveryActions";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { SteppedLoadingBar } from "@/components/ui/LoadingBar";
@@ -61,6 +62,8 @@ interface DraftInfo {
   draftId?: string;
   gmailUrl?: string;
   subject?: string;
+  body?: string;
+  deliveryMode?: string;
   sent?: boolean;
 }
 
@@ -146,15 +149,17 @@ function CandidateCard({ recruiter, draft, index }: { recruiter: Recruiter; draf
           <span className="inline-flex h-9 items-center gap-1.5 rounded-[9px] border border-[#BBF7D0] bg-white px-3 text-[12.5px] font-semibold text-[#15803D]">
             <CheckCircle className="h-4 w-4" /> Sent
           </span>
-        ) : draft?.draftId ? (
-          <a
-            href={draft.gmailUrl || "https://mail.google.com/mail/u/0/#drafts"}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex h-9 items-center gap-1.5 rounded-[9px] border border-[#C7CCF0] bg-white px-3.5 text-[12.5px] font-semibold text-[#4A60A8] hover:bg-[#F2F3FC]"
-          >
-            <Mail className="h-4 w-4" /> View draft
-          </a>
+        ) : draft?.draftId || draft?.body ? (
+          <DraftDeliveryActions
+            draft={{
+              to: email,
+              subject: draft.subject,
+              body: draft.body,
+              gmailUrl: draft.draftId ? draft.gmailUrl || "https://mail.google.com/mail/u/0/#drafts" : undefined,
+              firstName: recruiter.FirstName,
+              company: recruiter.Company,
+            }}
+          />
         ) : null}
       </div>
     </div>
@@ -218,7 +223,15 @@ export function FindHumansModal({ open, onOpenChange, job, kind = "recruiter", c
 
   const recruiters = response?.recruiters ?? [];
   const withEmail = useMemo(() => recruiters.filter((r) => cleanEmail(r)), [recruiters]);
-  const draftedCount = withEmail.filter((r) => draftInfo[cleanEmail(r).toLowerCase()]?.draftId).length;
+  // A row counts as drafted when Gmail gave us a draftId OR the fallback path
+  // returned the composed body (no Gmail connected).
+  const draftedCount = withEmail.filter((r) => {
+    const d = draftInfo[cleanEmail(r).toLowerCase()];
+    return Boolean(d?.draftId || d?.body);
+  }).length;
+  const fallbackDelivery = withEmail.some(
+    (r) => draftInfo[cleanEmail(r).toLowerCase()]?.deliveryMode === "fallback"
+  );
   const sentCount = withEmail.filter((r) => draftInfo[cleanEmail(r).toLowerCase()]?.sent).length;
   const allSent = withEmail.length > 0 && sentCount === withEmail.length;
   const allDrafted = withEmail.length > 0 && draftedCount === withEmail.length;
@@ -386,7 +399,10 @@ export function FindHumansModal({ open, onOpenChange, job, kind = "recruiter", c
   // Draft a personalized email to every found person with an email.
   const ensureDrafts = useCallback(
     async (): Promise<Record<string, DraftInfo> | null> => {
-      const need = withEmail.filter((r) => !draftInfo[cleanEmail(r).toLowerCase()]?.draftId);
+      const need = withEmail.filter((r) => {
+        const d = draftInfo[cleanEmail(r).toLowerCase()];
+        return !(d?.draftId || d?.body);
+      });
       if (need.length === 0) return draftInfo;
       const contacts = need.map((r) => ({
         ...r,
@@ -406,7 +422,7 @@ export function FindHumansModal({ open, onOpenChange, job, kind = "recruiter", c
       const next: Record<string, DraftInfo> = { ...draftInfo };
       for (const d of res.drafts || []) {
         const k = (d.to || "").trim().toLowerCase();
-        if (k) next[k] = { ...next[k], draftId: d.draftId, gmailUrl: d.gmailUrl, subject: d.subject };
+        if (k) next[k] = { ...next[k], draftId: d.draftId, gmailUrl: d.gmailUrl, subject: d.subject, body: d.body, deliveryMode: d.deliveryMode };
       }
       setDraftInfo(next);
       return next;
@@ -420,8 +436,14 @@ export function FindHumansModal({ open, onOpenChange, job, kind = "recruiter", c
     try {
       const next = await ensureDrafts();
       if (next) {
-        const n = Object.values(next).filter((d) => d.draftId).length;
-        toast({ title: "Drafts ready", description: `${n} draft${n === 1 ? "" : "s"} created in your Gmail.` });
+        const n = Object.values(next).filter((d) => d.draftId || d.body).length;
+        const anyFallback = Object.values(next).some((d) => d.deliveryMode === "fallback");
+        toast({
+          title: "Drafts ready",
+          description: anyFallback
+            ? `${n} draft${n === 1 ? "" : "s"} ready to download or copy.`
+            : `${n} draft${n === 1 ? "" : "s"} created in your Gmail.`,
+        });
       }
     } finally {
       setDrafting(false);
@@ -618,7 +640,7 @@ export function FindHumansModal({ open, onOpenChange, job, kind = "recruiter", c
               {sentCount > 0 ? (
                 <><CheckCircle className="h-3.5 w-3.5 text-[#15803D]" /> {sentCount} sent</>
               ) : (
-                <><Mail className="h-3.5 w-3.5 text-[#4A60A8]" /> {draftedCount} draft{draftedCount === 1 ? "" : "s"} ready in Gmail</>
+                <><Mail className="h-3.5 w-3.5 text-[#4A60A8]" /> {draftedCount} draft{draftedCount === 1 ? "" : "s"} {fallbackDelivery ? "ready" : "ready in Gmail"}</>
               )}
             </span>
           ) : (

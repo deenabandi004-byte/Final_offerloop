@@ -1498,7 +1498,7 @@ class ApiService {
     enrichHiringSignal?: boolean;
     enrichContext?: { company?: string; jobTitle?: string };
   }): Promise<
-    | { success: boolean; draft_count: number; drafts: Array<{ index?: number; to: string; draftId: string; messageId?: string; threadId?: string; gmailUrl?: string; subject?: string; body?: string; activelyHiring?: string; recentHiringSignal?: string }>; connected_email?: string; skipped_count?: number }
+    | { success: boolean; draft_count: number; deliveryMode?: "gmail" | "fallback"; drafts: Array<{ index?: number; to: string; draftId?: string; messageId?: string; threadId?: string; gmailUrl?: string; subject?: string; body?: string; deliveryMode?: string; activelyHiring?: string; recentHiringSignal?: string }>; connected_email?: string; skipped_count?: number }
     | { error: string; message?: string }
   > {
     const headers = await this.getAuthHeaders();
@@ -1517,6 +1517,31 @@ class ApiService {
       headers,
       body: JSON.stringify(body),
     });
+  }
+
+  /** Download a .eml draft file (fallback delivery for users without Gmail). */
+  async downloadEml(payload: { to: string; subject: string; body: string; firstName?: string; company?: string }): Promise<void> {
+    // Raw fetch (not makeRequest) so we control blob + Content-Disposition
+    // handling for the .eml attachment. getAuthHeaders already includes
+    // Content-Type: application/json and the Bearer token.
+    const headers = await this.getAuthHeaders();
+    const res = await fetch(`${API_BASE_URL}/emails/eml`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error('Could not build the email file');
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') || '';
+    const filename = /filename="([^"]+)"/.exec(cd)?.[1] || 'Outreach.eml';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   // ================================
