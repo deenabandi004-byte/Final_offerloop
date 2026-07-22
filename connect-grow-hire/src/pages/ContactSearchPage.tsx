@@ -39,6 +39,8 @@ import { ResultActionButton } from "@/components/find/ResultActionButton";
 import { SendConfirmDialog } from "@/components/SendConfirmDialog";
 import { canUseOutreachMode } from "@/utils/featureAccess";
 import { UpgradeModal } from "@/components/gates/UpgradeModal";
+import { SetupNudgeModal, type SetupNudgeVariant } from "@/components/gates/SetupNudgeModal";
+import { invalidateResumeStatusCache } from "@/hooks/useResumeStatus";
 import { findCompletion, expandQueryForBackend } from "@/lib/specificity";
 import { PEOPLE_TEMPLATE_CATEGORIES } from "@/data/searchTemplates";
 import { TemplateButton } from "@/components/TemplateButton";
@@ -398,6 +400,24 @@ const ContactSearchPage: React.FC<{
       return;
     }
     if (lastResults.length === 0) return;
+    // Setup nudges, once per session each, never stacked: Gmail first (the
+    // drafts otherwise degrade to compose links), then resume (personalization
+    // quality). "Continue without" runs the draft anyway.
+    if (gmailConnected === false && !sessionStorage.getItem('ol_nudge_gmail')) {
+      sessionStorage.setItem('ol_nudge_gmail', '1');
+      setSetupNudge({ variant: 'gmail', onContinue: () => void runDraftAll() });
+      return;
+    }
+    if (gmailConnected !== false && !savedResumeUrl && !sessionStorage.getItem('ol_nudge_resume')) {
+      sessionStorage.setItem('ol_nudge_resume', '1');
+      setSetupNudge({ variant: 'resume', onContinue: () => void runDraftAll() });
+      return;
+    }
+    await runDraftAll();
+  }
+
+  async function runDraftAll() {
+    if (lastResults.length === 0) return;
     setDraftingAll(true);
     try {
       const merged = await ensureDraftsForAll();
@@ -426,6 +446,12 @@ const ContactSearchPage: React.FC<{
       return;
     }
     if (lastResults.length === 0) return;
+    // Sending goes through the user's own Gmail: hard requirement, no
+    // "continue without" path.
+    if (gmailConnected === false) {
+      setSetupNudge({ variant: 'gmail' });
+      return;
+    }
     if (!confirmed) {
       setShowSendAllConfirm(true);
       return;
@@ -881,6 +907,12 @@ const ContactSearchPage: React.FC<{
 
   // Gmail state
   const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
+  // Setup nudge popup (Gmail / resume) shown at draft/send CTA moments.
+  // Only opened when the gap actually exists; soft nudges pass onContinue.
+  const [setupNudge, setSetupNudge] = useState<null | {
+    variant: SetupNudgeVariant;
+    onContinue?: () => void;
+  }>(null);
   const [gmailBannerDismissed, setGmailBannerDismissed] = useState(() => {
     try { return localStorage.getItem('offerloop-gmail-banner-dismissed') === 'true'; } catch { return false; }
   });
@@ -1403,6 +1435,8 @@ const ContactSearchPage: React.FC<{
       setSavedResumeUrl(downloadUrl);
       setSavedResumeFileName(file.name);
       setUploadedFile(file);
+      // Refresh the cached has-resume flag so setup nudges stop immediately.
+      invalidateResumeStatusCache();
 
       toast({
         title: "Resume saved",
@@ -2161,6 +2195,15 @@ const ContactSearchPage: React.FC<{
   // --- Embedded content (rendered inside FindPage wrapper) ---
   const embeddedContent = (
     <>
+      {setupNudge && (
+        <SetupNudgeModal
+          open
+          variant={setupNudge.variant}
+          onClose={() => setSetupNudge(null)}
+          onContinue={setupNudge.onContinue}
+        />
+      )}
+
       {/* Gmail hint — subtle inline text, not a warning banner */}
       {gmailConnected === false && !gmailBannerDismissed && (
         <div style={{ maxWidth: '860px', margin: '0 auto', padding: '8px 32px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
@@ -2967,7 +3010,7 @@ const ContactSearchPage: React.FC<{
                 Upload your resume for better matches
               </div>
               <div style={{ fontSize: 12, color: 'var(--ink-3, #8A8F9A)', lineHeight: 1.5 }}>
-                We'll find people who hired for roles like yours — and tailor your outreach automatically.
+                We'll find people who hired for roles like yours and tailor your outreach automatically.
               </div>
             </div>
             <button

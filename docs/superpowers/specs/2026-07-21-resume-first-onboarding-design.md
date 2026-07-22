@@ -74,7 +74,7 @@ Uses the existing canonical pipeline: LLM → `CanonicalResume` (contract in `se
 
 **Endpoints (all `@require_firebase_auth`):**
 
-- `POST /api/resume-builder/from-linkedin` — body: `{ linkedinUrl }`. Server calls the LinkedIn enrichment internals (Apify profile data), maps to `CanonicalResume` via an LLM call using a tool schema (pattern copied from `resume_tailor.py`), renders, saves, returns `{ resumeUrl, parsed: {...} }`. Runs synchronously (single LLM call + render, ~10-20s) with a stepped loading state client-side.
+- `POST /api/resume-builder/from-linkedin` — no body needed. The frontend calls the existing `/api/enrich-linkedin-onboarding` first (which stores `linkedinResumeParsed` on the user doc); this endpoint then reads that stored data, maps it to `CanonicalResume` via the existing `from_resume_parsed()` normalizer (no LLM call), renders, saves, returns `{ resumeUrl, parsed: {...} }`. Synchronous, fast (~2s).
 - `POST /api/resume-builder/generate` — body: `{ prompt, previous: CanonicalResume | null }`. First call builds a `CanonicalResume` from the freeform description; subsequent calls refine `previous` per the new prompt. Returns `{ resume: CanonicalResume, html }` (HTML from `render_html` for live preview). Does NOT save.
 - `POST /api/resume-builder/finalize` — body: `{ resume: CanonicalResume }`. Renders one-page PDF, uploads to Storage, saves to Firestore (text derived from the canonical fields), returns `{ resumeUrl, parsed }` in the same shape the parse route returns so the frontend reuses `resumePrefillFromParse`.
 
@@ -82,7 +82,7 @@ Uses the existing canonical pipeline: LLM → `CanonicalResume` (contract in `se
 
 **Abuse guard:** per-user counter `resumeBuilderGenerations` on the user doc; hard cap 10 lifetime generations via these endpoints (covers refinement iterations); 429-style JSON error past the cap. No credit deduction — this is free by design.
 
-**LLM:** OpenAI primary with Claude fallback via the existing `openai_client.py` pattern (same as other services). Structured output enforced with a JSON/tool schema mirroring `_tool_input_schema()` in `resume_tailor.py`.
+**LLM (prompt-builder path only):** Anthropic via `get_anthropic_client()` with a forced tool call whose input schema is `CanonicalResume.model_json_schema()` — the same proven pattern as `resume_tailor.py`. The LinkedIn path uses no LLM.
 
 ### Frontend
 
