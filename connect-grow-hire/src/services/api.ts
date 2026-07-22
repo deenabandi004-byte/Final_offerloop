@@ -771,6 +771,9 @@ export interface FeedJob {
   match_reason: string | null;
   match_signals?: string[];
   ranked: boolean;
+  // Normalized seniority from the pipeline classifier. "unknown" (or absent on
+  // older jobs) means unclassified and should pass any level filter.
+  experienceLevel?: "intern" | "entry" | "mid" | "senior" | "executive" | "unknown";
   structured?: JobStructured;
   // Auto-apply (derived backend-side from FantasticJobs ats_* metadata).
   // ats_platform is null when the job's source ATS is unknown/unsupported.
@@ -2880,6 +2883,45 @@ export const mergeLinkedInData = async () => {
   });
   return response.json();
 };
+
+// ============================================================================
+// Onboarding resume builder (free Harvard one-pager)
+// ============================================================================
+
+async function resumeBuilderPost(path: string, body: unknown) {
+  const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const response = await fetch(`${API_BASE_URL}/resume-builder/${path}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `resume-builder/${path} failed`);
+  return data;
+}
+
+export const generateResumeBuilder = (prompt: string, previous: unknown | null) =>
+  resumeBuilderPost('generate', { prompt, previous }) as Promise<{
+    success: boolean;
+    resume: unknown;
+    html: string;
+  }>;
+
+export const finalizeResumeBuilder = (resume: unknown) =>
+  resumeBuilderPost('finalize', { resume }) as Promise<{
+    success: boolean;
+    resumeUrl: string | null;
+    parsed: unknown;
+  }>;
+
+export const resumeFromLinkedIn = () =>
+  resumeBuilderPost('from-linkedin', {}) as Promise<{
+    success: boolean;
+    resumeUrl: string | null;
+    parsed: unknown;
+  }>;
 
 // ============================================================================
 // Application Profile + Auto-Apply
