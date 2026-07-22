@@ -1,6 +1,6 @@
 // Optional inbox-connect step. Gmail recommended: drafts land in the user's
 // inbox. Skipping records inboxConnectSkipped so Settings can badge later.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Mail, Download, Check } from "lucide-react";
 import { apiService } from "@/services/api";
 import { OB } from "./onboardingTheme";
@@ -13,9 +13,20 @@ interface Props {
 export const OnboardingInbox = ({ onDone, submitting }: Props) => {
   const [connecting, setConnecting] = useState(false);
   const [connected, setConnected] = useState(false);
+  const pollRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
 
   const handleConnectGmail = async () => {
     if (connecting || connected || submitting) return;
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
     setConnecting(true);
     try {
       const authUrl = await apiService.startGmailOAuth();
@@ -29,9 +40,10 @@ export const OnboardingInbox = ({ onDone, submitting }: Props) => {
         setConnecting(false);
         return;
       }
-      const timer = setInterval(async () => {
+      const timer = window.setInterval(async () => {
         if (popup.closed) {
           clearInterval(timer);
+          pollRef.current = null;
           try {
             const status = await apiService.gmailStatus();
             if (status.connected) {
@@ -43,6 +55,7 @@ export const OnboardingInbox = ({ onDone, submitting }: Props) => {
           }
         }
       }, 500);
+      pollRef.current = timer;
     } catch {
       setConnecting(false);
     }
