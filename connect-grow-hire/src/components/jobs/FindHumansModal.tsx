@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle, CheckCircle, Inbox, Linkedin, Loader2, Mail, Send, Table2, X } from "lucide-react";
 import DraftDeliveryActions from "@/components/DraftDeliveryActions";
+import InboxConnectNudge from "@/components/InboxConnectNudge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { SteppedLoadingBar } from "@/components/ui/LoadingBar";
@@ -590,6 +591,9 @@ export function FindHumansModal({ open, onOpenChange, job, kind = "recruiter", c
 
           {state === "success" && recruiters.length > 0 && (
             <>
+              {/* Inbox-connect nudge — shown when drafts were delivered in fallback mode */}
+              <InboxConnectNudge show={fallbackDelivery} />
+
               <div className="space-y-2.5">
                 {recruiters.map((r, i) => (
                   <CandidateCard

@@ -38,6 +38,7 @@ import { SearchPromptBox, PEOPLE_SEARCH_HELPER_PREVIEW } from "@/components/find
 import { ResultActionButton } from "@/components/find/ResultActionButton";
 import { SendConfirmDialog } from "@/components/SendConfirmDialog";
 import DraftDeliveryActions from "@/components/DraftDeliveryActions";
+import InboxConnectNudge from "@/components/InboxConnectNudge";
 import { canUseOutreachMode } from "@/utils/featureAccess";
 import { UpgradeModal } from "@/components/gates/UpgradeModal";
 import { SetupNudgeModal, type SetupNudgeVariant } from "@/components/gates/SetupNudgeModal";
@@ -368,6 +369,7 @@ const ContactSearchPage: React.FC<{
       });
       return null;
     }
+    setFallbackDelivery((res as any).deliveryMode === 'fallback');
 
     const byEmail = new Map<string, any>();
     ((res as any).drafts || []).forEach((d: any) => {
@@ -562,6 +564,9 @@ const ContactSearchPage: React.FC<{
   const [progressValue, setProgressValue] = useState(0);
   const [searchComplete, setSearchComplete] = useState(false);
   const [lastResults, setLastResults] = useState<any[]>([]);
+  // True when the last draft batch was delivered in fallback mode (no Gmail
+  // connection): drives the inbox-connect nudge above the results list.
+  const [fallbackDelivery, setFallbackDelivery] = useState(false);
   const [expandedEmailIdx, setExpandedEmailIdx] = useState<number | null>(null);
   const [smartPlaceholder, setSmartPlaceholder] = useState<string | null>(null);
   const [alreadySavedResults, setAlreadySavedResults] = useState<any[]>([]);
@@ -3239,6 +3244,9 @@ const ContactSearchPage: React.FC<{
                 ))}
               </div>
             )}
+
+            {/* Inbox-connect nudge — shown when drafts were delivered in fallback mode */}
+            <InboxConnectNudge show={fallbackDelivery} />
 
             {/* Section label — these are the fresh people, ready for outreach */}
             {lastResults.length > 0 && (
