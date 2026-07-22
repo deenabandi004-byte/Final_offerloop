@@ -228,8 +228,8 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
     { headline: React.ReactNode; sub: string; footer: { mascot?: number; hint?: React.ReactNode } }
   > = {
     source: {
-      headline: <>First, let's get {em("your story")}</>,
-      sub: "Drop in your resume or LinkedIn. We'll set up everything from it.",
+      headline: <>Drop your {em("resume or LinkedIn")} to get started</>,
+      sub: "",
       footer: {
         hint: (
           <>
@@ -422,22 +422,10 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
           style={{
             paddingTop: 40,
             width: "100%",
-            maxWidth: currentStep === "builder" ? 980 : 560,
+            maxWidth: currentStep === "builder" ? 980 : 640,
             margin: "0 auto",
           }}
         >
-          <div
-            style={{
-              color: OB.ink4,
-              fontWeight: 600,
-              fontSize: 13,
-              letterSpacing: ".02em",
-              marginBottom: 10,
-            }}
-          >
-            STEP {currentIndex + 1} OF {RAIL_STEPS.length}
-          </div>
-
           <h2
             style={{
               fontFamily: OB.fontDisplay,
@@ -446,6 +434,9 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
               letterSpacing: "-0.02em",
               color: OB.heading,
               margin: "0 0 8px",
+              // Even out multi-line headline wraps ("to get started" alone on
+              // line two reads broken).
+              textWrap: "balance",
             }}
           >
             {meta.headline}
