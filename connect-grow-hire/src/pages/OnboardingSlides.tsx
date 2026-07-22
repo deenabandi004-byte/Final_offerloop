@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { Users, Mail, Briefcase, KanbanSquare } from "lucide-react";
+import { Users, Mail, Briefcase, Send, KanbanSquare } from "lucide-react";
 import { OB } from "./onboardingTheme";
 import OfferloopLogo from "@/assets/offerloop_logo2_allwhite.png";
 
-// Four click-through intro slides shown before the resume page. Full-bleed on
+// Five click-through intro slides shown before the resume page. Full-bleed on
 // the rail gradient; click anywhere (or ArrowRight/Enter/Space) advances.
 const SLIDES = [
   {
@@ -18,8 +18,13 @@ const SLIDES = [
   },
   {
     icon: Briefcase,
-    headline: "Land the actual job",
-    body: "A job board matched to your resume, and auto-apply that submits applications for you.",
+    headline: "A job board built around you",
+    body: "Openings matched and scored against your resume, not a generic feed.",
+  },
+  {
+    icon: Send,
+    headline: "Apply on autopilot",
+    body: "Auto-apply fills out and submits applications for you, so you never miss a posting.",
   },
   {
     icon: KanbanSquare,
