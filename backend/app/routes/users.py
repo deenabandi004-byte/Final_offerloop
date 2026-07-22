@@ -335,11 +335,13 @@ def log_onboarding_event():
             "profile", "source", "manual", "intent", "track", "trial",
             "confirm", "direction",  # transitional names
             "welcome", "academics", "goals", "location",  # legacy
+            "slides", "resume_builder", "inbox",  # resume-first flow + inbox-connect step
         }
 
         if event not in valid_events:
             return jsonify({"error": f"Invalid event: {event}"}), 400
-        if step not in valid_steps:
+        # Per-slide views log as slides_1..slides_N (dynamic count).
+        if step not in valid_steps and not (step.startswith("slides_") and step[7:].isdigit()):
             return jsonify({"error": f"Invalid step: {step}"}), 400
 
         from app.utils.metrics_events import log_event
