@@ -1028,6 +1028,29 @@ def get_gmail_service_for_user(user_email, user_id=None):
         return None
 
 
+def get_user_gmail_service_strict(uid):
+    """Gmail service from the user's OWN OAuth creds only. No shared fallback.
+
+    Returns None when the user has no (working) Gmail integration. Used by
+    user-facing draft creation, where falling back to the shared inbox would
+    write drafts into a mailbox the user cannot see.
+    """
+    if not uid:
+        return None
+    try:
+        creds = _load_user_gmail_creds(uid)
+        if not creds:
+            return None
+        service = _gmail_service(creds)
+        if not service:
+            return None
+        service.users().getProfile(userId='me').execute()
+        return service
+    except Exception as e:
+        print(f"[GmailClient] strict per-user service unavailable for {uid}: {e}")
+        return None
+
+
 def _select_recipient_email(contact):
     """Pick the best recipient address for a contact.
 
