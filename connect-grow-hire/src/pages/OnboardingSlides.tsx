@@ -18,7 +18,7 @@ const SLIDES = [
     key: "find-people",
     video: "/onboarding-bg/find-people.mp4",
     headline: "Find the right people",
-    body: "Search 2.2 billion professionals, from alumni at your school to people at your target firms, and instantly get their emails and LinkedIns.",
+    body: "Search 2.2 billion professionals, from alumni at your school to people at your target firms, and instantly get their emails, LinkedIns, etc.",
   },
   {
     key: "job-board",
@@ -224,7 +224,7 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
             letterSpacing: "-0.02em",
             margin: "0 0 18px",
             maxWidth: 640,
-            color: OB.heading,
+            color: "#000",
           }}
         >
           {slide.headline}
@@ -233,7 +233,7 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
           style={{
             fontSize: "clamp(16px, 2vw, 19px)",
             lineHeight: 1.65,
-            color: OB.ink2,
+            color: "#000",
             maxWidth: 480,
             margin: 0,
           }}
