@@ -9,12 +9,16 @@ import AppleMailLogo from "@/assets/applemail.png";
 // runs a blurred product recording behind it (public/onboarding-bg/*.mp4,
 // generated from the ad-studio screen captures). Click anywhere, the Continue
 // button, or ArrowRight/Enter/Space advances.
+// Vibrant blue gradient for the primary CTA and active progress dot.
+const CTA_GRADIENT = "linear-gradient(135deg, #5B7BF7 0%, #3D5BE0 55%, #2F46C4 100%)";
+const CTA_GRADIENT_HOVER = "linear-gradient(135deg, #4A69E8 0%, #3049C9 55%, #2439AB 100%)";
+
 const SLIDES = [
   {
     key: "find-people",
     video: "/onboarding-bg/find-people.mp4",
     headline: "Find the right people",
-    body: "Search 2.2 billion professionals: alumni from your school, people at your target firms.",
+    body: "Search 2.2 billion professionals, from alumni at your school to people at your target firms, and instantly get their emails and LinkedIns.",
   },
   {
     key: "job-board",
@@ -136,9 +140,20 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
           background: "rgba(255,255,255,.82)",
           backdropFilter: "blur(10px)",
           WebkitBackdropFilter: "blur(10px)",
-          borderBottom: `1px solid ${OB.border}`,
         }}
       >
+        {/* Fade skirt: the bar dissolves into the video over the next 100px */}
+        <div
+          style={{
+            position: "absolute",
+            top: "100%",
+            left: 0,
+            right: 0,
+            height: 100,
+            background: "linear-gradient(180deg, rgba(255,255,255,.82), rgba(255,255,255,0))",
+            pointerEvents: "none",
+          }}
+        />
         <img src={OfferloopLogo} alt="Offerloop" style={{ height: 34 }} />
         <button
           type="button"
@@ -238,16 +253,16 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
             padding: "0 64px",
             borderRadius: 14,
             border: "none",
-            background: OB.primary,
+            background: CTA_GRADIENT,
             color: "#fff",
             fontFamily: OB.fontBody,
             fontWeight: 600,
             fontSize: 17,
             cursor: "pointer",
-            boxShadow: OB.shadowBlue,
+            boxShadow: "0 10px 30px rgba(61,91,224,.4)",
           }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = OB.primaryDark)}
-          onMouseLeave={(e) => (e.currentTarget.style.background = OB.primary)}
+          onMouseEnter={(e) => (e.currentTarget.style.background = CTA_GRADIENT_HOVER)}
+          onMouseLeave={(e) => (e.currentTarget.style.background = CTA_GRADIENT)}
         >
           Continue
         </button>
@@ -271,7 +286,7 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
                 height: 8,
                 borderRadius: 99,
                 transition: "all .3s",
-                background: i === index ? OB.primary : OB.primary200,
+                background: i === index ? CTA_GRADIENT : OB.primary200,
               }}
             />
           ))}
