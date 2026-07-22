@@ -153,6 +153,7 @@ const CoverLetterTemplate = React.lazy(() => import("./pages/seo-preview/templat
 const InterviewPrepTemplate = React.lazy(() => import("./pages/seo-preview/templates/InterviewPrepTemplate"));
 const ATSGuideTemplate = React.lazy(() => import("./pages/seo-preview/templates/ATSGuideTemplate"));
 const FreeToolsHub = React.lazy(() => import("./pages/FreeToolsHub"));
+const AppFinishSignIn = React.lazy(() => import("./pages/AppFinishSignIn"));
 
 // Optimized QueryClient with caching
 const queryClient = new QueryClient({
@@ -324,6 +325,9 @@ const AppRoutes: React.FC = () => {
       <Route path="/signin" element={<PublicRoute><SignIn /></PublicRoute>} />
       <Route path="/signup" element={<Navigate to="/signin?mode=signup" replace />} />
       <Route path="/auth/callback" element={<PublicRoute><AuthCallback /></PublicRoute>} />
+
+      {/* Mobile app magic-link sign-in handoff (public, no auth guard) */}
+      <Route path="/app/finish-signin" element={<Suspense fallback={<PageLoader />}><AppFinishSignIn /></Suspense>} />
 
       {/* Onboarding */}
       <Route
