@@ -91,14 +91,14 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
       <style>{`
         @keyframes obSlideIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
         .ob-slide-anim { animation: obSlideIn .45s cubic-bezier(0.16,1,0.3,1); }
-        @keyframes obVideoIn { from { opacity: 0; } to { opacity: .6; } }
+        @keyframes obVideoIn { from { opacity: 0; } to { opacity: 1; } }
         .ob-slide-video { animation: obVideoIn .8s ease forwards; }
         @keyframes obFloat { from { transform: translateY(-9px); } to { transform: translateY(9px); } }
         .ob-float-chip { animation: obFloat 4.5s ease-in-out infinite alternate; }
         @media (max-width: 640px) { .ob-float-chip { display: none; } }
         @media (prefers-reduced-motion: reduce) {
           .ob-slide-anim, .ob-float-chip { animation: none; }
-          .ob-slide-video { animation: none; opacity: .6; }
+          .ob-slide-video { animation: none; opacity: 1; }
         }
       `}</style>
 
@@ -122,11 +122,14 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
           pointerEvents: "none",
         }}
       />
+      {/* Brand-blue multiply tint: the white product UI reads as rich blue
+          (landing-page treatment) while every screen detail stays visible. */}
       <div
         style={{
           position: "absolute",
           inset: 0,
-          background: "linear-gradient(180deg, rgba(15,23,42,.42), rgba(15,23,42,.72))",
+          background: OB.primary,
+          mixBlendMode: "multiply",
           pointerEvents: "none",
         }}
       />
@@ -212,6 +215,7 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
             margin: "0 0 18px",
             maxWidth: 640,
             color: "#fff",
+            textShadow: "0 2px 28px rgba(15,23,42,.5)",
           }}
         >
           {slide.headline}
@@ -220,9 +224,10 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
           style={{
             fontSize: "clamp(16px, 2vw, 19px)",
             lineHeight: 1.65,
-            color: OB.railHintText,
+            color: "#E7ECF8",
             maxWidth: 480,
             margin: 0,
+            textShadow: "0 1px 18px rgba(15,23,42,.45)",
           }}
         >
           {slide.body}
