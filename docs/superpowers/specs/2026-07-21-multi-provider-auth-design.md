@@ -57,9 +57,16 @@ Changes:
 
 ### 1c. Onboarding: optional "Connect your inbox" step
 
-- New onboarding step (and a card in Account Settings): "Connect Gmail" (existing OAuth flow), "Connect Outlook" (Phase 2, hidden until shipped), or "Skip for now, download your emails instead".
+- New onboarding step: "Connect Gmail" (existing OAuth flow), "Connect Outlook" (Phase 2, hidden until shipped), or "Skip for now, download your emails instead".
+- **Encourage Google**: the step leads with Gmail as the recommended path ("Recommended: drafts appear directly in your Gmail, ready to send"). The sign-in page also marks Continue with Google as Recommended. Copy nudges, not gates: no one is blocked from other providers.
 - Skipping sets nothing; the fallback path is simply what happens when no integration exists.
-- Users can connect later from Account Settings (a "Connect Gmail" entry point already exists on draft surfaces, e.g. `ContactSearchPage.tsx:2173`; keep those CTAs).
+- Users can connect later from the Integrations tab (1g) or the draft-surface CTAs (a "Connect Gmail" entry point already exists, e.g. `ContactSearchPage.tsx:2173`; keep those).
+
+### 1g. Integrations tab + post-onboarding connect prompts
+
+- **Account Settings**: generalize the existing "Gmail Integration" section (`AccountSettings.tsx:111`, section id `gmail`) into an **Integrations** section: rows for Gmail (connect/disconnect, connected address) and Outlook (Phase 2; hidden until live). When nothing is connected, the section states the current mode: "Your emails are generated as downloadable drafts. Connect an inbox to have them written into your drafts folder."
+- **Contextual connect prompt when drafting without an integration**: whenever a draft surface returns `deliveryMode: "fallback"`, show a dismissible inline nudge above the results. The suggested provider is picked from the user's email domain: `gmail.com`/`googlemail.com` → "Connect Gmail"; `outlook.com`/`hotmail.com`/`live.com`/`msn.com` → "Connect Outlook" (Phase 2; until then, generic copy); anything else → brief explainer of the download flow plus a "Connect Gmail if you have one" link. Dismissal persists for the session, not forever: it reappears on the next session's first fallback draft.
+- **Onboarding skip follow-up**: users who skipped the inbox step see a one-time badge/dot on the Integrations settings entry until they either connect or visit the tab once.
 
 ### 1d. Backend hardening: login email is no longer guaranteed
 
