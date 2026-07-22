@@ -15,7 +15,7 @@ interface OnboardingBuilderProps {
 export const OnboardingBuilder = ({ onComplete, submitting }: OnboardingBuilderProps) => {
   const [prompt, setPrompt] = useState("");
   const [history, setHistory] = useState<string[]>([]);
-  const [resume, setResume] = useState<unknown | null>(null);
+  const [resume, setResume] = useState<object | null>(null);
   const [html, setHtml] = useState("");
   const [generating, setGenerating] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
@@ -28,7 +28,7 @@ export const OnboardingBuilder = ({ onComplete, submitting }: OnboardingBuilderP
     setGenerating(true);
     try {
       const res = await generateResumeBuilder(p, resume);
-      setResume(res.resume);
+      setResume(res.resume as object);
       setHtml(res.html);
       setHistory((h) => [...h, p]);
       setPrompt("");
