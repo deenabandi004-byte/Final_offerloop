@@ -10,8 +10,8 @@ import AppleMailLogo from "@/assets/applemail.png";
 // generated from the ad-studio screen captures). Click anywhere, the Continue
 // button, or ArrowRight/Enter/Space advances.
 // Vibrant blue gradient for the primary CTA and active progress dot.
-const CTA_GRADIENT = "linear-gradient(135deg, #5B7BF7 0%, #3D5BE0 55%, #2F46C4 100%)";
-const CTA_GRADIENT_HOVER = "linear-gradient(135deg, #4A69E8 0%, #3049C9 55%, #2439AB 100%)";
+const CTA_GRADIENT = "linear-gradient(135deg, #7C97FF 0%, #5B7BF7 55%, #4863E8 100%)";
+const CTA_GRADIENT_HOVER = "linear-gradient(135deg, #6B88F5 0%, #4A69E8 55%, #3A53D6 100%)";
 
 const SLIDES = [
   {
@@ -259,7 +259,7 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
             fontWeight: 600,
             fontSize: 17,
             cursor: "pointer",
-            boxShadow: "0 10px 30px rgba(61,91,224,.4)",
+            boxShadow: "0 10px 30px rgba(91,123,247,.4)",
           }}
           onMouseEnter={(e) => (e.currentTarget.style.background = CTA_GRADIENT_HOVER)}
           onMouseLeave={(e) => (e.currentTarget.style.background = CTA_GRADIENT)}
