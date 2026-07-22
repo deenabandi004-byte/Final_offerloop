@@ -1,36 +1,53 @@
 import { useEffect, useState } from "react";
-import { Users, Mail, Briefcase, Send, KanbanSquare } from "lucide-react";
 import { OB } from "./onboardingTheme";
 import OfferloopLogo from "@/assets/offerloop_logo2_allwhite.png";
+import GmailLogo from "@/assets/Gmaillogopng.png";
+import OutlookLogo from "@/assets/outlook_logo.png";
+import AppleMailLogo from "@/assets/applemail.png";
 
-// Five click-through intro slides shown before the resume page. Full-bleed on
-// the rail gradient; click anywhere (or ArrowRight/Enter/Space) advances.
+// Five click-through intro slides shown before the resume page. Each slide
+// runs a blurred product recording behind it (public/onboarding-bg/*.mp4,
+// generated from the ad-studio screen captures). Click anywhere, the Continue
+// button, or ArrowRight/Enter/Space advances.
 const SLIDES = [
   {
-    icon: Users,
+    key: "find-people",
+    video: "/onboarding-bg/find-people.mp4",
     headline: "Find the right people",
     body: "Search 2.2 billion professionals: alumni from your school, people at your target firms.",
   },
   {
-    icon: Mail,
-    headline: "Reach out like you mean it",
-    body: "AI-personalized emails written from your actual background, drafted straight into Gmail.",
-  },
-  {
-    icon: Briefcase,
+    key: "job-board",
+    video: "/onboarding-bg/job-board.mp4",
     headline: "A job board built around you",
     body: "Openings matched and scored against your resume, not a generic feed.",
   },
   {
-    icon: Send,
+    key: "auto-apply",
+    video: "/onboarding-bg/auto-apply.mp4",
     headline: "Apply on autopilot",
     body: "Auto-apply fills out and submits applications for you, so you never miss a posting.",
   },
   {
-    icon: KanbanSquare,
-    headline: "Never drop a thread",
+    key: "outreach",
+    video: "/onboarding-bg/outreach.mp4",
+    headline: "Hyper personalized outreach",
+    body: "Drafted straight into your email account.",
+  },
+  {
+    key: "track",
+    video: "/onboarding-bg/track.mp4",
+    headline: "Never miss a response",
     body: "Contacts, applications, and follow-ups tracked in one pipeline, with Scout nudging your next move.",
   },
+];
+
+// Floating provider chips on the outreach slide, positioned inside the
+// center column and drifting gently over the blurred video.
+const OUTREACH_CHIPS: { src: string; alt: string; style: React.CSSProperties; delay: string }[] = [
+  { src: GmailLogo, alt: "Gmail", style: { left: "14%", top: "16%" }, delay: "0s" },
+  { src: OutlookLogo, alt: "Outlook", style: { right: "15%", top: "28%" }, delay: "1.3s" },
+  { src: AppleMailLogo, alt: "Apple Mail", style: { left: "19%", bottom: "14%" }, delay: "2.2s" },
 ];
 
 interface OnboardingSlidesProps {
@@ -41,7 +58,6 @@ interface OnboardingSlidesProps {
 export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps) => {
   const [index, setIndex] = useState(0);
   const slide = SLIDES[index];
-  const Icon = slide.icon;
 
   useEffect(() => onViewSlide(index), [index, onViewSlide]);
 
@@ -69,13 +85,51 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
         cursor: "pointer",
         fontFamily: OB.fontBody,
         position: "relative",
+        overflow: "hidden",
       }}
     >
       <style>{`
         @keyframes obSlideIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
         .ob-slide-anim { animation: obSlideIn .45s cubic-bezier(0.16,1,0.3,1); }
-        @media (prefers-reduced-motion: reduce) { .ob-slide-anim { animation: none; } }
+        @keyframes obVideoIn { from { opacity: 0; } to { opacity: .6; } }
+        .ob-slide-video { animation: obVideoIn .8s ease forwards; }
+        @keyframes obFloat { from { transform: translateY(-9px); } to { transform: translateY(9px); } }
+        .ob-float-chip { animation: obFloat 4.5s ease-in-out infinite alternate; }
+        @media (max-width: 640px) { .ob-float-chip { display: none; } }
+        @media (prefers-reduced-motion: reduce) {
+          .ob-slide-anim, .ob-float-chip { animation: none; }
+          .ob-slide-video { animation: none; opacity: .6; }
+        }
       `}</style>
+
+      {/* Blurred product recording behind everything; keyed so each slide
+          crossfades its own clip in. Navy overlay keeps the text readable. */}
+      <video
+        key={slide.key}
+        className="ob-slide-video"
+        src={slide.video}
+        autoPlay
+        muted
+        loop
+        playsInline
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          opacity: 0,
+          pointerEvents: "none",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: "linear-gradient(180deg, rgba(15,23,42,.42), rgba(15,23,42,.72))",
+          pointerEvents: "none",
+        }}
+      />
 
       <div
         style={{
@@ -83,6 +137,8 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
           justifyContent: "space-between",
           alignItems: "center",
           padding: "28px 36px",
+          position: "relative",
+          zIndex: 1,
         }}
       >
         <img src={OfferloopLogo} alt="Offerloop" style={{ height: 34 }} />
@@ -119,23 +175,34 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
           justifyContent: "center",
           textAlign: "center",
           padding: "0 24px",
+          position: "relative",
+          zIndex: 1,
         }}
       >
-        <span
-          style={{
-            display: "inline-flex",
-            width: 74,
-            height: 74,
-            borderRadius: 20,
-            alignItems: "center",
-            justifyContent: "center",
-            background: "rgba(123,143,201,.18)",
-            color: OB.railPeriwinkle,
-            marginBottom: 34,
-          }}
-        >
-          <Icon size={34} strokeWidth={1.5} />
-        </span>
+        {/* Floating email providers over the outreach slide */}
+        {slide.key === "outreach" &&
+          OUTREACH_CHIPS.map((chip) => (
+            <span
+              key={chip.alt}
+              className="ob-float-chip"
+              style={{
+                position: "absolute",
+                width: 64,
+                height: 64,
+                borderRadius: 18,
+                background: "rgba(255,255,255,.94)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                boxShadow: "0 12px 32px rgba(0,0,0,.35)",
+                animationDelay: chip.delay,
+                ...chip.style,
+              }}
+            >
+              <img src={chip.src} alt={chip.alt} style={{ width: 34, maxHeight: 34, objectFit: "contain" }} />
+            </span>
+          ))}
+
         <h1
           style={{
             fontFamily: OB.fontDisplay,
@@ -160,21 +227,47 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
         >
           {slide.body}
         </p>
+
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            advance();
+          }}
+          style={{
+            marginTop: 40,
+            height: 58,
+            padding: "0 64px",
+            borderRadius: 14,
+            border: "none",
+            background: "#fff",
+            color: OB.heading,
+            fontFamily: OB.fontBody,
+            fontWeight: 600,
+            fontSize: 17,
+            cursor: "pointer",
+            boxShadow: "0 14px 38px rgba(0,0,0,.35)",
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = OB.primary50)}
+          onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
+        >
+          Continue
+        </button>
       </div>
 
       <div
         style={{
           display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: 18,
+          justifyContent: "center",
           padding: "0 0 44px",
+          position: "relative",
+          zIndex: 1,
         }}
       >
         <div style={{ display: "flex", gap: 8 }}>
           {SLIDES.map((s, i) => (
             <span
-              key={s.headline}
+              key={s.key}
               style={{
                 width: i === index ? 22 : 8,
                 height: 8,
@@ -185,7 +278,6 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
             />
           ))}
         </div>
-        <span style={{ fontSize: 13, color: "rgba(255,255,255,.5)" }}>Click anywhere to continue</span>
       </div>
     </div>
   );
