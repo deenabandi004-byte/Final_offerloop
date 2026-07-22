@@ -53,9 +53,13 @@ const DraftDeliveryActions: React.FC<{ draft: DeliverableDraft; size?: "sm" | "m
   };
 
   const copy = async () => {
-    await navigator.clipboard.writeText(`Subject: ${draft.subject}\n\n${draft.body}`);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(`Subject: ${draft.subject}\n\n${draft.body}`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast({ variant: "destructive", title: "Copy failed", description: "Select and copy the text manually." });
+    }
   };
 
   return (

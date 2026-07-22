@@ -465,6 +465,22 @@ export function FindHumansModal({ open, onOpenChange, job, kind = "recruiter", c
         const di = next[k];
         if (di?.draftId && !di.sent) pending.push({ key: k, draftId: di.draftId });
       }
+      // Fallback delivery: no Gmail draftIds exist, only downloadable/copyable
+      // bodies. Nothing can be auto-sent, so say that accurately instead of
+      // showing a Gmail-worded failure toast.
+      const hasDraftIds = withEmail.some((r) => next[cleanEmail(r).toLowerCase()]?.draftId);
+      const hasFallbackDrafts = withEmail.some((r) => {
+        const d = next[cleanEmail(r).toLowerCase()];
+        return d?.deliveryMode === "fallback" && d?.body;
+      });
+      if (!hasDraftIds && hasFallbackDrafts) {
+        setDraftInfo(next);
+        toast({
+          title: "Drafts ready",
+          description: "Download or copy each email below to send it from your mail app.",
+        });
+        return;
+      }
       let sent = 0;
       if (pending.length > 0) {
         const batch = await apiService.sendDraftsBatch(pending.map((p) => p.draftId));
