@@ -46,12 +46,20 @@ const SLIDES = [
   },
 ];
 
-// Floating provider chips on the outreach slide, positioned inside the
-// center column and drifting gently over the blurred video.
-const OUTREACH_CHIPS: { src: string; alt: string; style: React.CSSProperties; delay: string }[] = [
-  { src: GmailLogo, alt: "Gmail", style: { left: "14%", top: "16%" }, delay: "0s" },
-  { src: OutlookLogo, alt: "Outlook", style: { right: "15%", top: "28%" }, delay: "1.3s" },
-  { src: AppleMailLogo, alt: "Apple Mail", style: { left: "19%", bottom: "14%" }, delay: "2.2s" },
+// Floating provider chips on the outreach slide, clustered near the subtext
+// and gently drifting; each sits at a slight angle. The Outlook PNG has more
+// padding than the others, so its logo renders larger to match visually.
+const OUTREACH_CHIPS: {
+  src: string;
+  alt: string;
+  style: React.CSSProperties;
+  delay: string;
+  tilt: number;
+  imgSize: number;
+}[] = [
+  { src: GmailLogo, alt: "Gmail", style: { left: "29%", top: "48%" }, delay: "0s", tilt: -8, imgSize: 34 },
+  { src: OutlookLogo, alt: "Outlook", style: { right: "28%", top: "44%" }, delay: "1.3s", tilt: 7, imgSize: 48 },
+  { src: AppleMailLogo, alt: "Apple Mail", style: { left: "35%", bottom: "18%" }, delay: "2.2s", tilt: -5, imgSize: 34 },
 ];
 
 interface OnboardingSlidesProps {
@@ -198,21 +206,28 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
             <span
               key={chip.alt}
               className="ob-float-chip"
-              style={{
-                position: "absolute",
-                width: 64,
-                height: 64,
-                borderRadius: 18,
-                background: "rgba(255,255,255,.94)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                boxShadow: "0 12px 32px rgba(0,0,0,.35)",
-                animationDelay: chip.delay,
-                ...chip.style,
-              }}
+              style={{ position: "absolute", animationDelay: chip.delay, ...chip.style }}
             >
-              <img src={chip.src} alt={chip.alt} style={{ width: 34, maxHeight: 34, objectFit: "contain" }} />
+              <span
+                style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: 18,
+                  background: "rgba(255,255,255,.94)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  boxShadow: "0 12px 32px rgba(0,0,0,.35)",
+                  transform: `rotate(${chip.tilt}deg)`,
+                  overflow: "hidden",
+                }}
+              >
+                <img
+                  src={chip.src}
+                  alt={chip.alt}
+                  style={{ width: chip.imgSize, maxHeight: chip.imgSize, objectFit: "contain" }}
+                />
+              </span>
             </span>
           ))}
 
