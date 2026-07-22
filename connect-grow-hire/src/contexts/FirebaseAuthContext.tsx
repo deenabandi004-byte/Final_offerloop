@@ -55,6 +55,7 @@ interface User {
   emailsMonthKey?: string;
   needsOnboarding?: boolean;
   careerTrack?: string;
+  inboxConnectSkipped?: boolean;
 
 }
 
@@ -270,6 +271,7 @@ export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ childr
           emailsUsedThisMonth: d.emailsUsedThisMonth ?? 0,
           needsOnboarding: d.needsOnboarding ?? false,
           careerTrack: d.careerTrack || (d as any).goals?.careerTrack || (d as any).professionalInfo?.careerTrack,
+          inboxConnectSkipped: d.inboxConnectSkipped ?? false,
         };
         setUser(userData);
         // Cache the fresh profile so the next sign-in can hydrate instantly.

@@ -2,7 +2,7 @@ import { ArrowLeft, Upload, Trash2, LogOut, CreditCard, FileText, User, Graduati
 import { ApplicationProfileModal } from "@/components/jobs/ApplicationProfileModal";
 import EmailPreferencesPanel from "@/components/settings/EmailPreferencesPanel";
 import { useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -109,7 +109,7 @@ const sections = [
   { id: 'referrals', label: 'Refer & Earn', icon: Gift },
   { id: 'email_prefs', label: 'Email Preferences', icon: Send },
   { id: 'app_profile', label: 'Application Profile', icon: Send },
-  { id: 'gmail', label: 'Gmail Integration', icon: Mail },
+  { id: 'gmail', label: 'Integrations', icon: Mail },
   { id: 'account', label: 'Account Management', icon: Settings },
   { id: 'danger', label: 'Danger Zone', icon: AlertTriangle },
 ];
@@ -941,6 +941,18 @@ export default function AccountSettings() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  // Clear the onboarding "skipped inbox connect" flag once the user visits the Integrations section
+  const clearedInboxSkipRef = useRef(false);
+  useEffect(() => {
+    if (activeSection === 'gmail' && user?.inboxConnectSkipped && !clearedInboxSkipRef.current) {
+      clearedInboxSkipRef.current = true;
+      updateUser({ inboxConnectSkipped: false }).catch(() => {
+        // Best-effort; badge clears on next successful visit
+        clearedInboxSkipRef.current = false;
+      });
+    }
+  }, [activeSection, user?.inboxConnectSkipped, updateUser]);
+
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full text-foreground">
@@ -1134,6 +1146,9 @@ export default function AccountSettings() {
                       >
                         <section.icon className="w-5 h-5" />
                         {section.label}
+                        {section.id === 'gmail' && user?.inboxConnectSkipped && !gmailConnected && (
+                          <span style={{ width: 8, height: 8, borderRadius: 999, background: '#2563EB', display: 'inline-block', marginLeft: 6, flexShrink: 0 }} />
+                        )}
                       </a>
                     ))}
                   </nav>
@@ -2658,13 +2673,14 @@ export default function AccountSettings() {
                     <EmailPreferencesPanel />
                   </SettingsSection>
 
-                  {/* Gmail Integration Section */}
+                  {/* Integrations Section */}
                   <SettingsSection
                     id="gmail"
                     icon={Mail}
-                    title="Gmail Integration"
-                    description="Connect your Gmail to create email drafts directly from Offerloop"
+                    title="Integrations"
+                    description="Connect your inbox so Offerloop can write drafts directly into it"
                   >
+                    <div className="space-y-4">
                     <div
                       className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
                       style={{
@@ -2697,7 +2713,7 @@ export default function AccountSettings() {
                               fontSize: '15px',
                             }}
                           >
-                            {gmailLoading ? 'Checking...' : gmailConnected ? 'Connected' : 'Not connected'}
+                            Gmail
                           </h4>
                           <p
                             style={{
@@ -2708,10 +2724,12 @@ export default function AccountSettings() {
                             }}
                           >
                             {gmailLoading
-                              ? 'Loading Gmail status...'
-                              : gmailConnected && gmailEmail
-                                ? `Connected as ${gmailEmail}`
-                                : 'Connect your Gmail to create email drafts directly from Contact Search and other features.'}
+                              ? 'Checking Gmail status...'
+                              : gmailConnected
+                                ? gmailEmail
+                                  ? `Connected as ${gmailEmail}`
+                                  : 'Connected'
+                                : 'Not connected. Your drafts arrive as downloadable files. Connect Gmail to have them written directly into your inbox.'}
                           </p>
                         </div>
                       </div>
@@ -2770,6 +2788,56 @@ export default function AccountSettings() {
                           </>
                         )}
                       </div>
+                    </div>
+
+                    {/* Outlook teaser (static, no actions) */}
+                    <div
+                      className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
+                      style={{
+                        padding: '20px',
+                        borderRadius: '12px',
+                        background: '#FAFBFF',
+                        border: '1px solid rgba(59, 130, 246, 0.06)',
+                      }}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div
+                          style={{
+                            width: 48,
+                            height: 48,
+                            borderRadius: '12px',
+                            background: 'rgba(59, 130, 246, 0.08)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Mail className="w-6 h-6" style={{ color: '#94A3B8' }} />
+                        </div>
+                        <div>
+                          <h4
+                            style={{
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontWeight: 600,
+                              color: '#0F172A',
+                              fontSize: '15px',
+                            }}
+                          >
+                            Outlook
+                          </h4>
+                          <p
+                            style={{
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '14px',
+                              color: '#6B7280',
+                              marginTop: '2px',
+                            }}
+                          >
+                            Coming soon. Until then, drafts arrive as downloadable files that open in any mail app.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                     </div>
                   </SettingsSection>
 
