@@ -16,7 +16,7 @@ import re
 from app.config import GMAIL_SCOPES
 from ..extensions import require_firebase_auth
 from app.services.reply_generation import batch_generate_emails
-from app.services.gmail_client import get_gmail_service_for_user
+from app.services.gmail_client import get_gmail_service_for_user, get_user_gmail_service_strict
 from app.services.resume_parser import extract_text_from_pdf_bytes
 from app.utils.url_validator import validate_fetch_url, UnsafeURLError
 from app.utils.seniority import classify_seniority
@@ -53,6 +53,84 @@ def _persist_warmth_on_send(db, uid, contact_email, warmth_info, job_title):
         logging.getLogger("emails").debug(
             "warmth persist failed for %s: %s", contact_email, exc
         )
+
+def _base_contact_fields(r, c, body):
+    """Shared contact_data enrichment: personalization metadata, word count,
+    lead-hook-usage detection, and contact identity fields.
+
+    Used by both the Gmail draft branch and the no-Gmail fallback branch of
+    generate_and_draft() so the Firestore contact doc gets the same
+    personalization/analytics fields regardless of delivery mode.
+    """
+    fields = {}
+
+    personalization = r.get("personalization")
+    if personalization:
+        fields["personalizationLabel"] = personalization.get("label", "")
+        fields["personalizationType"] = personalization.get("commonality_type", "")
+        fields["leadType"] = personalization.get("lead_type", "")
+        fields["commonalityTypes"] = personalization.get("commonality_types", [])
+        fields["warmthTierFinal"] = personalization.get("warmth_tier_final", "")
+
+    # Word count of final email body
+    fields["wordCountFinal"] = len(body.split())
+
+    # Check if lead hook content appears in the final body.
+    # Uses 3+ consecutive significant words (>=4 chars) from the hook
+    # to detect incorporation without false positives from short words.
+    lead_hook = (personalization or {}).get("lead_hook", "")
+    if lead_hook and len(lead_hook) > 5:
+        body_lower = body.lower()
+        hook_words = [
+            w for w in lead_hook.lower().split()
+            if len(w) >= 4 and w not in {"this", "that", "they", "them", "their", "with", "from", "have", "been", "were", "also", "your", "about"}
+        ]
+        # Check for any 3-consecutive-word window match
+        found = False
+        for idx in range(len(hook_words) - 2):
+            trigram = " ".join(hook_words[idx:idx + 3])
+            if trigram in body_lower:
+                found = True
+                break
+        # Fallback: if hook has fewer than 3 significant words,
+        # check if any 2-word pair appears
+        if not found and len(hook_words) >= 2 and len(hook_words) < 3:
+            bigram = " ".join(hook_words[:2])
+            found = bigram in body_lower
+        fields["leadHookUsedInBody"] = found
+    else:
+        fields["leadHookUsedInBody"] = False
+
+    # Add contact fields from the original contact data
+    if c.get("FirstName"):
+        fields["firstName"] = c["FirstName"]
+    if c.get("LastName"):
+        fields["lastName"] = c["LastName"]
+    # Build full name for display
+    full_name = (
+        c.get("full_name")
+        or c.get("name")
+        or f"{c.get('FirstName', '')} {c.get('LastName', '')}".strip()
+        or None
+    )
+    if full_name:
+        fields["name"] = full_name
+    if c.get("Company"):
+        fields["company"] = c["Company"]
+    if c.get("Title") or c.get("jobTitle"):
+        fields["jobTitle"] = c.get("Title") or c.get("jobTitle")
+    if c.get("LinkedIn") or c.get("linkedinUrl"):
+        fields["linkedinUrl"] = c.get("LinkedIn") or c.get("linkedinUrl")
+    if c.get("College") or c.get("college"):
+        fields["college"] = c.get("College") or c.get("college")
+    if c.get("location"):
+        fields["location"] = c["location"]
+    # pdlId for agentic queue dedup (new in Phase 1).
+    if c.get("pdlId"):
+        fields["pdlId"] = c.get("pdlId")
+
+    return fields
+
 
 emails_bp = Blueprint('emails', __name__, url_prefix='/api/emails')
 def _infer_mime_type(filename_or_url: str, fallback=("application", "octet-stream")):
@@ -158,14 +236,13 @@ def generate_and_draft():
         else:
             print("[EmailGen] No resume URL found in payload, userProfile, or Firestore")
 
-    # Get Gmail service using user's OAuth credentials (falls back to shared account if not connected)
-    user_email = request.firebase_user.get("email")
-    gmail_service = get_gmail_service_for_user(user_email, user_id=uid)
-    if not gmail_service:
-        return jsonify({
-            "error": "Gmail service unavailable",
-            "message": "Please connect your Gmail account to create drafts. The shared Gmail account is not available."
-        }), 500
+    # Per-user Gmail only. No shared-inbox fallback for user-facing drafts:
+    # without an integration we return the generated emails in fallback mode
+    # (downloadable .eml on the frontend) instead of erroring.
+    gmail_service = get_user_gmail_service_strict(uid)
+    fallback_mode = gmail_service is None
+    if fallback_mode:
+        print(f"[EmailGen] No Gmail integration for {uid}: fallback delivery mode")
 
     # ✅ FIX: Check if contacts already have emails to avoid duplicate generation
     # Filter out contacts that already have emailSubject and emailBody
@@ -310,12 +387,15 @@ def generate_and_draft():
     draft_ids = []
 
     # Log which mailbox we're drafting as
-    try:
-        connected_email = gmail.users().getProfile(userId="me").execute().get("emailAddress")
-        print(f"📧 Connected Gmail account: {connected_email}")
-    except Exception as e:
+    if not fallback_mode:
+        try:
+            connected_email = gmail.users().getProfile(userId="me").execute().get("emailAddress")
+            print(f"📧 Connected Gmail account: {connected_email}")
+        except Exception as e:
+            connected_email = None
+            print(f"⚠️ Could not fetch connected Gmail profile: {e}")
+    else:
         connected_email = None
-        print(f"⚠️ Could not fetch connected Gmail profile: {e}")
 
     # user_data already loaded above for email template; use for resume too
     resume_url = (
@@ -528,6 +608,51 @@ def generate_and_draft():
 
 
 
+        # --- Fallback delivery: no Gmail integration, return content directly ---
+        if fallback_mode:
+            created.append({
+                "index": i,
+                "to": to_addr,
+                "subject": r["subject"],
+                "body": body,
+                "deliveryMode": "fallback",
+                # Perplexity hiring-signal fields — populated when the request
+                # sets enrichHiringSignal=True (HM flow). Absent for regular
+                # People-flow drafts.
+                "activelyHiring": c.get("_actively_hiring"),
+                "recentHiringSignal": c.get("_recent_hiring_signal"),
+            })
+
+            # Save the contact so My Network / surfaces show the drafted email.
+            # No gmailDraftId/gmailDraftUrl and inOutbox stays False: reply
+            # tracking requires Gmail.
+            try:
+                contacts_ref = db.collection("users").document(uid).collection("contacts")
+                to_addr_clean = (to_addr or "").strip().lower()
+                existing_contacts = list(contacts_ref.where("email", "==", to_addr_clean).limit(1).stream())
+
+                contact_data = {
+                    "emailSubject": r["subject"],
+                    "emailBody": body,
+                    "draftToEmail": to_addr_clean,
+                    "emailGeneratedAt": datetime.utcnow().isoformat(),
+                    "lastActivityAt": datetime.utcnow().isoformat(),
+                    "updatedAt": datetime.utcnow().isoformat(),
+                    "pipelineStage": "draft_created",
+                    "inOutbox": False,
+                }
+                contact_data.update(_base_contact_fields(r, c, body))
+
+                if existing_contacts:
+                    existing_contacts[0].reference.update(contact_data)
+                else:
+                    contact_data["email"] = to_addr_clean
+                    contact_data["createdAt"] = datetime.utcnow().isoformat()
+                    contacts_ref.document().set(contact_data)
+            except Exception as e:
+                print(f"[{i}] Failed to save fallback contact: {e}")
+            continue
+
         # --- Create Gmail draft ---
         try:
             raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
@@ -607,80 +732,19 @@ def generate_and_draft():
                     "inOutbox": True,
                 }
 
-                # Store personalization metadata if available
+                # Store personalization metadata, word count, lead-hook usage,
+                # and contact identity fields (shared with the fallback branch
+                # below via _base_contact_fields).
                 # New fields (leadType, commonalityTypes, warmthTierFinal, wordCountFinal,
                 # leadHookUsedInBody) added 2026-04-28. Old contacts only have
                 # personalizationLabel + personalizationType. No backfill — filter
                 # analysis by emailGeneratedAt >= 2026-04-28 for clean P0 measurement.
-                personalization = r.get("personalization")
-                if personalization:
-                    contact_data["personalizationLabel"] = personalization.get("label", "")
-                    contact_data["personalizationType"] = personalization.get("commonality_type", "")
-                    contact_data["leadType"] = personalization.get("lead_type", "")
-                    contact_data["commonalityTypes"] = personalization.get("commonality_types", [])
-                    contact_data["warmthTierFinal"] = personalization.get("warmth_tier_final", "")
+                contact_data.update(_base_contact_fields(r, c, body))
 
-                # Word count of final email body
-                contact_data["wordCountFinal"] = len(body.split())
-
-                # Check if lead hook content appears in the final body.
-                # Uses 3+ consecutive significant words (>=4 chars) from the hook
-                # to detect incorporation without false positives from short words.
-                lead_hook = (personalization or {}).get("lead_hook", "")
-                if lead_hook and len(lead_hook) > 5:
-                    body_lower = body.lower()
-                    hook_words = [
-                        w for w in lead_hook.lower().split()
-                        if len(w) >= 4 and w not in {"this", "that", "they", "them", "their", "with", "from", "have", "been", "were", "also", "your", "about"}
-                    ]
-                    # Check for any 3-consecutive-word window match
-                    found = False
-                    for i in range(len(hook_words) - 2):
-                        trigram = " ".join(hook_words[i:i+3])
-                        if trigram in body_lower:
-                            found = True
-                            break
-                    # Fallback: if hook has fewer than 3 significant words,
-                    # check if any 2-word pair appears
-                    if not found and len(hook_words) >= 2 and len(hook_words) < 3:
-                        bigram = " ".join(hook_words[:2])
-                        found = bigram in body_lower
-                    contact_data["leadHookUsedInBody"] = found
-                else:
-                    contact_data["leadHookUsedInBody"] = False
-                
                 # Add threadId if we have it
                 if thread_id:
                     contact_data["gmailThreadId"] = thread_id
-                
-                # Add contact fields from the original contact data
-                if c.get("FirstName"):
-                    contact_data["firstName"] = c["FirstName"]
-                if c.get("LastName"):
-                    contact_data["lastName"] = c["LastName"]
-                # Build full name for display
-                full_name = (
-                    c.get("full_name")
-                    or c.get("name")
-                    or f"{c.get('FirstName', '')} {c.get('LastName', '')}".strip()
-                    or None
-                )
-                if full_name:
-                    contact_data["name"] = full_name
-                if c.get("Company"):
-                    contact_data["company"] = c["Company"]
-                if c.get("Title") or c.get("jobTitle"):
-                    contact_data["jobTitle"] = c.get("Title") or c.get("jobTitle")
-                if c.get("LinkedIn") or c.get("linkedinUrl"):
-                    contact_data["linkedinUrl"] = c.get("LinkedIn") or c.get("linkedinUrl")
-                if c.get("College") or c.get("college"):
-                    contact_data["college"] = c.get("College") or c.get("college")
-                if c.get("location"):
-                    contact_data["location"] = c["location"]
-                # pdlId for agentic queue dedup (new in Phase 1).
-                if c.get("pdlId"):
-                    contact_data["pdlId"] = c.get("pdlId")
-                
+
                 if existing_contacts:
                     # Update existing contact (same email = one contact doc)
                     contact_doc = existing_contacts[0]
@@ -712,6 +776,7 @@ def generate_and_draft():
     skipped_count = len(contacts) - len(created)
     return jsonify({
         "success": len(created) > 0 or len(contacts) == 0,
+        "deliveryMode": "fallback" if fallback_mode else "gmail",
         "connected_email": connected_email,
         "draft_count": len(draft_ids),
         "draft_ids": draft_ids,
