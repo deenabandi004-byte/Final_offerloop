@@ -24,7 +24,7 @@ const SLIDES = [
     key: "job-board",
     video: "/onboarding-bg/job-board.mp4",
     headline: "A job board built around you",
-    body: "Openings matched and scored against your resume, not a generic feed.",
+    body: "Every opening matched and scored against your resume. Nobody else sees this exact feed: it's hand picked for you from 500,000+ live jobs.",
   },
   {
     key: "auto-apply",
