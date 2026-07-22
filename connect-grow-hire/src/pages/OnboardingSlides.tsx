@@ -30,7 +30,7 @@ const SLIDES = [
     key: "auto-apply",
     video: "/onboarding-bg/auto-apply.mp4",
     headline: "Apply on autopilot",
-    body: "Auto-apply fills out and submits applications for you, writing custom cover letters and tuning your resume so it gets past the AI screeners and in front of a real person.",
+    body: "Submits applications for you instantly, with custom cover letters and a resume tuned to get past AI screeners to a real person.",
   },
   {
     key: "outreach",
