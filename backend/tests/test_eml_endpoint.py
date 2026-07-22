@@ -76,6 +76,24 @@ def test_eml_download_attaches_resume(client):
     assert len(atts) == 1 and atts[0].get_filename() == "Resume.pdf"
 
 
+def test_eml_download_escapes_html_in_body(client):
+    body = "Hello <b>bold</b> & stuff"
+    with patch("backend.app.routes.emails.get_db", return_value=_mock_db()):
+        res = client.post(
+            "/api/emails/eml",
+            json={"to": "jane@acme.com", "subject": "Hi", "body": body},
+            headers={"Authorization": "Bearer test"},
+        )
+    assert res.status_code == 200
+    msg = email.message_from_bytes(res.data, policy=policy.default)
+    html_part = msg.get_body(preferencelist=("html",)).get_content()
+    plain_part = msg.get_body(preferencelist=("plain",)).get_content()
+    assert "&lt;b&gt;" in html_part
+    assert "&amp;" in html_part
+    assert "<b>bold</b>" not in html_part
+    assert "<b>bold</b> & stuff" in plain_part
+
+
 def test_eml_download_missing_fields_400(client):
     with patch("backend.app.routes.emails.get_db", return_value=_mock_db()):
         res = client.post("/api/emails/eml", json={"to": "a@b.com"},

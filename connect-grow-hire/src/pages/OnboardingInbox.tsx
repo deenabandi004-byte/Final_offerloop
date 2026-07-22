@@ -14,9 +14,12 @@ export const OnboardingInbox = ({ onDone, submitting }: Props) => {
   const [connecting, setConnecting] = useState(false);
   const [connected, setConnected] = useState(false);
   const pollRef = useRef<number | null>(null);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, []);
@@ -45,13 +48,27 @@ export const OnboardingInbox = ({ onDone, submitting }: Props) => {
           clearInterval(timer);
           pollRef.current = null;
           try {
-            const status = await apiService.gmailStatus();
-            if (status.connected) {
-              setConnected(true);
-              onDone(false);
+            // The backend OAuth callback write can land slightly after the
+            // popup closes; retry the status check so a real connect isn't missed.
+            for (let attempt = 0; attempt < 3; attempt++) {
+              if (!mountedRef.current) return;
+              try {
+                const status = await apiService.gmailStatus();
+                if (status.connected) {
+                  if (!mountedRef.current) return;
+                  setConnected(true);
+                  onDone(false);
+                  return;
+                }
+              } catch {
+                // transient failure; fall through to retry
+              }
+              if (attempt < 2) {
+                await new Promise((resolve) => setTimeout(resolve, 1000));
+              }
             }
           } finally {
-            setConnecting(false);
+            if (mountedRef.current) setConnecting(false);
           }
         }
       }, 500);

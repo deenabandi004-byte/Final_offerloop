@@ -3,6 +3,7 @@ Email generation and drafting routes
 """
 import os
 import base64
+import html
 import requests
 from datetime import datetime
 from flask import Blueprint, request, jsonify, Response
@@ -842,7 +843,7 @@ def download_eml():
             print(f"[EML] resume download failed, sending without attachment: {e}")
 
     html_body = "".join(
-        f'<p style="margin:12px 0; line-height:1.6;">{p.strip()}</p>'
+        f'<p style="margin:12px 0; line-height:1.6;">{html.escape(p.strip())}</p>'
         for p in body.split("\n") if p.strip()
     )
     raw = build_eml(to_addr, subject, body, body_html=html_body,
