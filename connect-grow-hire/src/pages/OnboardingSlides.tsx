@@ -124,14 +124,19 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
         }}
       />
 
+      {/* Frosted white header bar: mostly opaque, colored lockup */}
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          padding: "28px 36px",
+          padding: "16px 36px",
           position: "relative",
           zIndex: 1,
+          background: "rgba(255,255,255,.82)",
+          backdropFilter: "blur(10px)",
+          WebkitBackdropFilter: "blur(10px)",
+          borderBottom: `1px solid ${OB.border}`,
         }}
       >
         <img src={OfferloopLogo} alt="Offerloop" style={{ height: 34 }} />
@@ -142,9 +147,9 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
             onDone(true);
           }}
           style={{
-            background: "rgba(255,255,255,.65)",
-            border: `1px solid ${OB.border}`,
-            color: OB.heading,
+            background: "transparent",
+            border: `1px solid ${OB.primary200}`,
+            color: OB.primary,
             borderRadius: 8,
             padding: "8px 18px",
             fontSize: 14,
