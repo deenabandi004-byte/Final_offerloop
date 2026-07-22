@@ -13,36 +13,65 @@ import AppleMailLogo from "@/assets/applemail.png";
 const CTA_GRADIENT = "linear-gradient(135deg, #7C97FF 0%, #5B7BF7 55%, #4863E8 100%)";
 const CTA_GRADIENT_HOVER = "linear-gradient(135deg, #6B88F5 0%, #4A69E8 55%, #3A53D6 100%)";
 
-const SLIDES = [
+// Blue emphasis for the load-bearing words in each slide's body.
+const Em = ({ children }: { children: React.ReactNode }) => (
+  <strong style={{ color: "#3D5BE0", fontWeight: 700 }}>{children}</strong>
+);
+
+const SLIDES: { key: string; video: string; headline: string; body: React.ReactNode }[] = [
   {
     key: "find-people",
     video: "/onboarding-bg/find-people.mp4",
     headline: "Find the right people",
-    body: "Search 2.2 billion professionals, from alumni at your school to people at your target firms, and instantly get their emails, LinkedIns, etc.",
+    body: (
+      <>
+        Search <Em>2.2 billion professionals</Em>, from alumni at your school to people at your
+        target firms, and instantly get their <Em>emails, LinkedIns, etc.</Em>
+      </>
+    ),
   },
   {
     key: "job-board",
     video: "/onboarding-bg/job-board.mp4",
     headline: "A job board built around you",
-    body: "Every opening matched and scored against your resume. Nobody else sees this exact feed: it's hand picked for you from 500,000+ live jobs.",
+    body: (
+      <>
+        Every opening matched and scored against your resume. <Em>Nobody else</Em> sees this exact
+        feed: it&apos;s hand picked for you from <Em>500,000+ live jobs</Em>.
+      </>
+    ),
   },
   {
     key: "auto-apply",
     video: "/onboarding-bg/auto-apply.mp4",
     headline: "Apply on autopilot",
-    body: "Submits applications for you instantly, with custom cover letters and a resume tuned to get past AI screeners to a real person.",
+    body: (
+      <>
+        Submits applications for you <Em>instantly</Em>, with custom cover letters and a resume
+        tuned to get past AI screeners to a <Em>real person</Em>.
+      </>
+    ),
   },
   {
     key: "outreach",
     video: "/onboarding-bg/outreach.mp4",
     headline: "Hyper personalized outreach",
-    body: "Drafted straight into your email account.",
+    body: (
+      <>
+        Drafted straight into <Em>your email account</Em>.
+      </>
+    ),
   },
   {
     key: "track",
     video: "/onboarding-bg/track.mp4",
     headline: "Never miss a response",
-    body: "Contacts, applications, and follow-ups tracked in one pipeline, with Scout nudging your next move.",
+    body: (
+      <>
+        Contacts, applications, and follow-ups tracked in <Em>one pipeline</Em>, with Scout nudging
+        your next move.
+      </>
+    ),
   },
 ];
 
@@ -246,8 +275,9 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
         </h1>
         <p
           style={{
-            fontSize: "clamp(16px, 2vw, 19px)",
-            lineHeight: 1.65,
+            fontSize: "clamp(17px, 2.1vw, 21px)",
+            lineHeight: 1.6,
+            fontWeight: 600,
             color: "#000",
             maxWidth: 480,
             margin: 0,
