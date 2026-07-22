@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { OB } from "./onboardingTheme";
-import OfferloopLogo from "@/assets/offerloop_logo2_allwhite.png";
+import OfferloopLogo from "@/assets/offerloop_logo2_trimmed.png";
 import GmailLogo from "@/assets/Gmaillogopng.png";
 import OutlookLogo from "@/assets/outlook_logo.png";
 import AppleMailLogo from "@/assets/applemail.png";
@@ -80,8 +80,8 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
       onClick={advance}
       className="min-h-screen flex flex-col"
       style={{
-        background: OB.railGradient,
-        color: "#fff",
+        background: OB.pageBg,
+        color: OB.heading,
         cursor: "pointer",
         fontFamily: OB.fontBody,
         position: "relative",
@@ -102,8 +102,9 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
         }
       `}</style>
 
-      {/* Blurred product recording behind everything; keyed so each slide
-          crossfades its own clip in. Navy overlay keeps the text readable. */}
+      {/* Lightly blurred product recording behind everything, shown natural
+          (no overlay) with a subtle blue cast baked into the encode; keyed so
+          each slide crossfades its own clip in. */}
       <video
         key={slide.key}
         className="ob-slide-video"
@@ -119,17 +120,6 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
           height: "100%",
           objectFit: "cover",
           opacity: 0,
-          pointerEvents: "none",
-        }}
-      />
-      {/* Brand-blue multiply tint: the white product UI reads as rich blue
-          (landing-page treatment) while every screen detail stays visible. */}
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          background: OB.primary,
-          mixBlendMode: "multiply",
           pointerEvents: "none",
         }}
       />
@@ -152,9 +142,9 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
             onDone(true);
           }}
           style={{
-            background: "rgba(255,255,255,.08)",
-            border: "1px solid rgba(255,255,255,.18)",
-            color: "#fff",
+            background: "rgba(255,255,255,.65)",
+            border: `1px solid ${OB.border}`,
+            color: OB.heading,
             borderRadius: 8,
             padding: "8px 18px",
             fontSize: 14,
@@ -214,8 +204,7 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
             letterSpacing: "-0.02em",
             margin: "0 0 18px",
             maxWidth: 640,
-            color: "#fff",
-            textShadow: "0 2px 28px rgba(15,23,42,.5)",
+            color: OB.heading,
           }}
         >
           {slide.headline}
@@ -224,10 +213,9 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
           style={{
             fontSize: "clamp(16px, 2vw, 19px)",
             lineHeight: 1.65,
-            color: "#E7ECF8",
+            color: OB.ink2,
             maxWidth: 480,
             margin: 0,
-            textShadow: "0 1px 18px rgba(15,23,42,.45)",
           }}
         >
           {slide.body}
@@ -245,16 +233,16 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
             padding: "0 64px",
             borderRadius: 14,
             border: "none",
-            background: "#fff",
-            color: OB.heading,
+            background: OB.primary,
+            color: "#fff",
             fontFamily: OB.fontBody,
             fontWeight: 600,
             fontSize: 17,
             cursor: "pointer",
-            boxShadow: "0 14px 38px rgba(0,0,0,.35)",
+            boxShadow: OB.shadowBlue,
           }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = OB.primary50)}
-          onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
+          onMouseEnter={(e) => (e.currentTarget.style.background = OB.primaryDark)}
+          onMouseLeave={(e) => (e.currentTarget.style.background = OB.primary)}
         >
           Continue
         </button>
@@ -278,7 +266,7 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
                 height: 8,
                 borderRadius: 99,
                 transition: "all .3s",
-                background: i === index ? "#fff" : "rgba(255,255,255,.3)",
+                background: i === index ? OB.primary : OB.primary200,
               }}
             />
           ))}
