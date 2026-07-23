@@ -154,6 +154,7 @@ const InterviewPrepTemplate = React.lazy(() => import("./pages/seo-preview/templ
 const ATSGuideTemplate = React.lazy(() => import("./pages/seo-preview/templates/ATSGuideTemplate"));
 const FreeToolsHub = React.lazy(() => import("./pages/FreeToolsHub"));
 const AppFinishSignIn = React.lazy(() => import("./pages/AppFinishSignIn"));
+const CheckoutHandoff = React.lazy(() => import("./pages/CheckoutHandoff"));
 
 // Optimized QueryClient with caching
 const queryClient = new QueryClient({
@@ -328,6 +329,11 @@ const AppRoutes: React.FC = () => {
 
       {/* Mobile app magic-link sign-in handoff (public, no auth guard) */}
       <Route path="/app/finish-signin" element={<Suspense fallback={<PageLoader />}><AppFinishSignIn /></Suspense>} />
+
+      {/* Mobile app -> web checkout handoff: burns the one-time code, signs
+          the browser in as the app user, forwards to /pricing (public, no
+          auth guard; see backend/app/routes/mobile_handoff.py) */}
+      <Route path="/checkout" element={<Suspense fallback={<PageLoader />}><CheckoutHandoff /></Suspense>} />
 
       {/* Onboarding */}
       <Route
