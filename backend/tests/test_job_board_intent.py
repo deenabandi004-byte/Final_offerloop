@@ -384,3 +384,107 @@ class TestNormalizeIntent:
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
 
+
+
+class TestProfessionalCareerStage:
+    """Multi-audience: professionals get real career stages and the
+    seniority gate filters bidirectionally."""
+
+    def _contract_for(self, **profile_overrides):
+        profile = {
+            "interests": ["Software Engineering"],
+            "preferred_location": ["New York, NY"],
+            "job_types": ["Full-Time"],
+            "graduation_year": None,
+            "graduation_month": None,
+            "degree": None,
+            "university": "",
+            "resume_present": True,
+            "experiences": [],
+            "major": "",
+        }
+        profile.update(profile_overrides)
+        return normalize_intent(profile)
+
+    def test_professional_with_stated_years_gets_senior_stage(self):
+        contract = self._contract_for(
+            user_type="professional", years_experience_stated=12
+        )
+        timing = contract["graduation_timing"]
+        assert timing["career_phase"] == "senior"
+        assert timing["is_student"] is False
+
+    def test_dated_resume_experience_drives_stage(self):
+        year = datetime.now().year - 6
+        contract = self._contract_for(
+            experiences=[{"title": "Consultant", "company": "Deloitte",
+                          "dates": f"June {year} - Present", "keywords": []}]
+        )
+        assert contract["graduation_timing"]["career_phase"] == "mid_level"
+
+    def test_old_grad_year_is_not_new_grad_anymore(self):
+        contract = self._contract_for(graduation_year=datetime.now().year - 20)
+        assert contract["graduation_timing"]["career_phase"] in ("senior", "executive")
+
+    def test_student_defaults_preserved(self):
+        contract = self._contract_for(
+            graduation_year=datetime.now().year + 2
+        )
+        assert contract["graduation_timing"]["career_phase"] == "internship"
+
+
+class TestBidirectionalSeniorityGate:
+    """apply_hard_gate_seniority end-to-end with real intent contracts."""
+
+    def _gate(self, job_title, career_phase, job_desc=""):
+        from app.routes.job_board import apply_hard_gate_seniority
+        job = {"title": job_title, "description": job_desc}
+        contract = {
+            "career_domains": ["technology"],
+            "graduation_timing": {
+                "career_phase": career_phase,
+                "months_until_graduation": None,
+            },
+        }
+        return apply_hard_gate_seniority(job, contract)
+
+    def test_student_blocked_from_vp_role(self):
+        passes, reason = self._gate("Vice President of Engineering", "internship")
+        assert not passes
+        assert "seniority_too_high" in reason
+
+    def test_student_blocked_from_senior_role(self):
+        passes, reason = self._gate("Senior Software Engineer", "internship")
+        assert not passes
+
+    def test_student_allowed_internship(self):
+        passes, _ = self._gate("Software Engineer Intern", "internship")
+        assert passes
+
+    def test_senior_user_blocked_from_internship(self):
+        passes, reason = self._gate("Software Engineer Intern", "senior")
+        assert not passes
+        assert "seniority_too_low" in reason
+
+    def test_senior_user_blocked_from_new_grad_role(self):
+        passes, reason = self._gate("New Grad Software Engineer", "senior")
+        assert not passes
+        assert "seniority_too_low" in reason
+
+    def test_senior_user_allowed_senior_role(self):
+        passes, _ = self._gate("Senior Software Engineer", "senior")
+        assert passes
+
+    def test_executive_allowed_vp_role(self):
+        passes, _ = self._gate("Vice President of Engineering", "executive")
+        assert passes
+
+    def test_mid_level_blocked_from_internship(self):
+        passes, _ = self._gate("Marketing Intern", "mid_level")
+        assert not passes
+
+    def test_ambiguous_title_allowed_for_everyone(self):
+        for phase in ("internship", "new_grad", "early_career",
+                      "mid_level", "senior", "executive"):
+            passes, _ = self._gate("Software Engineer", phase)
+            assert passes, phase

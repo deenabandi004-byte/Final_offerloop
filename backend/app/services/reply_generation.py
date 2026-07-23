@@ -214,12 +214,15 @@ def email_has_sign_off(body: str, sender_name: str) -> bool:
     return any(prev_lower.startswith(p) for p in SIGN_OFF_PHRASES)
 
 
-def _build_signature_block_for_prompt(signoff_config, user_info):
+def _build_signature_block_for_prompt(signoff_config, user_info, professional_persona=None):
     """
     Build the signature block string for the LLM prompt.
     signoff_config: {"signoffPhrase": str, "signatureBlock": str} or None.
     If signoff_config has non-empty signatureBlock, return signoff_phrase + "\\n" + signature_block.
     Else return signoff_phrase + "\\n[Full Name]\\n[University] | Class of [Year]".
+    professional_persona: optional dict from _derive_professional_persona; when
+    set (and no custom signatureBlock) the signature carries current role and
+    company instead of the student university/class-year framing.
     """
     phrase = "Best,"
     block = ""
@@ -237,6 +240,14 @@ def _build_signature_block_for_prompt(signoff_config, user_info):
         sig_lines.append(name)
     else:
         sig_lines.append("[Full Name]")
+    if professional_persona:
+        # Professional sender: signature carries role + company.
+        _p_role = (professional_persona.get("current_role") or "").strip()
+        _p_company = (professional_persona.get("current_company") or "").strip()
+        if _p_role and _p_company:
+            sig_lines.append(f"{_p_role}, {_p_company}")
+        elif _p_role:
+            sig_lines.append(_p_role)
     # University is already mentioned in the email body — don't repeat in signature
     return "\n".join(sig_lines)
 
@@ -332,6 +343,87 @@ def _build_personalization_label(commonality_type, commonality_details, selected
                 return company.capitalize()
             return f"Recently joined"
     return "Role match"
+
+
+def _derive_professional_persona(user_profile, user_info, pre_parsed_user_info=None):
+    """
+    Decide whether the sender should be introduced as a working professional
+    instead of a college student.
+
+    Returns a persona dict {"current_role", "current_company",
+    "years_experience", "university"} when the sender is a professional, else
+    None — and None keeps every student code path byte-identical.
+
+    Triggers (any one):
+      1. Explicit userType == "professional" on the user doc/profile.
+      2. No university anywhere on the profile AND a current role exists.
+      3. Graduation year more than 2 years past AND the profile shows work
+         experience (currentRole, yearsExperience > 0, or resume experience).
+    """
+    up = user_profile if isinstance(user_profile, dict) else {}
+    ui = user_info if isinstance(user_info, dict) else {}
+    prof = up.get("professionalInfo")
+    if not isinstance(prof, dict):
+        prof = {}
+    current_role = (prof.get("currentRole") or "").strip()
+    current_company = (prof.get("currentCompany") or "").strip()
+    years_exp = prof.get("yearsExperience")
+    try:
+        years_exp = float(years_exp) if years_exp is not None else None
+    except (TypeError, ValueError):
+        years_exp = None
+
+    academics = up.get("academics") if isinstance(up.get("academics"), dict) else {}
+    university = (
+        (ui.get("university") or "").strip()
+        or (up.get("university") or "").strip()
+        or (academics.get("university") or "").strip()
+    )
+
+    user_type = (up.get("userType") or "").strip().lower()
+
+    # An explicit "student" choice always wins: someone still in college must
+    # sound like a student no matter what the graduation-year heuristic says
+    # (e.g. a masters student whose profile carries an old undergrad year).
+    if user_type == "student":
+        return None
+
+    is_professional = False
+    if user_type == "professional":
+        is_professional = True
+    elif not university and current_role:
+        is_professional = True
+    else:
+        # Graduated >2 years ago + work experience on the profile
+        grad_raw = (
+            ui.get("year")
+            or up.get("graduationYear")
+            or up.get("year")
+            or academics.get("graduationYear")
+            or ""
+        )
+        grad_year = None
+        m = re.search(r"20\d{2}", str(grad_raw))
+        if m:
+            grad_year = int(m.group())
+        has_work_experience = bool(current_role) or bool(years_exp and years_exp > 0)
+        if not has_work_experience and isinstance(pre_parsed_user_info, dict):
+            exps = pre_parsed_user_info.get("experience") or []
+            has_work_experience = any(
+                isinstance(e, dict) and (e.get("company") or e.get("title"))
+                for e in exps
+            )
+        if grad_year and (datetime.now().year - grad_year) > 2 and has_work_experience:
+            is_professional = True
+
+    if not is_professional:
+        return None
+    return {
+        "current_role": current_role,
+        "current_company": current_company,
+        "years_experience": years_exp,
+        "university": university,
+    }
 
 
 def batch_generate_emails(contacts, resume_text, user_profile, career_interests, fit_context=None, pre_parsed_user_info=None, template_instructions="", email_template_purpose=None, resume_filename=None, subject_line=None, signoff_config=None, auth_display_name=None, personal_note="", dream_companies=None, warmth_data=None, uid=None, enrichment_data=None, loop_brief_text="", loop_brief_parsed=None):
@@ -437,9 +529,23 @@ def batch_generate_emails(contacts, resume_text, user_profile, career_interests,
             if not (user_info.get("name") or "").strip():
                 user_info["name"] = "Student"
         print(f"[EmailTemplate] batch_generate_emails template_instructions len={len(template_instructions or '')}")
-        
+
+        # Professional persona: working professionals (career changers,
+        # experienced people) get introduced by role, not as students.
+        # None for students — every student code path below is unchanged.
+        professional_persona = _derive_professional_persona(user_profile, user_info, pre_parsed_user_info)
+        is_professional_sender = professional_persona is not None
+        if is_professional_sender:
+            logger.info("[EMAIL-GEN] Professional persona active: role=%r company=%r",
+                        professional_persona.get("current_role"), professional_persona.get("current_company"))
+
         # Build sender description
-        sender_desc = f"{user_info.get('name', 'Student')} - {user_info.get('year', '')} {user_info.get('major', '')} at {user_info.get('university', '')}"
+        if is_professional_sender:
+            _p_role = professional_persona.get("current_role") or "working professional"
+            _p_company = professional_persona.get("current_company") or ""
+            sender_desc = f"{user_info.get('name', '')} - {_p_role}{f' at {_p_company}' if _p_company else ''}"
+        else:
+            sender_desc = f"{user_info.get('name', 'Student')} - {user_info.get('year', '')} {user_info.get('major', '')} at {user_info.get('university', '')}"
         
         # Get user contact info for signature
         user_email = user_profile.get('email', '') if user_profile else ''
@@ -795,6 +901,22 @@ The sender is exploring broadly and building their network.
 - Show genuine curiosity about their work
 """
         
+        # Extra ABOUT-THE-SENDER lines for professionals. Empty string for
+        # students, so the student prompt stays byte-identical.
+        _sender_pro_lines = ""
+        if is_professional_sender:
+            _p_role = (professional_persona.get("current_role") or "").strip()
+            _p_company = (professional_persona.get("current_company") or "").strip()
+            _p_years = professional_persona.get("years_experience")
+            if _p_role:
+                _sender_pro_lines += f"\n- Current role: {_p_role}"
+            if _p_company:
+                _sender_pro_lines += f"\n- Current company: {_p_company}"
+            if _p_years:
+                _years_str = str(int(_p_years)) if float(_p_years).is_integer() else str(_p_years)
+                _sender_pro_lines += f"\n- Years of experience: {_years_str}"
+            _sender_pro_lines += "\n- Sender type: WORKING PROFESSIONAL (not a student)"
+
         is_custom_purpose = email_template_purpose == "custom"
         resume_line_section = ""
         resume_rule_line = "6. "
@@ -812,7 +934,7 @@ ABOUT THE SENDER:
 - Name: {sender_name}
 - University: {sender_university_short if sender_university_short else 'Not specified'}
 - Major: {user_info.get('major', 'Not specified')}
-- Year: {user_info.get('year', 'Not specified')}{resume_context}
+- Year: {user_info.get('year', 'Not specified')}{_sender_pro_lines}{resume_context}
 {fit_context_section}
 {loop_brief_section}
 CONTACTS:
@@ -844,7 +966,7 @@ CONTACTS:
 Return ONLY valid JSON:
 {{"0": {{"subject": "...", "body": "..."}}, "1": {{"subject": "...", "body": "..."}}, ...}}"""
             else:
-                _sig_block = _build_signature_block_for_prompt(signoff_config, user_info)
+                _sig_block = _build_signature_block_for_prompt(signoff_config, user_info, professional_persona)
                 minimal_formatting = f"""
 ===== FORMATTING ONLY =====
 - Start each email with "Hi [FirstName],"{subject_instruction}
@@ -921,7 +1043,11 @@ Return ONLY valid JSON:
             for s in strategies.values():
                 tier_counts[s.warmth_tier] = tier_counts.get(s.warmth_tier, 0) + 1
 
-            context_block = f"""You write professional, natural networking emails for college students reaching out to industry professionals.
+            if is_professional_sender:
+                _writer_identity_line = "You write professional, natural networking emails for an experienced professional reaching out to peers in their industry."
+            else:
+                _writer_identity_line = "You write professional, natural networking emails for college students reaching out to industry professionals."
+            context_block = f"""{_writer_identity_line}
 
 {format_banned_phrases_block()}
 
@@ -933,14 +1059,14 @@ ABOUT THE SENDER:
 - Name: {sender_name}
 - University: {sender_university_short if sender_university_short else 'Not specified'}
 - Major: {user_info.get('major', 'Not specified')}
-- Year: {user_info.get('year', 'Not specified')}{resume_context}
+- Year: {user_info.get('year', 'Not specified')}{_sender_pro_lines}{resume_context}
 {fit_context_section}
 {loop_brief_section}
 {outreach_type_guidance}
 
 CONTACTS:
 {chr(10).join(enriched_contact_contexts)}"""
-            signature_block_prompt = _build_signature_block_for_prompt(signoff_config, user_info)
+            signature_block_prompt = _build_signature_block_for_prompt(signoff_config, user_info, professional_persona)
 
             # Build tone guidance driven by the dominant warmth tier
             dominant_tier = max(tier_counts, key=tier_counts.get) if any(tier_counts.values()) else "cold"
@@ -957,7 +1083,9 @@ CONTACTS:
                 _grad_year = 0
             _current_year = datetime.now().year
             sender_grad_year_int = _grad_year if _grad_year else None
-            if _grad_year > _current_year:
+            if is_professional_sender:
+                sender_status = 'professional'
+            elif _grad_year > _current_year:
                 sender_status = 'current_student'
             elif _grad_year == _current_year:
                 sender_status = 'recent_grad'
@@ -968,7 +1096,19 @@ CONTACTS:
             # "fellow alum" when the sender is still a student.
             _uni_label = sender_university_short or '[University]'
             _nick = sender_school_nickname or 'student'
-            if sender_status == 'current_student':
+            if sender_status == 'professional':
+                # Professionals who attended the school may use the alumni
+                # angle ("fellow alum", never "fellow student"); those without
+                # a school lead with the contact's work instead.
+                if professional_persona.get("university"):
+                    _warm_example = (
+                        f'"As a fellow {_uni_label} alum, I would love to..."'
+                    )
+                else:
+                    _warm_example = (
+                        '"Your work in [specific area] at [Company] caught my attention..."'
+                    )
+            elif sender_status == 'current_student':
                 _warm_example = (
                     f'"As a current {_uni_label} student, I came across..." '
                     f'OR "Hey from a fellow {_nick}..."'
@@ -1019,12 +1159,33 @@ DEFAULT TONE: Most contacts in this batch are {dominant_tier.upper()}. Lean towa
             )
 
             # ── About-the-sender block — surfaces personalization signals to the LLM ──
+            _professional_label = ''
+            if is_professional_sender:
+                _p_role = (professional_persona.get("current_role") or "").strip()
+                _p_company = (professional_persona.get("current_company") or "").strip()
+                _role_part = _p_role or 'working professional'
+                _professional_label = f'WORKING PROFESSIONAL ({_role_part}{f" at {_p_company}" if _p_company else ""})'
+                if professional_persona.get("university"):
+                    _professional_label += f' — {sender_university_short or professional_persona["university"]} alum'
             sender_status_label = {
+                'professional': _professional_label,
                 'current_student': f'CURRENT {sender_university_short or ""} STUDENT (graduating {sender_grad_year_int or "soon"})',
                 'recent_grad': f'RECENT {sender_university_short or ""} GRADUATE ({sender_grad_year_int or ""})',
                 'alum': f'{sender_university_short or ""} ALUM ({sender_grad_year_int or ""})',
                 'unknown': '(graduation year unknown)',
             }.get(sender_status, '')
+
+            # Professional-only rule line. Empty string for students, so the
+            # student block below stays byte-identical.
+            _professional_status_rule = ''
+            if is_professional_sender:
+                _alum_phrase = f'"a fellow {sender_university_short or professional_persona.get("university")} alum"' if professional_persona.get("university") else 'the alumni angle'
+                _professional_status_rule = (
+                    '\n- If status says WORKING PROFESSIONAL, the sender is NOT a student. '
+                    'Never call them a student, never write "as a [University] student", and never frame them as breaking into their first job. '
+                    'Introduce them by their current role. '
+                    f'If they share a school with the contact, phrase it as {_alum_phrase} — never "fellow student".'
+                )
 
             sender_status_block = f"""
 ===== ABOUT THE SENDER (use these facts; never invent) =====
@@ -1036,7 +1197,7 @@ DEFAULT TONE: Most contacts in this batch are {dominant_tier.upper()}. Lean towa
 {f'- Personal context (hobbies, interests, background): {sender_personal_context}' if sender_personal_context else ''}
 
 CRITICAL FACTS YOU MUST RESPECT:
-- If status says CURRENT STUDENT, the sender HAS NOT GRADUATED. Never say "fellow alum", "as an alum", "after I graduated", or imply work experience the sender doesn't have.
+- If status says CURRENT STUDENT, the sender HAS NOT GRADUATED. Never say "fellow alum", "as an alum", "after I graduated", or imply work experience the sender doesn't have.{_professional_status_rule}
 - Never invent shared schools, employers, or backgrounds. If a contact's data doesn't show a connection to the sender, write the email as a non-shared outreach.
 - Never invent the contact's prior schools or companies. Only reference what's explicitly in their data.
 
@@ -1057,16 +1218,28 @@ COMMON-GROUND DISCOVERY (warm-cold conversion):
                 elif any(w in interests_lower for w in ["tech", "software", "engineer", "product", "data", "google", "meta"]):
                     industry_vocabulary = "\nINDUSTRY TONE: Tech - be casual and specific. Reference technical projects, product launches, engineering challenges."
 
+            # Persona-conditional intro examples + empty-field rule. Student
+            # values are the pre-existing literals, byte-identical.
+            if is_professional_sender:
+                _intro_examples = '''   - "I'm [name], a [current role] at [company]."
+   - "I'm a [current role] at [company], exploring [career interest]."
+   - "[Name] here, [current role] at [company]."
+   - "I'm [name]. I work as a [current role] at [company]."'''
+                _empty_field_rule = '- If the sender\'s current role or company is missing, open with an "I came across your profile" style line instead. NEVER introduce the sender as a student'
+            else:
+                _intro_examples = '''   - "I'm [name], a [year] at [school] studying [major]."
+   - "I'm a [school] [major] student exploring [career]."
+   - "[Name] here, a [year] at [school] focused on [major]."
+   - "I'm [name]. I'm currently a [school] [major] student looking into [career]."'''
+                _empty_field_rule = '- If major is empty or "Not specified", write "I\'m a [University] student" without mentioning major'
+
             requirements_block = f"""{sender_status_block}{warmth_tone_guide}{industry_vocabulary}
 
 ===== EMAIL STRUCTURE =====
 
 1. Start with "Hi [FirstName],"
 2. Open naturally (see tone guide above, no forced pattern). The first sentence MUST be a complete standalone introduction with subject + verb. Do NOT use comma-spliced fragments like "Currently a USC student studying X, and I saw...". IMPORTANT: vary the positioning sentence across the batch. Examples of acceptable openers (each is a complete sentence):
-   - "I'm [name], a [year] at [school] studying [major]."
-   - "I'm a [school] [major] student exploring [career]."
-   - "[Name] here, a [year] at [school] focused on [major]."
-   - "I'm [name]. I'm currently a [school] [major] student looking into [career]."
+{_intro_examples}
    Each email in the batch must open differently.
 3. Show genuine interest in something specific about their work or background
 4. Ask ONE thoughtful, specific question
@@ -1088,7 +1261,7 @@ COMMON-GROUND DISCOVERY (warm-cold conversion):
 Do NOT use generic subjects like "Networking request" or "Hope to connect"."""}
 
 ===== RULES =====
-- If major is empty or "Not specified", write "I'm a [University] student" without mentioning major
+{_empty_field_rule}
 - Use proper grammar with apostrophes (I'm, I'd, you're, it's)
 - Never use em dashes (—) or en dashes (–); use a comma, a period, or rewrite the sentence instead
 - No parentheses around university names
@@ -1101,17 +1274,35 @@ Return ONLY valid JSON:
 {{"0": {{"subject": "...", "body": "..."}}, "1": {{"subject": "...", "body": "..."}}, ...}}"""
 
             prompt = build_template_prompt(context_block, template_instructions or "", requirements_block)
+            # Persona-conditional system prompt pieces. Student values are the
+            # pre-existing literals, byte-identical.
+            if is_professional_sender:
+                _system_persona_line = (
+                    "You write professional, natural networking emails for an experienced "
+                    "professional reaching out to peers in their industry. "
+                )
+                _system_status_rule = (
+                    "(a) Respect the sender's actual status. The sender is a WORKING PROFESSIONAL, "
+                    "not a student. Never introduce them as a student or imply they are in school; "
+                    "introduce them by their current role. If they share a university with the "
+                    "contact, phrase it as \"a fellow [School] alum\", never \"fellow student\". "
+                )
+            else:
+                _system_persona_line = "You write natural, personalized networking emails for college students. "
+                _system_status_rule = (
+                    "(a) Respect the sender's actual status. If the sender is a CURRENT STUDENT, never "
+                    "write \"fellow alum\" or imply they've graduated; use phrasing like \"current "
+                    "[School] student\" or the school nickname (Trojan, Bruin, Bear, etc.) instead. "
+                )
             system_content = (
-                "You write natural, personalized networking emails for college students. "
+                _system_persona_line +
                 "You adapt your tone based on the relationship warmth: conversational for shared "
                 "connections (school, hometown, employer), professional for industry matches, concise "
                 "for cold outreach. You never use forced opener patterns. Each email feels "
                 "individually written, not templated. You end every email with a sign-off and the "
                 "sender's name. Use proper apostrophes. Never use placeholders.\n\n"
                 "FACTUAL DISCIPLINE — non-negotiable: "
-                "(a) Respect the sender's actual status. If the sender is a CURRENT STUDENT, never "
-                "write \"fellow alum\" or imply they've graduated; use phrasing like \"current "
-                "[School] student\" or the school nickname (Trojan, Bruin, Bear, etc.) instead. "
+                + _system_status_rule +
                 "(b) Never invent the contact's schools, companies, or background. Only reference "
                 "facts present in the contact's data. "
                 "(c) Common ground (shared hometown, shared school, shared interest from the "
@@ -1259,7 +1450,12 @@ Return ONLY valid JSON:
                         company = contact.get('Company', '')
                         title = contact.get('Title', '')
                         if strategy.lead_type == "alumni":
-                            new_opener = f"As a fellow {sender_university_short} student, I'd love to connect."
+                            if is_professional_sender:
+                                # Professionals who attended the school use the
+                                # alumni angle, never "fellow student".
+                                new_opener = f"As a fellow {sender_university_short} alum, I'd love to connect."
+                            else:
+                                new_opener = f"As a fellow {sender_university_short} student, I'd love to connect."
                         elif strategy.lead_type == "shared_company":
                             new_opener = f"I noticed we share a {company} connection -- I'd love to hear about your experience."
                         elif strategy.lead_type == "dream_company":
@@ -1405,7 +1601,19 @@ Return ONLY valid JSON:
                 title = (contact.get('Title') or '').strip()
 
                 # Build introduction as a single sentence with commas
-                if major and university:
+                if is_professional_sender:
+                    # Professional persona: introduce by role, never as a student.
+                    _p_role = (professional_persona.get("current_role") or "").strip()
+                    _p_company = (professional_persona.get("current_company") or "").strip()
+                    _has_real_name = raw_name != 'a student'
+                    if _p_role:
+                        _role_part = f"a {_p_role} at {_p_company}" if _p_company else f"a {_p_role}"
+                        intro = f"I'm {first_name}, {_role_part}." if _has_real_name else f"I'm {_role_part}."
+                    elif _has_real_name:
+                        intro = f"I'm {first_name}, and I came across your profile."
+                    else:
+                        intro = "I came across your profile and wanted to reach out."
+                elif major and university:
                     intro = f"I'm {first_name}, studying {major} at {university}."
                 elif university:
                     intro = f"I'm {first_name}, a student at {university}."
@@ -1528,6 +1736,12 @@ Would you be open to a brief chat?
                     user_info['name'] = f"{first} {last}".strip()
             if not (user_info.get('name') or '').strip() and (auth_display_name or '').strip():
                 user_info['name'] = auth_display_name.strip()
+        # Re-derive the professional persona here: the exception may have been
+        # raised before the main path computed it. None for students.
+        try:
+            _fallback_persona = _derive_professional_persona(user_profile, user_info, pre_parsed_user_info)
+        except Exception:
+            _fallback_persona = None
         for i, contact in enumerate(contacts):
             raw_name = (user_info.get('name') or '').strip() or 'a student'
             name = _normalize_name(raw_name) if raw_name != 'a student' else raw_name
@@ -1541,7 +1755,19 @@ Would you be open to a brief chat?
             title = (contact.get('Title') or '').strip()
 
             # Build introduction as a single sentence with commas
-            if major and university:
+            if _fallback_persona:
+                # Professional persona: introduce by role, never as a student.
+                _p_role = (_fallback_persona.get("current_role") or "").strip()
+                _p_company = (_fallback_persona.get("current_company") or "").strip()
+                _has_real_name = raw_name != 'a student'
+                if _p_role:
+                    _role_part = f"a {_p_role} at {_p_company}" if _p_company else f"a {_p_role}"
+                    intro = f"I'm {first_name}, {_role_part}." if _has_real_name else f"I'm {_role_part}."
+                elif _has_real_name:
+                    intro = f"I'm {first_name}, and I came across your profile."
+                else:
+                    intro = "I came across your profile and wanted to reach out."
+            elif major and university:
                 intro = f"I'm {first_name}, studying {major} at {university}."
             elif university:
                 intro = f"I'm {first_name}, a student at {university}."

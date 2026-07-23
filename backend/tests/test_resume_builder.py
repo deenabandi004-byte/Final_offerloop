@@ -90,11 +90,31 @@ class TestGenerateCanonicalResume:
             result = svc.generate_canonical_resume("I go to USC, class of 2027...", None)
         assert result.contact.name == "Jane Trojan"
 
-    def test_raises_when_client_missing(self):
+    def test_raises_when_both_providers_missing(self):
         from app.services import resume_builder_service as svc
-        with patch.object(svc, "get_anthropic_client", return_value=None):
+        from app.services import openai_client as oai
+        with patch.object(svc, "get_anthropic_client", return_value=None), \
+             patch.object(oai, "get_openai_client", return_value=None), \
+             patch.object(svc, "research_role_context", return_value=""):
             with pytest.raises(svc.ResumeBuilderError):
                 svc.generate_canonical_resume("anything", None)
+
+    def test_missing_claude_falls_back_to_openai(self):
+        from app.services import resume_builder_service as svc
+        from app.services import openai_client as oai
+        import json as _json
+        call = MagicMock()
+        call.function.arguments = _json.dumps(_sample_resume().model_dump())
+        openai_response = MagicMock()
+        openai_response.choices = [MagicMock(message=MagicMock(tool_calls=[call]))]
+        openai_mock = MagicMock()
+        openai_mock.chat.completions.create.return_value = openai_response
+        with patch.object(svc, "get_anthropic_client", return_value=None), \
+             patch.object(oai, "get_openai_client", return_value=openai_mock), \
+             patch.object(svc, "research_role_context", return_value=""):
+            resume = svc.generate_canonical_resume("anything", None)
+        assert resume.contact.name == _sample_resume().contact.name
+        openai_mock.chat.completions.create.assert_called_once()
 
     def test_previous_resume_is_included_in_user_message(self):
         from app.services import resume_builder_service as svc
@@ -209,3 +229,29 @@ class TestResumeBuilderRoutes:
         _mock_db(monkeypatch, {"resumeBuilderGenerations": 0})
         res = client.post("/api/resume-builder/finalize", json={"resume": {"nope": 1}}, headers=AUTH)
         assert res.status_code == 400
+
+
+class TestDashSanitizer:
+    """Generated resume text must never carry em or en dashes; date fields
+    are exempt because serializers join ranges downstream."""
+
+    def test_em_dashes_replaced_in_bullets(self):
+        from app.services.resume_builder_service import _strip_dashes
+        out = _strip_dashes({"bullets": ["Led team — grew sales", "Analyzed data – weekly"]})
+        assert out["bullets"] == ["Led team, grew sales", "Analyzed data, weekly"]
+
+    def test_date_fields_exempt(self):
+        from app.services.resume_builder_service import _strip_dashes
+        out = _strip_dashes({
+            "start": "Jan 2024",
+            "end": "Present",
+            "dates": "Mar 2024 – May 2025",
+            "text": "a—b",
+        })
+        assert out["dates"] == "Mar 2024 – May 2025"
+        assert out["text"] == "a, b"
+
+    def test_nested_structures(self):
+        from app.services.resume_builder_service import _strip_dashes
+        out = _strip_dashes({"experience": [{"bullets": ["x — y"]}]})
+        assert out["experience"][0]["bullets"] == ["x, y"]

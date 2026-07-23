@@ -58,7 +58,7 @@ export const SearchSurface: React.FC = () => {
   useEffect(() => {
     if (!user?.uid) return;
     if (IS_DEV_PREVIEW) {
-      setUserUniversity((user as any)?.university || "USC");
+      setUserUniversity((user as any)?.university || "");
       setUserFirstName("Demo");
       return;
     }
@@ -246,6 +246,9 @@ const FindPage: React.FC = () => {
   const activeEmailTemplate = sessionEmailTemplate ?? savedEmailTemplate;
   const [userUniversity, setUserUniversity] = useState<string | null>(null);
   const [userFirstName, setUserFirstName] = useState<string | null>(null);
+  // Explicit "I don't have a school" opt-out: skips the school wall and renders
+  // Find without alumni personalization.
+  const [universityOptOut, setUniversityOptOut] = useState(false);
   const [schoolLoaded, setSchoolLoaded] = useState(false);
   const [forceRefresh, setForceRefresh] = useState(0);
 
@@ -272,7 +275,7 @@ const FindPage: React.FC = () => {
   useEffect(() => {
     if (!user?.uid) return;
     if (IS_DEV_PREVIEW) {
-      setUserUniversity((user as any)?.university || "USC");
+      setUserUniversity((user as any)?.university || "");
       setUserFirstName("Demo");
       setSchoolLoaded(true);
       return;
@@ -280,6 +283,7 @@ const FindPage: React.FC = () => {
     firebaseApi.getUserOnboardingData(user.uid).then((data) => {
       setUserUniversity(data.university || null);
       setUserFirstName(data.firstName || null);
+      setUniversityOptOut(data.universityOptOut === true);
       setSchoolLoaded(true);
     }).catch(() => setSchoolLoaded(true));
   }, [user?.uid, forceRefresh]);
@@ -360,8 +364,9 @@ const FindPage: React.FC = () => {
 
   const isCompaniesTab = activeTab === "companies";
 
-  // No-school empty state
-  if (schoolLoaded && !userUniversity && user?.uid) {
+  // No-school empty state. Users who explicitly opted out of having a school
+  // (universityOptOut) get the normal Find experience, minus alumni personalization.
+  if (schoolLoaded && !userUniversity && !universityOptOut && user?.uid) {
     return (
       <SidebarProvider>
         <div className="flex min-h-screen w-full font-sans" style={{ color: "var(--ink)" }}>

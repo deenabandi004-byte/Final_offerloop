@@ -26,7 +26,7 @@ from app.routes.linkedin_import import (
 )
 from app.services.reply_generation import batch_generate_emails
 from app.utils.warmth_scoring import score_contacts_for_email
-from app.utils.users import get_outreach_email
+from app.utils.users import get_outreach_email, merge_persona_fields
 from app.services.gmail_client import create_gmail_draft_for_user, download_resume_from_url
 
 contact_import_bp = Blueprint('contact_import', __name__, url_prefix='/api/contacts')
@@ -561,6 +561,8 @@ def import_contacts():
                     'major': user_data_after.get('major', ''),
                     'year': user_data_after.get('year', ''),
                 }
+                # Professional persona fields (userType, currentRole/currentCompany)
+                merge_persona_fields(user_profile, user_data_after)
                 career_interests = user_data_after.get('careerInterests') or []
                 if isinstance(career_interests, str):
                     career_interests = [career_interests] if career_interests else []

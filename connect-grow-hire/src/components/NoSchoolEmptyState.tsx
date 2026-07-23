@@ -24,6 +24,7 @@ export const NoSchoolEmptyState: React.FC<NoSchoolEmptyStateProps> = ({ uid, onS
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [skipping, setSkipping] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
   const filtered = query.length >= 2
@@ -43,6 +44,19 @@ export const NoSchoolEmptyState: React.FC<NoSchoolEmptyStateProps> = ({ uid, onS
       setSubmitting(false);
     }
   }, [selected, query, uid, onSchoolSet]);
+
+  // Explicit "no school" path: records the opt-out so Find renders normally
+  // (without alumni personalization) instead of walling on a university.
+  const handleSkip = useCallback(async () => {
+    if (!uid || skipping) return;
+    setSkipping(true);
+    try {
+      await updateDoc(doc(db, "users", uid), { universityOptOut: true });
+      onSchoolSet();
+    } catch {
+      setSkipping(false);
+    }
+  }, [uid, skipping, onSchoolSet]);
 
   const handlePillClick = (school: string) => {
     setSelected(school);
@@ -197,6 +211,34 @@ export const NoSchoolEmptyState: React.FC<NoSchoolEmptyStateProps> = ({ uid, onS
         {!submitting && <ArrowRight style={{ width: 14, height: 14 }} />}
       </button>
 
+      {/* Quiet opt-out for users without a school */}
+      <div style={{ marginTop: 14 }}>
+        <button
+          type="button"
+          onClick={handleSkip}
+          disabled={skipping}
+          style={{
+            padding: 0,
+            fontSize: 13,
+            background: "transparent",
+            border: "none",
+            color: "var(--ink-3)",
+            cursor: skipping ? "wait" : "pointer",
+            fontFamily: "inherit",
+            textDecoration: "underline",
+            textUnderlineOffset: 3,
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = "var(--ink-2)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = "var(--ink-3)";
+          }}
+        >
+          {skipping ? "Skipping..." : "I don't have a school, skip this"}
+        </button>
+      </div>
+
       {/* Popular pills */}
       <div style={{ marginTop: 28 }}>
         <span style={{
@@ -245,11 +287,7 @@ export const NoSchoolEmptyState: React.FC<NoSchoolEmptyStateProps> = ({ uid, onS
           ))}
           <button
             type="button"
-            onClick={() => {
-              // Route to non-student flow - for now, just set query
-              setQuery("Not a student");
-              setSelected("Not a student");
-            }}
+            onClick={handleSkip}
             style={{
               padding: "6px 12px",
               fontSize: 12,

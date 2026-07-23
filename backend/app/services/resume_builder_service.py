@@ -144,20 +144,65 @@ def canonical_to_text(resume: CanonicalResume) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Best-effort research: give the model real context about each employer so it
+# can write credible bullets from thin input ("I worked at Kiva" -> what Kiva
+# does, what that role typically involves). Failures return "" and generation
+# proceeds without context.
+# ---------------------------------------------------------------------------
+
+def research_role_context(description: str) -> str:
+    """One cheap Perplexity lookup over the user's whole description."""
+    try:
+        from app.services.perplexity_client import quick_search
+        query = (
+            "For each employer, organization, or program mentioned in this "
+            "career description, give 1-2 sentences on what the organization "
+            "does and what the stated role typically involves day to day. "
+            "Be factual and brief.\n\nDescription:\n" + description[:1500]
+        )
+        result = quick_search(query)
+        content = (result or {}).get("content", "")
+        return content[:2500] if content else ""
+    except Exception:
+        logger.warning("resume_builder: role research failed", exc_info=True)
+        return ""
+
+
+# ---------------------------------------------------------------------------
 # Prompt-path generation (Claude forced tool call, per resume_tailor.py)
 # ---------------------------------------------------------------------------
 
 _TOOL_NAME = "return_resume"
 
-_SYSTEM_PROMPT = """You build one-page resumes in the Harvard College resume format for college students.
+# The rubric below encodes Harvard's published resume guidance (Harvard
+# College OCS / Harvard Business School career development): accomplishment
+# bullets over duty lists, action-verb openers, quantification, one page,
+# no pronouns, consistent tense.
+_SYSTEM_PROMPT = """You build one-page resumes in the Harvard resume format. You follow the resume-writing guidance published by Harvard's career offices (Harvard College OCS and Harvard Business School career development), summarized in the rubric below.
 
-Rules — follow every one:
-1. NEVER invent employers, schools, job titles, dates, GPAs, or metrics the user did not state. If a field is unknown, leave it empty. Do not guess a graduation year.
-2. Rewrite what the user DID say into accomplishment bullets: strong action verb + what they did + result or scale when stated.
-3. Section order: education, experience, projects, leadership, skills. Include a section only if the user gave content for it.
-4. Keep it one page: at most 4 experience entries, 3 bullets each; at most 3 projects.
-5. Plain professional wording. No emoji, no em dashes, no first person.
-6. If a previous resume draft is provided, apply the user's new instructions to it — change only what the instructions require and preserve everything else exactly."""
+FACTUAL DISCIPLINE — the hard boundary:
+1. NEVER invent employers, schools, job titles, degrees, dates, GPAs, awards, or specific numbers the user did not state. If a field is unknown, leave it empty. Do not guess a graduation year.
+2. You MAY flesh out thin descriptions: when the user names a real role but gives little detail, write 2-3 credible bullets describing what that role typically involves, grounded in the ROLE CONTEXT research when provided. Keep such bullets qualitative. Example: "sales associate at Men's Wearhouse" can become bullets about advising customers on fit and style, meeting sales goals, and coordinating fittings, but never "increased sales 40%" unless the user said so.
+3. Quantify ONLY with numbers the user provided. Never fabricate metrics, team sizes, or dollar amounts.
+
+HARVARD BULLET RUBRIC — every bullet must pass all of these:
+4. Start with a strong action verb: led, built, analyzed, launched, negotiated, designed, coordinated, advised, streamlined, researched, presented, managed, organized, taught, drove. Vary the verbs; never start two consecutive bullets with the same verb.
+5. Accomplishment over duty: describe what was achieved or delivered, not job-description boilerplate. Banned phrases: "responsible for", "duties included", "helped with", "worked on", "assisted with", "tasked with".
+6. Shape: action verb + what + how or for whom + result or scale when the user gave one.
+7. No personal pronouns anywhere (no I, my, we, our). No periods needed at bullet ends, but be consistent.
+8. Past tense for past roles, present tense for current roles.
+9. Each bullet is one line of substance: specific enough to be believable, tight enough to scan. 8 to 18 words.
+
+STRUCTURE:
+10. Section order: education, experience, projects, leadership, skills. Include a section only if there is content for it.
+11. One page: at most 4 experience entries with 3 bullets each, at most 3 projects, at most 3 leadership entries.
+12. Education lists school, degree and major, graduation date, GPA only if given, honors only if given.
+13. Skills section groups concrete skills (software, languages, technical methods). Interests are one short line, only if the user gave them.
+
+STYLE:
+14. Plain professional wording. No emoji. NEVER use an em dash or en dash in any text; use a comma, colon, or period instead.
+15. No first person, no objective statement, no references line.
+16. If a previous resume draft is provided, apply the user's new instructions to it: change only what the instructions require and preserve everything else exactly."""
 
 
 def _tool_input_schema() -> dict:
@@ -166,10 +211,69 @@ def _tool_input_schema() -> dict:
     return schema
 
 
+_DASH_EXEMPT_KEYS = {"start", "end", "graduation", "date", "dates"}
+
+
+def _strip_dashes(value, key: str = ""):
+    """Recursively replace em/en dashes in generated text with plain
+    punctuation. Date fields are exempt (serializers join ranges with a dash
+    downstream; single date strings never need one)."""
+    if isinstance(value, str):
+        if key in _DASH_EXEMPT_KEYS:
+            return value
+        cleaned = value.replace(" — ", ", ").replace("—", ", ")
+        cleaned = cleaned.replace(" – ", ", ").replace("–", "-")
+        return cleaned
+    if isinstance(value, list):
+        return [_strip_dashes(v, key) for v in value]
+    if isinstance(value, dict):
+        return {k: _strip_dashes(v, k) for k, v in value.items()}
+    return value
+
+
+def _generate_via_openai(parts: list[str]) -> CanonicalResume:
+    """Fallback generator on the app's primary provider (OpenAI) for
+    environments without a CLAUDE_API_KEY. Same system prompt, same schema,
+    forced function call instead of a forced Claude tool call."""
+    from app.services.openai_client import get_openai_client
+
+    client = get_openai_client()
+    if client is None:
+        raise ResumeBuilderError("No AI provider configured (missing CLAUDE_API_KEY and OPENAI_API_KEY)")
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            max_tokens=4000,
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": "\n\n".join(parts)},
+            ],
+            tools=[{
+                "type": "function",
+                "function": {
+                    "name": _TOOL_NAME,
+                    "description": "Return the resume as a structured object. Leave unknown fields empty; never fabricate.",
+                    "parameters": _tool_input_schema(),
+                },
+            }],
+            tool_choice={"type": "function", "function": {"name": _TOOL_NAME}},
+        )
+        call = response.choices[0].message.tool_calls[0]
+        payload = json.loads(call.function.arguments)
+    except ResumeBuilderError:
+        raise
+    except Exception as exc:
+        logger.exception("resume_builder: OpenAI fallback failed")
+        raise ResumeBuilderError(f"Resume generation failed: {exc}") from exc
+    try:
+        return CanonicalResume.model_validate(_strip_dashes(payload))
+    except Exception as exc:
+        logger.exception("resume_builder: OpenAI fallback schema validation failed")
+        raise ResumeBuilderError(f"Generated resume failed validation: {exc}") from exc
+
+
 def generate_canonical_resume(prompt: str, previous: dict | None) -> CanonicalResume:
     client = get_anthropic_client()
-    if client is None:
-        raise ResumeBuilderError("Anthropic client is not configured (missing CLAUDE_API_KEY)")
 
     parts = []
     if previous:
@@ -177,10 +281,25 @@ def generate_canonical_resume(prompt: str, previous: dict | None) -> CanonicalRe
         parts.append("USER'S NEW INSTRUCTIONS:\n" + prompt.strip())
     else:
         parts.append("THE USER'S DESCRIPTION OF WHAT THEY'VE DONE:\n" + prompt.strip())
+        # Research pass only on first generation; refinements keep the draft's
+        # facts and don't need it.
+        context = research_role_context(prompt)
+        if context:
+            parts.append(
+                "ROLE CONTEXT (web research on the organizations mentioned; "
+                "use to write credible qualitative bullets, never to invent "
+                "employers or numbers):\n" + context
+            )
+
+    # No Anthropic key: generate on the app's primary provider instead of
+    # failing the whole builder (the exact failure mode behind local 502s).
+    if client is None:
+        logger.warning("resume_builder: CLAUDE_API_KEY missing, using OpenAI fallback")
+        return _generate_via_openai(parts)
 
     try:
         response = client.messages.create(
-            model="claude-opus-4-7",
+            model="claude-opus-4-8",
             max_tokens=8000,
             system=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": "\n\n".join(parts)}],
@@ -196,15 +315,16 @@ def generate_canonical_resume(prompt: str, previous: dict | None) -> CanonicalRe
             ],
             tool_choice={"type": "tool", "name": _TOOL_NAME},
         )
-    except Exception as exc:
-        logger.exception("resume_builder: Claude call failed")
-        raise ResumeBuilderError(f"Resume generation failed: {exc}") from exc
+    except Exception:
+        logger.exception("resume_builder: Claude call failed; trying OpenAI fallback")
+        return _generate_via_openai(parts)
 
     tool_use = next((b for b in response.content if getattr(b, "type", None) == "tool_use"), None)
     if tool_use is None:
         raise ResumeBuilderError("Model did not return a structured resume")
     try:
-        return CanonicalResume.model_validate(tool_use.input)
+        cleaned = _strip_dashes(tool_use.input)
+        return CanonicalResume.model_validate(cleaned)
     except Exception as exc:
         logger.exception("resume_builder: schema validation failed")
         raise ResumeBuilderError(f"Generated resume failed validation: {exc}") from exc

@@ -252,9 +252,12 @@ def evaluate(doc: dict, *, mode: str = "hot") -> tuple[bool, str | None]:
     if _SCAM_PATTERNS.search(title) or _SCAM_PATTERNS.search(desc):
         return False, "scam_pattern"
 
-    # 4. Senior title without an early-career override
-    if _SENIOR_TITLE.search(title) and not _EARLY_CAREER_OVERRIDE.search(title):
-        return False, "senior_title"
+    # 4. Senior titles are KEPT (2026-07-21 multi-audience change): the
+    # per-user seniority gate in job_board.apply_hard_gate_seniority now
+    # filters bidirectionally by career stage, so senior/executive roles
+    # must exist in the pool for experienced users. They land in relevance
+    # tier 3 via compute_relevance_tier, so student-default feed queries
+    # and enrichment spend are unaffected.
 
     # 5. Intern-tagged role that requires 3+ years experience
     if _is_intern_role(doc) and _YOE_INCONSISTENT.search(desc):

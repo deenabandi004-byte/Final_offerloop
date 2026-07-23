@@ -28,6 +28,12 @@ from app.services.ats_scorer import calculate_ats_score
 from app.services.recruiter_finder import find_recruiters, determine_job_type, find_hiring_manager
 from app.utils.users import get_outreach_email
 from app.services.resume_optimizer_v2 import optimize_resume_v2 as run_resume_optimization
+from app.services.career_stage import (
+    derive_career_stage,
+    classify_job_level,
+    job_level_allowed,
+    ALLOWED_JOB_LEVELS,
+)
 from app.services.resume_capabilities import get_capabilities
 from app.services.pdf_builder import generate_cover_letter_pdf
 from firebase_admin import firestore
@@ -718,7 +724,7 @@ def fetch_jobs_from_serpapi(
                 "url": apply_link,
                 "logo": job.get("thumbnail"),
                 "remote": is_remote,
-                "experienceLevel": "entry" if any(x in extensions_str for x in ["entry", "junior", "intern", "graduate"]) else "mid",
+                "experienceLevel": classify_job_level(job.get("title", ""), job.get("description", "")),
                 "via": job.get("via", ""),
             }
             
@@ -1076,15 +1082,30 @@ def get_user_career_profile(uid: str) -> dict:
         if not graduation_year:
             logger.warning(f"[Intent][WARN] Missing graduationYear for user {uid[:8]}..., will assume current year + 1")
         
-        # Convert experience list to expected format
+        # Convert experience list to expected format. Dates are kept so
+        # career-stage derivation can sum real years of experience.
         experiences = []
         for exp in profile.get('experience', [])[:10]:
             if isinstance(exp, dict):
                 experiences.append({
                     "title": exp.get("title", ""),
                     "company": exp.get("company", ""),
+                    "dates": exp.get("dates", ""),
                     "keywords": exp.get("keywords", [])
                 })
+
+        # Professional identity (multi-audience support): userType is set at
+        # onboarding ('student' | 'professional'); yearsExperience is an
+        # optional user-stated number that overrides resume-derived years.
+        user_type = user_data.get("userType") or professional_info.get("userType") or ""
+        years_experience_stated = professional_info.get("yearsExperience")
+        if years_experience_stated is not None:
+            try:
+                years_experience_stated = float(years_experience_stated)
+            except (ValueError, TypeError):
+                years_experience_stated = None
+        current_role = professional_info.get("currentRole") or ""
+        current_company = professional_info.get("currentCompany") or ""
         
         result = {
             "major": profile.get("major", ""),
@@ -1101,7 +1122,11 @@ def get_user_career_profile(uid: str) -> dict:
             "target_industries": target_industries,
             "job_types": job_types,
             "preferred_location": preferred_location,  # PHASE 1: Added (critical - was never read)
-            "resume_present": resume_present  # PHASE 1: Added
+            "resume_present": resume_present,  # PHASE 1: Added
+            "user_type": user_type,
+            "years_experience_stated": years_experience_stated,
+            "current_role": current_role,
+            "current_company": current_company,
         }
         
         # Cache the result
@@ -1333,24 +1358,18 @@ def normalize_intent(user_profile: dict) -> dict:
         else:
             months_until_graduation = 0
     
-    # Determine career phase
-    career_phase = "unknown"
-    if months_until_graduation is not None:
-        if months_until_graduation > 12:
-            career_phase = "internship"  # More than 1 year until graduation
-        elif months_until_graduation > 0:
-            career_phase = "new_grad"  # 0-12 months until graduation
-        else:
-            career_phase = "new_grad"  # Already graduated or graduating soon
-    elif graduation_year_int:
-        years_until_grad = graduation_year_int - current_year
-        if years_until_grad > 1:
-            career_phase = "internship"
-        else:
-            career_phase = "new_grad"
-    else:
-        # No graduation year, default to internship phase (conservative)
-        career_phase = "internship"
+    # Determine career phase from every available signal: dated resume
+    # experience, stated years of experience, graduation timing, and the
+    # onboarding userType. Students keep internship/new_grad; professionals
+    # land in early_career/mid_level/senior/executive. See career_stage.py.
+    stage_info = derive_career_stage(
+        graduation_year=graduation_year_int,
+        months_until_graduation=months_until_graduation,
+        experiences=user_profile.get("experiences", []),
+        user_type=user_profile.get("user_type"),
+        years_experience_override=user_profile.get("years_experience_stated"),
+    )
+    career_phase = stage_info["stage"]
     
     # === BUILD INTENT CONTRACT ===
     intent_contract = {
@@ -1362,6 +1381,9 @@ def normalize_intent(user_profile: dict) -> dict:
             "graduation_month": graduation_month,
             "months_until_graduation": months_until_graduation,
             "career_phase": career_phase,
+            "years_experience": stage_info.get("years_experience"),
+            "is_student": stage_info.get("is_student", True),
+            "stage_source": stage_info.get("source"),
         },
         "education_context": {
             "degree": degree,
@@ -3064,9 +3086,11 @@ def apply_hard_gate_seniority(job: dict, intent_contract: dict) -> Tuple[bool, s
     graduation_timing = intent_contract.get("graduation_timing", {})
     career_phase = graduation_timing.get("career_phase", "unknown")
     months_until_grad = graduation_timing.get("months_until_graduation")
-    
-    # If career phase unknown or graduation timing missing, be lenient (allow through)
-    if career_phase == "unknown" or months_until_grad is None:
+
+    # If career phase is unknown, be lenient (allow through). Professionals
+    # legitimately have no graduation timing, so months_until_grad being None
+    # is NOT a reason to skip the gate anymore.
+    if career_phase == "unknown" or career_phase not in ALLOWED_JOB_LEVELS:
         return True, "seniority_unknown"
     
     job_title = (job.get("title") or "").lower()
@@ -3313,28 +3337,44 @@ def apply_hard_gate_seniority(job: dict, intent_contract: dict) -> Tuple[bool, s
     # PHASE 4A: Log interpretation decision
     logger.info(f"[Seniority] domain={job_domain or 'unknown'} title=\"{job.get('title', '')[:50]}\" "
           f"→ interpreted_level={interpreted_level} job_seniority={job_seniority}")
-    
-    # Apply gates based on career phase
-    if career_phase == "internship":
-        # User is >12 months from graduation (sophomore/junior)
-        # REJECT: Senior, experienced roles
-        if job_seniority == "senior":
-            return False, f"seniority_too_high:career_phase={career_phase},job_seniority={job_seniority},domain={job_domain},months_until_grad={months_until_grad}"
-        if job_seniority == "experienced":
-            return False, f"seniority_too_high:career_phase={career_phase},job_seniority={job_seniority},domain={job_domain},months_until_grad={months_until_grad}"
-        # ALLOW: Entry-level and ambiguous roles
-        return True, f"seniority_acceptable:career_phase={career_phase},job_seniority={job_seniority},domain={job_domain}"
-    
-    elif career_phase == "new_grad":
-        # User is graduating within 12 months or already graduated
-        # REJECT: Senior roles only (experienced roles might be OK depending on requirements)
-        if job_seniority == "senior":
-            return False, f"seniority_too_high:career_phase={career_phase},job_seniority={job_seniority},domain={job_domain},months_until_grad={months_until_grad}"
-        # ALLOW: Entry-level, experienced (with lenient interpretation), ambiguous
-        return True, f"seniority_acceptable:career_phase={career_phase},job_seniority={job_seniority},domain={job_domain}"
-    
-    # Unknown career phase - be lenient
-    return True, "seniority_unknown_phase"
+
+    # Map the classification onto the canonical job levels used by
+    # career_stage.ALLOWED_JOB_LEVELS, then gate BIDIRECTIONALLY: a job can
+    # be rejected for being too senior (student seeing a VP role) or too
+    # junior (a 15-year professional seeing a summer internship).
+    intern_flavored = bool(has_student_override) or bool(
+        re.search(r"\b(intern(ship)?|co[-\s]?op|summer\s+analyst)\b", job_title)
+    )
+
+    if job_seniority == "entry":
+        job_level = "intern" if intern_flavored else "entry"
+    elif job_seniority == "experienced":
+        job_level = "mid"
+    elif job_seniority == "senior":
+        # Distinguish true executive roles (VP, MD, C-suite, Head of) from
+        # senior IC/lead roles so senior users still see staff/principal jobs
+        # while only executives see the VP tier.
+        job_level = classify_job_level(job.get("title") or "")
+        if job_level not in ("senior", "executive"):
+            job_level = "senior"
+    else:
+        job_level = "unknown"
+
+    if job_level_allowed(career_phase, job_level):
+        return True, f"seniority_acceptable:career_phase={career_phase},job_level={job_level},domain={job_domain}"
+
+    from app.services.career_stage import JOB_LEVELS as _JOB_LEVEL_ORDER
+    allowed_indices = [
+        _JOB_LEVEL_ORDER.index(a)
+        for a in ALLOWED_JOB_LEVELS.get(career_phase, set())
+        if a in _JOB_LEVEL_ORDER
+    ]
+    job_index = _JOB_LEVEL_ORDER.index(job_level) if job_level in _JOB_LEVEL_ORDER else None
+    if job_index is not None and allowed_indices and job_index < min(allowed_indices):
+        direction = "seniority_too_low"
+    else:
+        direction = "seniority_too_high"
+    return False, f"{direction}:career_phase={career_phase},job_level={job_level},domain={job_domain},months_until_grad={months_until_grad}"
 
 
 def apply_all_hard_gates(jobs: List[dict], intent_contract: dict, user_id: str = "") -> Tuple[List[dict], dict]:
@@ -8216,7 +8256,7 @@ def derive_employee_titles(job_title: str, company: str, job_description: str = 
             return []
 
         truncated_desc = (job_description or "")[:4000]
-        prompt = f"""A student wants to network with the right people on the team behind this job posting before applying. Identify the individual contributors and adjacent teammates they should reach out to for a coffee chat.
+        prompt = f"""A candidate wants to network with the right people on the team behind this job posting before applying. Identify the individual contributors and adjacent teammates they should reach out to for a coffee chat.
 
 Company: {company}
 Posting title: {job_title}
@@ -8235,7 +8275,7 @@ Return ONLY a valid JSON object, no markdown, no code blocks, in this exact form
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You map a job posting to the individual-contributor teammates a student should network with. Return only valid JSON with no explanation or markdown."},
+                {"role": "system", "content": "You map a job posting to the individual-contributor teammates a candidate should network with. Return only valid JSON with no explanation or markdown."},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=200,

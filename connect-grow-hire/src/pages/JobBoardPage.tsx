@@ -83,6 +83,16 @@ function whyOneLine(j: FeedJob): string {
   return j.ranked === false ? "Recently posted" : "Matched to your profile";
 }
 
+// Level filter: dropdown label → normalized experienceLevel value.
+const LEVEL_FILTER_OPTIONS = ["All levels", "Internship", "Entry level", "Mid level", "Senior", "Executive"];
+const LEVEL_FILTER_MAP: Record<string, string> = {
+  "Internship": "intern",
+  "Entry level": "entry",
+  "Mid level": "mid",
+  "Senior": "senior",
+  "Executive": "executive",
+};
+
 // ─── small components ───────────────────────────────────────────────────────
 function FilterDropdown({
   label,
@@ -432,6 +442,7 @@ export const JobBoardPage: React.FC = () => {
   const [openId, setOpenId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [jobType, setJobType] = useState("All");
+  const [level, setLevel] = useState("All levels");
   const [field, setField] = useState("All");
   const [sort, setSort] = useState("Best match");
   const [findHumansJob, setFindHumansJob] = useState<FindHumansJob | null>(null);
@@ -516,6 +527,14 @@ export const JobBoardPage: React.FC = () => {
     if (jobType !== "All") {
       list = list.filter(j => jobTypeLabel(j.type) === jobType);
     }
+    if (level !== "All levels") {
+      const wanted = LEVEL_FILTER_MAP[level];
+      // Unclassified jobs ("unknown" or missing) always pass the level filter.
+      list = list.filter(j => {
+        const lv = j.experienceLevel || "unknown";
+        return lv === "unknown" || lv === wanted;
+      });
+    }
     if (field !== "All") {
       list = list.filter(j => (j.category || "").toLowerCase().includes(field.toLowerCase()));
     }
@@ -535,7 +554,7 @@ export const JobBoardPage: React.FC = () => {
       list = [...list].sort((a, b) => (b.match_score ?? 0) - (a.match_score ?? 0));
     }
     return list;
-  }, [allJobs, jobType, field, search, sort]);
+  }, [allJobs, jobType, level, field, search, sort]);
 
   const standouts = useMemo(() => filteredJobs.slice(0, 2), [filteredJobs]);
   const restJobs  = useMemo(() => filteredJobs.slice(2), [filteredJobs]);
@@ -710,7 +729,7 @@ export const JobBoardPage: React.FC = () => {
                   <div className="nudge">
                     <div className="body">
                       <div className="ttl">Upload your resume to get <em>AI-ranked</em> matches</div>
-                      <div className="sub">We'll line jobs up against your skills, major, and experience.</div>
+                      <div className="sub">We'll line jobs up against your skills, background, and experience.</div>
                     </div>
                     <button className="cta" type="button" onClick={() => navigate("/account-settings")}>
                       Upload resume
@@ -731,6 +750,12 @@ export const JobBoardPage: React.FC = () => {
                     value={jobType}
                     options={["All", "Full-Time", "Internship", "Part-Time", "Contract"]}
                     onPick={setJobType}
+                  />
+                  <FilterDropdown
+                    label="Level"
+                    value={level}
+                    options={LEVEL_FILTER_OPTIONS}
+                    onPick={setLevel}
                   />
                   <FilterDropdown
                     label="Field"
@@ -783,7 +808,7 @@ export const JobBoardPage: React.FC = () => {
                       const gatesAteEverything =
                         feed?.gated?.applied && (feed.gated.dropped ?? 0) > 0;
                       const localFiltersApplied =
-                        search.trim() !== "" || jobType !== "All" || field !== "All";
+                        search.trim() !== "" || jobType !== "All" || level !== "All levels" || field !== "All";
                       const reasons: string[] = [];
                       if (gatesAteEverything) {
                         if ((feed?.gated?.by_location ?? 0) > 0)
@@ -791,7 +816,7 @@ export const JobBoardPage: React.FC = () => {
                         if ((feed?.gated?.by_interest ?? 0) > 0)
                           reasons.push(`${feed!.gated!.by_interest} off-topic`);
                         if ((feed?.gated?.by_level ?? 0) > 0)
-                          reasons.push(`${feed!.gated!.by_level} too senior`);
+                          reasons.push(`${feed!.gated!.by_level} outside your level`);
                       }
 
                       return (
@@ -863,7 +888,7 @@ export const JobBoardPage: React.FC = () => {
                                 No roles match those filters.
                               </div>
                               <div style={{ fontSize: 13, color: "#475569" }}>
-                                Try clearing the search box or switching Type / Field back to All.
+                                Try clearing the search box or switching Type / Level / Field back to All.
                               </div>
                             </>
                           ) : feed?.no_resume ? (
@@ -918,7 +943,7 @@ export const JobBoardPage: React.FC = () => {
                       >
                         <span>
                           Filtered <strong>{feed.gated.dropped}</strong> jobs that didn't match your preferences
-                          {feed.gated.by_level > 0 && ` · ${feed.gated.by_level} too senior`}
+                          {feed.gated.by_level > 0 && ` · ${feed.gated.by_level} outside your level`}
                           {feed.gated.by_location > 0 && ` · ${feed.gated.by_location} wrong location`}
                           {feed.gated.by_interest > 0 && ` · ${feed.gated.by_interest} off-topic`}
                         </span>

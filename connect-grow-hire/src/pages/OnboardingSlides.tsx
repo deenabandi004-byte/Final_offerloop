@@ -260,31 +260,54 @@ export const OnboardingSlides = ({ onDone, onViewSlide }: OnboardingSlidesProps)
             </span>
           ))}
 
-        <h1
+        <div
           style={{
-            fontFamily: OB.fontDisplay,
-            fontWeight: 600,
-            fontSize: "clamp(32px, 5vw, 52px)",
-            letterSpacing: "-0.02em",
-            margin: "0 0 18px",
-            maxWidth: 640,
-            color: "#000",
+            position: "relative",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
           }}
         >
-          {slide.headline}
-        </h1>
-        <p
-          style={{
-            fontSize: "clamp(17px, 2.1vw, 21px)",
-            lineHeight: 1.6,
-            fontWeight: 600,
-            color: "#000",
-            maxWidth: 480,
-            margin: 0,
-          }}
-        >
-          {slide.body}
-        </p>
+          {/* Soft white plate behind the copy: a rounded rect blurred so its
+              corners and edges feather out into the background video. */}
+          <div
+            aria-hidden
+            style={{
+              position: "absolute",
+              inset: "-40px -64px",
+              background: "rgba(255,255,255,.72)",
+              borderRadius: 56,
+              filter: "blur(24px)",
+              zIndex: -1,
+              pointerEvents: "none",
+            }}
+          />
+          <h1
+            style={{
+              fontFamily: OB.fontDisplay,
+              fontWeight: 600,
+              fontSize: "clamp(32px, 5vw, 52px)",
+              letterSpacing: "-0.02em",
+              margin: "0 0 18px",
+              maxWidth: 640,
+              color: "#000",
+            }}
+          >
+            {slide.headline}
+          </h1>
+          <p
+            style={{
+              fontSize: "clamp(17px, 2.1vw, 21px)",
+              lineHeight: 1.6,
+              fontWeight: 600,
+              color: "#000",
+              maxWidth: 480,
+              margin: 0,
+            }}
+          >
+            {slide.body}
+          </p>
+        </div>
 
         <button
           type="button"

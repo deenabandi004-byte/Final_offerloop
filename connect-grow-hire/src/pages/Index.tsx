@@ -78,12 +78,12 @@ const CountUpStat = ({
           fontWeight: 700,
           lineHeight: 1,
           letterSpacing: '-0.02em',
-          color: '#2563EB',
+          color: '#3B82F6',
           margin: '0 0 10px',
         }}
       >
         {format(value)}
-        <span style={{ color: '#60A5FA' }}>{suffix}</span>
+        <span style={{ color: '#3B82F6' }}>{suffix}</span>
       </div>
       <div
         style={{

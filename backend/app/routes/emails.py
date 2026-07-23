@@ -22,7 +22,7 @@ from app.services.resume_parser import extract_text_from_pdf_bytes
 from app.utils.url_validator import validate_fetch_url, UnsafeURLError
 from app.utils.seniority import classify_seniority
 from app.utils.warmth_scoring import score_contacts_for_email
-from app.utils.users import get_outreach_email
+from app.utils.users import get_outreach_email, merge_persona_fields
 from ..extensions import get_db
 from email_templates import get_template_instructions
 from app.services.eml_builder import build_eml, eml_filename
@@ -270,6 +270,10 @@ def generate_and_draft():
     _outreach_email = get_outreach_email(user_data)
     if _outreach_email:
         user_profile = {**(user_profile or {}), "email": _outreach_email}
+    # Professional persona: userType + currentRole/currentCompany ride along
+    # from the same user-doc fetch so batch_generate_emails can drop the
+    # student framing for working professionals.
+    user_profile = merge_persona_fields(dict(user_profile or {}), user_data)
     request_template = payload.get("emailTemplate") or {}
     stored_template = user_data.get("emailTemplate") or {}
     # Use request template if it has any meaningful values, otherwise use stored

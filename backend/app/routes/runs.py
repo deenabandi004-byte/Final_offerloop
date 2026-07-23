@@ -28,7 +28,7 @@ from app.services.email_request_builder import (
     resolve_email_template as _resolve_email_template,
     build_email_gen_request,
 )
-from app.utils.users import get_outreach_email
+from app.utils.users import get_outreach_email, merge_persona_fields
 
 
 def _contact_already_exists(contact, existing_emails_set, existing_name_company_set, existing_linkedins_set=None):
@@ -491,6 +491,9 @@ def prompt_search():
                         "dreamCompanies", "hometown", "location", "pastCompanies"):
                 if key in user_data and key not in user_profile:
                     user_profile[key] = user_data[key]
+            # Professional persona: userType + currentRole/currentCompany ride
+            # along so batch_generate_emails can drop the student framing.
+            merge_persona_fields(user_profile, user_data)
         # Prefer the user's .edu as the outreach identity. Sets the email used in
         # the LLM body signature (batch_generate_emails) and the draft/send MIME
         # signature (user_info below). Falls back to the primary email.

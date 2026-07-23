@@ -335,7 +335,7 @@ def log_onboarding_event():
             "profile", "source", "manual", "intent", "track", "trial",
             "confirm", "direction",  # transitional names
             "welcome", "academics", "goals", "location",  # legacy
-            "slides", "resume_builder", "inbox",  # resume-first flow + inbox-connect step
+            "slides", "resume_builder", "builder", "inbox",  # resume-first flow + inbox-connect step
         }
 
         if event not in valid_events:

@@ -222,6 +222,7 @@ export const firebaseApi = {
   async getUserOnboardingData(uid: string): Promise<{
     firstName: string;
     university: string;
+    universityOptOut: boolean;
     graduationYear: string;
     targetIndustries: string[];
     preferredLocations: string[];
@@ -267,6 +268,9 @@ export const firebaseApi = {
         (d.college as string) ||
         resumeUniversity ||
         '',
+      // Explicit "I don't have a school" opt-out. Lets Find render without the
+      // school wall for users with no university on file.
+      universityOptOut: d.universityOptOut === true,
       graduationYear: (pi.graduationYear as string) || (academics.graduationYear as string) || (d.graduationYear as string) || '',
       // Profile-page Direction extractor saves chips at the top level (`targetIndustries`, `targetFirms`, `extractedRoles`, `preferredLocations`).
       // Read those first, then fall through to legacy onboarding fields.
