@@ -18,7 +18,6 @@ import {
   Inbox,
   Briefcase,
   Upload,
-  BookOpen,
   Bell,
   User,
   Gift,
@@ -31,7 +30,6 @@ import {
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from "../contexts/FirebaseAuthContext";
 import { trackNavClick, trackUpgradeClick } from "../lib/analytics";
-import { useTour } from "@/contexts/TourContext";
 import { useNotifications } from "@/hooks/useNotifications";
 import { useApplicationsAttention } from "@/hooks/useApplicationsAttention";
 import { CreditsPanel } from "./sidebar/CreditsPanel";
@@ -153,7 +151,6 @@ export function AppSidebar() {
   const creditsView = useCreditsView();
   const isCollapsed = state === "collapsed";
 
-  const { startTour } = useTour();
   const { notifications } = useNotifications();
   const unreadCount = notifications.unreadReplyCount;
 
@@ -446,35 +443,6 @@ export function AppSidebar() {
                   zIndex: 50,
                 }}
               >
-                <button
-                  onClick={() => {
-                    setUserDropdownOpen(false);
-                    startTour();
-                  }}
-                  className="flex items-center gap-3 transition-colors w-full"
-                  style={{
-                    padding: "8px 10px",
-                    borderRadius: 6,
-                    fontFamily: T.fontBody,
-                    fontSize: 13,
-                    color: T.idleText,
-                    background: "transparent",
-                    border: "none",
-                    cursor: "pointer",
-                    textAlign: "left",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = T.hoverBg;
-                    e.currentTarget.style.color = T.hoverText;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "transparent";
-                    e.currentTarget.style.color = T.idleText;
-                  }}
-                >
-                  <BookOpen className="h-4 w-4" />
-                  <span>Take the tour</span>
-                </button>
                 <NavLink
                   to="/tracker"
                   onClick={() => {
