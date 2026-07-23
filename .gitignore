@@ -53,6 +53,9 @@ pip-wheel-metadata/
 # direct-ATS crawler in backend/pipeline/; must be tracked in-repo so GH
 # Actions runners can read them without cloning jobhive itself.
 !backend/pipeline/data/ats_companies/*.csv
+# Exception: contact-import test fixtures. test_contact_import.py reads these;
+# they were silently dropped by the *.csv rule and the suite broke.
+!backend/tests/test_csvs/*.csv
 
 # --- Coverage / reports ---
 coverage/
