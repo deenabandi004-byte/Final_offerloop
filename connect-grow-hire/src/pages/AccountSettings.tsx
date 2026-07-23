@@ -2,7 +2,7 @@ import { ArrowLeft, Upload, Trash2, LogOut, CreditCard, FileText, User, Graduati
 import { ApplicationProfileModal } from "@/components/jobs/ApplicationProfileModal";
 import EmailPreferencesPanel from "@/components/settings/EmailPreferencesPanel";
 import { useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -101,14 +101,15 @@ const locations = [
 // Section navigation items
 const sections = [
   { id: 'personal', label: 'Personal Information', icon: User },
-  { id: 'academic', label: 'Academic Information', icon: GraduationCap },
+  { id: 'work_background', label: 'Professional Background', icon: Briefcase },
+  { id: 'academic', label: 'Education', icon: GraduationCap },
   { id: 'professional', label: 'Professional Profile', icon: Briefcase },
   { id: 'career', label: 'Career Interests', icon: Rocket },
   { id: 'goals', label: 'Career Goals', icon: Target },
   { id: 'referrals', label: 'Refer & Earn', icon: Gift },
   { id: 'email_prefs', label: 'Email Preferences', icon: Send },
   { id: 'app_profile', label: 'Application Profile', icon: Send },
-  { id: 'gmail', label: 'Gmail Integration', icon: Mail },
+  { id: 'gmail', label: 'Integrations', icon: Mail },
   { id: 'account', label: 'Account Management', icon: Settings },
   { id: 'danger', label: 'Danger Zone', icon: AlertTriangle },
 ];
@@ -239,6 +240,15 @@ export default function AccountSettings() {
     graduationYear: "",
     fieldOfStudy: "",
     currentDegree: "",
+  });
+
+  // Identity: "student" | "professional". Absent on older accounts, treated as student.
+  const [userType, setUserType] = useState<'student' | 'professional'>('student');
+
+  const [professionalBackground, setProfessionalBackground] = useState({
+    currentRole: "",
+    currentCompany: "",
+    yearsExperience: "",
   });
 
   const [careerInfo, setCareerInfo] = useState({
@@ -633,6 +643,21 @@ export default function AccountSettings() {
         university: personalInfo.university,
       };
 
+      updates.userType = userType;
+
+      if (userType === 'professional') {
+        const existingProfessionalInfo = existingData?.professionalInfo || {};
+        const parsedYears = professionalBackground.yearsExperience.trim() === ''
+          ? null
+          : Number(professionalBackground.yearsExperience);
+        updates.professionalInfo = {
+          ...existingProfessionalInfo,
+          currentRole: professionalBackground.currentRole,
+          currentCompany: professionalBackground.currentCompany,
+          ...(parsedYears !== null && !Number.isNaN(parsedYears) ? { yearsExperience: parsedYears } : {}),
+        };
+      }
+
       Object.keys(updates).forEach(key => {
         if (updates[key] === undefined) {
           delete updates[key];
@@ -700,6 +725,14 @@ export default function AccountSettings() {
               graduationYear: data.graduationYear || data.academics?.graduationYear || "",
               fieldOfStudy: data.fieldOfStudy || data.major || data.academics?.major || "",
               currentDegree: data.currentDegree || data.degree || data.academics?.degree || "",
+            });
+
+            setUserType(data.userType === 'professional' ? 'professional' : 'student');
+
+            setProfessionalBackground({
+              currentRole: data.professionalInfo?.currentRole || "",
+              currentCompany: data.professionalInfo?.currentCompany || "",
+              yearsExperience: data.professionalInfo?.yearsExperience != null ? String(data.professionalInfo.yearsExperience) : "",
             });
 
             setCareerInfo({
@@ -908,6 +941,18 @@ export default function AccountSettings() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  // Clear the onboarding "skipped inbox connect" flag once the user visits the Integrations section
+  const clearedInboxSkipRef = useRef(false);
+  useEffect(() => {
+    if (activeSection === 'gmail' && user?.inboxConnectSkipped && !clearedInboxSkipRef.current) {
+      clearedInboxSkipRef.current = true;
+      updateUser({ inboxConnectSkipped: false }).catch(() => {
+        // Best-effort; badge clears on next successful visit
+        clearedInboxSkipRef.current = false;
+      });
+    }
+  }, [activeSection, user?.inboxConnectSkipped, updateUser]);
+
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full text-foreground">
@@ -985,11 +1030,19 @@ export default function AccountSettings() {
 
                 {/* Profile Completeness */}
                 {(() => {
+                  const personaFields = userType === 'professional'
+                    ? [
+                        { label: 'Current Role', filled: !!professionalBackground.currentRole, section: 'work_background' },
+                        { label: 'Years of Experience', filled: professionalBackground.yearsExperience.trim() !== '', section: 'work_background' },
+                      ]
+                    : [
+                        { label: 'University', filled: !!personalInfo.university, section: 'personal' },
+                        { label: 'Major', filled: !!academicInfo.fieldOfStudy, section: 'academic' },
+                        { label: 'Graduation', filled: !!academicInfo.graduationYear, section: 'academic' },
+                      ];
                   const fields = [
                     { label: 'Name', filled: !!(personalInfo.firstName || personalInfo.lastName), section: 'personal' },
-                    { label: 'University', filled: !!personalInfo.university, section: 'personal' },
-                    { label: 'Major', filled: !!academicInfo.fieldOfStudy, section: 'academic' },
-                    { label: 'Graduation', filled: !!academicInfo.graduationYear, section: 'academic' },
+                    ...personaFields,
                     { label: 'Resume', filled: !!resumeData, section: 'professional' },
                     { label: 'Industries', filled: careerInfo.industriesOfInterest.length > 0, section: 'career' },
                     { label: 'Career Track', filled: !!goalsInfo.careerTrack, section: 'goals' },
@@ -1055,7 +1108,7 @@ export default function AccountSettings() {
                 {/* Sidebar Navigation - Desktop Only */}
                 <div className="hidden lg:block lg:col-span-1">
                   <nav className="sticky top-6 space-y-1 animate-fadeInUp" style={{ animationDelay: '100ms' }}>
-                    {sections.map((section) => (
+                    {sections.filter((section) => section.id !== 'work_background' || userType === 'professional').map((section) => (
                       <a
                         key={section.id}
                         href={`#${section.id}`}
@@ -1093,6 +1146,9 @@ export default function AccountSettings() {
                       >
                         <section.icon className="w-5 h-5" />
                         {section.label}
+                        {section.id === 'gmail' && user?.inboxConnectSkipped && !gmailConnected && (
+                          <span style={{ width: 8, height: 8, borderRadius: 999, background: '#2563EB', display: 'inline-block', marginLeft: 6, flexShrink: 0 }} />
+                        )}
                       </a>
                     ))}
                   </nav>
@@ -1109,6 +1165,45 @@ export default function AccountSettings() {
                     description="Your basic contact details"
                   >
                     <div className="space-y-6">
+                      {/* Identity Selector */}
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontFamily: "'DM Sans', system-ui, sans-serif",
+                            fontSize: '14px',
+                            fontWeight: 600,
+                            color: '#0F172A',
+                            marginBottom: '6px',
+                          }}
+                        >
+                          I am a
+                        </label>
+                        <Select
+                          value={userType}
+                          onValueChange={(value) => setUserType(value as 'student' | 'professional')}
+                        >
+                          <SelectTrigger
+                            className="w-full"
+                            style={{
+                              padding: '12px 16px',
+                              borderRadius: '3px',
+                              border: '1px solid rgba(59, 130, 246, 0.12)',
+                              background: '#FAFBFF',
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '15px',
+                              color: '#0F172A',
+                            }}
+                          >
+                            <SelectValue placeholder="Select one" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="student">Current student</SelectItem>
+                            <SelectItem value="professional">Working professional</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
                       {/* Name Fields */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
@@ -1329,11 +1424,147 @@ export default function AccountSettings() {
                     </div>
                   </SettingsSection>
 
-                  {/* Academic Information Section */}
+                  {/* Professional Background Section (working professionals only) */}
+                  {userType === 'professional' && (
+                    <SettingsSection
+                      id="work_background"
+                      icon={Briefcase}
+                      title="Professional Background"
+                      description="Your current role and experience"
+                    >
+                      <div className="space-y-6">
+                        {/* Current Role */}
+                        <div>
+                          <label
+                            style={{
+                              display: 'block',
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '14px',
+                              fontWeight: 600,
+                              color: '#0F172A',
+                              marginBottom: '6px',
+                            }}
+                          >
+                            Current Role
+                          </label>
+                          <input
+                            type="text"
+                            value={professionalBackground.currentRole}
+                            onChange={(e) => setProfessionalBackground({ ...professionalBackground, currentRole: e.target.value })}
+                            placeholder="e.g. Investment Banking Analyst"
+                            className="w-full transition-all"
+                            style={{
+                              padding: '12px 16px',
+                              borderRadius: '3px',
+                              border: '1px solid rgba(59, 130, 246, 0.12)',
+                              background: '#FAFBFF',
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '15px',
+                              color: '#0F172A',
+                              outline: 'none',
+                            }}
+                            onFocus={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+                              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.08)';
+                            }}
+                            onBlur={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.12)';
+                              e.currentTarget.style.boxShadow = 'none';
+                            }}
+                          />
+                        </div>
+
+                        {/* Company */}
+                        <div>
+                          <label
+                            style={{
+                              display: 'block',
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '14px',
+                              fontWeight: 600,
+                              color: '#0F172A',
+                              marginBottom: '6px',
+                            }}
+                          >
+                            Company
+                          </label>
+                          <input
+                            type="text"
+                            value={professionalBackground.currentCompany}
+                            onChange={(e) => setProfessionalBackground({ ...professionalBackground, currentCompany: e.target.value })}
+                            placeholder="e.g. Goldman Sachs"
+                            className="w-full transition-all"
+                            style={{
+                              padding: '12px 16px',
+                              borderRadius: '3px',
+                              border: '1px solid rgba(59, 130, 246, 0.12)',
+                              background: '#FAFBFF',
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '15px',
+                              color: '#0F172A',
+                              outline: 'none',
+                            }}
+                            onFocus={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+                              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.08)';
+                            }}
+                            onBlur={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.12)';
+                              e.currentTarget.style.boxShadow = 'none';
+                            }}
+                          />
+                        </div>
+
+                        {/* Years of Experience */}
+                        <div>
+                          <label
+                            style={{
+                              display: 'block',
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '14px',
+                              fontWeight: 600,
+                              color: '#0F172A',
+                              marginBottom: '6px',
+                            }}
+                          >
+                            Years of Experience
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={professionalBackground.yearsExperience}
+                            onChange={(e) => setProfessionalBackground({ ...professionalBackground, yearsExperience: e.target.value })}
+                            placeholder="e.g. 3"
+                            className="w-full transition-all"
+                            style={{
+                              padding: '12px 16px',
+                              borderRadius: '3px',
+                              border: '1px solid rgba(59, 130, 246, 0.12)',
+                              background: '#FAFBFF',
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '15px',
+                              color: '#0F172A',
+                              outline: 'none',
+                            }}
+                            onFocus={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+                              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.08)';
+                            }}
+                            onBlur={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.12)';
+                              e.currentTarget.style.boxShadow = 'none';
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </SettingsSection>
+                  )}
+
+                  {/* Education Section */}
                   <SettingsSection
                     id="academic"
                     icon={GraduationCap}
-                    title="Academic Information"
+                    title={userType === 'professional' ? 'Education (optional)' : 'Education'}
                     description="Your education details"
                   >
                     <div className="space-y-6">
@@ -2442,13 +2673,14 @@ export default function AccountSettings() {
                     <EmailPreferencesPanel />
                   </SettingsSection>
 
-                  {/* Gmail Integration Section */}
+                  {/* Integrations Section */}
                   <SettingsSection
                     id="gmail"
                     icon={Mail}
-                    title="Gmail Integration"
-                    description="Connect your Gmail to create email drafts directly from Offerloop"
+                    title="Integrations"
+                    description="Connect your inbox so Offerloop can write drafts directly into it"
                   >
+                    <div className="space-y-4">
                     <div
                       className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
                       style={{
@@ -2481,7 +2713,7 @@ export default function AccountSettings() {
                               fontSize: '15px',
                             }}
                           >
-                            {gmailLoading ? 'Checking...' : gmailConnected ? 'Connected' : 'Not connected'}
+                            Gmail
                           </h4>
                           <p
                             style={{
@@ -2492,10 +2724,12 @@ export default function AccountSettings() {
                             }}
                           >
                             {gmailLoading
-                              ? 'Loading Gmail status...'
-                              : gmailConnected && gmailEmail
-                                ? `Connected as ${gmailEmail}`
-                                : 'Connect your Gmail to create email drafts directly from Contact Search and other features.'}
+                              ? 'Checking Gmail status...'
+                              : gmailConnected
+                                ? gmailEmail
+                                  ? `Connected as ${gmailEmail}`
+                                  : 'Connected'
+                                : 'Not connected. Your drafts arrive as downloadable files. Connect Gmail to have them written directly into your inbox.'}
                           </p>
                         </div>
                       </div>
@@ -2554,6 +2788,56 @@ export default function AccountSettings() {
                           </>
                         )}
                       </div>
+                    </div>
+
+                    {/* Outlook teaser (static, no actions) */}
+                    <div
+                      className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
+                      style={{
+                        padding: '20px',
+                        borderRadius: '12px',
+                        background: '#FAFBFF',
+                        border: '1px solid rgba(59, 130, 246, 0.06)',
+                      }}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div
+                          style={{
+                            width: 48,
+                            height: 48,
+                            borderRadius: '12px',
+                            background: 'rgba(59, 130, 246, 0.08)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Mail className="w-6 h-6" style={{ color: '#94A3B8' }} />
+                        </div>
+                        <div>
+                          <h4
+                            style={{
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontWeight: 600,
+                              color: '#0F172A',
+                              fontSize: '15px',
+                            }}
+                          >
+                            Outlook
+                          </h4>
+                          <p
+                            style={{
+                              fontFamily: "'DM Sans', system-ui, sans-serif",
+                              fontSize: '14px',
+                              color: '#6B7280',
+                              marginTop: '2px',
+                            }}
+                          >
+                            Coming soon. Until then, drafts arrive as downloadable files that open in any mail app.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                     </div>
                   </SettingsSection>
 

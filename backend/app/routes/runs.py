@@ -28,7 +28,7 @@ from app.services.email_request_builder import (
     resolve_email_template as _resolve_email_template,
     build_email_gen_request,
 )
-from app.utils.users import get_outreach_email
+from app.utils.users import get_outreach_email, merge_persona_fields
 
 
 def _contact_already_exists(contact, existing_emails_set, existing_name_company_set, existing_linkedins_set=None):
@@ -169,6 +169,10 @@ def prompt_search():
                 user_doc = user_ref.get()
                 if user_doc.exists:
                     user_data = user_doc.to_dict()
+                    # Firestore user doc is the source of truth for identity;
+                    # the Firebase token's email can be missing (Apple with no
+                    # shared email) or a privaterelay.appleid.com address.
+                    user_email = user_data.get("email") or user_email
                     credits_available = check_and_reset_credits(user_ref, user_data)
                     user_tier = user_data.get("subscriptionTier", user_data.get("tier", "free"))
                     if user_tier not in TIER_CONFIGS:
@@ -470,7 +474,7 @@ def prompt_search():
                     pi = prof_doc.to_dict()
                     user_profile = {
                         "name": f"{pi.get('firstName', '')} {pi.get('lastName', '')}".strip() or user_email or "",
-                        "email": user_email,
+                        "email": user_email or "",
                         "university": pi.get("university", ""),
                         "major": pi.get("fieldOfStudy", ""),
                         "year": pi.get("graduationYear", ""),
@@ -487,6 +491,9 @@ def prompt_search():
                         "dreamCompanies", "hometown", "location", "pastCompanies"):
                 if key in user_data and key not in user_profile:
                     user_profile[key] = user_data[key]
+            # Professional persona: userType + currentRole/currentCompany ride
+            # along so batch_generate_emails can drop the student framing.
+            merge_persona_fields(user_profile, user_data)
         # Prefer the user's .edu as the outreach identity. Sets the email used in
         # the LLM body signature (batch_generate_emails) and the draft/send MIME
         # signature (user_info below). Falls back to the primary email.

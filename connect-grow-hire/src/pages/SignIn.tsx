@@ -1,12 +1,11 @@
 // src/pages/SignIn.tsx
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
-import { apiService } from "@/services/api";
+import { useFirebaseAuth, friendlyAuthError } from "@/contexts/FirebaseAuthContext";
 import OfferloopLogo from '@/assets/offerloop_logo2.png';
- 
+
 
 
 type Tab = "signin" | "signup";
@@ -15,7 +14,15 @@ const SignIn: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
-  const { user, isLoading, signIn } = useFirebaseAuth();
+  const {
+    user,
+    isLoading,
+    signIn,
+    signInWithApple,
+    signUpWithEmail,
+    signInWithEmail,
+    resetPassword,
+  } = useFirebaseAuth();
 
   const initialTab: Tab = useMemo(() => {
     const sp = new URLSearchParams(location.search);
@@ -24,9 +31,10 @@ const SignIn: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [submitting, setSubmitting] = useState(false);
-  // True while we hand off to Google's Gmail consent screen (full-page redirect).
-  const [redirecting, setRedirecting] = useState(false);
-  const autoCheckGmailRanRef = useRef(false); // Prevent multiple auto-checks
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [resetSent, setResetSent] = useState(false);
 
   const forceNavigate = (dest: string) => {
     navigate(dest, { replace: true });
@@ -39,61 +47,9 @@ const SignIn: React.FC = () => {
     }, 600);
   };
 
-  // Check if Gmail connection is needed using Firebase auth directly
-  const checkNeedsGmailConnection = async (): Promise<boolean> => {
-    try {
-      const data = await apiService.gmailStatus();
-      return !data.connected;
-    } catch (error) {
-      return true;
-    }
-  };
+  const finishAuth = (next: "onboarding" | "home") =>
+    forceNavigate(next === "onboarding" ? "/onboarding" : "/home");
 
-  const initiateGmailOAuth = async (autoClose = false, destinationOverride?: string) => {
-    try {
-      const authUrl = await apiService.startGmailOAuth();
-      if (!authUrl) return;
-
-      // Prefer the explicit destination: right after a fresh popup sign-in the
-      // context `user` state hasn't updated yet, so reading needsOnboarding
-      // here sent brand-new users to /home (→ bounced back to /onboarding).
-      const destination = destinationOverride ?? (user?.needsOnboarding ? '/onboarding' : '/home');
-      localStorage.setItem('post_gmail_destination', destination);
-
-      if (autoClose) {
-        const popup = window.open(
-          authUrl,
-          `gmail-oauth-${Date.now()}`,
-          'width=600,height=700,scrollbars=yes,resizable=yes'
-        );
-        if (!popup) return;
-
-        const checkClosed = setInterval(() => {
-          if (popup?.closed) {
-            clearInterval(checkClosed);
-            setTimeout(async () => {
-              const needsGmail = await checkNeedsGmailConnection();
-              if (!needsGmail) {
-                toast({
-                  title: "Gmail Connected!",
-                  description: "Drafts will now appear in your Gmail account.",
-                });
-              }
-            }, 1000);
-          }
-        }, 500);
-      } else {
-        window.location.replace(authUrl);
-      }
-    } catch (error) {
-      if (!autoClose) {
-        const dest = user?.needsOnboarding ? "/onboarding" : "/home";
-        forceNavigate(dest);
-      }
-    }
-  };
-
-  // ✅ useEffects come AFTER function definitions
   useEffect(() => setActiveTab(initialTab), [initialTab]);
 
   // Capture referral code from ?ref= query param and persist in localStorage
@@ -105,180 +61,76 @@ const SignIn: React.FC = () => {
   }, []);
 
 
-  // ✅ AUTO-CHECK Gmail when signed-in user loads page
-  // NOTE: This only runs if user navigates to /signin manually
-  // If OAuth is triggered from handleGoogleAuth, it redirects immediately (no auto-check needed)
+  // Already-signed-in visitors go straight to the app. The Gmail consent
+  // step now lives in onboarding, so /signin no longer redirects to OAuth.
   useEffect(() => {
-    // Only run if we're actually on the /signin route
-    if (location.pathname !== '/signin') {
-      return;
-    }
+    if (location.pathname !== '/signin') return;
+    if (isLoading || !user) return;
 
-    // Prevent multiple runs
-    if (autoCheckGmailRanRef.current) {
-      return;
-    }
+    // Coming from sign-out: don't auto-navigate back into the app.
+    const params = new URLSearchParams(location.search);
+    if (params.get("signout") === "true") return;
 
-    const autoCheckGmail = async () => {
-      if (isLoading || !user) return;
-      
-      // Mark as run immediately to prevent duplicate calls
-      autoCheckGmailRanRef.current = true;
-      
-      // If user just completed OAuth flow, don't auto-trigger again
-      // (handleGoogleAuth already handles OAuth for new/existing users)
-      const params = new URLSearchParams(location.search);
-      
-      // CRITICAL: Check if coming from sign-out - don't auto-navigate if so
-      // This prevents auto-sign-in when user is redirected to /signin after signing out
-      const isSigningOut = params.get("signout") === "true";
-      if (isSigningOut) {
-        console.log("🚫 Coming from sign-out, skipping auto-navigation");
-        return;
-      }
-      
-      const justCompletedOAuth = params.get("connected") === "gmail" || params.get("gmail_error");
-      if (justCompletedOAuth) {
-        console.log("📧 OAuth just completed, skipping auto-check");
-        return;
-      }
-    
-      const gmailError = params.get("gmail_error");
-      if (gmailError === "wrong_account") {
-        console.warn("📧 Gmail OAuth returned wrong_account error");
-        toast({
-          variant: "destructive",
-          title: "Wrong Gmail account",
-          description: `Please connect the Gmail account that matches your login: ${user.email}`,
-        });
-        // Don't immediately redirect them again; just let them hit the button / auto flow
-        // and pick the right account.
-        // We still fall through so the auto-check can decide what to do.
-      } else if (gmailError === "not_test_user") {
-        console.warn("📧 Gmail OAuth - user not in test users list");
-        toast({
-          variant: "destructive",
-          title: "Gmail Access Restricted",
-          description: `Your email (${user.email}) needs to be added to the test users list. Please contact support or add it in Google Cloud Console > OAuth consent screen > Test users.`,
-          duration: 10000,
-        });
-        return; // Don't proceed with auto-check if there's an error
-      } else if (gmailError === "scopes_declined") {
-        console.warn("📧 Gmail OAuth - user declined some permission scopes");
-        toast({
-          variant: "destructive",
-          title: "Gmail permissions incomplete",
-          description:
-            "Google needs all the permission boxes checked so Offerloop can create drafts and detect replies. Click Connect Gmail and check every box to try again.",
-          duration: 8000,
-        });
-        return;
-      } else if (gmailError) {
-        console.warn(`📧 Gmail OAuth failed: ${gmailError}`);
-        toast({
-          variant: "destructive",
-          title: "Gmail connection failed",
-          description: "Something went wrong connecting Gmail. Click Connect Gmail to try again.",
-        });
-        return;
-      }
+    forceNavigate(user.needsOnboarding ? "/onboarding" : "/home");
+  }, [user, isLoading, location.search, location.pathname]);
 
-      const justConnectedGmail = params.get("connected") === "gmail";
-
-      // ✅ Case 2: Gmail successfully connected
-      if (justConnectedGmail) {
-        console.log("📧 Returned from Gmail OAuth!");
-        const dest = localStorage.getItem('post_gmail_destination') || '/home';
-        localStorage.removeItem('post_gmail_destination');
-        
-        toast({
-          title: "Gmail Connected! 🎉",
-          description: "You can now create drafts directly in Gmail.",
-        });
-        
-        forceNavigate(dest);
-        return;
-      }
-      
-      // Case 3: normal sign-in path → check whether Gmail is connected
-      // Only auto-check if user just signed in (not if they manually navigated to /signin)
-      // Check if we're coming from a fresh sign-in by checking if there's no OAuth return params
-      const isReturningFromOAuth = params.has("connected") || params.has("gmail_error");
-      if (isReturningFromOAuth) {
-        // We already handled OAuth return cases above, so skip auto-check
-        return;
-      }
-      
-      // Don't auto-trigger OAuth here - let the user flow handle it
-      // The handleGoogleAuth function now handles showing OAuth immediately for new users
-      console.log('✅ User signed in, navigating to app');
-      const dest = user.needsOnboarding ? "/onboarding" : "/home";
-      console.log('🏠 Navigating to:', dest);
-      forceNavigate(dest);
-    };
-
-    if (!isLoading && user) {
-      const timer = setTimeout(autoCheckGmail, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [user, isLoading, location.search, location.pathname, toast]);
-
-  // Reset the ref when user signs out or component unmounts
-  useEffect(() => {
-    if (!user) {
-      autoCheckGmailRanRef.current = false;
-    }
-  }, [user]);
-  
   const handleGoogleAuth = async () => {
-    console.log("🚀 handleGoogleAuth CALLED", { submitting, isLoading });
-    if (submitting || isLoading) {
-      console.log("⚠️ Already submitting or loading, returning early");
-      return;
-    }
+    if (submitting || isLoading) return;
     setSubmitting(true);
     try {
-      console.log("🔐 Initiating Google Sign-In...");
       // select_account forces Google's account picker every time — after
       // backing out of onboarding (which signs the user out), sign-in must
       // start fresh instead of silently reusing the last Google session.
       const next = await signIn({ prompt: "select_account" });
-      
-      console.log("✅ Firebase sign-in completed, next step:", next);
-      
-      const isNewUser = next === "onboarding";
-      console.log("🔍 User type check:", { isNewUser, next });
-
-      // Scopes consent stays BEFORE onboarding by design. New users can't have
-      // Gmail connected yet, so skip the needs-check round-trip and go straight
-      // to the OAuth redirect.
-      const needsGmail = isNewUser ? true : await checkNeedsGmailConnection();
-      console.log("🔍 Gmail connection check result:", needsGmail);
-
-      if (needsGmail) {
-        console.log("📧 Gmail not connected, starting OAuth flow IMMEDIATELY...");
-        // Cover the handoff (OAuth-URL fetch + full-page redirect) with an
-        // explicit overlay so the wait reads as intentional, not a hang.
-        setRedirecting(true);
-        await initiateGmailOAuth(false, isNewUser ? "/onboarding" : "/home");
-        // Only reached if the redirect failed to fire.
-        setRedirecting(false);
-        return; // OAuth redirects, stop here - don't navigate anywhere
-      }
-      
-      // Gmail already connected - navigate based on next route
-      console.log("✅ Gmail already connected, navigating to app");
-      const dest = (next as "onboarding" | "home") === "onboarding" ? "/onboarding" : "/home";
-      console.log("[signin] signIn returned:", next, "→", dest, "(Gmail already connected)");
-      forceNavigate(dest);
-    } catch (err: any) {
+      finishAuth(next);
+    } catch (err) {
       console.error("[signin] failed:", err);
       setSubmitting(false);
       toast({
         variant: "destructive",
         title: "Sign-in failed",
-        description: err?.message || "Please try again.",
+        description: friendlyAuthError(err),
       });
+    }
+  };
+
+  const handleEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (submitting || isLoading) return;
+    setSubmitting(true);
+    try {
+      const next =
+        activeTab === "signup"
+          ? await signUpWithEmail(fullName, email.trim(), password)
+          : await signInWithEmail(email.trim(), password);
+      finishAuth(next);
+    } catch (err) {
+      setSubmitting(false);
+      toast({ variant: "destructive", title: "Sign-in failed", description: friendlyAuthError(err) });
+    }
+  };
+
+  const handleAppleAuth = async () => {
+    if (submitting || isLoading) return;
+    setSubmitting(true);
+    try {
+      finishAuth(await signInWithApple());
+    } catch (err) {
+      setSubmitting(false);
+      toast({ variant: "destructive", title: "Sign-in failed", description: friendlyAuthError(err) });
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email.trim()) {
+      toast({ title: "Enter your email first", description: "Type your email above, then tap Forgot password." });
+      return;
+    }
+    try {
+      await resetPassword(email.trim());
+      setResetSent(true);
+    } catch (err) {
+      toast({ variant: "destructive", title: "Could not send reset email", description: friendlyAuthError(err) });
     }
   };
 
@@ -290,24 +142,6 @@ const SignIn: React.FC = () => {
         fontFamily: 'var(--font-body)',
       }}
     >
-      {/* Handoff overlay — shown while we redirect to Google's Gmail consent
-          screen so the wait reads as intentional instead of a frozen page. */}
-      {redirecting && (
-        <div
-          className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-4"
-          style={{ background: 'rgba(255,255,255,0.96)', backdropFilter: 'blur(2px)' }}
-        >
-          <Loader2 className="h-8 w-8 animate-spin" style={{ color: '#2563EB' }} />
-          <div className="text-center px-6">
-            <p className="text-base font-semibold" style={{ color: '#1E2D4D' }}>
-              Taking you to Google…
-            </p>
-            <p className="text-sm mt-1" style={{ color: '#64748B' }}>
-              Approve the email permissions so Offerloop can create drafts for you.
-            </p>
-          </div>
-        </div>
-      )}
       {/* Background glow */}
       <div
         className="absolute top-[-200px] right-[-150px] w-[600px] h-[600px] rounded-full pointer-events-none"
@@ -437,53 +271,171 @@ const SignIn: React.FC = () => {
             </button>
           </div>
 
-          {/* Google Sign-In Button */}
-          <button
-            onClick={handleGoogleAuth}
-            disabled={submitting || isLoading}
-            className="w-full flex items-center justify-center gap-3 py-3.5 rounded-[10px] text-sm font-medium transition-all"
-            style={{
-              background: '#0F172A',
-              color: 'white',
-              fontFamily: 'var(--font-body)',
-              fontSize: '15px',
-              fontWeight: 600,
-              border: 'none',
-              cursor: submitting || isLoading ? 'not-allowed' : 'pointer',
-              opacity: submitting || isLoading ? 0.6 : 1,
-              boxShadow: '0 1px 3px rgba(59, 130, 246, 0.2), 0 4px 12px rgba(59, 130, 246, 0.15)',
-            }}
-            onMouseEnter={(e) => {
-              if (!submitting && !isLoading) {
-                e.currentTarget.style.background = '#1E293B';
-                e.currentTarget.style.boxShadow = '0 2px 6px rgba(59, 130, 246, 0.3), 0 8px 20px rgba(59, 130, 246, 0.2)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = '#2563EB';
-              e.currentTarget.style.boxShadow = '0 1px 3px rgba(59, 130, 246, 0.2), 0 4px 12px rgba(59, 130, 246, 0.15)';
-            }}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="h-5 w-5" aria-hidden="true">
-              <path
-                fill="#FFC107"
-                d="M43.611 20.083H42V20H24v8h11.303C33.96 32.99 29.453 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.06 0 5.84 1.154 7.949 3.042l5.657-5.657C34.869 6.057 29.706 4 24 4 12.954 4 4 12.954 4 24s8.954 20 20 20c10.493 0 19.128-8.08 19.128-20 0-1.341-.138-2.651-.4-3.917z"
+          {/* Google Sign-In Button (recommended path, shown first) */}
+          <div style={{ position: 'relative', marginTop: 4 }}>
+            <span
+              style={{
+                position: 'absolute',
+                top: -9,
+                right: 14,
+                zIndex: 1,
+                padding: '2px 10px',
+                borderRadius: 999,
+                background: '#2563EB',
+                color: 'white',
+                fontSize: '11px',
+                fontWeight: 600,
+                fontFamily: 'var(--font-body)',
+                boxShadow: '0 1px 3px rgba(37, 99, 235, 0.3)',
+              }}
+            >
+              Recommended
+            </span>
+            <button
+              onClick={handleGoogleAuth}
+              disabled={submitting || isLoading}
+              className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-[10px] text-sm font-medium transition-all"
+              style={{
+                background: 'white',
+                color: '#0F172A',
+                fontFamily: 'var(--font-body)',
+                fontSize: '15px',
+                fontWeight: 600,
+                border: '1px solid var(--border-light)',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                cursor: submitting || isLoading ? 'not-allowed' : 'pointer',
+                opacity: submitting || isLoading ? 0.6 : 1,
+              }}
+              onMouseEnter={(e) => {
+                if (!submitting && !isLoading) {
+                  e.currentTarget.style.background = '#F8FAFC';
+                  e.currentTarget.style.borderColor = '#CBD5E1';
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'white';
+                e.currentTarget.style.borderColor = 'var(--border-light)';
+              }}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" style={{ width: 18, height: 18, flexShrink: 0 }} aria-hidden="true">
+                <path
+                  fill="#FFC107"
+                  d="M43.611 20.083H42V20H24v8h11.303C33.96 32.99 29.453 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.06 0 5.84 1.154 7.949 3.042l5.657-5.657C34.869 6.057 29.706 4 24 4 12.954 4 4 12.954 4 24s8.954 20 20 20c10.493 0 19.128-8.08 19.128-20 0-1.341-.138-2.651-.4-3.917z"
+                />
+                <path
+                  fill="#FF3D00"
+                  d="M6.306 14.691l6.571 4.817C14.39 16.564 18.879 14 24 14c3.06 0 5.84 1.154 7.949 3.042l5.657-5.657C34.869 6.057 29.706 4 24 4c-7.668 0-14.266 4.343-17.694 10.691z"
+                />
+                <path
+                  fill="#4CAF50"
+                  d="M24 44c5.453 0 10.01-1.787 13.49-4.852l-6.23-5.253C29.207 35.385 26.78 36 24 36c-5.438 0-10.028-3.668-11.66-8.67l-6.5 5.01C8.257 38.926 15.44 44 24 44z"
+                />
+                <path
+                  fill="#1976D2"
+                  d="M43.611 20.083H42V20H24v8h11.303c-1.098 3.24-3.48 5.773-6.043 7.091l6.23 5.253C37.147 38.47 40 32.943 40 26c0-2.055-.222-3.92-.611-5.917z"
+                />
+              </svg>
+              {submitting ? "Connecting..." : activeTab === "signup" ? "Continue with Google" : "Sign in with Google"}
+            </button>
+          </div>
+
+          {/* Apple Sign-In Button (flagged off until Apple Developer setup is done) */}
+          {import.meta.env.VITE_ENABLE_APPLE_SIGNIN === "true" && (
+            <button
+              onClick={handleAppleAuth}
+              disabled={submitting || isLoading}
+              className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-[10px] text-sm font-medium transition-all mt-3"
+              style={{
+                background: 'white',
+                color: '#0F172A',
+                fontFamily: 'var(--font-body)',
+                fontSize: '15px',
+                fontWeight: 600,
+                border: '1px solid var(--border-light)',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                cursor: submitting || isLoading ? 'not-allowed' : 'pointer',
+              }}
+            >
+              <svg viewBox="0 0 24 24" style={{ width: 18, height: 18, flexShrink: 0 }} fill="currentColor" aria-hidden="true">
+                <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.53 4.08zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
+              </svg>
+              Continue with Apple
+            </button>
+          )}
+
+          {/* Divider */}
+          <div className="flex items-center gap-3 my-5">
+            <div style={{ flex: 1, height: 1, background: 'var(--border-light)' }} />
+            <span style={{ fontFamily: 'var(--font-body)', fontSize: '12px', color: 'var(--text-tertiary)' }}>
+              {activeTab === "signup" ? "or sign up with email" : "or sign in with email"}
+            </span>
+            <div style={{ flex: 1, height: 1, background: 'var(--border-light)' }} />
+          </div>
+
+          {/* Email + password form */}
+          <form onSubmit={handleEmailSubmit} className="space-y-3">
+            {activeTab === "signup" && (
+              <input
+                type="text"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="Full name"
+                autoComplete="name"
+                required
+                className="w-full py-3 px-4 rounded-[10px] text-sm"
+                style={{ border: '1px solid var(--border-light)', fontFamily: 'var(--font-body)', fontSize: '15px' }}
               />
-              <path
-                fill="#FF3D00"
-                d="M6.306 14.691l6.571 4.817C14.39 16.564 18.879 14 24 14c3.06 0 5.84 1.154 7.949 3.042l5.657-5.657C34.869 6.057 29.706 4 24 4c-7.668 0-14.266 4.343-17.694 10.691z"
-              />
-              <path
-                fill="#4CAF50"
-                d="M24 44c5.453 0 10.01-1.787 13.49-4.852l-6.23-5.253C29.207 35.385 26.78 36 24 36c-5.438 0-10.028-3.668-11.66-8.67l-6.5 5.01C8.257 38.926 15.44 44 24 44z"
-              />
-              <path
-                fill="#1976D2"
-                d="M43.611 20.083H42V20H24v8h11.303c-1.098 3.24-3.48 5.773-6.043 7.091l6.23 5.253C37.147 38.47 40 32.943 40 26c0-2.055-.222-3.92-.611-5.917z"
-              />
-            </svg>
-            {submitting ? "Connecting..." : activeTab === "signup" ? "Continue with Google" : "Sign in with Google"}
-          </button>
+            )}
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email address"
+              autoComplete="email"
+              required
+              className="w-full py-3 px-4 rounded-[10px] text-sm"
+              style={{ border: '1px solid var(--border-light)', fontFamily: 'var(--font-body)', fontSize: '15px' }}
+            />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              required
+              minLength={6}
+              autoComplete={activeTab === "signup" ? "new-password" : "current-password"}
+              className="w-full py-3 px-4 rounded-[10px] text-sm"
+              style={{ border: '1px solid var(--border-light)', fontFamily: 'var(--font-body)', fontSize: '15px' }}
+            />
+            {activeTab === "signin" && (
+              <div className="text-right">
+                <button
+                  type="button"
+                  onClick={handleForgotPassword}
+                  style={{ fontFamily: 'var(--font-body)', fontSize: '13px', color: '#2563EB', background: 'none', border: 'none', cursor: 'pointer' }}
+                >
+                  {resetSent ? "Reset email sent. Check your inbox." : "Forgot password?"}
+                </button>
+              </div>
+            )}
+            <button
+              type="submit"
+              disabled={submitting || isLoading}
+              className="w-full py-3.5 rounded-[10px] text-sm font-medium transition-all"
+              style={{
+                background: '#2563EB',
+                color: 'white',
+                fontFamily: 'var(--font-body)',
+                fontSize: '15px',
+                fontWeight: 600,
+                border: 'none',
+                cursor: submitting || isLoading ? 'not-allowed' : 'pointer',
+                opacity: submitting || isLoading ? 0.6 : 1,
+              }}
+            >
+              {submitting ? "Working..." : activeTab === "signup" ? "Create account" : "Sign in"}
+            </button>
+          </form>
 
           {/* Trust signals */}
           <div className="mt-6 space-y-2">
@@ -495,9 +447,7 @@ const SignIn: React.FC = () => {
                 lineHeight: 1.6,
               }}
             >
-              {activeTab === "signup"
-                ? "Sign in with Google, then connect Gmail to enable draft creation."
-                : "Sign in, then connect Gmail to allow draft creation in your account."}
+              Use any email. Connecting Gmail later puts drafts directly in your inbox.
             </p>
             <div
               style={{
@@ -508,9 +458,9 @@ const SignIn: React.FC = () => {
               }}
             >
               {[
-                "We'll never send emails without your permission",
-                "We only create drafts in your Gmail",
-                "You review and send all emails yourself",
+                "Works with any email address",
+                "We never send emails without your permission",
+                "You review and send everything yourself",
               ].map((item, i) => (
                 <div
                   key={i}

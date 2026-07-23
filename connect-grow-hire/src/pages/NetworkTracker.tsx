@@ -221,11 +221,16 @@ export default function NetworkTracker() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["trackerNudges"] });
-      const result = data as { gmailUrl?: string; composeUrl?: string };
+      const result = data as { gmailUrl?: string; composeUrl?: string; draftId?: string };
       const url = result.gmailUrl || result.composeUrl;
       if (url) {
         window.open(url, "_blank");
         toast({ title: "Gmail draft created" });
+      } else if (result.draftId) {
+        // Draft exists but no Gmail URL came back (fallback delivery for
+        // users without Gmail). Tracker surfaces are Gmail-centric, so just
+        // confirm the draft without opening anything.
+        toast({ title: "Draft created" });
       } else {
         toast({ title: "Nudge marked as acted on" });
       }

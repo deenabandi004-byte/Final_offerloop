@@ -26,6 +26,8 @@ import { ProtoPipelineDots } from "@/components/tracker/redesign/ProtoPipelineDo
 import { ProtoEmailBlock } from "@/components/tracker/redesign/ProtoEmailBlock";
 import type { OutboxThread, ThreadMessage, ThreadMessagesResponse } from "@/services/api";
 import { ProtoSpreadsheet, type SpreadsheetSort, type SpreadsheetSortKey } from "@/components/tracker/redesign/ProtoSpreadsheet";
+import { SetupNudgeModal } from "@/components/gates/SetupNudgeModal";
+import { useResumeStatus } from "@/hooks/useResumeStatus";
 import { FILTER_LABELS, type SortKey } from "@/components/tracker/redesign/MoreFiltersDropdown";
 import "./NetworkTrackerRedesign.css";
 
@@ -654,7 +656,10 @@ export default function NetworkTrackerRedesign() {
   // existed, so returning the cache would surface a stale draft on the
   // contacts where thread context matters most (the ones with replies).
   // Always-refresh keeps that footgun closed.
-  const handleGenerate = useCallback(async () => {
+  const { hasResume } = useResumeStatus();
+  const [showResumeNudge, setShowResumeNudge] = useState(false);
+
+  const runGenerate = useCallback(async () => {
     if (inboxDemoActive) return;
     if (!selectedContactId) return;
     setDraftLoadingId(selectedContactId);
@@ -678,9 +683,28 @@ export default function NetworkTrackerRedesign() {
     }
   }, [selectedContactId, inboxDemoActive]);
 
+  // Generate CTA: nudge for a resume first (once per session) — the draft
+  // personalizes much better with one. "Continue without resume" generates
+  // the email anyway, just without resume input.
+  const handleGenerate = useCallback(() => {
+    if (hasResume === false && !sessionStorage.getItem("ol_nudge_resume")) {
+      sessionStorage.setItem("ol_nudge_resume", "1");
+      setShowResumeNudge(true);
+      return;
+    }
+    void runGenerate();
+  }, [hasResume, runGenerate]);
+
   // ── Render ──────────────────────────────────────────────────────────────
   return (
     <SidebarProvider>
+      <SetupNudgeModal
+        open={showResumeNudge}
+        variant="resume"
+        onClose={() => setShowResumeNudge(false)}
+        onContinue={() => void runGenerate()}
+        body="Replies personalize far better with your resume: real overlaps between you and the contact instead of generic lines. You can also generate without it."
+      />
       <div className="flex h-screen w-full">
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0">

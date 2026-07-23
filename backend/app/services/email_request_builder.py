@@ -125,6 +125,11 @@ def build_email_gen_request(
     career_interests = user_data_safe.get("careerInterests", []) or []
     pre_parsed = user_data_safe.get("resumeParsed")
 
+    # Professional persona: userType + currentRole/currentCompany ride along
+    # from the user doc so batch_generate_emails can drop the student framing.
+    from app.utils.users import merge_persona_fields
+    user_profile = merge_persona_fields(dict(user_profile or {}), user_data_safe)
+
     return {
         "contacts": contacts,
         "resume_text": resume_text,

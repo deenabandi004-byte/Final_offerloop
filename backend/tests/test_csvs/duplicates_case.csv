@@ -1,0 +1,8 @@
+First Name,Last Name,Email,LinkedIn URL,Company
+Alice,Johnson,alice@google.com,,Google
+Alice,Johnson,ALICE@GOOGLE.COM,,Google
+Alice,Johnson,alice@google.com,,Google
+Bob,Jones,,https://linkedin.com/in/bobjones,Meta
+Bob,Jones,,https://LinkedIn.com/in/BobJones,
+Carol,Williams,carol@amazon.com,,Amazon
+Carol,Williams,,https://linkedin.com/in/carolwilliams,Amazon

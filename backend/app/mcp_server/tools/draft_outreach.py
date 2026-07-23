@@ -581,6 +581,10 @@ def _build_user_profile(user_data: dict, prof_info: dict, user_email: str) -> di
         if key in user_data and key not in user_profile:
             user_profile[key] = user_data[key]
 
+    # Professional persona fields (userType, currentRole/currentCompany)
+    from app.utils.users import merge_persona_fields
+    merge_persona_fields(user_profile, user_data)
+
     if user_email and not user_profile.get("email"):
         user_profile["email"] = user_email
     return user_profile

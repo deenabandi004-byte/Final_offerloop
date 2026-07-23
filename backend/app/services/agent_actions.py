@@ -1876,8 +1876,9 @@ def _build_exclusion_sets(uid: str, db) -> dict:
 
 def _build_user_profile(user_data: dict) -> dict:
     """Build user profile dict for PDL/email gen."""
+    from app.utils.users import merge_persona_fields
     prof = user_data.get("professionalInfo") or {}
-    return {
+    profile = {
         "name": user_data.get("name") or prof.get("name") or "",
         "university": prof.get("university") or "",
         "major": prof.get("major") or "",
@@ -1885,6 +1886,8 @@ def _build_user_profile(user_data: dict) -> dict:
         "careerTrack": prof.get("careerTrack") or "",
         "careerInterests": user_data.get("careerInterests") or [],
     }
+    # Professional persona fields (userType, currentRole/currentCompany)
+    return merge_persona_fields(profile, user_data)
 
 
 def _resolve_agent_template(config: dict, user_data: dict, db, uid: str) -> str:

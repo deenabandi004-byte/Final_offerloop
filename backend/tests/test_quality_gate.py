@@ -44,9 +44,13 @@ class TestQualityGate:
         ))
         assert not ok and reason == "scam_pattern"
 
-    def test_senior_title_dropped(self):
+    def test_senior_title_kept_for_experienced_users(self):
+        # 2026-07-21 multi-audience change: senior titles stay in the pool
+        # (relevance tier 3) so the per-user seniority gate can serve them
+        # to experienced users. Students never see them — the bidirectional
+        # gate in job_board.apply_hard_gate_seniority rejects them per-user.
         ok, reason = evaluate(_base_job(title="Senior Software Engineer"))
-        assert not ok and reason == "senior_title"
+        assert ok and reason is None
 
     def test_senior_title_with_intern_override_kept(self):
         ok, _ = evaluate(_base_job(title="Senior Engineer Intern Program"))
@@ -80,7 +84,7 @@ class TestQualityGate:
             _base_job(job_id="c", company="Robert Half Staffing"),
         ]
         kept, drops = apply(jobs)
-        assert len(kept) == 1
-        assert kept[0]["job_id"] == "a"
-        assert drops.get("senior_title") == 1
+        # Senior titles are kept now (per-user gate handles them downstream).
+        assert len(kept) == 2
+        assert {j["job_id"] for j in kept} == {"a", "b"}
         assert drops.get("staffing_company_name") == 1

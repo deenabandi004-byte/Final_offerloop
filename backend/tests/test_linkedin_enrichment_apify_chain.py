@@ -15,7 +15,6 @@ import pytest
 
 from app.utils.linkedin_enrichment import (
     _try_apify,
-    _try_brightdata,
     _try_pdl,
     get_enrichment_tiers,
 )
@@ -33,11 +32,11 @@ def test_user_onboarding_chain_is_apify_then_pdl():
     assert chain == [_try_apify, _try_pdl]
 
 
-def test_contact_search_chain_is_pdl_then_brightdata():
-    """prefer_scrape=False is the contact-enrichment path. Stays on
-    PDL -> Bright Data (the Apify swap is for user-onboarding only)."""
+def test_contact_search_chain_is_pdl_then_apify():
+    """prefer_scrape=False is the contact-enrichment path: PDL -> Apify.
+    Bright Data is deprecated; Apify is the single LinkedIn scraping vendor."""
     chain = get_enrichment_tiers(prefer_scrape=False)
-    assert chain == [_try_pdl, _try_brightdata]
+    assert chain == [_try_pdl, _try_apify]
 
 
 # ---------------------------------------------------------------------------

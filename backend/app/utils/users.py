@@ -138,6 +138,38 @@ def get_user_career_track(user_data: dict) -> str:
     )
 
 
+def merge_persona_fields(user_profile: dict, user_data: dict) -> dict:
+    """Copy the professional-persona fields from the root user doc into a
+    caller-built user_profile (in place), so email generation can tell a
+    working professional from a student.
+
+    Copies ONLY:
+      - top-level `userType` ("student" | "professional")
+      - `professionalInfo.currentRole` / `.currentCompany` / `.yearsExperience`
+
+    Deliberately does NOT copy the rest of the professionalInfo map: other
+    profile resolution (e.g. personalization.build_user_profile) reads
+    university/hometown/location off that key, and copying the full map could
+    change existing student output. Students without persona fields get no
+    new keys beyond userType, so their behavior is unchanged.
+    """
+    if not isinstance(user_profile, dict) or not isinstance(user_data, dict):
+        return user_profile
+    user_type = user_data.get("userType")
+    if user_type and "userType" not in user_profile:
+        user_profile["userType"] = user_type
+    prof = user_data.get("professionalInfo")
+    if isinstance(prof, dict) and "professionalInfo" not in user_profile:
+        persona = {
+            k: prof[k]
+            for k in ("currentRole", "currentCompany", "yearsExperience")
+            if prof.get(k) not in (None, "")
+        }
+        if persona:
+            user_profile["professionalInfo"] = persona
+    return user_profile
+
+
 def get_outreach_email(user_data: dict) -> str:
     """Email to use as the user's identity in OUTREACH — signatures, the
     clickable mailto link, the recruiter/contact "from" identity shown to
@@ -552,12 +584,17 @@ def validate_parsed_resume(parsed: dict) -> tuple[bool, list[str]]:
     # Required fields
     if not parsed.get('name'):
         errors.append("Missing name")
-    
-    if not parsed.get('education') or not parsed['education'].get('university'):
-        errors.append("Missing education/university")
-    
-    # Experience is recommended but not strictly required for some students
-    if not parsed.get('experience') or len(parsed.get('experience', [])) == 0:
+
+    # Education is NOT required: experienced professionals may have a
+    # work-history-only resume. A resume with neither education nor
+    # experience is the only unusable shape.
+    has_education = bool(parsed.get('education') and parsed['education'].get('university'))
+    has_experience = bool(parsed.get('experience'))
+    if not has_education and not has_experience:
+        errors.append("Missing both education and experience sections")
+    elif not has_education:
+        errors.append("Warning: Missing education section")
+    elif not has_experience:
         errors.append("Warning: Missing experience section")
     
     if not parsed.get('skills'):

@@ -771,6 +771,9 @@ export interface FeedJob {
   match_reason: string | null;
   match_signals?: string[];
   ranked: boolean;
+  // Normalized seniority from the pipeline classifier. "unknown" (or absent on
+  // older jobs) means unclassified and should pass any level filter.
+  experienceLevel?: "intern" | "entry" | "mid" | "senior" | "executive" | "unknown";
   structured?: JobStructured;
   // Auto-apply (derived backend-side from FantasticJobs ats_* metadata).
   // ats_platform is null when the job's source ATS is unknown/unsupported.
@@ -1495,7 +1498,7 @@ class ApiService {
     enrichHiringSignal?: boolean;
     enrichContext?: { company?: string; jobTitle?: string };
   }): Promise<
-    | { success: boolean; draft_count: number; drafts: Array<{ index?: number; to: string; draftId: string; messageId?: string; threadId?: string; gmailUrl?: string; subject?: string; body?: string; activelyHiring?: string; recentHiringSignal?: string }>; connected_email?: string; skipped_count?: number }
+    | { success: boolean; draft_count: number; deliveryMode?: "gmail" | "fallback"; drafts: Array<{ index?: number; to: string; draftId?: string; messageId?: string; threadId?: string; gmailUrl?: string; subject?: string; body?: string; deliveryMode?: string; activelyHiring?: string; recentHiringSignal?: string }>; connected_email?: string; skipped_count?: number }
     | { error: string; message?: string }
   > {
     const headers = await this.getAuthHeaders();
@@ -1514,6 +1517,31 @@ class ApiService {
       headers,
       body: JSON.stringify(body),
     });
+  }
+
+  /** Download a .eml draft file (fallback delivery for users without Gmail). */
+  async downloadEml(payload: { to: string; subject: string; body: string; firstName?: string; company?: string }): Promise<void> {
+    // Raw fetch (not makeRequest) so we control blob + Content-Disposition
+    // handling for the .eml attachment. getAuthHeaders already includes
+    // Content-Type: application/json and the Bearer token.
+    const headers = await this.getAuthHeaders();
+    const res = await fetch(`${API_BASE_URL}/emails/eml`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error('Could not build the email file');
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') || '';
+    const filename = /filename="([^"]+)"/.exec(cd)?.[1] || 'Outreach.eml';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   // ================================
@@ -2880,6 +2908,45 @@ export const mergeLinkedInData = async () => {
   });
   return response.json();
 };
+
+// ============================================================================
+// Onboarding resume builder (free Harvard one-pager)
+// ============================================================================
+
+async function resumeBuilderPost(path: string, body: unknown) {
+  const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const response = await fetch(`${API_BASE_URL}/resume-builder/${path}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `resume-builder/${path} failed`);
+  return data;
+}
+
+export const generateResumeBuilder = (prompt: string, previous: unknown | null) =>
+  resumeBuilderPost('generate', { prompt, previous }) as Promise<{
+    success: boolean;
+    resume: unknown;
+    html: string;
+  }>;
+
+export const finalizeResumeBuilder = (resume: unknown) =>
+  resumeBuilderPost('finalize', { resume }) as Promise<{
+    success: boolean;
+    resumeUrl: string | null;
+    parsed: unknown;
+  }>;
+
+export const resumeFromLinkedIn = () =>
+  resumeBuilderPost('from-linkedin', {}) as Promise<{
+    success: boolean;
+    resumeUrl: string | null;
+    parsed: unknown;
+  }>;
 
 // ============================================================================
 // Application Profile + Auto-Apply

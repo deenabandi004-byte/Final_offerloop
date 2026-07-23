@@ -991,8 +991,11 @@ def get_gmail_service_for_user(user_email, user_id=None):
     2. Shared token.pickle account (fallback)
     """
     try:
-        if not user_email:
-            print("[GmailClient] No user email provided")
+        # user_email is only an identity hint — credentials are loaded by uid.
+        # Apple sign-in tokens can omit email entirely, so only bail when we
+        # have neither an email nor a uid to work with.
+        if not user_email and not user_id:
+            print("[GmailClient] No user email or user id provided")
             return None
 
         # Priority 1: Try per-user OAuth credentials if user_id is provided
@@ -1025,6 +1028,29 @@ def get_gmail_service_for_user(user_email, user_id=None):
         print(f"[GmailClient] Error getting Gmail service: {e}")
         import traceback
         traceback.print_exc()
+        return None
+
+
+def get_user_gmail_service_strict(uid):
+    """Gmail service from the user's OWN OAuth creds only. No shared fallback.
+
+    Returns None when the user has no (working) Gmail integration. Used by
+    user-facing draft creation, where falling back to the shared inbox would
+    write drafts into a mailbox the user cannot see.
+    """
+    if not uid:
+        return None
+    try:
+        creds = _load_user_gmail_creds(uid)
+        if not creds:
+            return None
+        service = _gmail_service(creds)
+        if not service:
+            return None
+        service.users().getProfile(userId='me').execute()
+        return service
+    except Exception as e:
+        print(f"[GmailClient] strict per-user service unavailable for {uid}: {e}")
         return None
 
 

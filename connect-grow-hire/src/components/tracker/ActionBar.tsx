@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
 import {
-  ExternalLink,
   RefreshCw,
   Archive,
   ArchiveRestore,
@@ -9,6 +8,7 @@ import {
   Eye,
 } from "lucide-react";
 import type { OutboxThread } from "@/services/api";
+import DraftDeliveryActions from "@/components/DraftDeliveryActions";
 import { DONE_STAGES } from "@/lib/outboxConstants";
 
 interface ActionBarProps {
@@ -62,18 +62,9 @@ export function ActionBar({
 
   return (
     <div className="flex flex-wrap gap-2">
-      {/* Gmail */}
-      {gmailUrl && (
-        <a
-          href={gmailUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[3px] bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
-        >
-          <ExternalLink className="w-3.5 h-3.5" />
-          Open in Gmail
-        </a>
-      )}
+      {/* Gmail. Renders nothing for fallback (no-Gmail) users with no thread:
+          this surface is Gmail-centric and has no subject/body at hand. */}
+      <DraftDeliveryActions draft={{ to: contact.email, gmailUrl: gmailUrl || undefined }} />
 
       {/* Refresh */}
       <button

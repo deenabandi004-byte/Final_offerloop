@@ -26,6 +26,8 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppHeader } from "@/components/AppHeader";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
 import { useCreditsView } from "@/hooks/useCreditsView";
+import { useResumeStatus } from "@/hooks/useResumeStatus";
+import { SetupNudgeModal } from "@/components/gates/SetupNudgeModal";
 import {
   apiService,
   type FeedJob,
@@ -735,6 +737,9 @@ export const JobBoardPage: React.FC<JobBoardPageProps> = ({ view = "list", onVie
   // disabled + spinner state so the user can't double-tap during the network
   // round-trip and stares at a clear "Applying…" affordance.
   const [autoApplyingId, setAutoApplyingId] = useState<string | null>(null);
+  // Auto-apply needs a resume on file; nudge routes to /resume.
+  const { hasResume } = useResumeStatus();
+  const [showResumeNudge, setShowResumeNudge] = useState(false);
 
   const handleAutoApply = useCallback(async (j: ProtoJob) => {
     if (!j.autoApplyEligible) return;
@@ -743,6 +748,12 @@ export const JobBoardPage: React.FC<JobBoardPageProps> = ({ view = "list", onVie
         title: "Auto-apply is a Pro feature",
         description: "Upgrade to have Offerloop fill the application for you.",
       });
+      return;
+    }
+    // Auto-apply fills the application FROM the resume: hard requirement.
+    // No nudge when a resume is already on file (hasResume true or unknown).
+    if (hasResume === false) {
+      setShowResumeNudge(true);
       return;
     }
     if (autoApplyingId === j.id) return;
@@ -815,7 +826,7 @@ export const JobBoardPage: React.FC<JobBoardPageProps> = ({ view = "list", onVie
       description: (res.data as any)?.error || "Try again in a moment.",
       variant: "destructive",
     });
-  }, [user, autoApplyingId]);
+  }, [user, autoApplyingId, hasResume]);
 
   const toFindHumansJob = (j: ProtoJob): FindHumansJob => {
     // Reuse the lazily fetched description when it is already loaded; never
@@ -933,6 +944,12 @@ export const JobBoardPage: React.FC<JobBoardPageProps> = ({ view = "list", onVie
 
   return (
     <SidebarProvider>
+      <SetupNudgeModal
+        open={showResumeNudge}
+        variant="resume"
+        onClose={() => setShowResumeNudge(false)}
+        body="Auto-apply fills the application using your resume, so it needs one on file. Upload it once and every application after that is one click."
+      />
       <div className="flex h-screen w-full overflow-hidden">
         <AppSidebar />
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">

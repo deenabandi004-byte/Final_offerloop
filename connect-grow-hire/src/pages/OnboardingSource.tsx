@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { Upload, FileText, Loader2, Check } from "lucide-react";
 import { ACCEPTED_RESUME_TYPES, isValidResumeFile } from "@/utils/resumeFileTypes";
-import { enrichLinkedInOnboarding, BACKEND_URL } from "@/services/api";
+import { enrichLinkedInOnboarding, resumeFromLinkedIn, BACKEND_URL } from "@/services/api";
 import { auth } from "@/lib/firebase";
 import {
   ResumePrefill,
@@ -12,7 +12,7 @@ import {
 } from "@/utils/onboardingPrefill";
 import { OB, obFieldLabel, obInput, obPrimaryButton, obFocus } from "./onboardingTheme";
 
-export type EntryPath = "resume" | "linkedin" | "manual";
+export type EntryPath = "resume" | "linkedin";
 
 export interface SourceResult {
   resumePrefill: ResumePrefill | null;
@@ -25,17 +25,21 @@ export interface SourceResult {
 
 interface OnboardingSourceProps {
   onNext: (data: SourceResult) => void;
+  onBuild: () => void;
   initialLinkedinUrl?: string;
+  submitting?: boolean;
 }
 
 const LINKEDIN_RE = /linkedin\.com\/in\//i;
 
-export const OnboardingSource = ({ onNext, initialLinkedinUrl }: OnboardingSourceProps) => {
+export const OnboardingSource = ({ onNext, onBuild, initialLinkedinUrl, submitting }: OnboardingSourceProps) => {
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [resumePrefill, setResumePrefill] = useState<ResumePrefill | null>(null);
   const [resumeParsing, setResumeParsing] = useState(false);
   const [linkedinUrl, setLinkedinUrl] = useState(initialLinkedinUrl || "");
-  const [submitting, setSubmitting] = useState(false);
+  const [internalSubmitting, setInternalSubmitting] = useState(false);
+  // Phased status for the LinkedIn path: enrich, then best-effort resume build.
+  const [phase, setPhase] = useState<"" | "enriching" | "writing">("");
   const [error, setError] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -94,13 +98,14 @@ export const OnboardingSource = ({ onNext, initialLinkedinUrl }: OnboardingSourc
   };
 
   const handleContinue = async () => {
-    if (submitting) return;
+    if (internalSubmitting || submitting) return;
     setError("");
     // Resume is primary when present.
     if (resumePrefill) {
       // If a LinkedIn URL was also supplied, enrich it to fill resume gaps.
       if (linkedinValid) {
-        setSubmitting(true);
+        setInternalSubmitting(true);
+        setPhase("enriching");
         try {
           const result = await enrichLinkedInOnboarding(linkedinUrl.trim());
           proceed("resume", result ? prefillFromLinkedin(result) : null);
@@ -109,28 +114,37 @@ export const OnboardingSource = ({ onNext, initialLinkedinUrl }: OnboardingSourc
           proceed("resume", null);
           return;
         } finally {
-          setSubmitting(false);
+          setInternalSubmitting(false);
+          setPhase("");
         }
       }
       proceed("resume", null);
       return;
     }
-    // LinkedIn-only path.
+    // LinkedIn-only path: enrich, then build them a Harvard one-pager from the
+    // enriched profile. The build is best-effort and never blocks onboarding;
+    // failures (including the generation cap) are ignored.
     if (linkedinValid) {
-      setSubmitting(true);
+      setInternalSubmitting(true);
+      setPhase("enriching");
+      let linkedinPrefill: ResumePrefill = EMPTY_PREFILL;
       try {
         const result = await enrichLinkedInOnboarding(linkedinUrl.trim());
-        proceed("linkedin", result ? prefillFromLinkedin(result) : EMPTY_PREFILL);
+        if (result) linkedinPrefill = prefillFromLinkedin(result);
+        setPhase("writing");
+        try {
+          await resumeFromLinkedIn();
+        } catch {
+          /* best-effort */
+        }
       } catch {
-        // Enrichment failed — still proceed; Confirm becomes the manual fallback.
-        proceed("linkedin", EMPTY_PREFILL);
-      } finally {
-        setSubmitting(false);
+        /* enrichment failed; proceed with empty prefill */
       }
+      setInternalSubmitting(false);
+      setPhase("");
+      proceed("linkedin", linkedinPrefill);
     }
   };
-
-  const handleManual = () => proceed("manual", null);
 
   return (
     <div>
@@ -246,25 +260,38 @@ export const OnboardingSource = ({ onNext, initialLinkedinUrl }: OnboardingSourc
       <button
         type="button"
         onClick={handleContinue}
-        disabled={!canContinue || submitting}
+        disabled={!canContinue || internalSubmitting || submitting}
         style={{
           ...obPrimaryButton,
           marginBottom: 14,
-          opacity: canContinue && !submitting ? 1 : 0.5,
-          cursor: canContinue && !submitting ? "pointer" : "default",
+          opacity: canContinue && !internalSubmitting && !submitting ? 1 : 0.5,
+          cursor: canContinue && !internalSubmitting && !submitting ? "pointer" : "default",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
         }}
-        onMouseEnter={(e) => canContinue && !submitting && (e.currentTarget.style.background = OB.primaryDark)}
+        onMouseEnter={(e) =>
+          canContinue && !internalSubmitting && !submitting && (e.currentTarget.style.background = OB.primaryDark)
+        }
         onMouseLeave={(e) => (e.currentTarget.style.background = OB.primary)}
       >
-        {submitting ? <Loader2 size={17} className="animate-spin" /> : "Continue"}
+        {internalSubmitting || submitting ? (
+          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Loader2 size={17} className="animate-spin" />
+            {phase === "enriching"
+              ? "Reading your LinkedIn…"
+              : phase === "writing"
+                ? "Writing your resume…"
+                : "Finishing up…"}
+          </span>
+        ) : (
+          "Continue"
+        )}
       </button>
       <div style={{ textAlign: "center" }}>
         <button
           type="button"
-          onClick={handleManual}
+          onClick={onBuild}
           style={{
             fontWeight: 600,
             fontSize: 14,
@@ -275,7 +302,7 @@ export const OnboardingSource = ({ onNext, initialLinkedinUrl }: OnboardingSourc
             fontFamily: OB.fontBody,
           }}
         >
-          I'll enter it manually
+          No resume? We'll build you one
         </button>
       </div>
     </div>

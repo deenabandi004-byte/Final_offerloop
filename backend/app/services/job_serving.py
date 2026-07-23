@@ -80,19 +80,23 @@ def _posted_relative(posted_at: Any) -> str:
 
 
 def _experience_level(doc: dict) -> str:
+    """Five-band level (intern/entry/mid/senior/executive) so the per-user
+    seniority gate and the frontend experience filter can key off it."""
+    from app.services.career_stage import classify_job_level
+
     ai_level = (doc.get("ai_experience_level") or "").lower().strip()
     if ai_level:
-        if any(k in ai_level for k in ("intern", "entry", "0-2", "junior", "graduate", "new grad")):
+        if any(k in ai_level for k in ("intern", "co-op")):
+            return "intern"
+        if any(k in ai_level for k in ("entry", "0-2", "junior", "graduate", "new grad")):
             return "entry"
+        if any(k in ai_level for k in ("vp", "vice president", "executive", "chief", "head of")):
+            return "executive"
         if any(k in ai_level for k in ("senior", "staff", "principal", "director")):
             return "senior"
         return "mid"
-    title = (doc.get("title") or "").lower()
-    if any(k in title for k in ("intern", "new grad", "entry", "junior", "graduate", "co-op", "summer analyst")):
-        return "entry"
-    if any(k in title for k in ("senior", "staff", "principal", "director", "lead", "manager")):
-        return "senior"
-    return "mid"
+    level = classify_job_level(doc.get("title") or "")
+    return level if level != "unknown" else "mid"
 
 
 def _requirements_from_doc(doc: dict) -> List[str]:
