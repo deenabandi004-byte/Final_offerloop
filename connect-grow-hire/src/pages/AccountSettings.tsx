@@ -894,9 +894,8 @@ export default function AccountSettings() {
   const handleConnectGmail = async () => {
     setGmailActionLoading(true);
     try {
-      const authUrl = await apiService.startGmailOAuth();
+      const authUrl = await apiService.startGmailOAuth('/account-settings');
       if (authUrl) {
-        sessionStorage.setItem('gmail_oauth_return', '/account-settings');
         window.location.href = authUrl;
       } else {
         toast({ title: "Could not start Gmail connection", variant: "destructive" });

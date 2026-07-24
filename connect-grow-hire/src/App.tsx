@@ -53,6 +53,7 @@ const ExtensionPrivacyPolicy = React.lazy(() => import("./pages/ExtensionPrivacy
 const TermsOfService = React.lazy(() => import("./pages/TermsOfService"));
 const AccountSettings = React.lazy(() => import("./pages/AccountSettings"));
 const IntegrationsPage = React.lazy(() => import("./pages/IntegrationsPage"));
+const OAuthComplete = React.lazy(() => import("./pages/OAuthComplete"));
 const McpServerPage = React.lazy(() => import("./pages/McpServerPage"));
 const McpChatGptSetupPage = React.lazy(() => import("./pages/McpChatGptSetupPage"));
 const UploadListPage = React.lazy(() => import("./pages/UploadListPage"));
@@ -326,6 +327,10 @@ const AppRoutes: React.FC = () => {
       <Route path="/signin" element={<PublicRoute><SignIn /></PublicRoute>} />
       <Route path="/signup" element={<Navigate to="/signin?mode=signup" replace />} />
       <Route path="/auth/callback" element={<PublicRoute><AuthCallback /></PublicRoute>} />
+      {/* Guardless: OAuth popups land here and close themselves. Wrapping it
+          in a route guard would bounce the popup into the app and strand the
+          opener waiting on popup.closed. */}
+      <Route path="/oauth/complete" element={<Suspense fallback={<PageLoader />}><OAuthComplete /></Suspense>} />
 
       {/* Mobile app magic-link sign-in handoff (public, no auth guard) */}
       <Route path="/app/finish-signin" element={<Suspense fallback={<PageLoader />}><AppFinishSignIn /></Suspense>} />

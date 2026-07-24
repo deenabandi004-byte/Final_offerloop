@@ -1313,9 +1313,8 @@ const ContactSearchPage: React.FC<{
 
   const initiateGmailOAuth = async () => {
     try {
-      const authUrl = await apiService.startGmailOAuth();
+      const authUrl = await apiService.startGmailOAuth(window.location.pathname);
       if (authUrl) {
-        sessionStorage.setItem('gmail_oauth_return', window.location.pathname);
         window.location.href = authUrl;
       }
     } catch (error) {
