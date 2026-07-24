@@ -357,7 +357,10 @@ def create_app() -> Flask:
     @app.route('/')
     def index():
         response = make_response(send_from_directory(app.static_folder, 'index.html'))
-        response.headers['Cache-Control'] = 'public, max-age=0, s-maxage=3600, must-revalidate'
+        # No s-maxage: a CDN-cached index.html can outlive a deploy and point
+        # at hashed chunks that no longer exist, breaking every page load
+        # until the shared cache expires. index.html must always revalidate.
+        response.headers['Cache-Control'] = 'public, max-age=0, must-revalidate'
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
         return response
@@ -394,13 +397,23 @@ def create_app() -> Flask:
         # Don't serve index.html for API routes that don't exist
         if request.path.startswith('/api/'):
             return "API endpoint not found", 404
-        
+
+        # Never SPA-fallback missing build assets: after a deploy, stale tabs
+        # request old hashed chunks — serving index.html as the "chunk"
+        # produces a confusing MIME error and can poison shared caches with
+        # HTML under a .js URL. A clean 404 lets the frontend's chunk-reload
+        # recovery kick in.
+        if request.path.startswith('/assets/'):
+            return "Asset not found", 404
+
         # For everything else, serve the React app
         index_path = os.path.join(app.static_folder, 'index.html')
         if os.path.exists(index_path):
             app.logger.info(f"404 handler serving index.html for path: {request.path}")
             response = make_response(send_from_directory(app.static_folder, 'index.html'))
-            response.headers['Cache-Control'] = 'public, max-age=0, s-maxage=3600, must-revalidate'
+            # No s-maxage — see the index() route: stale shared-cache HTML
+            # breaks chunk loading after every deploy.
+            response.headers['Cache-Control'] = 'public, max-age=0, must-revalidate'
             response.headers['Pragma'] = 'no-cache'
             response.headers['Expires'] = '0'
             return response

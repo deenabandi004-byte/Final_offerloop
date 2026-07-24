@@ -455,7 +455,10 @@ export const JobBoardPage: React.FC<JobBoardPageProps> = ({ view = "list", onVie
   const [needsVerificationCount, setNeedsVerificationCount] = useState<number>(0);
   const [autoAppliedJobIds, setAutoAppliedJobIds] = useState<Set<string>>(new Set());
   useEffect(() => {
-    if (!user) return;
+    // The auto-apply queue endpoints are Pro/Elite-gated (403 for free tier).
+    // Free users have nothing in these queues, so don't poll at all — it
+    // just floods the console and the backend with 403s every 30s.
+    if (!user || (user.tier !== "pro" && user.tier !== "elite")) return;
     let cancelled = false;
     const refresh = async () => {
       // Don't poll while the tab is backgrounded — these three endpoints add
