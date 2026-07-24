@@ -1,5 +1,5 @@
 """Onboarding resume builder: free Harvard one-pager for users without a resume."""
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, Response
 from firebase_admin import firestore
 
 from app.services.resume_builder_service import (
@@ -103,6 +103,29 @@ def from_linkedin():
     except Exception as e:
         print(f"[ResumeBuilder] from-linkedin failed: {e}")
         return jsonify({'error': 'Could not build a resume from your LinkedIn profile.'}), 502
+
+
+@resume_builder_bp.route('/download', methods=['POST'])
+@require_firebase_auth
+def download():
+    """Stream the current draft as a PDF download. Pure render: no storage
+    write, no generation-cap charge, no onboarding side effects — users can
+    download, keep refining, and still hit finalize."""
+    data = request.get_json() or {}
+    try:
+        resume = CanonicalResume.model_validate(data.get('resume') or {})
+    except Exception:
+        return jsonify({'error': 'Invalid resume payload'}), 400
+    try:
+        result = render_one_page(resume)
+    except Exception as e:
+        print(f"[ResumeBuilder] download render failed: {e}")
+        return jsonify({'error': 'Could not render your resume. Try again.'}), 502
+    return Response(
+        result.pdf_bytes,
+        mimetype='application/pdf',
+        headers={'Content-Disposition': f'attachment; filename="{RESUME_FILENAME}"'},
+    )
 
 
 @resume_builder_bp.route('/finalize', methods=['POST'])

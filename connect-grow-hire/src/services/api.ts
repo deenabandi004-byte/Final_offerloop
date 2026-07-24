@@ -2941,6 +2941,23 @@ export const finalizeResumeBuilder = (resume: unknown) =>
     parsed: unknown;
   }>;
 
+// Streams the current draft as a PDF (no save, no generation charge).
+export const downloadResumeBuilderPdf = async (resume: unknown): Promise<Blob> => {
+  const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const response = await fetch(`${API_BASE_URL}/resume-builder/download`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ resume }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || 'resume-builder/download failed');
+  }
+  return response.blob();
+};
+
 export const resumeFromLinkedIn = () =>
   resumeBuilderPost('from-linkedin', {}) as Promise<{
     success: boolean;

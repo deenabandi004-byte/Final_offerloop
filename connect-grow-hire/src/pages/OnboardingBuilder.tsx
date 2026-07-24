@@ -1,6 +1,11 @@
 import { useState } from "react";
-import { Loader2, Sparkles, FileText } from "lucide-react";
-import { generateResumeBuilder, finalizeResumeBuilder } from "@/services/api";
+import { Loader2, Sparkles, FileText, Download } from "lucide-react";
+import {
+  generateResumeBuilder,
+  finalizeResumeBuilder,
+  downloadResumeBuilderPdf,
+  downloadPdfBlob,
+} from "@/services/api";
 import { ResumePrefill, resumePrefillFromParse } from "@/utils/onboardingPrefill";
 import { OB, obFieldLabel, obPrimaryButton } from "./onboardingTheme";
 
@@ -60,6 +65,7 @@ export const OnboardingBuilder = ({ onComplete, submitting }: OnboardingBuilderP
   const [html, setHtml] = useState("");
   const [generating, setGenerating] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState("");
 
   const sectionsValid = Object.values(sections).some((v) => v.trim());
@@ -105,6 +111,20 @@ export const OnboardingBuilder = ({ onComplete, submitting }: OnboardingBuilderP
     } catch {
       setError("Couldn't save your resume. Try again.");
       setFinalizing(false);
+    }
+  };
+
+  const handleDownload = async () => {
+    if (!resume || downloading || generating) return;
+    setError("");
+    setDownloading(true);
+    try {
+      const blob = await downloadResumeBuilderPdf(resume);
+      downloadPdfBlob(blob, "Offerloop_Resume.pdf");
+    } catch {
+      setError("Couldn't download the PDF. Try again.");
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -243,6 +263,35 @@ export const OnboardingBuilder = ({ onComplete, submitting }: OnboardingBuilderP
                 <FileText size={16} strokeWidth={1.7} />
               )}
               Use this resume
+            </button>
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={downloading || generating}
+              style={{
+                marginTop: 10,
+                width: "100%",
+                background: "none",
+                border: "none",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 7,
+                fontFamily: OB.fontBody,
+                fontSize: 13.5,
+                fontWeight: 600,
+                color: OB.ink3,
+                padding: "6px 0",
+                opacity: downloading || generating ? 0.5 : 1,
+                cursor: downloading || generating ? "default" : "pointer",
+              }}
+            >
+              {downloading ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : (
+                <Download size={15} strokeWidth={1.8} />
+              )}
+              {downloading ? "Preparing PDF..." : "Download PDF"}
             </button>
             <p style={{ fontSize: 12.5, color: OB.ink4, margin: "8px 0 0", textAlign: "center" }}>
               Saved to your account as a PDF.
