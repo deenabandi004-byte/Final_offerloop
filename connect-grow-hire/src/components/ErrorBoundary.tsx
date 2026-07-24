@@ -1,6 +1,7 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Button } from './ui/button';
+import { isChunkLoadError, reloadForNewDeploy } from '../utils/chunkReload';
 
 interface Props {
   children: ReactNode;
@@ -11,6 +12,9 @@ interface State {
   hasError: boolean;
   error: Error | null;
   errorInfo: ErrorInfo | null;
+  // Chunk error but the auto-reload guard refused (already reloaded
+  // recently): show the normal error UI instead of the holding state.
+  reloadBlocked?: boolean;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -32,6 +36,13 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    // Stale tab after a deploy: the lazy chunk it wants no longer exists.
+    // Reload picks up the new build; skip error reporting — it's not a bug.
+    if (isChunkLoadError(error)) {
+      if (reloadForNewDeploy()) return;
+      this.setState({ reloadBlocked: true });
+    }
+
     if (process.env.NODE_ENV === 'development') {
       console.error('ErrorBoundary caught an error:', error, errorInfo);
     }
@@ -61,6 +72,16 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.hasError) {
+      // Chunk-load failure: componentDidCatch is about to reload the page.
+      // Show a quiet holding state, not the error screen.
+      if (isChunkLoadError(this.state.error) && !this.state.reloadBlocked) {
+        return (
+          <div className="flex items-center justify-center min-h-[400px] p-8">
+            <p className="text-muted-foreground">Loading the latest version of Offerloop...</p>
+          </div>
+        );
+      }
+
       if (this.props.fallback) {
         return this.props.fallback;
       }
