@@ -143,10 +143,6 @@ export const OnboardingFlow = ({ onComplete }: OnboardingFlowProps) => {
     try {
       logOnboardingEvent("completed", step);
       const finalData = buildFinalData(prefill, linkedinUrl, inboxSkipped);
-      // Set BEFORE completeOnboarding: that call flips needsOnboarding in the
-      // auth context, which is the moment TourContext runs its auto-start
-      // check and reads this flag to treat the account as a fresh signup.
-      sessionStorage.setItem("onboarding_just_completed", "true");
       await completeOnboarding(finalData);
       await new Promise((r) => setTimeout(r, 300));
       await refreshUser();

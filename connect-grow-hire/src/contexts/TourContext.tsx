@@ -5,7 +5,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Joyride, { ACTIONS, EVENTS, STATUS } from 'react-joyride';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
 
@@ -19,7 +19,6 @@ import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
 const TOUR_ELEMENT_POLL_MS = 100;
 const TOUR_ELEMENT_MAX_WAIT_MS = 5000;
 const COMPLETION_AUTO_DISMISS_MS = 3000;
-const AUTO_START_DELAY_MS = 800;
 
 // -----------------------------------------------------------------------------
 // Step config type
@@ -167,30 +166,23 @@ export const TOUR_STEPS: TourStepConfig[] = [
   },
   // Ask Scout. The orchestration in ScoutSidePanel opens the panel
   // and seeds a Mark Cuban conversation so the user sees both the trigger
-  // and the assistant's strategist behavior. Route is /agent because the
-  // FloatingAskScoutButton is suppressed on /dashboard and we'll already
-  // be there for Loops on the next step (same-route advance, no nav).
+  // and the assistant's strategist behavior. Anchored on the floating
+  // Ask Scout pill, which is mounted app-wide (hidden only on /dashboard),
+  // so this shares Meeting Prep's route — same-route advance, no nav.
+  // The old /agent (Loops) route was removed from the app; pointing a step
+  // there stranded the tour on the 404 page with no tooltip (the reported
+  // "tour dies near the end" bug).
   {
     target: '[data-tour="tour-scout-button"]',
     title: 'Ask Scout',
     content: "Stuck anywhere in Offerloop? Press Cmd+K or click Ask Scout for help from your AI copilot.",
-    route: '/agent',
+    route: '/coffee-chat-prep',
     // Centered, not anchored: the Scout panel opens right-0 full-height for
     // this step's seeded demo. A 'bottom' tooltip anchored on the top-right
     // scout button lands over the panel and covers the demo, so center the
     // tooltip in the viewport (clear of the 420px panel) instead.
     placement: 'center',
     demoSurface: 'scout',
-  },
-  // Loops. Seeds a single running Loop into the React Query cache so the
-  // user sees the "works while you sleep" proposition through live
-  // mid-funnel metrics on the seeded card.
-  {
-    target: '[data-tour="tour-loops-grid"]',
-    title: 'Loops',
-    content: "Run the whole flow on autopilot. Describe who you want to reach, and a Loop keeps finding contacts, drafting emails, and surfacing replies 24/7.",
-    route: '/agent',
-    demoSurface: 'loops',
   },
   // Closer — centered send-off on Home so the tour ends where the user will
   // actually live, not parked on the Loops setup page.
@@ -272,7 +264,6 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
   const [showCompletion, setShowCompletion] = useState(false);
   const pendingStepRef = useRef<number | null>(null);
   const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hasCheckedTriggerRef = useRef(false);
 
   const currentPath = location.pathname + location.search;
 
@@ -348,15 +339,25 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
     (data: { action: string; index: number; status: string; type: string }) => {
       const { action, index, status, type } = data;
 
-      // X (close) button: mark complete and stop tour. Bailing generally
-      // leaves the user where they were, EXCEPT on /agent (the Scout/Loops
-      // steps): nobody should be stranded on the Loop setup page, so those
-      // exits land on Home.
+      // X (close) button: mark complete and stop tour, leaving the user
+      // where they were.
       if (action === ACTIONS.CLOSE) {
         markTourCompleteInFirestore();
         setRun(false);
         pendingStepRef.current = null;
-        if (location.pathname.startsWith('/agent')) navigate('/dashboard');
+        return;
+      }
+
+      // Joyride hit an internal error (e.g. a step whose target selector
+      // matches nothing at render time). Without this branch the tour just
+      // unmounts silently mid-flow — end it cleanly on Home instead of
+      // stranding the user with no tooltip and no way to resume.
+      if (status === STATUS.ERROR) {
+        console.warn(`[Tour] Joyride STATUS.ERROR on step ${index}; ending tour.`);
+        markTourCompleteInFirestore();
+        setRun(false);
+        pendingStepRef.current = null;
+        navigate('/dashboard');
         return;
       }
 
@@ -447,94 +448,17 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
           // suspenders home-route nav for the natural finish.
           navigate('/dashboard');
           completionTimerRef.current = setTimeout(dismissCompletion, COMPLETION_AUTO_DISMISS_MS);
-        } else if (location.pathname.startsWith('/agent')) {
-          // Skip path stays put EXCEPT on /agent: never strand the user on
-          // the Loops setup page; send them Home instead.
-          navigate('/dashboard');
         }
       }
     },
     [currentPath, navigate, markTourCompleteInFirestore, dismissCompletion]
   );
 
-  // Auto-start: once per session when user is logged in and past onboarding.
-  //
-  // startTour lives in a ref, NOT in this effect's dep list. Its identity
-  // changes on every navigation (it closes over currentPath), so having it
-  // as a dep meant any redirect inside the start window re-ran the effect,
-  // cancelled the in-flight check/timer, and hit the hasChecked guard on the
-  // re-run — the tour never appeared. That's exactly the /home → /find hop
-  // every brand-new account makes right after onboarding, i.e. the one user
-  // the tour exists for was the one most likely to lose the race.
-  const autoStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const startTourRef = useRef(startTour);
-  useEffect(() => {
-    startTourRef.current = startTour;
-  }, [startTour]);
-
-  useEffect(() => {
-    if (!user?.uid || user?.needsOnboarding || hasCheckedTriggerRef.current) return;
-    hasCheckedTriggerRef.current = true;
-
-    let cancelled = false;
-
-    // Only fire on a surface the tour can own. Starting while the user is
-    // still on /onboarding or mid-Stripe (/payment-success) would yank them
-    // to /find at the worst moment, so poll until they land in the app.
-    const attemptAutoStart = () => {
-      if (cancelled) return;
-      const path = window.location.pathname;
-      if (path.startsWith('/onboarding') || path.startsWith('/payment')) {
-        autoStartTimerRef.current = setTimeout(attemptAutoStart, 1000);
-        return;
-      }
-      startTourRef.current();
-    };
-
-    // A user who just completed onboarding this session is definitionally
-    // new: start the tour immediately, no Firestore round-trip to lose a
-    // race against. OnboardingFlow sets this flag as it finishes.
-    let isFreshSignup = false;
-    try {
-      isFreshSignup = sessionStorage.getItem('onboarding_just_completed') === 'true';
-      if (isFreshSignup) sessionStorage.removeItem('onboarding_just_completed');
-    } catch {
-      /* sessionStorage unavailable */
-    }
-
-    if (isFreshSignup) {
-      autoStartTimerRef.current = setTimeout(attemptAutoStart, AUTO_START_DELAY_MS);
-    } else {
-      (async () => {
-        try {
-          const snap = await getDoc(doc(db, 'users', user.uid));
-          if (cancelled) return;
-          const data = snap.data();
-          // First-time only: once the tour has been completed (or dismissed —
-          // both mark hasCompletedTour), it never auto-starts again. It used
-          // to re-trigger after 7 days away; that was more annoying than
-          // helpful. The user dropdown's "Take the tour" remains the manual
-          // re-entry point.
-          const hasCompletedTour = data?.hasCompletedTour === true;
-          if (!hasCompletedTour) {
-            autoStartTimerRef.current = setTimeout(attemptAutoStart, AUTO_START_DELAY_MS);
-          }
-        } catch (e) {
-          console.error('[Tour] Auto-start check failed:', e);
-        }
-      })();
-    }
-
-    return () => {
-      cancelled = true;
-      if (autoStartTimerRef.current) {
-        clearTimeout(autoStartTimerRef.current);
-        autoStartTimerRef.current = null;
-      }
-    };
-    // startTour intentionally omitted — consumed via startTourRef (see above).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.uid, user?.needsOnboarding]);
+  // The tour never auto-starts. It used to launch itself for brand-new
+  // accounts right after onboarding, but a forced 13-step walkthrough was
+  // too much at once and any mid-flow breakage hit exactly the users least
+  // equipped to recover. The user dropdown's "Take the tour" button is the
+  // only entry point.
 
   // Cleanup completion timer on unmount
   useEffect(() => {
