@@ -30,7 +30,7 @@ const InboxConnectNudge: React.FC<{ show: boolean }> = ({ show }) => {
     if (connecting) return;
     setConnecting(true);
     try {
-      const authUrl = await apiService.startGmailOAuth();
+      const authUrl = await apiService.startGmailOAuth("/oauth/complete");
       if (authUrl) window.open(authUrl, `gmail-oauth-${Date.now()}`, "width=600,height=700");
     } finally {
       setConnecting(false);

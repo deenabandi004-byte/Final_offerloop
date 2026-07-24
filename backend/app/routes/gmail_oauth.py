@@ -5,7 +5,7 @@ import os
 import secrets
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, redirect
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from google_auth_oauthlib.flow import Flow
 
 from app.config import GMAIL_SCOPES, OAUTH_REDIRECT_URI, get_frontend_redirect_uri
@@ -14,6 +14,37 @@ from app.services.gmail_client import _gmail_client_config, _save_user_gmail_cre
 from ..extensions import get_db
 
 gmail_oauth_bp = Blueprint('gmail_oauth', __name__, url_prefix='/api/google')
+
+
+def _sanitize_return_to(value):
+    """Validate a return_to value as a same-origin relative path.
+
+    Must start with a single "/" and contain no backslashes (browsers
+    normalize "\\" to "/", so "/\\evil.com" would become "//evil.com").
+    Returns the path or None — never an absolute/protocol-relative URL,
+    so the OAuth callback can't be turned into an open redirect.
+    """
+    if not value or not isinstance(value, str):
+        return None
+    if "\\" in value:
+        return None
+    if not value.startswith("/") or value.startswith("//"):
+        return None
+    return value
+
+
+def _resolve_redirect_base(return_to):
+    """Frontend URL the OAuth callback should redirect to.
+
+    return_to (already sanitized, from the oauth_state doc) is resolved
+    against the frontend origin; without it, fall back to the legacy
+    /signin landing so old in-flight states keep working.
+    """
+    return_to = _sanitize_return_to(return_to)
+    if return_to:
+        parts = urlsplit(get_frontend_redirect_uri())
+        return f"{parts.scheme}://{parts.netloc}{return_to}"
+    return get_frontend_redirect_uri()
 
 
 def build_gmail_oauth_url_for_user(uid, user_email=None):
@@ -89,6 +120,11 @@ def google_oauth_start():
     # Generate secure state token for CSRF protection
     state = secrets.token_urlsafe(32)
 
+    # Where the callback should send the browser afterwards. Popup flows pass
+    # /oauth/complete (a page that closes itself); page flows pass their own
+    # path so the user lands back where they started.
+    return_to = _sanitize_return_to(request.args.get("return_to"))
+
     # Store state in Firestore with user context
     # Increased expiration to 15 minutes to handle slow OAuth flows
     state_data = {
@@ -97,6 +133,8 @@ def google_oauth_start():
         "created": datetime.utcnow(),
         "expires": datetime.utcnow() + timedelta(minutes=15)
     }
+    if return_to:
+        state_data["return_to"] = return_to
 
     try:
         db.collection("oauth_state").document(state).set(state_data)
@@ -168,22 +206,13 @@ def google_oauth_callback():
     state = request.args.get("state")
     code = request.args.get("code")
 
-    if not code:
-        error = request.args.get("error")
-        error_description = request.args.get("error_description", "")
-        
-        # Check if user was denied access (not in test users list)
-        if error == "access_denied" or (error_description and "not a test user" in error_description.lower()):
-            print(f"[gmail_oauth] OAuth access denied: {error}")
-            redirect_url = get_frontend_redirect_uri()
-            redirect_url = f"{redirect_url}?gmail_error=not_test_user"
-            return redirect(redirect_url)
-        
-        return jsonify({"error": "Missing authorization code", "error_details": error}), 400
-
-    # Extract UID and expected email from state
+    # Extract UID, expected email, and return_to from state. Read up front —
+    # the access-denied branch below needs return_to too, so the popup lands
+    # back on a page that closes itself instead of /signin.
     uid = None
     expected_email_from_state = None
+    return_to = None
+    state_doc_found = False
     if state:
         try:
             sdoc = db.collection("oauth_state").document(state).get()
@@ -191,25 +220,41 @@ def google_oauth_callback():
                 print(f"[gmail_oauth] State document not found — proceeding without state validation")
                 # Don't return error - try to continue
             else:
+                state_doc_found = True
                 state_data = sdoc.to_dict() or {}
                 uid = state_data.get("uid")
                 expected_email_from_state = state_data.get("email")
-
-                # Clean up state document after use
-                try:
-                    db.collection("oauth_state").document(state).delete()
-                except Exception as cleanup_err:
-                    print(f"[gmail_oauth] Could not clean up state: {cleanup_err}")
+                return_to = _sanitize_return_to(state_data.get("return_to"))
         except Exception as e:
             print(f"[gmail_oauth] Error retrieving state: {e}")
             import traceback
             traceback.print_exc()
             # Don't fail completely - try to continue
-    else:
+
+    if not code:
+        error = request.args.get("error")
+        error_description = request.args.get("error_description", "")
+
+        # Check if user was denied access (not in test users list)
+        if error == "access_denied" or (error_description and "not a test user" in error_description.lower()):
+            print(f"[gmail_oauth] OAuth access denied: {error}")
+            redirect_url = _resolve_redirect_base(return_to)
+            sep = "&" if "?" in redirect_url else "?"
+            return redirect(f"{redirect_url}{sep}gmail_error=not_test_user")
+
+        return jsonify({"error": "Missing authorization code", "error_details": error}), 400
+
+    if state_doc_found:
+        # Clean up state document after use
+        try:
+            db.collection("oauth_state").document(state).delete()
+        except Exception as cleanup_err:
+            print(f"[gmail_oauth] Could not clean up state: {cleanup_err}")
+    elif not state:
         # no state parameter — try to get UID from auth token, otherwise fail
         uid = (getattr(request, "firebase_user", {}) or {}).get("uid")
         if not uid:
-            redirect_url = get_frontend_redirect_uri()
+            redirect_url = _resolve_redirect_base(None)
             return redirect(f"{redirect_url}?gmail_error=missing_state")
     
     try:
@@ -229,7 +274,7 @@ def google_oauth_callback():
         # downstream step would silently misbehave.
         if not gmail_email:
             print("[gmail_oauth] getProfile returned no emailAddress; aborting OAuth")
-            redirect_url = get_frontend_redirect_uri()
+            redirect_url = _resolve_redirect_base(return_to)
             sep = "&" if "?" in redirect_url else "?"
             return redirect(f"{redirect_url}{sep}gmail_error=profile_missing_email")
 
@@ -257,7 +302,7 @@ def google_oauth_callback():
             user_email = gmail_email
 
         # Allow any Gmail account to be connected (users may use different email for sending)
-        redirect_url = get_frontend_redirect_uri()
+        redirect_url = _resolve_redirect_base(return_to)
 
         # Build helper to append query params safely
         def add_param(url: str, key: str, value: str) -> str:
@@ -287,11 +332,8 @@ def google_oauth_callback():
         except Exception as e:
             print(f"[gmail_watch] Failed to start watch for uid={uid}: {e}")
 
-        # Clean up state document
-        if state:
-            db.collection("oauth_state").document(state).delete()
-
-        # 6) Redirect back with ?connected=gmail so SignIn.tsx can react
+        # 6) Redirect back with ?connected=gmail (state doc already cleaned up
+        # right after the read, before token exchange)
         redirect_url = add_param(redirect_url, "connected", "gmail")
         return redirect(redirect_url)
 
@@ -308,7 +350,7 @@ def google_oauth_callback():
             if "scope has changed" in str(e).lower()
             else "token_exchange_failed"
         )
-        redirect_url = get_frontend_redirect_uri()
+        redirect_url = _resolve_redirect_base(return_to)
         sep = "&" if "?" in redirect_url else "?"
         return redirect(f"{redirect_url}{sep}gmail_error={error_code}")
 

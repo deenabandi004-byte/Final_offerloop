@@ -71,7 +71,9 @@ export const OnboardingInbox = ({ onDone, submitting }: Props) => {
     }
     setConnecting(true);
     try {
-      const authUrl = await apiService.startGmailOAuth();
+      // /oauth/complete closes the popup after Google redirects back, which
+      // is what flips popup.closed for the poll below.
+      const authUrl = await apiService.startGmailOAuth("/oauth/complete");
       if (!authUrl) throw new Error("no auth url");
       const popup = window.open(
         authUrl,
