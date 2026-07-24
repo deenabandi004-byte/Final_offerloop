@@ -53,7 +53,6 @@ import GeorgetownLogo from '@/assets/Georgetown logo.png';
 import DartmouthLogo from '@/assets/Dartmouth logo.png';
 
 import DavidJi from '@/assets/David-Ji.jpeg';
-import JacksonLeck from '@/assets/Jackson-Leck.jpeg';
 import SarahU from '@/assets/Sarah-Ucuzoglu.jpeg';
 import DylanRoby from '@/assets/Dylan-Roby.jpeg';
 import VibushaVadivel from '@/assets/Vibusha-Vadivel.jpeg';
@@ -65,7 +64,6 @@ import JuliannaSeymour from '@/assets/Julianna-Seymour.jpeg';
 import ReeseHafner from '@/assets/Reese-Hafner.jpeg';
 import LouisFaillace from '@/assets/Louis-Faillace.jpeg';
 
-import BlackstoneLogo from '@/assets/Blackstone.png';
 import PwCLogo from '@/assets/PwC.png';
 import EvercoreLogo from '@/assets/Evercore.png';
 import USCSchoolLogo from '@/assets/USClogo.png';
@@ -158,15 +156,6 @@ const STORIES = [
       "As an international student, I had no pre-existing network. Offerloop let me find and connect with professionals that turned into an offer.",
     logoText: 'FedEx',
     logoSrc: null as string | null,
-  },
-  {
-    name: 'Jackson Leck',
-    role: 'PE Intern, Blackstone',
-    photo: JacksonLeck,
-    quote:
-      "I had so many recruiting tabs open. Now I have one. Everything I need in a single place.",
-    logoText: null,
-    logoSrc: BlackstoneLogo,
   },
   {
     name: 'Sarah Ucuzoglu',

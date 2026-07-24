@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import './BulletinBoard.css';
 import DylanRobyPhoto from '@/assets/Dylan-Roby.jpeg';
-import JacksonLeckPhoto from '@/assets/Jackson-Leck.jpeg';
 import VibushaVadivelPhoto from '@/assets/Vibusha-Vadivel.jpeg';
 import EliHamouPhoto from '@/assets/EliHamou.png';
 import MatthewDolinsPhoto from '@/assets/Matthew-Dolins.png';
@@ -30,7 +29,6 @@ type Note = {
 // fresh instead of duplicating those faces.
 const notes: Note[] = [
   { type: 'landed', quote: 'Offerloop does the work I spent hundreds of hours doing to land my internship — in minutes.', name: 'Dylan Roby', role: 'IB Analyst, Evercore', tack: 'tack-red', rotate: -1.2, pinOffset: -8, pinRotate: -6, photo: DylanRobyPhoto },
-  { type: 'review', quote: 'I had so many recruiting tabs open. Now I have one. Everything I need in a single place.', name: 'Jackson Leck', role: 'PE Intern, Blackstone', tack: 'tack-blue', rotate: 0.8, pinOffset: 4, pinRotate: 5, photo: JacksonLeckPhoto },
   { type: 'landed', quote: 'Sent 12 emails in 10 minutes. Got 4 coffee chats. One turned into my summer offer.', name: 'Vibusha Vadivel', role: 'Incoming SWE Intern, IBM', tack: 'tack-yellow', rotate: 1.4, pinOffset: -4, pinRotate: -8, photo: VibushaVadivelPhoto },
   { type: 'review', quote: 'The coffee chat prep alone saved me hours. I walked into every call actually knowing what to say.', name: 'Eli Hamou', role: 'Audit Intern, Deloitte', tack: 'tack-red', rotate: -1.0, pinOffset: 6, pinRotate: 4, photo: EliHamouPhoto },
   { type: 'landed', quote: 'Got my Deloitte offer after networking with 3 consultants I found through Offerloop in a single afternoon.', name: 'Matthew Dolins', role: 'Incoming Tax Intern, Deloitte', tack: 'tack-blue', rotate: 0.6, pinOffset: -2, pinRotate: 7, photo: MatthewDolinsPhoto },
