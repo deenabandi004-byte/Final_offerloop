@@ -21,6 +21,7 @@ from ..extensions import require_firebase_auth, get_db
 resume_builder_bp = Blueprint('resume_builder', __name__, url_prefix='/api/resume-builder')
 
 GENERATION_CAP = 10
+EDITOR_DAILY_CAP = 30
 RESUME_FILENAME = "Offerloop_Resume.pdf"
 
 
@@ -39,6 +40,29 @@ def _check_and_count_attempt(uid: str):
             'message': 'You have used all free resume generations.',
         }), 429
     ref.update({'resumeBuilderGenerations': firestore.Increment(1)})
+    return None
+
+
+def _check_and_count_editor_attempt(uid: str):
+    """Daily cap for the in-app resume editor (free, separate from the
+    lifetime onboarding cap). Counts the attempt up front, success or not.
+
+    Returns an error response tuple if capped, else None.
+    """
+    from datetime import datetime, timezone
+
+    db = get_db()
+    ref = db.collection('users').document(uid)
+    doc = ref.get()
+    data = (doc.to_dict() or {}) if doc.exists else {}
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    used = data.get('resumeEditorCount', 0) if data.get('resumeEditorDate') == today else 0
+    if used >= EDITOR_DAILY_CAP:
+        return jsonify({
+            'error': 'editor_limit_reached',
+            'message': 'You have hit the daily edit limit. It resets tomorrow.',
+        }), 429
+    ref.update({'resumeEditorDate': today, 'resumeEditorCount': used + 1})
     return None
 
 
@@ -73,7 +97,12 @@ def generate():
     prompt = (data.get('prompt') or '').strip()
     if not prompt:
         return jsonify({'error': 'prompt is required'}), 400
-    capped = _check_and_count_attempt(uid)
+    # The in-app resume editor is free with its own daily cap; only the
+    # onboarding builder burns the lifetime generation cap.
+    if data.get('context') == 'editor':
+        capped = _check_and_count_editor_attempt(uid)
+    else:
+        capped = _check_and_count_attempt(uid)
     if capped:
         return capped
     try:
@@ -81,6 +110,26 @@ def generate():
     except ResumeBuilderError as e:
         return jsonify({'error': str(e)}), 502
     return jsonify({'success': True, 'resume': resume.model_dump(), 'html': render_html(resume)})
+
+
+@resume_builder_bp.route('/current', methods=['GET'])
+@require_firebase_auth
+def current():
+    """Return the user's stored resume in builder (canonical) form + HTML
+    preview, so the in-app editor can start a refine loop from it. Returns
+    resume: null when the user has no stored resume yet."""
+    uid = request.firebase_user['uid']
+    db = get_db()
+    doc = db.collection('users').document(uid).get()
+    parsed = (doc.to_dict() or {}).get('resumeParsed') if doc.exists else None
+    if not isinstance(parsed, dict) or not parsed:
+        return jsonify({'success': True, 'resume': None, 'html': None})
+    try:
+        resume = from_resume_parsed(parsed)
+        return jsonify({'success': True, 'resume': resume.model_dump(), 'html': render_html(resume)})
+    except Exception as e:
+        print(f"[ResumeBuilder] current conversion failed: {e}")
+        return jsonify({'success': True, 'resume': None, 'html': None})
 
 
 @resume_builder_bp.route('/from-linkedin', methods=['POST'])

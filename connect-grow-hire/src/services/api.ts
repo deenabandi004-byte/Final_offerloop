@@ -2927,12 +2927,30 @@ async function resumeBuilderPost(path: string, body: unknown) {
   return data;
 }
 
-export const generateResumeBuilder = (prompt: string, previous: unknown | null) =>
-  resumeBuilderPost('generate', { prompt, previous }) as Promise<{
+export const generateResumeBuilder = (
+  prompt: string,
+  previous: unknown | null,
+  // 'editor' = the in-app Resume page editor: free, daily cap, does not burn
+  // the onboarding lifetime generation cap.
+  context?: 'editor',
+) =>
+  resumeBuilderPost('generate', { prompt, previous, ...(context ? { context } : {}) }) as Promise<{
     success: boolean;
     resume: unknown;
     html: string;
   }>;
+
+// The stored resume (users/{uid}.resumeParsed) in builder form, for starting
+// an edit loop on the Resume page. resume is null when none is stored yet.
+export const getResumeBuilderCurrent = async () => {
+  const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const response = await fetch(`${API_BASE_URL}/resume-builder/current`, { headers });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'resume-builder/current failed');
+  return data as { success: boolean; resume: unknown | null; html: string | null };
+};
 
 export const finalizeResumeBuilder = (resume: unknown) =>
   resumeBuilderPost('finalize', { resume }) as Promise<{

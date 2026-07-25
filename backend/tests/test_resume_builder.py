@@ -231,6 +231,61 @@ class TestResumeBuilderRoutes:
         assert res.status_code == 400
 
 
+class TestResumeEditorRoutes:
+    """In-app editor: /current + the free editor path through /generate."""
+
+    def test_current_returns_resume_and_html(self, client, monkeypatch):
+        _mock_db(monkeypatch, {"resumeParsed": _LINKEDIN_PARSED})
+        res = client.get("/api/resume-builder/current", headers=AUTH)
+        assert res.status_code == 200
+        body = res.get_json()
+        assert body["resume"]["contact"]["name"] == "Jane Trojan"
+        assert "Jane Trojan" in body["html"]
+
+    def test_current_without_stored_resume_returns_null(self, client, monkeypatch):
+        _mock_db(monkeypatch, {})
+        res = client.get("/api/resume-builder/current", headers=AUTH)
+        assert res.status_code == 200
+        body = res.get_json()
+        assert body["resume"] is None
+        assert body["html"] is None
+
+    def test_editor_context_skips_lifetime_cap(self, client, monkeypatch):
+        import backend.app.routes.resume_builder as rb
+        _mock_db(monkeypatch, {"resumeBuilderGenerations": 10})
+        monkeypatch.setattr(rb, "generate_canonical_resume", lambda p, prev: _sample_resume())
+        res = client.post(
+            "/api/resume-builder/generate",
+            json={"prompt": "make the club bullets stronger", "context": "editor"},
+            headers=AUTH,
+        )
+        assert res.status_code == 200
+        assert res.get_json()["resume"]["contact"]["name"] == "Jane Trojan"
+
+    def test_editor_daily_cap_429(self, client, monkeypatch):
+        from datetime import datetime, timezone
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        _mock_db(monkeypatch, {"resumeEditorDate": today, "resumeEditorCount": 30})
+        res = client.post(
+            "/api/resume-builder/generate",
+            json={"prompt": "x", "context": "editor"},
+            headers=AUTH,
+        )
+        assert res.status_code == 429
+        assert res.get_json()["error"] == "editor_limit_reached"
+
+    def test_editor_count_resets_on_new_day(self, client, monkeypatch):
+        import backend.app.routes.resume_builder as rb
+        _mock_db(monkeypatch, {"resumeEditorDate": "2020-01-01", "resumeEditorCount": 30})
+        monkeypatch.setattr(rb, "generate_canonical_resume", lambda p, prev: _sample_resume())
+        res = client.post(
+            "/api/resume-builder/generate",
+            json={"prompt": "add my SQL project", "context": "editor"},
+            headers=AUTH,
+        )
+        assert res.status_code == 200
+
+
 class TestDashSanitizer:
     """Generated resume text must never carry em or en dashes; date fields
     are exempt because serializers join ranges downstream."""
