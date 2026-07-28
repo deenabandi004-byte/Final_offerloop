@@ -514,30 +514,52 @@ def create_app() -> Flask:
                     one_day_ms = 86400 * 1000
                     renewed = 0
                     failed = 0
-                    for user_doc in db.collection("users").stream():
+                    # Materialize the user list here so a mid-iteration
+                    # Firestore page-fetch failure raises inside the outer
+                    # try (aborts cycle, retries in 6 days) rather than
+                    # partway through the loop (skipping later users for
+                    # 6 days). The per-user try below only guards the body.
+                    user_docs = list(db.collection("users").stream())
+                    for user_doc in user_docs:
                         uid = user_doc.id
-                        gmail_ref = db.collection("users").document(uid).collection("integrations").document("gmail")
-                        gmail_doc = gmail_ref.get()
-                        if not gmail_doc.exists:
-                            continue
-                        data = gmail_doc.to_dict() or {}
-                        if not (data.get("token") or data.get("refresh_token")):
-                            continue
-                        watch_exp = data.get("watchExpiration")
-                        if watch_exp is not None:
-                            try:
-                                watch_exp = int(watch_exp)
-                            except (TypeError, ValueError):
-                                watch_exp = None
-                        if watch_exp is not None and (watch_exp - now_ms) >= one_day_ms:
-                            continue
                         try:
-                            renew_gmail_watch(uid)
-                            renewed += 1
-                        except Exception as e:
+                            gmail_ref = db.collection("users").document(uid).collection("integrations").document("gmail")
+                            gmail_doc = gmail_ref.get()
+                            if not gmail_doc.exists:
+                                continue
+                            data = gmail_doc.to_dict() or {}
+                            if not (data.get("token") or data.get("refresh_token")):
+                                continue
+                            watch_exp = data.get("watchExpiration")
+                            if watch_exp is not None:
+                                try:
+                                    watch_exp = int(watch_exp)
+                                except (TypeError, ValueError):
+                                    watch_exp = None
+                            if watch_exp is not None and (watch_exp - now_ms) >= one_day_ms:
+                                continue
+                            try:
+                                renew_gmail_watch(uid)
+                                renewed += 1
+                            except Exception as e:
+                                failed += 1
+                                _watch_logger.error("Watch renewal failed uid=%s: %s", uid, e)
+                        except Exception:
                             failed += 1
-                            _watch_logger.error("Watch renewal failed uid=%s: %s", uid, e)
+                            _watch_logger.exception("Watch renewal aborted for uid=%s", uid)
                     _watch_logger.info("Watch renewal complete: renewed=%d failed=%d", renewed, failed)
+                    # Heartbeat: mark cycle success for the daemon watchdog
+                    # at system/gmail_watch. Failure to write must not
+                    # break the cycle.
+                    try:
+                        from datetime import datetime, timezone
+                        db.collection("system").document("gmail_watch").set({
+                            "lastSuccessAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                            "renewedCount": renewed,
+                            "failedCount": failed,
+                        })
+                    except Exception:
+                        _watch_logger.exception("Failed to write gmail_watch heartbeat")
             except Exception as e:
                 _watch_logger.error("Watch renewal loop error: %s", e)
             time.sleep(SIX_DAYS)
@@ -562,12 +584,15 @@ def create_app() -> Flask:
     # Nudge: 8h (2h slack on 6h cadence)
     # Queue: 7d (slightly over one-week Tuesday cadence)
     # Aggregation: 8d (slightly over one-week Sunday cadence)
-    # Gmail watch: 7d (6-day renewal cadence + 1d slack)
+    # Gmail watch: 6.5d (6-day renewal cadence + 12h slack). MUST stay
+    # under 7d — Gmail push watches expire at exactly 7d, so this must
+    # fire BEFORE expiry to leave time for investigation / manual re-arm.
+    # A 7d threshold means the alert lands the same moment watches die.
     _STALENESS = {
         "nudge_scanner": 8 * 3600,
         "queue_scanner": 7 * 24 * 3600,
         "aggregation_scanner": 8 * 24 * 3600,
-        "gmail_watch": 7 * 24 * 3600,
+        "gmail_watch": 6 * 24 * 3600 + 12 * 3600,
     }
 
     def _watchdog_loop():
@@ -610,13 +635,30 @@ def create_app() -> Flask:
                             age_seconds = (now - last_success).total_seconds()
                             if age_seconds > threshold_seconds:
                                 stale_scanners.append(scanner_name)
-                                _watchdog_logger.warning(
+                                _watchdog_logger.critical(
                                     "STALE: %s last succeeded %.1f hours ago "
                                     "(threshold: %.1f hours)",
                                     scanner_name,
                                     age_seconds / 3600,
                                     threshold_seconds / 3600,
                                 )
+                                # Emit a PostHog event so staleness is
+                                # queryable outside logs. sync=True because
+                                # the daemon can die between async flushes.
+                                try:
+                                    from .app.utils.posthog_client import track_event
+                                    track_event(
+                                        None,
+                                        "daemon_stale",
+                                        {
+                                            "scanner": scanner_name,
+                                            "age_hours": age_seconds / 3600,
+                                            "threshold_hours": threshold_seconds / 3600,
+                                        },
+                                        sync=True,
+                                    )
+                                except Exception:
+                                    _watchdog_logger.exception("Failed to emit daemon_stale event")
                         except Exception:
                             _watchdog_logger.exception(
                                 "Error checking health for %s", scanner_name
