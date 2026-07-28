@@ -249,6 +249,16 @@ const Pricing = () => {
   const isEdu = isEduEligible(user);
   const audience: 'student' | 'list' = isEdu ? 'student' : 'list';
 
+  // Display-only toggle: preview prices with or without the .edu discount.
+  // Checkout NEVER follows the preview — it always uses the server-verified
+  // `audience` above, so a non-.edu user previewing $4.99 still checks out at
+  // list (and the CTA fine print says so).
+  const [previewAudience, setPreviewAudience] = useState<'student' | 'list'>(audience);
+  useEffect(() => {
+    setPreviewAudience(isEdu ? 'student' : 'list');
+  }, [isEdu]);
+  const showEduPrices = previewAudience === 'student';
+
   // Pull runtime tier config (cached via React Query). Drives prices, Stripe
   // SKUs, trial days, active promos, top-up packs. Falls back to
   // lib/constants.ts defaults if the endpoint is unreachable.
@@ -259,8 +269,9 @@ const Pricing = () => {
   const proStop = proStops.find((s) => s.default) ?? proStops[0];
   const eliteStop = eliteStops.find((s) => s.default) ?? eliteStops[0];
 
+  // Real price for this user (server-verified audience) — used in FAQ/trial
+  // copy. Card display uses the preview toggle instead (proShown/eliteShown).
   const proMonthlyPrice = proStop[audience];
-  const eliteMonthlyPrice = eliteStop[audience];
   // List prices anchor the strikethrough when the .edu discount applies.
   const proListPrice = proStop.list;
   const eliteListPrice = eliteStop.list;
@@ -690,8 +701,9 @@ const Pricing = () => {
   const proEmails = emailsFromCredits(proStop.credits, tierConfig.credit_costs.find_contact).toLocaleString();
   const eliteEmails = emailsFromCredits(eliteStop.credits, tierConfig.credit_costs.find_contact).toLocaleString();
 
-  const proShown = proMonthlyPrice;
-  const eliteShown = eliteMonthlyPrice;
+  // Card prices follow the preview toggle; checkout follows real eligibility.
+  const proShown = proStop[previewAudience];
+  const eliteShown = eliteStop[previewAudience];
 
   const scrollToCompare = () => {
     document.getElementById('compare')?.scrollIntoView({ behavior: 'smooth' });
@@ -947,6 +959,62 @@ const Pricing = () => {
             </div>
           </div>
 
+          {/* .edu price preview toggle — display-only. Checkout always charges
+              the server-verified audience, never the preview. */}
+          <div
+            className="of-up"
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              marginTop: -16,
+              marginBottom: 30,
+              animationDelay: '.08s',
+            }}
+          >
+            <div
+              role="group"
+              aria-label="Preview prices with or without a .edu email"
+              style={{
+                display: 'inline-flex',
+                background: T.paper,
+                border: `1px solid ${T.border}`,
+                borderRadius: 100,
+                padding: 4,
+                gap: 2,
+                boxShadow: '0 1px 3px rgba(15,37,69,0.06)',
+              }}
+            >
+              {([
+                ['student', 'With .edu email'],
+                ['list', 'Without .edu email'],
+              ] as const).map(([value, label]) => {
+                const active = previewAudience === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setPreviewAudience(value)}
+                    style={{
+                      border: 'none',
+                      cursor: 'pointer',
+                      borderRadius: 100,
+                      padding: '7px 16px',
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      fontFamily: T.sans,
+                      background: active ? CTA_GRADIENT : 'transparent',
+                      color: active ? '#fff' : T.ink3,
+                      transition: `all .2s ${EASE}`,
+                    }}
+                  >
+                    {value === 'student' ? `${label} · 50% off` : label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* ======= PLAN CARDS ======= */}
           <div
             className="grid grid-cols-1 md:grid-cols-3 gap-5 items-start"
@@ -1082,7 +1150,7 @@ const Pricing = () => {
               </div>
               <div style={{ fontSize: 13, color: T.ink3, marginBottom: 16 }}>Best for students</div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, marginBottom: 2 }}>
-                {isEdu && (
+                {showEduPrices && (
                   <span style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 500, color: T.ink4, textDecoration: 'line-through', fontVariantNumeric: 'tabular-nums' }}>
                     {fmt(proListPrice)}
                   </span>
@@ -1097,7 +1165,7 @@ const Pricing = () => {
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
                 <Chip color={T.greenFg} background={T.greenBg}>{trialDays} days free</Chip>
-                {isEdu && (
+                {showEduPrices && (
                   <Chip color={T.primary} background={T.primary100} icon={<GraduationCap size={12} />}>
                     50% .edu discount
                   </Chip>
@@ -1156,7 +1224,9 @@ const Pricing = () => {
               )}
 
               <div style={{ fontSize: 12, color: T.ink4, textAlign: 'center', marginTop: 10 }}>
-                {trialDays} days free, then {fmt(proShown)}/mo. Cancel anytime.
+                {showEduPrices && !isEdu
+                  ? `${trialDays} days free, then ${fmt(proStop.student)}/mo with a .edu email (${fmt(proStop.list)} without). Cancel anytime.`
+                  : `${trialDays} days free, then ${fmt(proStop[audience])}/mo. Cancel anytime.`}
               </div>
 
               <div style={{ borderTop: `1px solid ${T.borderLight}`, marginTop: 14, paddingTop: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1209,7 +1279,7 @@ const Pricing = () => {
               </div>
               <div style={{ fontSize: 13, color: '#A9B2C4', marginBottom: 16 }}>For serious recruiting season</div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, marginBottom: 2 }}>
-                {isEdu && (
+                {showEduPrices && (
                   <span style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 500, color: '#7C8595', textDecoration: 'line-through', fontVariantNumeric: 'tabular-nums' }}>
                     {fmt(eliteListPrice)}
                   </span>
@@ -1223,7 +1293,7 @@ const Pricing = () => {
                 <strong style={{ color: '#C3CAD6', fontWeight: 600 }}>~{eliteEmails} emails</strong> / month · {eliteStop.credits.toLocaleString()} credits
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
-                {isEdu && (
+                {showEduPrices && (
                   <Chip color="#B9C4E4" background="rgba(156,168,205,0.16)" icon={<GraduationCap size={12} />}>
                     50% .edu discount
                   </Chip>
