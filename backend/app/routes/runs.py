@@ -244,12 +244,58 @@ def prompt_search():
         # Credit-efficiency: pdl_client.search_contacts_from_prompt now caps
         # the PDL fetch at max_contacts + min(exclude_count, 3), so the
         # worst-case credit burn per search is ~max_contacts + 3.
+        # ---- JIT firm-employee cache lookup (Phase 3) ---------------------
+        # Check firm_employees BEFORE PDL. Gated by ENABLE_FIRM_CACHE_LOOKUP
+        # env flag (independent of the write flag). Returns cache hits in
+        # App-shape with Email="" — the existing email-quality machinery
+        # downstream flags them so nothing breaks. If cache fills the whole
+        # tier limit, PDL is skipped entirely (0 credits). If partial, PDL
+        # is called for the remainder and results are deduped.
+        cache_hits: list[dict] = []
+        cache_hit_metadata: dict | None = None
         try:
-            contacts, retry_level_used, already_saved_contacts, adjacency_metadata = search_contacts_from_prompt(
-                parsed, max_contacts, exclude_keys=seen_contact_set, user_profile=user_data
-            )
-            adjacency_metadata = adjacency_metadata or {}
-            adjacency_metadata.setdefault("provider", "pdl")
+            from app.services.firm_cache import search_firm_cache
+            from app.services.firm_cache.reader import _flag_enabled as _lookup_enabled
+            if _lookup_enabled():
+                cache_hits, _, _, cache_hit_metadata = search_firm_cache(
+                    parsed, max_contacts, exclude_keys=seen_contact_set
+                )
+                if cache_hits:
+                    print(f"[FirmCache] LOOKUP hit — {len(cache_hits)}/{max_contacts} served from firm_employees")
+        except Exception as e:
+            print(f"[FirmCache] lookup failed (non-fatal, falling through to PDL): {e}")
+            cache_hits = []
+            cache_hit_metadata = None
+
+        try:
+            if len(cache_hits) >= max_contacts:
+                # Full cache hit — skip PDL entirely (0 credits).
+                contacts = cache_hits[:max_contacts]
+                retry_level_used = 0
+                already_saved_contacts = []
+                adjacency_metadata = cache_hit_metadata or {}
+                adjacency_metadata.setdefault("provider", "firm_cache")
+                print(f"[FirmCache] LOOKUP full-hit — skipped PDL, saved ~${max_contacts * 0.20:.2f} in credits")
+            else:
+                # Partial or empty cache — call PDL for the remainder. Cache
+                # hits are added to the exclusion set so PDL won't re-return them.
+                pdl_target = max_contacts - len(cache_hits)
+                pdl_exclude = set(seen_contact_set or set())
+                for ch in cache_hits:
+                    fn = (ch.get("FirstName") or "").strip().lower()
+                    ln = (ch.get("LastName") or "").strip().lower()
+                    co = (ch.get("Company") or "").strip().lower()
+                    if fn and ln and co:
+                        pdl_exclude.add((fn, ln, co))
+                pdl_contacts, retry_level_used, already_saved_contacts, adjacency_metadata = search_contacts_from_prompt(
+                    parsed, pdl_target, exclude_keys=pdl_exclude, user_profile=user_data
+                )
+                contacts = cache_hits + (pdl_contacts or [])
+                adjacency_metadata = adjacency_metadata or {}
+                adjacency_metadata.setdefault("provider", "pdl")
+                if cache_hits:
+                    adjacency_metadata["firm_cache_hits"] = len(cache_hits)
+                    adjacency_metadata["pdl_fills"] = len(pdl_contacts or [])
         except Exception as pdl_err:
             # Reliability fallback only (NOT a credit-efficient secondary):
             # if PDL itself is unreachable (5xx/timeout/etc.), fall through
