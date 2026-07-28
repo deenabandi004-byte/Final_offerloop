@@ -210,6 +210,15 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Firm-employee cache — server-only, person-level cache of PDL search
+    // results (JIT-populated). Clients must never read directly: doing so
+    // would let a user enumerate every LinkedIn profile ever cached from
+    // anyone's search, bypassing tier limits + the app's dedup guardrails.
+    // Backend (admin SDK) reads via app.services.firm_cache.reader.
+    match /firm_employees/{docId} {
+      allow read, write: if false;
+    }
+
     // Default: deny all other access
     match /{document=**} {
       allow read, write: if false;
