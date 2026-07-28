@@ -5184,9 +5184,11 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
                 # if the doc already exists.
                 try:
                     from app.services.firm_cache import cache_pdl_contacts
+                    from app.services.firm_cache.writer import _flag_enabled
+                    _flag = _flag_enabled()
+                    _in = len(cached["results"])
                     n = cache_pdl_contacts(cached["results"], shape="app")
-                    if n:
-                        print(f"[FirmCache] queued {n} docs on cache-hit path")
+                    print(f"[FirmCache] cache-hit path: flag={_flag} in={_in} queued={n}")
                 except Exception as e:
                     print(f"[FirmCache] cache-hit write failed (non-fatal): {e}")
                 return (
@@ -5462,10 +5464,20 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
     # no user-visible latency, never breaks the search.
     try:
         from app.services.firm_cache import cache_pdl_contacts
+        from app.services.firm_cache.writer import _flag_enabled
         if filtered:
+            _flag = _flag_enabled()
             n = cache_pdl_contacts(filtered, shape="app")
-            if n:
-                print(f"[FirmCache] queued {n} docs on fresh-PDL path")
+            print(f"[FirmCache] fresh-PDL path: flag={_flag} in={len(filtered)} queued={n}")
+            # If flag is on but nothing queued, dump the first contact's key
+            # fields so we can see why the normalizer rejected everything.
+            if _flag and n == 0 and filtered:
+                c = filtered[0]
+                print(f"[FirmCache] sample dropped contact: "
+                      f"LinkedIn={bool(c.get('LinkedIn'))} "
+                      f"Company={c.get('Company')!r} "
+                      f"State={c.get('State')!r} "
+                      f"City={c.get('City')!r}")
     except Exception as e:
         print(f"[FirmCache] fresh-PDL write failed (non-fatal): {e}")
 
