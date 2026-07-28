@@ -498,8 +498,11 @@ def create_app() -> Flask:
     def _watch_renewal_loop():
         _watch_logger.info("Gmail watch renewal thread started (interval=6 days)")
         SIX_DAYS = 6 * 24 * 3600
+        # Boot stabilization delay (matches agent_daemon, watchdog).
+        # Sleep-at-end below means a redeploy-restarted process runs its
+        # first cycle ~10 min after boot, not 6 days later.
+        time.sleep(600)
         while True:
-            time.sleep(SIX_DAYS)
             try:
                 with app.app_context():
                     from .app.routes.admin import renew_watches as _renew_endpoint
@@ -537,10 +540,14 @@ def create_app() -> Flask:
                     _watch_logger.info("Watch renewal complete: renewed=%d failed=%d", renewed, failed)
             except Exception as e:
                 _watch_logger.error("Watch renewal loop error: %s", e)
+            time.sleep(SIX_DAYS)
 
-    t = threading.Thread(target=_watch_renewal_loop, daemon=True)
-    t.start()
-    _watch_logger.info("Gmail watch renewal thread registered (first run in 6 days)")
+    if os.getenv("WATCH_RENEWAL_ENABLED", "true").lower() == "true":
+        watch_renewal_thread = threading.Thread(target=_watch_renewal_loop, daemon=True)
+        watch_renewal_thread.start()
+        _watch_logger.info("Gmail watch renewal thread registered (first run in ~10 minutes)")
+    else:
+        _watch_logger.info("Gmail watch renewal disabled via WATCH_RENEWAL_ENABLED=false")
 
     # ---- Daemon healthcheck watchdog (every 1 hour) ----------------------
     #
