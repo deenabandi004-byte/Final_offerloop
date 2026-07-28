@@ -2,6 +2,7 @@ import { type ReactNode } from "react";
 import { LockKeyhole, Unlock } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import { isEduEligible } from "@/lib/eduDiscount";
 
 interface ProGateProps {
   title: string;
@@ -66,8 +67,8 @@ export function ProGate({ title, description, videoId, children, bypass }: ProGa
           </button>
 
           <div className="mt-3 flex flex-col items-center space-y-1">
-            <span className="text-sm font-medium text-foreground">14-day free trial</span>
-            <span className="text-xs text-muted-foreground">Then $9.99/mo · Cancel anytime</span>
+            <span className="text-sm font-medium text-foreground">7-day free trial</span>
+            <span className="text-xs text-muted-foreground">Then {isEduEligible(user) ? '$4.99' : '$9.99'}/mo · Cancel anytime</span>
           </div>
         </div>
       </div>

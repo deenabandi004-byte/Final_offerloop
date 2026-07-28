@@ -375,12 +375,12 @@ export const CREDIT_SYSTEM = {
     },
     pro: {
       name: "Pro",
-      price: "$9.99/month",
-      credits: 1500,
-      maxCredits: 1500,
+      price: "$9.99/month, or $4.99/month with a .edu email (50% student discount)",
+      credits: 2000,
+      maxCredits: 2000,
       maxContactsPerSearch: 8,
       features: [
-        "1,500+ monthly credits",
+        "2,000 monthly credits",
         "Up to 8 contacts per search",
         "Resume-matched personalized emails",
         "Priority support"
@@ -388,9 +388,9 @@ export const CREDIT_SYSTEM = {
     },
     elite: {
       name: "Elite",
-      price: "$34.99/month",
-      credits: 3000,
-      maxCredits: 3000,
+      price: "$34.99/month, or $17.49/month with a .edu email (50% student discount)",
+      credits: 5000,
+      maxCredits: 5000,
       maxContactsPerSearch: 15,
       features: [
         "3,000 monthly credits",
@@ -438,7 +438,7 @@ export const TROUBLESHOOTING = {
       "Check your credits in the sidebar",
       "Go to Pricing to upgrade your plan",
       "Credits reset monthly - check your reset date",
-      "Pro ($9.99) gives 2,000 credits, Elite ($34.99) gives 5,000"
+      "Pro ($9.99, or $4.99 with a .edu email) gives 2,000 credits, Elite ($34.99, or $17.49 with .edu) gives 5,000"
     ]
   },
 

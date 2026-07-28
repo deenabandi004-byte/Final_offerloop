@@ -263,16 +263,19 @@ STRIPE_PRICE_CATALOG = {
         'monthly': {
             'student': {
                 1000: os.getenv('STRIPE_PRO_MONTHLY_STUDENT_1K',  ''),
-                # 2026-07-27 pricing simplification: Pro is $9.99/mo for everyone.
-                # New live SKU created via Stripe API (lookup_key
-                # pro_monthly_999_2026). The old $14.99 SKU stays live for
-                # existing subscribers only (resolved via the legacy constant).
-                2000: os.getenv('STRIPE_PRO_MONTHLY_STUDENT_2K',  'price_1TxzloERY2WrVHp15NcO6deA'),
+                # 2026-07-28 .edu discount: verified .edu users pay 50% off
+                # ($4.99). Live SKU created via Stripe API (lookup_key
+                # pro_monthly_edu_499_2026). The $9.99 SKU moved to the 'list'
+                # slot below; the old $14.99 SKU stays live for existing
+                # subscribers only (resolved via the legacy constant).
+                2000: os.getenv('STRIPE_PRO_MONTHLY_STUDENT_2K',  'price_1TyFiKERY2WrVHp1vTi7L5Wj'),
                 3000: os.getenv('STRIPE_PRO_MONTHLY_STUDENT_3K',  ''),
                 4000: os.getenv('STRIPE_PRO_MONTHLY_STUDENT_4K',  ''),
             },
             'list': {
-                2000: os.getenv('STRIPE_PRO_MONTHLY_LIST_2K',     ''),
+                # $9.99/mo — the 2026-07-27 simplification price, now the
+                # non-.edu list price (lookup_key pro_monthly_999_2026).
+                2000: os.getenv('STRIPE_PRO_MONTHLY_LIST_2K',     'price_1TxzloERY2WrVHp15NcO6deA'),
             },
         },
         'annual': {
@@ -288,11 +291,13 @@ STRIPE_PRICE_CATALOG = {
         'monthly': {
             'student': {
                 3000: os.getenv('STRIPE_ELITE_MONTHLY_STUDENT_3K', ''),
-                5000: os.getenv('STRIPE_ELITE_MONTHLY_STUDENT_5K', STRIPE_ELITE_PRICE_ID),
+                # 2026-07-28 .edu discount: $17.49 (50% off list), lookup_key
+                # elite_monthly_edu_1749_2026. List $34.99 moved to slot below.
+                5000: os.getenv('STRIPE_ELITE_MONTHLY_STUDENT_5K', 'price_1TyFiKERY2WrVHp15fnEAhPu'),
                 7000: os.getenv('STRIPE_ELITE_MONTHLY_STUDENT_7K', ''),
             },
             'list': {
-                5000: os.getenv('STRIPE_ELITE_MONTHLY_LIST_5K',    ''),
+                5000: os.getenv('STRIPE_ELITE_MONTHLY_LIST_5K',    STRIPE_ELITE_PRICE_ID),
             },
         },
         'annual': {
@@ -341,16 +346,17 @@ REFERRAL_REWARD_TIER = 'elite'     # tier granted by the reward
 # Each entry: (credits, student_price_dollars, list_price_dollars).
 # Stop 2 (the second entry) is the default — what the page renders before drag.
 SLIDER_STOPS = {
-    # 2026-07-27 pricing simplification: one price per tier, no slider, no
-    # student/list split (student pricing IS the pricing — see
-    # user_is_student_eligible in stripe_client.py). Single stop per tier keeps
-    # the checkout plumbing (tier/credits/audience params) unchanged. Existing
-    # subscribers on old multi-stop inline prices renew untouched in Stripe.
+    # 2026-07-27 pricing simplification: one stop per tier, no slider.
+    # 2026-07-28 .edu discount: the student/list split is back — 'student' is
+    # the 50%-off .edu price (gated server-side by user_is_student_eligible in
+    # stripe_client.py), 'list' is what everyone else pays. Single stop per
+    # tier keeps the checkout plumbing (tier/credits/audience params)
+    # unchanged. Existing subscribers renew untouched in Stripe.
     'pro': [
-        {'credits': 2000, 'student': 9.99, 'list': 9.99, 'default': True},
+        {'credits': 2000, 'student': 4.99, 'list': 9.99, 'default': True},
     ],
     'elite': [
-        {'credits': 5000, 'student': 34.99, 'list': 34.99, 'default': True},
+        {'credits': 5000, 'student': 17.49, 'list': 34.99, 'default': True},
     ],
 }
 

@@ -2,6 +2,8 @@ import { useCallback, useEffect } from "react";
 import { LockKeyhole, Unlock, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
+import { useFirebaseAuth } from "@/contexts/FirebaseAuthContext";
+import { isEduEligible } from "@/lib/eduDiscount";
 
 interface EliteGateModalProps {
   open: boolean;
@@ -10,6 +12,7 @@ interface EliteGateModalProps {
 
 export function EliteGateModal({ open, onClose }: EliteGateModalProps) {
   const navigate = useNavigate();
+  const { user } = useFirebaseAuth();
 
   const close = useCallback(() => onClose(), [onClose]);
 
@@ -69,7 +72,7 @@ export function EliteGateModal({ open, onClose }: EliteGateModalProps) {
         </button>
 
         <div className="mt-3 flex flex-col items-center space-y-1">
-          <span className="text-xs text-muted-foreground">$34.99/mo · Cancel anytime</span>
+          <span className="text-xs text-muted-foreground">{isEduEligible(user) ? '$17.49' : '$34.99'}/mo · Cancel anytime</span>
         </div>
       </div>
     </div>,

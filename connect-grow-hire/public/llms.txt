@@ -32,8 +32,9 @@ College students and recent graduates targeting:
 
 ## Pricing
 - Free: limited contact searches and email generation
-- Pro: unlimited searches, full email generation, coffee chat prep
-- Elite: all Pro features plus priority support
+- Pro ($9.99/mo, or $4.99/mo with a .edu email): unlimited searches, full email generation, coffee chat prep
+- Elite ($34.99/mo, or $17.49/mo with a .edu email): all Pro features plus priority support
+- Students who sign up with a .edu email get 50% off every paid plan
 
 ## Website
 https://www.offerloop.ai

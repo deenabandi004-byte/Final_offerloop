@@ -34,7 +34,7 @@ const comparisonRows = [
   { feature: "Gmail Integration", offerloop: true, competitor: false },
   { feature: "Networking Pipeline Tracker", offerloop: true, competitor: false },
   { feature: "Professional Profiles", offerloop: "Basic", competitor: "Comprehensive" },
-  { feature: "Pricing", offerloop: "Free / $9.99/mo Pro", competitor: "Free / $29.99-59.99/mo Premium" },
+  { feature: "Pricing", offerloop: "Free / $9.99/mo Pro ($4.99 with .edu)", competitor: "Free / $29.99-59.99/mo Premium" },
 ];
 
 const CompareLinkedIn = () => {
