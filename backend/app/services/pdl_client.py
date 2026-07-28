@@ -5176,6 +5176,19 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
             cached_results = pdl_cache.filter_excluded(cached["results"], exclude_keys)
             if cached_results:
                 print(f"[PDL Cache] HIT — returning {len(cached_results)} cached contacts (0 credits)")
+                # JIT firm-employee cache: also write to person-level cache on
+                # query-cache HITs. This backfills firm_employees from historical
+                # pdl_search_cache entries — otherwise the person cache never
+                # captures anyone whose query hash matches an existing entry.
+                # Cheap: Firestore upsert is idempotent, only touches last_seen_at
+                # if the doc already exists.
+                try:
+                    from app.services.firm_cache import cache_pdl_contacts
+                    n = cache_pdl_contacts(cached["results"], shape="app")
+                    if n:
+                        print(f"[FirmCache] queued {n} docs on cache-hit path")
+                except Exception as e:
+                    print(f"[FirmCache] cache-hit write failed (non-fatal): {e}")
                 return (
                     cached_results[:max_contacts],
                     int(cached.get("retry_level_used") or 0),
@@ -5439,6 +5452,22 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
             )
     except Exception as e:
         print(f"[PDL Cache] set failed (non-fatal): {e}")
+
+    # ---- JIT firm-employee cache write (best-effort) -----------------------
+    # Person-level cache complementing pdl_search_cache (query-level). Every
+    # PDL search result gets upserted into firm_employees/{linkedin_id}, so
+    # future searches that share people (different school / title / location
+    # combinations against the same person) can be served without PDL.
+    # Off by default via ENABLE_FIRM_CACHE_WRITE. Fires on a daemon thread —
+    # no user-visible latency, never breaks the search.
+    try:
+        from app.services.firm_cache import cache_pdl_contacts
+        if filtered:
+            n = cache_pdl_contacts(filtered, shape="app")
+            if n:
+                print(f"[FirmCache] queued {n} docs on fresh-PDL path")
+    except Exception as e:
+        print(f"[FirmCache] fresh-PDL write failed (non-fatal): {e}")
 
     # Compute profile-affinity scores ONCE for every candidate so they
     # actually participate in the sort below. Previously this was computed

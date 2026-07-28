@@ -74,7 +74,84 @@
         { "fieldPath": "relevance_tier", "order": "ASCENDING" },
         { "fieldPath": "posted_at", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "firm_employees",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "company", "order": "ASCENDING" },
+        { "fieldPath": "schools", "arrayConfig": "CONTAINS" }
+      ]
+    },
+    {
+      "collectionGroup": "firm_employees",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "company", "order": "ASCENDING" },
+        { "fieldPath": "title_level", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "firm_employees",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "company", "order": "ASCENDING" },
+        { "fieldPath": "joined_year", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "firm_employees",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "company", "order": "ASCENDING" },
+        { "fieldPath": "office_location", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "firm_employees",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "schools", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "title_level", "order": "ASCENDING" }
+      ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      "collectionGroup": "pdl_search_cache",
+      "fieldPath": "expires_at",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "messages",
+      "fieldPath": "expires_at",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "scoutChats",
+      "fieldPath": "expires_at",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "mcp_oauth_auth_codes",
+      "fieldPath": "expires_at",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "mcp_oauth_pending_authz",
+      "fieldPath": "expires_at",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "mcp_oauth_refresh_jtis",
+      "fieldPath": "expires_at",
+      "ttl": true,
+      "indexes": []
+    }
+  ]
 }
