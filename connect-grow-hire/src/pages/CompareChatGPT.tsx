@@ -34,7 +34,7 @@ const comparisonRows = [
   { feature: "Gmail Integration", offerloop: true, competitor: false },
   { feature: "Networking Pipeline Tracker", offerloop: true, competitor: false },
   { feature: "Knows Recipient's Background", offerloop: true, competitor: false },
-  { feature: "Pricing", offerloop: "Free / $9.99/mo Pro", competitor: "Free / $20/mo Plus" },
+  { feature: "Pricing", offerloop: "Free / $9.99/mo Pro ($4.99 with .edu)", competitor: "Free / $20/mo Plus" },
 ];
 
 const CompareChatGPT = () => {

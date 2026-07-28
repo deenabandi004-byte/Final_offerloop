@@ -37,6 +37,7 @@ import {
 } from "@/hooks/useTierConfig";
 import { TopUpModal } from "@/components/TopUpModal";
 import { useCreditsView } from "@/hooks/useCreditsView";
+import { isEduEligible } from "@/lib/eduDiscount";
 
 // Design tokens — from the Offerloop design-system handoff (Lora display +
 // Inter body on paper-2, with the vibrant purple/magenta accent layer used
@@ -84,11 +85,19 @@ const STRIPE_PUBLISHABLE_KEY = "pk_live_51S4BB8ERY2WrVHp1acXrKE6RBG7NBlfHcMZ2kf7
 const stripePromise = loadStripe(STRIPE_PUBLISHABLE_KEY);
 
 // Fallback Stripe Price IDs — used only if `useTierConfig()` returns an empty
-// SKU. Pro is the $9.99 SKU created 2026-07-27 (lookup_key
-// pro_monthly_999_2026); the old $14.99 SKU stays live for existing
-// subscribers only.
-const LEGACY_PRO_PRICE_ID = "price_1TxzloERY2WrVHp15NcO6deA";
-const LEGACY_ELITE_PRICE_ID = "price_1ScLcfERY2WrVHp1c5rcONJ3";
+// SKU. Keyed by audience: 'student' is the 50%-off .edu price (2026-07-28),
+// 'list' is what everyone else pays. Must match backend STRIPE_PRICE_CATALOG
+// defaults. The old $14.99 SKU stays live for existing subscribers only.
+const FALLBACK_PRICE_IDS: Record<'student' | 'list', { pro: string; elite: string }> = {
+  student: {
+    pro: "price_1TyFiKERY2WrVHp1vTi7L5Wj", // $4.99/mo — pro_monthly_edu_499_2026
+    elite: "price_1TyFiKERY2WrVHp15fnEAhPu", // $17.49/mo — elite_monthly_edu_1749_2026
+  },
+  list: {
+    pro: "price_1TxzloERY2WrVHp15NcO6deA", // $9.99/mo — pro_monthly_999_2026
+    elite: "price_1ScLcfERY2WrVHp1c5rcONJ3", // $34.99/mo
+  },
+};
 
 interface SubscriptionStatus {
   tier: string;
@@ -232,11 +241,13 @@ const Pricing = () => {
   const navigate = useNavigate();
   const { user, updateUser, checkCredits, isLoading: authLoading } = useFirebaseAuth();
 
-  // 2026-07-27 pricing simplification: one price per tier, monthly only,
-  // student pricing for everyone (no .edu verification, no credit slider,
-  // no annual toggle). One decision: Free or Pro (Elite anchors).
+  // 2026-07-28 .edu discount: monthly only, no slider, no annual toggle. One
+  // decision: Free or Pro (Elite anchors). Verified .edu users see the
+  // 'student' audience (50% off); everyone else, including signed-out
+  // visitors, sees 'list'. The backend re-checks eligibility at checkout.
   const billingCadence = 'monthly' as const;
-  const audience = 'student' as const;
+  const isEdu = isEduEligible(user);
+  const audience: 'student' | 'list' = isEdu ? 'student' : 'list';
 
   // Pull runtime tier config (cached via React Query). Drives prices, Stripe
   // SKUs, trial days, active promos, top-up packs. Falls back to
@@ -248,8 +259,11 @@ const Pricing = () => {
   const proStop = proStops.find((s) => s.default) ?? proStops[0];
   const eliteStop = eliteStops.find((s) => s.default) ?? eliteStops[0];
 
-  const proMonthlyPrice = proStop.student;
-  const eliteMonthlyPrice = eliteStop.student;
+  const proMonthlyPrice = proStop[audience];
+  const eliteMonthlyPrice = eliteStop[audience];
+  // List prices anchor the strikethrough when the .edu discount applies.
+  const proListPrice = proStop.list;
+  const eliteListPrice = eliteStop.list;
 
   // Stripe Price ID resolution from the env-driven catalog. Empty string means
   // cofounders haven't wired that SKU yet — CTA falls back to the legacy default.
@@ -261,7 +275,7 @@ const Pricing = () => {
       audience,
       proStop.credits,
     );
-    return id || LEGACY_PRO_PRICE_ID;
+    return id || FALLBACK_PRICE_IDS[audience].pro;
   }, [tierConfig.stripe_catalog, billingCadence, audience, proStop.credits]);
 
   const elitePriceId = useMemo(() => {
@@ -272,7 +286,7 @@ const Pricing = () => {
       audience,
       eliteStop.credits,
     );
-    return id || LEGACY_ELITE_PRICE_ID;
+    return id || FALLBACK_PRICE_IDS[audience].elite;
   }, [tierConfig.stripe_catalog, billingCadence, audience, eliteStop.credits]);
 
   const seasonPassPriceId = useMemo(
@@ -720,8 +734,8 @@ const Pricing = () => {
       `You get ${trialDays} days of full Pro access. Add a payment method to start, and you won't be charged until day ${trialDays + 1}. Cancel anytime during the trial in two clicks from account settings and you pay nothing. After the trial it's $${proMonthlyPrice}/mo. The trial is for Pro; you can also use the Free plan forever with no card at all.`,
     ],
     [
-      'Is this really student pricing?',
-      `Yes. Offerloop is built for college students, so the price you see is the student price: $${proMonthlyPrice}/mo for Pro. No .edu verification, no coupon codes, no hoops. Everyone gets the student rate.`,
+      'Do students get a discount?',
+      `Yes: 50% off every paid plan. Sign up with your .edu email and Pro is $${proStop.student}/mo instead of $${proStop.list}/mo, Elite $${eliteStop.student}/mo instead of $${eliteStop.list}/mo. The discount applies automatically at checkout when your account email ends in .edu, no coupon codes needed. Signed up with a personal email? Contact support to verify your .edu address and unlock the same rate.`,
     ],
     [
       'What happens when I run out of credits?',
@@ -749,7 +763,7 @@ const Pricing = () => {
     <div style={{ fontFamily: T.sans, color: T.ink, background: T.paper2, minHeight: '100vh' }}>
       <Helmet>
         <title>Offerloop Pricing - Student Plans for College Networking</title>
-        <meta name="description" content={`Student pricing for everyone: Pro $9.99/mo with a ${trialDays}-day free trial, Elite $34.99/mo. Offerloop helps college students network into consulting, investment banking, and tech.`} />
+        <meta name="description" content={`Pro $9.99/mo with a ${trialDays}-day free trial, Elite $34.99/mo. Students with a .edu email get 50% off: Pro $4.99/mo, Elite $17.49/mo. Offerloop helps college students network into consulting, investment banking, and tech.`} />
         <link rel="canonical" href="https://offerloop.ai/pricing" />
       </Helmet>
 
@@ -900,7 +914,8 @@ const Pricing = () => {
             </div>
           )}
 
-          {/* Student pricing badge — one price for everyone, no verification. */}
+          {/* .edu discount badge — eligible users see their discount applied;
+              everyone else sees the hook to sign up with a .edu email. */}
           <div
             className="of-up"
             style={{
@@ -925,7 +940,9 @@ const Pricing = () => {
             >
               <GraduationCap size={15} style={{ color: T.primary }} />
               <span style={{ fontSize: 13, fontWeight: 600, color: T.heading }}>
-                Student pricing, built for recruiting season
+                {isEdu
+                  ? 'Your .edu discount is applied: 50% off every plan'
+                  : 'Students: sign up with your .edu email for 50% off'}
               </span>
             </div>
           </div>
@@ -1065,6 +1082,11 @@ const Pricing = () => {
               </div>
               <div style={{ fontSize: 13, color: T.ink3, marginBottom: 16 }}>Best for students</div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, marginBottom: 2 }}>
+                {isEdu && (
+                  <span style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 500, color: T.ink4, textDecoration: 'line-through', fontVariantNumeric: 'tabular-nums' }}>
+                    {fmt(proListPrice)}
+                  </span>
+                )}
                 <span style={{ fontFamily: T.serif, fontSize: 40, fontWeight: 600, color: T.heading, letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
                   {fmt(proShown)}
                 </span>
@@ -1075,6 +1097,11 @@ const Pricing = () => {
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
                 <Chip color={T.greenFg} background={T.greenBg}>{trialDays} days free</Chip>
+                {isEdu && (
+                  <Chip color={T.primary} background={T.primary100} icon={<GraduationCap size={12} />}>
+                    50% .edu discount
+                  </Chip>
+                )}
                 <Chip color={T.primary} background={T.primary100}>Cancel anytime</Chip>
               </div>
 
@@ -1182,6 +1209,11 @@ const Pricing = () => {
               </div>
               <div style={{ fontSize: 13, color: '#A9B2C4', marginBottom: 16 }}>For serious recruiting season</div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, marginBottom: 2 }}>
+                {isEdu && (
+                  <span style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 500, color: '#7C8595', textDecoration: 'line-through', fontVariantNumeric: 'tabular-nums' }}>
+                    {fmt(eliteListPrice)}
+                  </span>
+                )}
                 <span style={{ fontFamily: T.serif, fontSize: 40, fontWeight: 600, color: '#fff', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
                   {fmt(eliteShown)}
                 </span>
@@ -1191,6 +1223,11 @@ const Pricing = () => {
                 <strong style={{ color: '#C3CAD6', fontWeight: 600 }}>~{eliteEmails} emails</strong> / month · {eliteStop.credits.toLocaleString()} credits
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+                {isEdu && (
+                  <Chip color="#B9C4E4" background="rgba(156,168,205,0.16)" icon={<GraduationCap size={12} />}>
+                    50% .edu discount
+                  </Chip>
+                )}
                 <Chip color="#B9C4E4" background="rgba(156,168,205,0.16)">Cancel anytime</Chip>
               </div>
 
@@ -1331,13 +1368,13 @@ const Pricing = () => {
               <div style={{ textAlign: 'right' }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, justifyContent: 'flex-end' }}>
                   <span style={{ fontFamily: T.serif, fontSize: 46, fontWeight: 600, color: '#fff', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
-                    {fmt(tierConfig.season_pass.student)}
+                    {fmt(tierConfig.season_pass[audience])}
                   </span>
                 </div>
                 <div style={{ fontSize: 12.5, color: '#9AA4B8', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                   <Clock size={12} />
                   {tierConfig.season_pass.months} months · ~{fmt(
-                    tierConfig.season_pass.student / tierConfig.season_pass.months
+                    tierConfig.season_pass[audience] / tierConfig.season_pass.months
                   )}/mo equivalent
                 </div>
               </div>

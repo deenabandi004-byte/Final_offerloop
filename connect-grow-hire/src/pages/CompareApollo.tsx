@@ -34,7 +34,7 @@ const comparisonRows = [
   { feature: "Gmail Integration", offerloop: true, competitor: true },
   { feature: "Coffee Chat Prep", offerloop: true, competitor: false },
   { feature: "Free Tier", offerloop: "300 credits", competitor: "60 mobile credits/mo" },
-  { feature: "Pricing", offerloop: "Free / $9.99/mo Pro", competitor: "$49-119/mo (annual billing)" },
+  { feature: "Pricing", offerloop: "Free / $9.99/mo Pro ($4.99 with .edu)", competitor: "$49-119/mo (annual billing)" },
 ];
 
 const CompareApollo = () => {

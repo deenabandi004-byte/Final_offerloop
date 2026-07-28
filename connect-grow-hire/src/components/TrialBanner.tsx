@@ -18,6 +18,7 @@ import { startCheckout } from '@/services/checkout';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
 import { useTierConfig } from '@/hooks/useTierConfig';
 import { useTour } from '@/contexts/TourContext';
+import { audienceForUser } from '@/lib/eduDiscount';
 
 interface TrialStatus {
   is_active: boolean;
@@ -60,6 +61,9 @@ export function TrialBanner({ variant = 'full', onStartTrial, onUpgrade }: Trial
   const { config: tierConfig } = useTierConfig();
   const { run: tourRunning } = useTour();
   const trialDays = tierConfig.trial.days_non_student;
+  // Post-trial price honors the 50% .edu discount ($4.99 vs $9.99).
+  const proStop = tierConfig.slider_stops.pro.find((s) => s.default) ?? tierConfig.slider_stops.pro[0];
+  const proPrice = `$${proStop[audienceForUser(user)]}`;
   const [data, setData] = useState<TrialStatusResponse | null>(null);
   const [activating, setActivating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -103,7 +107,7 @@ export function TrialBanner({ variant = 'full', onStartTrial, onUpgrade }: Trial
     setActivating(true);
     setError(null);
     try {
-      await startCheckout('pro', { cancelPath: window.location.pathname });
+      await startCheckout('pro', { cancelPath: window.location.pathname, eduSignals: user });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to start checkout');
       setActivating(false);
@@ -252,7 +256,7 @@ export function TrialBanner({ variant = 'full', onStartTrial, onUpgrade }: Trial
         <div style={{ fontSize: 13, fontWeight: 800 }}>
           {activating ? 'Starting…' : `Try Pro free · ${trialDays} days`}
         </div>
-        <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>Then $9.99/mo. Cancel anytime</div>
+        <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>Then {proPrice}/mo. Cancel anytime</div>
       </button>
     );
   }
@@ -282,7 +286,7 @@ export function TrialBanner({ variant = 'full', onStartTrial, onUpgrade }: Trial
         </div>
         <div style={{ fontSize: 13, opacity: 0.9 }}>
           <Clock size={11} style={{ display: 'inline', marginRight: 4 }} />
-          Then $9.99/mo · Cancel anytime during the trial
+          Then {proPrice}/mo · Cancel anytime during the trial
         </div>
         {error && (
           <div style={{ fontSize: 12, marginTop: 6, color: '#FFE4E6' }}>{error}</div>

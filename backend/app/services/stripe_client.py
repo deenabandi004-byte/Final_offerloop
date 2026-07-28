@@ -91,13 +91,52 @@ def _trial_days_for_price(price_id: str) -> int:
 def user_is_student_eligible(user_id: str, user_email: str) -> bool:
     """True iff this user can be sold a 'student' audience Stripe price.
 
-    2026-07-27 pricing simplification: student pricing IS the pricing — one
-    price for everyone, zero verification friction. Everyone qualifies. The
-    function (and its call sites) are kept so a real .edu gate can be restored
-    by reverting this body to the git history if we ever reintroduce a
-    student/list price split.
+    Restored 2026-07-28 (from the PR #153 implementation) for the 50% .edu
+    discount — 'student' prices are half of list.
+
+    Match rules (any one satisfies):
+      - Sign-up email ends in .edu
+      - Firestore `isStudent` flag is true (set by onboarding when a .edu is
+        present on the primary email or added on the profile step)
+      - Firestore `eduEmail` field ends in .edu (added post-onboarding)
+
+    Server-side gate — the frontend hides student pricing from non-.edu users,
+    but any caller can POST a student price ID directly. Rejecting here is the
+    actual bar.
     """
-    return True
+    if (user_email or '').lower().strip().endswith('.edu'):
+        return True
+    db = get_db()
+    if not db or not user_id:
+        return False
+    snap = db.collection('users').document(user_id).get()
+    if not snap.exists:
+        return False
+    data = snap.to_dict() or {}
+    if data.get('isStudent'):
+        return True
+    edu = (data.get('eduEmail') or '').lower().strip()
+    return edu.endswith('.edu')
+
+
+def _elite_monthly_price_id_for_user(user_id: str, user_email: str) -> str:
+    """Elite monthly Price ID honoring the .edu discount ($17.49 vs $34.99).
+
+    Used wherever the backend picks the Elite SKU on the user's behalf (post-
+    checkout upsell, referral reward checkout) so an eligible user's renewals
+    land on the discounted price, not full list."""
+    try:
+        if user_is_student_eligible(user_id, user_email):
+            edu_sku = (
+                ((STRIPE_PRICE_CATALOG.get('elite') or {}).get('monthly') or {})
+                .get('student', {})
+                .get(5000)
+            )
+            if edu_sku:
+                return edu_sku
+    except Exception as e:
+        print(f"[Stripe] edu eligibility check failed; using list Elite price: {e}")
+    return STRIPE_ELITE_PRICE_ID
 
 
 def _lookup_slider_amount_cents(tier: str, credits: int, audience: str) -> int:
@@ -188,11 +227,13 @@ def apply_post_checkout_upsell(user_id: str) -> dict:
 
     # Step 1: switch the subscription to Elite — no proration so Stripe doesn't
     # auto-charge the price-difference at this moment. We charge explicitly via
-    # the invoice item in step 2.
+    # the invoice item in step 2. The Elite SKU honors the .edu discount so an
+    # eligible user renews at $17.49, not $34.99.
+    elite_price_id = _elite_monthly_price_id_for_user(user_id, user.get('email') or '')
     try:
         stripe.Subscription.modify(
             sub_id,
-            items=[{'id': current_item_id, 'price': STRIPE_ELITE_PRICE_ID}],
+            items=[{'id': current_item_id, 'price': elite_price_id}],
             proration_behavior='none',
         )
     except stripe.error.StripeError as e:
@@ -282,7 +323,7 @@ def create_referral_trial_checkout(user_id: str, user_email: str) -> dict:
             mode='subscription',
             success_url=f"{base_url}/account-settings?referral=claimed",
             cancel_url=f"{base_url}/account-settings?referral=cancelled",
-            line_items=[{'price': STRIPE_ELITE_PRICE_ID, 'quantity': 1}],
+            line_items=[{'price': _elite_monthly_price_id_for_user(user_id, user_email), 'quantity': 1}],
             subscription_data={'trial_period_days': 30},
             metadata={
                 'user_id': user_id,
@@ -950,6 +991,20 @@ def update_subscription_tier():
 
         if not subscription_id:
             return jsonify({'error': 'No active subscription found. Use checkout instead.'}), 400
+
+        # Student-audience SKUs are .edu-gated on the server, same as checkout —
+        # any client can POST the discounted price ID directly.
+        price_meta = _PRICE_ID_INDEX.get(new_price_id)
+        if (
+            price_meta
+            and price_meta.get('audience') == 'student'
+            and not user_is_student_eligible(user_id, user_data.get('email') or '')
+        ):
+            print(f"[Stripe] blocking student-audience subscription update: user_id={user_id} price_id={new_price_id}")
+            return jsonify({
+                'error': 'student_audience_requires_edu',
+                'message': 'Student pricing requires a verified .edu email.',
+            }), 403
 
         # Retrieve the current subscription
         subscription = stripe.Subscription.retrieve(subscription_id)

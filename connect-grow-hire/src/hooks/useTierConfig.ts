@@ -90,11 +90,11 @@ const FALLBACK: TierConfigPayload = {
     scout_chat: 0,
   },
   stripe_catalog: {},
-  // 2026-07-27 pricing simplification: one price per tier, no slider, student
-  // pricing for everyone. Mirrors backend SLIDER_STOPS.
+  // 2026-07-28 .edu discount: 'student' is the 50%-off .edu price, 'list' is
+  // what everyone else pays. Mirrors backend SLIDER_STOPS.
   slider_stops: {
-    pro: [{ credits: 2000, student: 9.99, list: 9.99, default: true }],
-    elite: [{ credits: 5000, student: 34.99, list: 34.99, default: true }],
+    pro: [{ credits: 2000, student: 4.99, list: 9.99, default: true }],
+    elite: [{ credits: 5000, student: 17.49, list: 34.99, default: true }],
   },
   annual_pricing: {
     pro: { student: 144, list: 279 },
@@ -125,10 +125,10 @@ const FALLBACK: TierConfigPayload = {
 
 // ---------- hook ----------
 
-// Bumped v8→v9 for the 2026-07-27 pricing simplification (Pro $9.99 single
-// price, slider collapsed to one stop). Stale v8 localStorage would render the
-// old $14.99 multi-stop slider for up to 7 days.
-const LS_KEY = 'offerloop:tier-config:v9';
+// Bumped v9→v10 for the 2026-07-28 .edu 50% discount (student $4.99/$17.49 vs
+// list $9.99/$34.99). Stale v9 localStorage would show .edu users the list
+// price for up to 7 days.
+const LS_KEY = 'offerloop:tier-config:v10';
 
 function readLocalStorage(): TierConfigPayload | null {
   try {

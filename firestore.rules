@@ -57,12 +57,25 @@ service cloud.firestore {
         && !('referralRewardClaimedAt' in request.resource.data.diff(resource.data).affectedKeys())
         && !('referralRewardPendingAt' in request.resource.data.diff(resource.data).affectedKeys())
         && !('referralBannerDismissedAt' in request.resource.data.diff(resource.data).affectedKeys())
-        && !('referralLaunchModalSeenAt' in request.resource.data.diff(resource.data).affectedKeys());
-      
+        && !('referralLaunchModalSeenAt' in request.resource.data.diff(resource.data).affectedKeys())
+        // (5) .edu 50% discount — the backend trusts `isStudent`/`eduEmail`
+        // when selling the discounted student SKUs. isStudent:true may only be
+        // set when the signed-in email actually ends in .edu (setting it false
+        // is always fine). eduEmail is backend-managed: support verifies a
+        // .edu address and writes it via the admin SDK, which bypasses rules.
+        && (!('isStudent' in request.resource.data.diff(resource.data).affectedKeys())
+            || request.resource.data.isStudent != true
+            || request.auth.token.email.lower().matches('.*\\.edu'))
+        && !('eduEmail' in request.resource.data.diff(resource.data).affectedKeys());
+
       // Users can create their own document on signup, but cannot preload referral
       // bookkeeping fields (admin SDK bypasses rules, so attribution still works).
+      // Same .edu truthfulness bar as updates for the discount signals.
       allow create: if request.auth != null && request.auth.uid == userId
-        && !request.resource.data.keys().hasAny(['referralCode', 'referredBy', 'referralQualifiedCount', 'referralRewardClaimed', 'referralRewardClaimedAt', 'referralRewardPendingAt', 'referralBannerDismissedAt', 'referralLaunchModalSeenAt']);
+        && !request.resource.data.keys().hasAny(['referralCode', 'referredBy', 'referralQualifiedCount', 'referralRewardClaimed', 'referralRewardClaimedAt', 'referralRewardPendingAt', 'referralBannerDismissedAt', 'referralLaunchModalSeenAt'])
+        && (!('isStudent' in request.resource.data)
+            || request.resource.data.isStudent != true
+            || request.auth.token.email.lower().matches('.*\\.edu'));
       
       // Subcollections under users
       match /contacts/{contactId} {

@@ -12,6 +12,8 @@ import { Button } from '@/components/ui/button';
 import { Tier, getRequiredTier, TIER_LIMITS } from '@/utils/featureAccess';
 import { trackUpgradeClick } from '../../lib/analytics';
 import { startCheckout } from '@/services/checkout';
+import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
+import { isEduEligible } from '@/lib/eduDiscount';
 
 interface UpgradeModalProps {
   open: boolean;
@@ -35,6 +37,7 @@ export function UpgradeModal({
   featureLabel,
 }: UpgradeModalProps) {
   const navigate = useNavigate();
+  const { user } = useFirebaseAuth();
   const [checkoutLoading, setCheckoutLoading] = React.useState(false);
   const requiredTier = requiredTierProp ?? getRequiredTier(feature as keyof typeof TIER_LIMITS.free);
 
@@ -49,7 +52,7 @@ export function UpgradeModal({
     const tier = requiredTier === 'elite' ? 'elite' : 'pro';
     setCheckoutLoading(true);
     try {
-      await startCheckout(tier, { cancelPath: window.location.pathname });
+      await startCheckout(tier, { cancelPath: window.location.pathname, eduSignals: user });
     } catch (e) {
       // Fall back to the pricing page if checkout can't start (e.g. signed out).
       console.error('One-click checkout failed, falling back to /pricing:', e);
@@ -167,7 +170,9 @@ export function UpgradeModal({
           </Button>
         </div>
         <p className="mt-3 text-center text-xs text-slate-500 dark:text-slate-400">
-          {requiredTier === 'pro' ? '7 days free, then $9.99/mo. Cancel anytime.' : '$34.99/mo. Cancel anytime.'}{' '}
+          {requiredTier === 'pro'
+            ? `7 days free, then ${isEduEligible(user) ? '$4.99' : '$9.99'}/mo. Cancel anytime.`
+            : `${isEduEligible(user) ? '$17.49' : '$34.99'}/mo. Cancel anytime.`}{' '}
           <button
             onClick={() => { onOpenChange(false); navigate('/pricing'); }}
             className="underline hover:text-slate-700 dark:hover:text-slate-300"

@@ -7,6 +7,7 @@ import { getAuth } from 'firebase/auth';
 import { trackCheckoutCompleted, trackError } from "../lib/analytics";
 import { BACKEND_URL } from "@/services/api";
 import { PostCheckoutUpsell } from "@/components/PostCheckoutUpsell";
+import { isEduEligible } from "@/lib/eduDiscount";
 
 export default function PaymentSuccess() {
   const navigate = useNavigate();
@@ -235,6 +236,10 @@ export default function PaymentSuccess() {
   if (status === 'upsell' && purchasedTier === 'pro') {
     return (
       <PostCheckoutUpsell
+        // .edu subscribers paid $4.99 for Pro and renew Elite at the $17.49
+        // edu SKU (backend picks it in apply_post_checkout_upsell).
+        effectiveFirstMonthPrice={isEduEligible(user) ? 14.99 : 19.99}
+        fullElitePrice={isEduEligible(user) ? 17.49 : 34.99}
         onAccepted={async () => {
           try {
             await refreshUser();

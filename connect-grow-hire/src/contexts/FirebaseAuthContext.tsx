@@ -56,7 +56,9 @@ interface User {
   needsOnboarding?: boolean;
   careerTrack?: string;
   inboxConnectSkipped?: boolean;
-
+  // .edu 50% discount signals — mirror backend user_is_student_eligible.
+  isStudent?: boolean;
+  eduEmail?: string;
 }
 
 type SignInOptions = {
@@ -272,6 +274,8 @@ export const FirebaseAuthProvider: React.FC<React.PropsWithChildren> = ({ childr
           needsOnboarding: d.needsOnboarding ?? false,
           careerTrack: d.careerTrack || (d as any).goals?.careerTrack || (d as any).professionalInfo?.careerTrack,
           inboxConnectSkipped: d.inboxConnectSkipped ?? false,
+          isStudent: d.isStudent ?? false,
+          eduEmail: d.eduEmail,
         };
         setUser(userData);
         // Cache the fresh profile so the next sign-in can hydrate instantly.
