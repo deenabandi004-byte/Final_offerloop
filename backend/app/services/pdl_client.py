@@ -62,21 +62,47 @@ def _email_quality_score(contact: dict) -> int:
     return base + verified_bonus + score_bonus
 
 
+# HARD EXCLUSION — do not add: sex, birth_date, birth_year.
+# PDL's AUP prohibits profiling on protected characteristics, and the
+# iOS ranker's training data must not contain them. Adding these fields
+# is a policy violation, not a technical decision.
+#
+# Sub-field paths are DELIBERATELY not used for experience.* / education.*.
+# PDL's data_include restricts the parent object to only the listed
+# sub-paths — verified empirically 2026-07-28 via
+# scripts/pdl_bundle_check.py. A naive expanded list dropped
+# experience.title.name, experience.company.name/website, and
+# education.school.name, all of which extract_contact_from_pdl_person_enhanced
+# reads. Keep whole-object includes and only ADD genuinely new
+# top-level fields (skills, interests, job_title_class, ...).
+#
+# Whole-object includes mean PDL may return additional fields we don't
+# use. Enforcement for what actually lands on the contact doc is an
+# explicit allowlist in the contacts.py bulk write path — the include
+# list is not the sensitive-field gate.
 PDL_DATA_INCLUDE = ",".join([
     "id", "full_name", "first_name", "last_name",
     "job_title", "job_title_role", "job_title_levels", "job_title_sub_role",
+    "job_title_class",
     "job_company_name", "job_company_website",
     "job_company_location_locality", "job_company_location_region",
     "job_company_location_country", "job_company_location_metro",
     "location_locality", "location_region", "location_country", "location_metro",
+    "location_names", "regions", "countries",
     # `experience` is REQUIRED — extract_contact_from_pdl_person_enhanced reads
     # Title/Company from experience[0] (current job). Omitting it caused the
-    # frontend Company/Role columns to render as "-".
+    # frontend Company/Role columns to render as "-". Whole-object; do NOT
+    # add experience.* sub-paths (parent truncation — see comment above).
     "experience",
-    "education", "profiles", "emails",
+    # `education` is REQUIRED — same reason. Whole-object; do NOT add
+    # education.* sub-paths.
+    "education",
+    "profiles", "emails",
     "linkedin_url", "linkedin_username",
     "work_email", "personal_emails", "recommended_personal_email",
     "industry",
+    "skills", "interests",
+    "job_start_date", "job_last_changed",
 ])
 
 
@@ -1565,10 +1591,12 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None, pre_ve
                         else:
                             print(f"[ContactExtraction] ⚠️ Not at target company - first job: {first_job_company_name} (cleaned: {cleaned_first_job}), target: {target_company} (cleaned: {cleaned_target})")
 
-        # Store minimal experience data for anchor detection (first 2 jobs with dates)
+        # Store minimal experience data for anchor detection (first 5 jobs with dates)
+        # Bumped [:2] → [:5] for iOS ranker CareerSpanMonths derivation, which
+        # measures span from the OLDEST job's start_date to today.
         experience_for_anchors = []
         if experience and isinstance(experience, list):
-            for i, job in enumerate(experience[:2]):  # Only need first 2 for transition detection
+            for i, job in enumerate(experience[:5]):
                 if isinstance(job, dict):
                     job_data = {
                         'company': job.get('company', {}),
@@ -1731,7 +1759,14 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
     with _session_lock:
         r = _session.post(url, headers=headers, json=body, timeout=30)
     pdl_api_time += time.time() - pdl_api_start
-    
+
+    # TEMPORARY (delete before PR): iOS ranker prereq — measure response
+    # size + encoding under the expanded PDL_DATA_INCLUDE. Verifies gzip
+    # is active and body stays well under 1MB per page (100 records).
+    print(f"[PDL Bundle Debug] status={r.status_code} "
+          f"bytes_compressed={len(r.content)} bytes_text={len(r.text)} "
+          f"Content-Encoding={r.headers.get('Content-Encoding')!r}")
+
     # ✅ HANDLE 404 GRACEFULLY - Return (empty, 404) so prompt-search caller can retry with relaxed query
     if r.status_code == 404:
         print(f"\n❌ PDL 404 ERROR - No records found matching query")
