@@ -331,7 +331,7 @@ Once you have the right contact, Offerloop's AI generates a personalized outreac
 
 Cold outreach is a numbers game. Plan to send 15-25 personalized emails per company to get 3-5 responses that lead to meaningful conversations. That volume is hard to manage manually, which is another area where using [Offerloop](https://offerloop.ai) makes a practical difference — you can search, generate, and track outreach across multiple contacts without losing track of who you have emailed and what stage each conversation is in.
 
-Offerloop's free tier gives you enough credits to start your outreach, and the Pro plan ($14.99/month) provides the volume needed for a full recruiting push across multiple target companies.
+Offerloop's free tier gives you enough credits to start your outreach, and the Pro plan ($9.99/month) provides the volume needed for a full recruiting push across multiple target companies.
 
 ### Timing
 

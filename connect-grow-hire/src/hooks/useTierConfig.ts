@@ -90,18 +90,11 @@ const FALLBACK: TierConfigPayload = {
     scout_chat: 0,
   },
   stripe_catalog: {},
+  // 2026-07-27 pricing simplification: one price per tier, no slider, student
+  // pricing for everyone. Mirrors backend SLIDER_STOPS.
   slider_stops: {
-    pro: [
-      { credits: 1000, student: 9.99, list: 19 },
-      { credits: 2000, student: 14.99, list: 29, default: true },
-      { credits: 3000, student: 19.99, list: 39 },
-      { credits: 4000, student: 24.99, list: 49 },
-    ],
-    elite: [
-      { credits: 3000, student: 24.99, list: 44 },
-      { credits: 5000, student: 34.99, list: 59, default: true },
-      { credits: 7000, student: 49.99, list: 84 },
-    ],
+    pro: [{ credits: 2000, student: 9.99, list: 9.99, default: true }],
+    elite: [{ credits: 5000, student: 34.99, list: 34.99, default: true }],
   },
   annual_pricing: {
     pro: { student: 144, list: 279 },
@@ -116,7 +109,7 @@ const FALLBACK: TierConfigPayload = {
   },
   topup_packs: [
     { id: 'starter', credits: 500, price: 4.99, label: 'Starter' },
-    { id: 'best', credits: 1000, price: 9.99, label: 'Best value', recommended: true },
+    { id: 'best', credits: 1500, price: 9.99, label: 'Best value', recommended: true },
     { id: 'bulk', credits: 3000, price: 24.99, label: 'Bulk' },
   ],
   active_promos: {},
@@ -132,10 +125,10 @@ const FALLBACK: TierConfigPayload = {
 
 // ---------- hook ----------
 
-// Bumped v7→v8 when find_contact bundled cost standardized at 10 (was 5)
-// and Elite default tier cap dropped from 12000 to 5000. Stale localStorage
-// with the v7 numbers would misrepresent credit-per-email math by 2x.
-const LS_KEY = 'offerloop:tier-config:v8';
+// Bumped v8→v9 for the 2026-07-27 pricing simplification (Pro $9.99 single
+// price, slider collapsed to one stop). Stale v8 localStorage would render the
+// old $14.99 multi-stop slider for up to 7 days.
+const LS_KEY = 'offerloop:tier-config:v9';
 
 function readLocalStorage(): TierConfigPayload | null {
   try {
@@ -172,6 +165,11 @@ export function useTierConfig() {
       return data;
     },
     initialData: readLocalStorage() ?? FALLBACK,
+    // Without this, React Query treats initialData as fresh for the full
+    // staleTime and NEVER fetches — the page ran on hardcoded fallback
+    // forever (which is why the wired Season Pass still said "Coming soon").
+    // Age 0 = paint instantly from fallback/localStorage, refetch immediately.
+    initialDataUpdatedAt: 0,
     staleTime: 60 * 60 * 1000, // 1h
     gcTime: 24 * 60 * 60 * 1000, // 24h
     refetchOnWindowFocus: false,

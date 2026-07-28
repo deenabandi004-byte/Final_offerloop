@@ -5,7 +5,7 @@ import offerloopLogo from '../assets/offerloop_logo2.png';
 const stats = [
   { value: '2.2B', label: 'Verified professional contacts', description: 'Searchable via natural language queries like "McKinsey consultants who went to USC." Sourced through verified data provider partnerships.' },
   { value: '300+', label: 'Active college student users', description: 'Monthly active users across 6+ universities. Organic growth with zero paid advertising.' },
-  { value: '41', label: 'Paying subscribers', description: 'Students on Pro ($14.99/mo) or Elite ($34.99/mo) plans as of March 2026.' },
+  { value: '41', label: 'Paying subscribers', description: 'Students on Pro or Elite plans as of March 2026.' },
   { value: '22%', label: 'Free-to-paid conversion rate', description: 'Approximately 4x the SaaS industry average of 5-7%. Calculated as paid subscribers divided by total registered users.' },
   { value: '$0', label: 'Customer acquisition cost', description: '100% organic growth through word-of-mouth, campus networks, and search. No paid advertising spend to date.' },
   { value: '6+', label: 'Universities represented', description: 'Including USC, UCLA, University of Michigan, NYU, Georgetown, and UPenn. Expanding through organic adoption.' },

@@ -245,7 +245,7 @@ These asks only land well if you have invested the previous 6 to 12 months build
 
 ### Making This Manageable at Scale
 
-Consistent outreach over 12 to 18 months means sending a lot of emails. On [Offerloop](https://offerloop.ai), you can find contacts, generate personalized emails, and track your entire network in one place with the Network Tracker feature. The free tier gives you enough credits to start building your pipeline, and the Pro plan at $14.99 per month provides the volume serious recruiters need. For a process that stretches over a year, having a system that keeps everything organized is not a luxury — it is a necessity.
+Consistent outreach over 12 to 18 months means sending a lot of emails. On [Offerloop](https://offerloop.ai), you can find contacts, generate personalized emails, and track your entire network in one place with the Network Tracker feature. The free tier gives you enough credits to start building your pipeline, and the Pro plan at $9.99 per month provides the volume serious recruiters need. For a process that stretches over a year, having a system that keeps everything organized is not a luxury — it is a necessity.
 
 ## Summer Internship vs Full-Time Recruiting: What Changes
 

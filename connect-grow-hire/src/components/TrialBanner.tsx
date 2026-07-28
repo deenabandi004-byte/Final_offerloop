@@ -14,6 +14,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Sparkles, Clock, Zap, ChevronRight } from 'lucide-react';
 import { getAuth } from 'firebase/auth';
 import { BACKEND_URL } from '@/services/api';
+import { startCheckout } from '@/services/checkout';
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext';
 import { useTierConfig } from '@/hooks/useTierConfig';
 import { useTour } from '@/contexts/TourContext';
@@ -89,6 +90,10 @@ export function TrialBanner({ variant = 'full', onStartTrial, onUpgrade }: Trial
     return () => clearInterval(id);
   }, [fetchStatus]);
 
+  // 2026-07-27: trials are card-on-file via Stripe Checkout (7 days free, then
+  // $9.99/mo). The old no-card /api/users/start-trial path is retired from the
+  // UI; the active-trial countdown below still renders for users who started
+  // one before the cutover.
   const handleStart = async () => {
     if (onStartTrial) {
       onStartTrial();
@@ -98,24 +103,9 @@ export function TrialBanner({ variant = 'full', onStartTrial, onUpgrade }: Trial
     setActivating(true);
     setError(null);
     try {
-      const auth = getAuth();
-      const fbUser = auth.currentUser;
-      if (!fbUser) throw new Error('Not authenticated');
-      const token = await fbUser.getIdToken();
-      const res = await fetch(`${BACKEND_URL}/api/users/start-trial`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({}),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(json.error || 'Failed to start trial');
-      }
-      // Optimistically refetch so the banner flips to "active" mode.
-      await fetchStatus();
+      await startCheckout('pro', { cancelPath: window.location.pathname });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to start trial');
-    } finally {
+      setError(e instanceof Error ? e.message : 'Failed to start checkout');
       setActivating(false);
     }
   };
@@ -262,7 +252,7 @@ export function TrialBanner({ variant = 'full', onStartTrial, onUpgrade }: Trial
         <div style={{ fontSize: 13, fontWeight: 800 }}>
           {activating ? 'Starting…' : `Try Pro free · ${trialDays} days`}
         </div>
-        <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>No credit card required</div>
+        <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>Then $9.99/mo. Cancel anytime</div>
       </button>
     );
   }
@@ -292,7 +282,7 @@ export function TrialBanner({ variant = 'full', onStartTrial, onUpgrade }: Trial
         </div>
         <div style={{ fontSize: 13, opacity: 0.9 }}>
           <Clock size={11} style={{ display: 'inline', marginRight: 4 }} />
-          No credit card · Drops to Free if you don't upgrade
+          Then $9.99/mo · Cancel anytime during the trial
         </div>
         {error && (
           <div style={{ fontSize: 12, marginTop: 6, color: '#FFE4E6' }}>{error}</div>

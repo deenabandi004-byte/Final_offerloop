@@ -54,8 +54,8 @@ def get_tier_from_price_id(price_id: str) -> str:
     if meta:
         return meta['tier']
     # Legacy flat constants: still honored for existing subscribers whose
-    # subscription points at the original Price ID after the 2K slot is
-    # repointed to a new $14.99 SKU in env.
+    # subscription points at the original $14.99 Price ID (the 2K slot now
+    # defaults to the $9.99 SKU created 2026-07-27).
     if price_id == STRIPE_ELITE_PRICE_ID:
         return 'elite'
     if price_id == STRIPE_PRO_PRICE_ID:
@@ -91,28 +91,13 @@ def _trial_days_for_price(price_id: str) -> int:
 def user_is_student_eligible(user_id: str, user_email: str) -> bool:
     """True iff this user can be sold a 'student' audience Stripe price.
 
-    Match rules (any one satisfies):
-      - Sign-up email ends in .edu
-      - Firestore `isStudent` flag is true (set by onboarding when a .edu is
-        present on the primary email or added on the profile step)
-      - Firestore `eduEmail` field ends in .edu (added post-onboarding)
-
-    Server-side gate — the frontend hides the student toggle, but any caller
-    can POST a student price ID directly. Rejecting here is the actual bar.
+    2026-07-27 pricing simplification: student pricing IS the pricing — one
+    price for everyone, zero verification friction. Everyone qualifies. The
+    function (and its call sites) are kept so a real .edu gate can be restored
+    by reverting this body to the git history if we ever reintroduce a
+    student/list price split.
     """
-    if (user_email or '').lower().strip().endswith('.edu'):
-        return True
-    db = get_db()
-    if not db or not user_id:
-        return False
-    snap = db.collection('users').document(user_id).get()
-    if not snap.exists:
-        return False
-    data = snap.to_dict() or {}
-    if data.get('isStudent'):
-        return True
-    edu = (data.get('eduEmail') or '').lower().strip()
-    return edu.endswith('.edu')
+    return True
 
 
 def _lookup_slider_amount_cents(tier: str, credits: int, audience: str) -> int:
@@ -147,8 +132,10 @@ def _lookup_slider_amount_cents(tier: str, credits: int, audience: str) -> int:
 # trigger the invoice.paid renewal webhook so credits would otherwise stay at
 # Pro level).
 #
-# Net effect: user paid $15 (Pro) + $10 (upsell) = $25 effective on Elite this
-# month. Next renewal is full Elite ($35) automatically.
+# Net effect: user paid $9.99 (Pro) + $10 (upsell) = $19.99 effective on Elite
+# this month. Next renewal is full Elite ($34.99) automatically. Only offered
+# on checkouts where money moved now (payment_status 'paid') — trial checkouts
+# never see it.
 
 # Default $10 upsell. Tunable per market via env without code change.
 UPSELL_AMOUNT_CENTS = 1000
@@ -289,7 +276,9 @@ def create_referral_trial_checkout(user_id: str, user_email: str) -> dict:
     base_url = os.getenv('FRONTEND_BASE_URL', 'https://offerloop.ai').rstrip('/')
     try:
         session = stripe.checkout.Session.create(
-            payment_method_types=['card'],
+            # No payment_method_types: the dashboard payment-method
+            # configuration governs (card + Link + Apple Pay + Google Pay +
+            # Cash App), so students can pay with one tap.
             mode='subscription',
             success_url=f"{base_url}/account-settings?referral=claimed",
             cancel_url=f"{base_url}/account-settings?referral=cancelled",
@@ -472,8 +461,10 @@ def create_checkout_session():
         # Prepare session parameters. Only pass customer_email when we
         # actually have one — Stripe accepts its omission and collects the
         # address on the hosted checkout page instead.
+        # No payment_method_types key: omitting it lets the Stripe dashboard
+        # payment-method configuration govern (card + Link + Apple Pay +
+        # Google Pay + Cash App), so students can pay with one tap.
         session_params = {
-            'payment_method_types': ['card'],
             'mode': 'subscription',
             'success_url': success_url,
             'cancel_url': cancel_url,

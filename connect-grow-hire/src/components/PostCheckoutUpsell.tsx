@@ -10,7 +10,7 @@
  *   3. credit allocation bumped to Elite immediately
  *   4. user doc gets upsellShownAt + upsellAcceptedAt
  *
- * Result: $15 (Pro) + $10 (this) = $25 effective Elite this month, $35 next.
+ * Result: $9.99 (Pro) + $10 (this) = $19.99 effective Elite this month, $34.99 next.
  *
  * Honest copy: revert date is plainly stated. No 10-min countdown — the
  * self-enforcing rule is "this offer is only on this page."
@@ -21,7 +21,7 @@ import { getAuth } from 'firebase/auth';
 import { BACKEND_URL } from '@/services/api';
 
 export interface PostCheckoutUpsellProps {
-  /** First-month effective price the user will land on. Default $25 ($15 Pro + $10 upsell). */
+  /** First-month effective price the user will land on. Default $19.99 ($9.99 Pro + $10 upsell). */
   effectiveFirstMonthPrice?: number;
   /** Full Elite monthly price (the renewal anchor). Default $34.99 — tunable. */
   fullElitePrice?: number;
@@ -40,7 +40,7 @@ const C = {
 };
 
 export function PostCheckoutUpsell({
-  effectiveFirstMonthPrice = 25,
+  effectiveFirstMonthPrice = 19.99,
   fullElitePrice = 34.99,
   onAccepted,
   onDeclined,

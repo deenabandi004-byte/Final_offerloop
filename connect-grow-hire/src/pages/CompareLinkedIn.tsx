@@ -10,7 +10,7 @@ const faqData = [
   },
   {
     question: "Is LinkedIn Premium worth it for college students?",
-    answer: "LinkedIn Premium costs $29.99-59.99/month and gives you InMail credits and profile insights. For students focused on networking, it's not the best value — InMail response rates are low and you still can't export email addresses. Offerloop at $14.99/month gives you verified emails, AI-generated personalized outreach, Gmail integration, and conversation tracking."
+    answer: "LinkedIn Premium costs $29.99-59.99/month and gives you InMail credits and profile insights. For students focused on networking, it's not the best value — InMail response rates are low and you still can't export email addresses. Offerloop at $9.99/month gives you verified emails, AI-generated personalized outreach, Gmail integration, and conversation tracking."
   },
   {
     question: "Should I use LinkedIn and Offerloop together?",
@@ -34,7 +34,7 @@ const comparisonRows = [
   { feature: "Gmail Integration", offerloop: true, competitor: false },
   { feature: "Networking Pipeline Tracker", offerloop: true, competitor: false },
   { feature: "Professional Profiles", offerloop: "Basic", competitor: "Comprehensive" },
-  { feature: "Pricing", offerloop: "Free / $14.99/mo Pro", competitor: "Free / $29.99-59.99/mo Premium" },
+  { feature: "Pricing", offerloop: "Free / $9.99/mo Pro", competitor: "Free / $29.99-59.99/mo Premium" },
 ];
 
 const CompareLinkedIn = () => {

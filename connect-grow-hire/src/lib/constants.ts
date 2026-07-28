@@ -48,7 +48,7 @@ export const TIER_CONFIGS = {
     credits: 300,
     description: "Try out platform risk free - up to 3 contacts + Email drafts",
     coffeeChat: true,
-    timeSavedMinutes: 200,
+    timeSavedMinutes: 300,
     usesResume: false,
   },
   pro: {
@@ -58,7 +58,7 @@ export const TIER_CONFIGS = {
     credits: 2000,
     description: "Everything in free plus advanced features - up to 8 contacts + Resume matching",
     coffeeChat: true,
-    timeSavedMinutes: 1200,
+    timeSavedMinutes: 2500,
     usesResume: true,
   },
   elite: {
@@ -68,7 +68,7 @@ export const TIER_CONFIGS = {
     credits: 5000,
     description: "Full access - up to 15 contacts + All premium features",
     coffeeChat: true,
-    timeSavedMinutes: 5000,
+    timeSavedMinutes: 3500,
     usesResume: true,
   },
 } as const;

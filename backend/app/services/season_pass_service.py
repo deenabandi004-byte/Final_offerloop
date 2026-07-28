@@ -96,7 +96,7 @@ def create_season_pass_session(user_id: str, user_email: str, audience: str,
     try:
         session = stripe.checkout.Session.create(
             mode='payment',
-            payment_method_types=['card'],
+            # No payment_method_types: dashboard config governs (wallets + Link).
             success_url=success_url,
             cancel_url=cancel_url,
             line_items=[{'price': price_id, 'quantity': 1}],

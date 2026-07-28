@@ -305,8 +305,13 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   // Only redirect authenticated users if they're not coming from sign-out.
   // Everyday users land on Search; new/long-absent users get Getting Started.
+  // A safe internal ?next=/?redirect= param wins (e.g. an already-signed-in
+  // visitor following a "start trial" link to /signin?next=/pricing keeps
+  // their purchase intent). Onboarding still takes precedence.
   if (user) {
-    const redirectPath = user.needsOnboarding ? "/onboarding" : getDefaultLandingPath();
+    const rawNext = params.get('next') || params.get('redirect') || '';
+    const safeNext = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : null;
+    const redirectPath = user.needsOnboarding ? "/onboarding" : (safeNext ?? getDefaultLandingPath());
     devLog("🛣️ [PUBLIC ROUTE] User authenticated, redirecting to:", redirectPath);
     return <Navigate to={redirectPath} replace />;
   }

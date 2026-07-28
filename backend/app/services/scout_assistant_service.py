@@ -116,7 +116,7 @@ def _build_knowledge_prompt() -> str:
         "## SUBSCRIPTION TIERS",
         "",
         "- **Free** ($0/mo): 300 credits (~30 emails), 3 contacts/search, 3 meeting preps LIFETIME, 10 alumni searches. No Firm Search or exports.",
-        "- **Pro** ($14.99/mo): 2,000 credits (~200 contacts), 8 contacts/search, 10 meeting preps/month, unlimited alumni searches, Firm Search, smart filters, bulk drafting, CSV export.",
+        "- **Pro** ($9.99/mo): 2,000 credits (~200 contacts), 8 contacts/search, 10 meeting preps/month, unlimited alumni searches, Firm Search, smart filters, bulk drafting, CSV export.",
         "- **Elite** ($34.99/mo): 5,000 credits (~500 contacts), 15 contacts/search, UNLIMITED meeting preps, everything in Pro, priority queue, personalized templates, weekly insights.",
         "",
         "Credits reset monthly on billing date. Do NOT roll over. Manage subscription at Pricing → Manage Subscription.",

@@ -1,5 +1,9 @@
 /**
- * UpgradeModal - prompts users to upgrade when they hit a limit
+ * UpgradeModal - prompts users to upgrade when they hit a limit.
+ *
+ * The CTA goes STRAIGHT to Stripe Checkout (7-day free trial, then $9.99/mo
+ * Pro or $34.99/mo Elite) instead of detouring through /pricing. One click
+ * from the moment of pain to the payment page.
  */
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -7,6 +11,7 @@ import { X, Lock, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tier, getRequiredTier, TIER_LIMITS } from '@/utils/featureAccess';
 import { trackUpgradeClick } from '../../lib/analytics';
+import { startCheckout } from '@/services/checkout';
 
 interface UpgradeModalProps {
   open: boolean;
@@ -30,18 +35,29 @@ export function UpgradeModal({
   featureLabel,
 }: UpgradeModalProps) {
   const navigate = useNavigate();
+  const [checkoutLoading, setCheckoutLoading] = React.useState(false);
   const requiredTier = requiredTierProp ?? getRequiredTier(feature as keyof typeof TIER_LIMITS.free);
 
   if (!open) return null;
 
-  const handleUpgrade = () => {
+  const handleUpgrade = async () => {
     trackUpgradeClick(feature, {
       from_action: reason || 'limit_reached',
       from_location: 'modal',
       plan_selected: requiredTier,
     });
-    onOpenChange(false);
-    navigate(`/pricing?tier=${requiredTier}`);
+    const tier = requiredTier === 'elite' ? 'elite' : 'pro';
+    setCheckoutLoading(true);
+    try {
+      await startCheckout(tier, { cancelPath: window.location.pathname });
+    } catch (e) {
+      // Fall back to the pricing page if checkout can't start (e.g. signed out).
+      console.error('One-click checkout failed, falling back to /pricing:', e);
+      onOpenChange(false);
+      navigate(`/pricing?tier=${tier}`);
+    } finally {
+      setCheckoutLoading(false);
+    }
   };
 
   const getFeatureDescription = () => {
@@ -140,11 +156,25 @@ export function UpgradeModal({
           </Button>
           <Button
             onClick={handleUpgrade}
+            disabled={checkoutLoading}
             className="flex-1 bg-[#0F172A] hover:bg-[#1E293B] text-white"
           >
-            Upgrade to {requiredTier === 'pro' ? 'Pro' : 'Elite'}
+            {checkoutLoading
+              ? 'Opening checkout...'
+              : requiredTier === 'pro'
+                ? 'Start 7-day free trial'
+                : 'Upgrade to Elite'}
           </Button>
         </div>
+        <p className="mt-3 text-center text-xs text-slate-500 dark:text-slate-400">
+          {requiredTier === 'pro' ? '7 days free, then $9.99/mo. Cancel anytime.' : '$34.99/mo. Cancel anytime.'}{' '}
+          <button
+            onClick={() => { onOpenChange(false); navigate('/pricing'); }}
+            className="underline hover:text-slate-700 dark:hover:text-slate-300"
+          >
+            See all plans
+          </button>
+        </p>
       </div>
     </div>
   );

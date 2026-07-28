@@ -513,7 +513,10 @@ def complete_upgrade():
                 print(f"   Customer: {session.customer}")
                 print(f"   Subscription: {session.subscription}")
                 
-                if session.payment_status != 'paid':
+                # 'paid' = money moved now; 'no_payment_required' = trial
+                # checkout with $0 due today (the norm since the 2026-07-27
+                # 7-day card-on-file trial). Both mean checkout completed.
+                if session.payment_status not in ('paid', 'no_payment_required'):
                     print(f"   ❌ Payment not completed. Status: {session.payment_status}")
                     return jsonify({
                         'error': f'Payment not completed. Status: {session.payment_status}',
@@ -559,11 +562,13 @@ def complete_upgrade():
         tier = 'pro'  # Default
         tier_from_metadata = None
         price_id = None
+        sub_status = 'active'  # Fallback; 'trialing' during the 7-day trial
         if stripe_session:
             tier_from_metadata = (stripe_session.metadata or {}).get('tier')
         if subscription_id:
             try:
                 subscription = stripe.Subscription.retrieve(subscription_id)
+                sub_status = subscription.status or 'active'
                 if subscription.items.data:
                     price_id = subscription.items.data[0].price.id
                     tier_from_stripe = get_tier_from_price_id(price_id)
@@ -584,36 +589,50 @@ def complete_upgrade():
         
         tier_config = TIER_CONFIGS.get(tier, TIER_CONFIGS['pro'])
         credits = tier_config['credits']
-        
+
         update_data = {
             'tier': tier,
             'subscriptionTier': tier,
             'credits': credits,
             'maxCredits': credits,
-            'subscriptionStatus': 'active',
+            # Actual Stripe status so trial subscribers show 'trialing', not
+            # 'active' (the webhook writes the same value; whichever runs last
+            # must not clobber it with a wrong hardcode).
+            'subscriptionStatus': sub_status,
             'upgraded_at': datetime.now().isoformat(),
             'lastCreditReset': datetime.now().isoformat(),
             'coffeeChatPrepsUsed': 0,
             'coffeeChatPrepsLimit': tier_config['coffee_chat_preps'],
         }
-        
+        if sub_status == 'trialing':
+            # Consume the one-per-account trial token here too, in case the
+            # checkout.session.completed webhook is delayed or dropped.
+            update_data['trialUsedAt'] = datetime.now()
+
         if customer_id:
             update_data['stripeCustomerId'] = customer_id
         if subscription_id:
             update_data['stripeSubscriptionId'] = subscription_id
-        
+
+        # Read the pre-update doc for upsell history — the post-checkout
+        # Pro→Elite offer is shown at most once per account.
+        already_saw_upsell = bool((user_doc.to_dict() or {}).get('upsellShownAt')) if user_doc.exists else False
+
         user_ref.set(update_data, merge=True)
         print(f"   ✅ Updated Firebase user document")
-        
-        print(f"✅ Successfully upgraded {user_email} to {tier.capitalize()}!")
-        
+
+        print(f"✅ Successfully upgraded {user_email} to {tier.capitalize()} (status={sub_status})!")
+
         return jsonify({
             'success': True,
             'message': f'Successfully upgraded to {tier.capitalize()}',
             'tier': tier,
             'credits': credits,
             'subscriptionId': subscription_id,
-            'customerId': customer_id
+            'customerId': customer_id,
+            'subscriptionStatus': sub_status,
+            'paymentStatus': stripe_session.payment_status if stripe_session else 'paid',
+            'upsellShownAt': already_saw_upsell,
         })
         
     except KeyError as e:

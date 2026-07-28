@@ -34,7 +34,7 @@ const comparisonRows = [
   { feature: "Gmail Integration", offerloop: true, competitor: false },
   { feature: "Networking Pipeline Tracker", offerloop: true, competitor: false },
   { feature: "Job Postings", offerloop: false, competitor: true },
-  { feature: "Pricing", offerloop: "Free / $14.99/mo Pro", competitor: "Free for students" },
+  { feature: "Pricing", offerloop: "Free / $9.99/mo Pro", competitor: "Free for students" },
 ];
 
 const CompareHandshake = () => {

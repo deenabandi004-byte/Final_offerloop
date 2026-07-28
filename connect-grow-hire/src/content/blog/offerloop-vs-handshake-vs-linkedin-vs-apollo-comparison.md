@@ -80,7 +80,7 @@ Navigating the job market as a college student can be daunting. With the competi
 | **Contact Database Size**       | 2.2 Billion                | N/A                      | 800 Million+            | 250 Million+             |
 | **Cold Email Personalization**  | Yes                        | No                       | No                      | Limited                  |
 | **Coffee Chat Scheduling**      | Yes                        | No                       | No                      | No                       |
-| **Pricing for Students**        | Free / Pro $14.99/mo / Elite $34.99/mo | Free                  | Free / Premium $29.99/mo | Starting $49/mo          |
+| **Pricing for Students**        | Free / Pro $9.99/mo / Elite $34.99/mo | Free                  | Free / Premium $29.99/mo | Starting $49/mo          |
 | **Best For**                    | Cold Outreach and Networking | Job Search and Internships | Professional Networking | Sales Teams              |
 
 ## Handshake: Strengths and Limitations for Networking
