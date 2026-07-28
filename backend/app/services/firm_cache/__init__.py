@@ -25,9 +25,12 @@ from app.services.firm_cache.schema import (
     TITLE_LEVELS,
 )
 from app.services.firm_cache.writer import cache_pdl_contacts
+from app.services.firm_cache.reader import search_firm_cache, firm_employee_doc_to_app_contact
 
 __all__ = [
     "cache_pdl_contacts",
+    "search_firm_cache",
+    "firm_employee_doc_to_app_contact",
     "firm_employee_doc_from_pdl_person",
     "firm_employee_doc_from_app_contact",
     "canonicalize_linkedin_url",
