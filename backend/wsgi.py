@@ -514,29 +514,39 @@ def create_app() -> Flask:
                     one_day_ms = 86400 * 1000
                     renewed = 0
                     failed = 0
-                    for user_doc in db.collection("users").stream():
+                    # Materialize the user list here so a mid-iteration
+                    # Firestore page-fetch failure raises inside the outer
+                    # try (aborts cycle, retries in 6 days) rather than
+                    # partway through the loop (skipping later users for
+                    # 6 days). The per-user try below only guards the body.
+                    user_docs = list(db.collection("users").stream())
+                    for user_doc in user_docs:
                         uid = user_doc.id
-                        gmail_ref = db.collection("users").document(uid).collection("integrations").document("gmail")
-                        gmail_doc = gmail_ref.get()
-                        if not gmail_doc.exists:
-                            continue
-                        data = gmail_doc.to_dict() or {}
-                        if not (data.get("token") or data.get("refresh_token")):
-                            continue
-                        watch_exp = data.get("watchExpiration")
-                        if watch_exp is not None:
-                            try:
-                                watch_exp = int(watch_exp)
-                            except (TypeError, ValueError):
-                                watch_exp = None
-                        if watch_exp is not None and (watch_exp - now_ms) >= one_day_ms:
-                            continue
                         try:
-                            renew_gmail_watch(uid)
-                            renewed += 1
-                        except Exception as e:
+                            gmail_ref = db.collection("users").document(uid).collection("integrations").document("gmail")
+                            gmail_doc = gmail_ref.get()
+                            if not gmail_doc.exists:
+                                continue
+                            data = gmail_doc.to_dict() or {}
+                            if not (data.get("token") or data.get("refresh_token")):
+                                continue
+                            watch_exp = data.get("watchExpiration")
+                            if watch_exp is not None:
+                                try:
+                                    watch_exp = int(watch_exp)
+                                except (TypeError, ValueError):
+                                    watch_exp = None
+                            if watch_exp is not None and (watch_exp - now_ms) >= one_day_ms:
+                                continue
+                            try:
+                                renew_gmail_watch(uid)
+                                renewed += 1
+                            except Exception as e:
+                                failed += 1
+                                _watch_logger.error("Watch renewal failed uid=%s: %s", uid, e)
+                        except Exception:
                             failed += 1
-                            _watch_logger.error("Watch renewal failed uid=%s: %s", uid, e)
+                            _watch_logger.exception("Watch renewal aborted for uid=%s", uid)
                     _watch_logger.info("Watch renewal complete: renewed=%d failed=%d", renewed, failed)
             except Exception as e:
                 _watch_logger.error("Watch renewal loop error: %s", e)
