@@ -6,7 +6,7 @@ import { ArrowRight } from 'lucide-react';
 const faqData = [
   {
     question: "How much does Apollo.io cost compared to Offerloop?",
-    answer: "Apollo's paid plans start at $49/month (billed annually) and go up to $119/month for Professional features. Enterprise plans run $500+/month. Offerloop Pro is $14.99/month — purpose-built for students, not enterprise sales teams. Offerloop also has a free tier with 300 credits, while Apollo's free tier is limited to 60 mobile credits/month."
+    answer: "Apollo's paid plans start at $49/month (billed annually) and go up to $119/month for Professional features. Enterprise plans run $500+/month. Offerloop Pro is $9.99/month — purpose-built for students, not enterprise sales teams. Offerloop also has a free tier with 300 credits, while Apollo's free tier is limited to 60 mobile credits/month."
   },
   {
     question: "Is Apollo.io good for college students?",
@@ -34,7 +34,7 @@ const comparisonRows = [
   { feature: "Gmail Integration", offerloop: true, competitor: true },
   { feature: "Coffee Chat Prep", offerloop: true, competitor: false },
   { feature: "Free Tier", offerloop: "300 credits", competitor: "60 mobile credits/mo" },
-  { feature: "Pricing", offerloop: "Free / $14.99/mo Pro", competitor: "$49-119/mo (annual billing)" },
+  { feature: "Pricing", offerloop: "Free / $9.99/mo Pro", competitor: "$49-119/mo (annual billing)" },
 ];
 
 const CompareApollo = () => {
@@ -42,10 +42,10 @@ const CompareApollo = () => {
     <div className="min-h-screen w-full" style={{ fontFamily: "'DM Sans', system-ui, sans-serif", background: '#FFFFFF' }}>
       <Helmet>
         <title>Offerloop vs Apollo.io for Students | Affordable Alternative | Offerloop</title>
-        <meta name="description" content="Apollo costs $50-500/mo and targets B2B sales teams. Offerloop is $14.99/mo and built for college students. Compare features and pricing." />
+        <meta name="description" content="Apollo costs $50-500/mo and targets B2B sales teams. Offerloop is $9.99/mo and built for college students. Compare features and pricing." />
         <link rel="canonical" href="https://offerloop.ai/compare/apollo" />
         <meta property="og:title" content="Offerloop vs Apollo.io for Students | Offerloop" />
-        <meta property="og:description" content="Apollo.io costs $49-500/mo for sales teams. Offerloop is $14.99/mo for students. Compare features and pricing." />
+        <meta property="og:description" content="Apollo.io costs $49-500/mo for sales teams. Offerloop is $9.99/mo for students. Compare features and pricing." />
         <meta property="og:url" content="https://offerloop.ai/compare/apollo" />
         <meta property="og:type" content="website" />
         <script type="application/ld+json">{JSON.stringify({
@@ -115,7 +115,7 @@ const CompareApollo = () => {
           Apollo.io is an excellent tool — for its target audience. B2B sales teams use Apollo to build lead lists, run automated email sequences, track engagement, and integrate with CRMs like Salesforce and HubSpot. If you're a sales development rep sending 500 emails per day, Apollo's $49-119/month pricing makes sense.
         </p>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569', marginBottom: '16px' }}>
-          For a college student sending 10-15 personalized networking emails per week, Apollo is massive overkill. You don't need automated sequences, call dialers, or CRM integrations. You need to find the right person, write a great email, send it, and track the response. That's exactly what Offerloop does — at $14.99/month instead of $49-119.
+          For a college student sending 10-15 personalized networking emails per week, Apollo is massive overkill. You don't need automated sequences, call dialers, or CRM integrations. You need to find the right person, write a great email, send it, and track the response. That's exactly what Offerloop does — at $9.99/month instead of $49-119.
         </p>
         <p style={{ fontSize: '15px', lineHeight: 1.8, color: '#475569' }}>
           Offerloop also includes student-specific features that Apollo doesn't offer: Coffee Chat Prep PDFs, interview preparation tools, a resume workshop, and a networking tracker designed for relationship-building rather than sales pipeline management.

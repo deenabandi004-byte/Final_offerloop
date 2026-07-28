@@ -438,7 +438,7 @@ export const TROUBLESHOOTING = {
       "Check your credits in the sidebar",
       "Go to Pricing to upgrade your plan",
       "Credits reset monthly - check your reset date",
-      "Pro ($14.99) gives 2,000 credits, Elite ($34.99) gives 5,000"
+      "Pro ($9.99) gives 2,000 credits, Elite ($34.99) gives 5,000"
     ]
   },
 

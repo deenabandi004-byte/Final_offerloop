@@ -538,6 +538,6 @@ Here's your action plan for this week:
 4. Track every email in a spreadsheet or pipeline tool
 5. Follow up on day 5 and day 12 if no response
 
-If you want to skip the manual work of finding contacts and writing individual emails, [Offerloop](https://offerloop.ai) automates both — search for consultants by firm, role, and university, then generate AI-personalized outreach emails that draft directly into your Gmail. The free tier gets you started, and Pro ($14.99/mo) gives you unlimited searches and email generation.
+If you want to skip the manual work of finding contacts and writing individual emails, [Offerloop](https://offerloop.ai) automates both — search for consultants by firm, role, and university, then generate AI-personalized outreach emails that draft directly into your Gmail. The free tier gets you started, and Pro ($9.99/mo) gives you unlimited searches and email generation.
 
 Your first coffee chat is one good email away. Send it.

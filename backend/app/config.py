@@ -263,7 +263,11 @@ STRIPE_PRICE_CATALOG = {
         'monthly': {
             'student': {
                 1000: os.getenv('STRIPE_PRO_MONTHLY_STUDENT_1K',  ''),
-                2000: os.getenv('STRIPE_PRO_MONTHLY_STUDENT_2K',  STRIPE_PRO_PRICE_ID),
+                # 2026-07-27 pricing simplification: Pro is $9.99/mo for everyone.
+                # New live SKU created via Stripe API (lookup_key
+                # pro_monthly_999_2026). The old $14.99 SKU stays live for
+                # existing subscribers only (resolved via the legacy constant).
+                2000: os.getenv('STRIPE_PRO_MONTHLY_STUDENT_2K',  'price_1TxzloERY2WrVHp15NcO6deA'),
                 3000: os.getenv('STRIPE_PRO_MONTHLY_STUDENT_3K',  ''),
                 4000: os.getenv('STRIPE_PRO_MONTHLY_STUDENT_4K',  ''),
             },
@@ -337,18 +341,16 @@ REFERRAL_REWARD_TIER = 'elite'     # tier granted by the reward
 # Each entry: (credits, student_price_dollars, list_price_dollars).
 # Stop 2 (the second entry) is the default — what the page renders before drag.
 SLIDER_STOPS = {
-    # Doubled 2026-06-10 — 10 cr = 1 email. Same email counts as before
-    # (Pro 100/200/300/400, Elite 300/500/700), inflated credit numbers.
+    # 2026-07-27 pricing simplification: one price per tier, no slider, no
+    # student/list split (student pricing IS the pricing — see
+    # user_is_student_eligible in stripe_client.py). Single stop per tier keeps
+    # the checkout plumbing (tier/credits/audience params) unchanged. Existing
+    # subscribers on old multi-stop inline prices renew untouched in Stripe.
     'pro': [
-        {'credits': 1000, 'student': 9.99,  'list': 19.00},
-        {'credits': 2000, 'student': 14.99, 'list': 29.00, 'default': True},
-        {'credits': 3000, 'student': 19.99, 'list': 39.00},
-        {'credits': 4000, 'student': 24.99, 'list': 49.00},
+        {'credits': 2000, 'student': 9.99, 'list': 9.99, 'default': True},
     ],
     'elite': [
-        {'credits': 3000, 'student': 24.99, 'list': 44.00},
-        {'credits': 5000, 'student': 34.99, 'list': 59.00, 'default': True},
-        {'credits': 7000, 'student': 49.99, 'list': 84.00},
+        {'credits': 5000, 'student': 34.99, 'list': 34.99, 'default': True},
     ],
 }
 

@@ -160,7 +160,7 @@ export default function PaymentSuccess() {
           console.log('PaymentSuccess: Upgrade successful:', result);
 
           // Track checkout completion
-          const plan = (result.user?.tier as string) || 'pro';
+          const plan = (result.tier as string) || 'pro';
           trackCheckoutCompleted(plan);
           setPurchasedTier(plan);
 
@@ -176,9 +176,14 @@ export default function PaymentSuccess() {
           // Branch: offer the Pro→Elite upsell when:
           //   - the purchased tier is Pro (not Elite — no upsell out of Elite)
           //   - the user hasn't seen the upsell before (`upsellShownAt` empty)
+          //   - money actually moved ('paid'). Trial checkouts are
+          //     'no_payment_required' — pitching "$10 more" against a $0
+          //     charge is incoherent, and the modal's renewal math assumes a
+          //     paid first month.
           // Backend re-validates the existing-discount collision guard.
-          const alreadySaw = Boolean((result.user as { upsellShownAt?: unknown } | undefined)?.upsellShownAt);
-          if (plan === 'pro' && !alreadySaw) {
+          const alreadySaw = Boolean(result.upsellShownAt);
+          const paidNow = result.paymentStatus === 'paid';
+          if (plan === 'pro' && !alreadySaw && paidNow) {
             setStatus('upsell');
             // Fire telemetry — landed on the upsell screen.
             try {
@@ -192,7 +197,11 @@ export default function PaymentSuccess() {
             }
           } else {
             setStatus('success');
-            setMessage('Successfully upgraded to Pro! 🎉');
+            setMessage(
+              result.subscriptionStatus === 'trialing'
+                ? `Your 7-day free trial of ${plan === 'elite' ? 'Elite' : 'Pro'} has started!`
+                : `Successfully upgraded to ${plan === 'elite' ? 'Elite' : 'Pro'}!`,
+            );
             setTimeout(() => {
               navigate('/home');
             }, 2000);

@@ -47,8 +47,18 @@ const SignIn: React.FC = () => {
     }, 600);
   };
 
+  // Honor a ?next= or ?redirect= return path (e.g. /pricing when the visitor
+  // clicked "Start free trial" while signed out) so purchase intent survives
+  // the sign-in round-trip. Internal paths only — never protocol-relative or
+  // absolute URLs. Onboarding still wins for brand-new accounts.
+  const returnPath = useMemo(() => {
+    const sp = new URLSearchParams(location.search);
+    const raw = sp.get("next") || sp.get("redirect") || "";
+    return raw.startsWith("/") && !raw.startsWith("//") ? raw : null;
+  }, [location.search]);
+
   const finishAuth = (next: "onboarding" | "home") =>
-    forceNavigate(next === "onboarding" ? "/onboarding" : "/home");
+    forceNavigate(next === "onboarding" ? "/onboarding" : (returnPath ?? "/home"));
 
   useEffect(() => setActiveTab(initialTab), [initialTab]);
 
@@ -71,8 +81,8 @@ const SignIn: React.FC = () => {
     const params = new URLSearchParams(location.search);
     if (params.get("signout") === "true") return;
 
-    forceNavigate(user.needsOnboarding ? "/onboarding" : "/home");
-  }, [user, isLoading, location.search, location.pathname]);
+    forceNavigate(user.needsOnboarding ? "/onboarding" : (returnPath ?? "/home"));
+  }, [user, isLoading, location.search, location.pathname, returnPath]);
 
   const handleGoogleAuth = async () => {
     if (submitting || isLoading) return;

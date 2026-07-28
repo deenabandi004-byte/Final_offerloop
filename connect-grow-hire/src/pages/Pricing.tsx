@@ -26,20 +26,15 @@ import { getAuth } from 'firebase/auth';
 import { BACKEND_URL } from '@/services/api';
 import {
   trackUpgradeClick,
-  trackTrialStarted,
-  trackSliderDragged,
   trackSeasonPassClicked,
 } from "../lib/analytics";
 import {
   useTierConfig,
   resolvePriceId,
   resolveSeasonPassPriceId,
-  percentOff,
-  annualMonthlyEquivalent,
   seasonPassVisible,
   emailsFromCredits,
 } from "@/hooks/useTierConfig";
-import { CreditSlider } from "@/components/CreditSlider";
 import { TopUpModal } from "@/components/TopUpModal";
 import { useCreditsView } from "@/hooks/useCreditsView";
 
@@ -88,11 +83,11 @@ const fmt = (n: number) => `$${Number.isInteger(n) ? n : n.toFixed(2)}`;
 const STRIPE_PUBLISHABLE_KEY = "pk_live_51S4BB8ERY2WrVHp1acXrKE6RBG7NBlfHcMZ2kf7XhCX2E5g8Lasedx6ntcaD1H4BsoUMBGYXIcKHcAB4JuohLa2B00j7jtmWnB";
 const stripePromise = loadStripe(STRIPE_PUBLISHABLE_KEY);
 
-// Legacy Stripe Price IDs — kept as last-resort fallback if `useTierConfig()`
-// returns an empty SKU. All real Price ID resolution now goes through the
-// `STRIPE_PRICE_CATALOG` matrix exposed by `/api/tier-config` (cofounders wire
-// the full SKU set in Stripe; we read by tier/cadence/audience/credits).
-const LEGACY_PRO_PRICE_ID = "price_1ScLXrERY2WrVHp1bYgdMAu4";
+// Fallback Stripe Price IDs — used only if `useTierConfig()` returns an empty
+// SKU. Pro is the $9.99 SKU created 2026-07-27 (lookup_key
+// pro_monthly_999_2026); the old $14.99 SKU stays live for existing
+// subscribers only.
+const LEGACY_PRO_PRICE_ID = "price_1TxzloERY2WrVHp15NcO6deA";
 const LEGACY_ELITE_PRICE_ID = "price_1ScLcfERY2WrVHp1c5rcONJ3";
 
 interface SubscriptionStatus {
@@ -230,55 +225,31 @@ const CompareCellValue: React.FC<{ value: CompareCell; isPro?: boolean }> = ({ v
 const Pricing = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
-  const [billingCadence, setBillingCadence] = useState<'monthly' | 'annual'>('monthly');
   const [navbarScrolled, setNavbarScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  // Higgsfield-style in-tier credit slider — selected stop index per tier.
-  // Initialized to the `default: true` stop in SLIDER_STOPS once config loads.
-  const [proStopIdx, setProStopIdx] = useState(1);
-  const [eliteStopIdx, setEliteStopIdx] = useState(1);
   const [topUpModalOpen, setTopUpModalOpen] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const navigate = useNavigate();
   const { user, updateUser, checkCredits, isLoading: authLoading } = useFirebaseAuth();
 
-  // Student pricing is derived from the signed-in user's email — never a UI
-  // toggle. A .edu on the primary sign-up email, OR a .edu added on the profile
-  // step (surfaced as Firestore `isStudent`), unlocks the discount. Unsigned
-  // visitors see list pricing. Server re-validates audience at checkout.
-  const userEmailIsEdu = (user?.email || '').toLowerCase().trim().endsWith('.edu');
-  const showStudentPrice = Boolean((user as any)?.isStudent) || userEmailIsEdu;
+  // 2026-07-27 pricing simplification: one price per tier, monthly only,
+  // student pricing for everyone (no .edu verification, no credit slider,
+  // no annual toggle). One decision: Free or Pro (Elite anchors).
+  const billingCadence = 'monthly' as const;
+  const audience = 'student' as const;
 
-  // Pull runtime tier config (cached via React Query). Drives prices, slider
-  // stops, Stripe SKUs, trial days, active promos, top-up packs. Falls back to
+  // Pull runtime tier config (cached via React Query). Drives prices, Stripe
+  // SKUs, trial days, active promos, top-up packs. Falls back to
   // lib/constants.ts defaults if the endpoint is unreachable.
   const { config: tierConfig } = useTierConfig();
   const creditsView = useCreditsView();
   const proStops = tierConfig.slider_stops.pro;
   const eliteStops = tierConfig.slider_stops.elite;
-  const proStop = proStops[proStopIdx];
-  const eliteStop = eliteStops[eliteStopIdx];
+  const proStop = proStops.find((s) => s.default) ?? proStops[0];
+  const eliteStop = eliteStops.find((s) => s.default) ?? eliteStops[0];
 
-  // Annual SKUs exist only for the default credit stop on each tier (Pro 2K,
-  // Elite 5K). Annual billing is selectable only when both sliders sit on their
-  // default stop, so checkout always resolves to a real annual Stripe Price.
-  const annualAvailable = Boolean(proStop?.default) && Boolean(eliteStop?.default);
-
-  // Audience (student vs list) drives both display and Stripe Price ID resolution.
-  const audience = showStudentPrice ? 'student' : 'list';
-
-  // Derive display prices from the selected slider stop + cadence.
-  const proMonthlyPrice = audience === 'student' ? proStop.student : proStop.list;
-  const eliteMonthlyPrice = audience === 'student' ? eliteStop.student : eliteStop.list;
-  const proListMonthly = proStop.list;
-  const eliteListMonthly = eliteStop.list;
-  // Annual prices are derived from monthly so they TRACK the slider. The fixed
-  // `tierConfig.annual_pricing` dict is now only a Stripe-wiring reference for
-  // cofounders (which default-stop SKU to map). Discount math: monthly × 9.6
-  // = 20% off monthly cadence, equivalent to "2.4 months free".
-  const ANNUAL_DISCOUNT_MULTIPLIER = 9.6; // = 12 × (1 - 0.20)
-  const proAnnualPrice = Math.round(proMonthlyPrice * ANNUAL_DISCOUNT_MULTIPLIER);
-  const eliteAnnualPrice = Math.round(eliteMonthlyPrice * ANNUAL_DISCOUNT_MULTIPLIER);
+  const proMonthlyPrice = proStop.student;
+  const eliteMonthlyPrice = eliteStop.student;
 
   // Stripe Price ID resolution from the env-driven catalog. Empty string means
   // cofounders haven't wired that SKU yet — CTA falls back to the legacy default.
@@ -321,25 +292,6 @@ const Pricing = () => {
       fetchSubscriptionStatus();
     }
   }, [user]);
-
-  // Sync slider indices to the `default: true` stop once the runtime config loads.
-  useEffect(() => {
-    const proDefault = proStops.findIndex((s) => s.default);
-    const eliteDefault = eliteStops.findIndex((s) => s.default);
-    if (proDefault >= 0 && proStopIdx === 1 && proDefault !== 1) setProStopIdx(proDefault);
-    if (eliteDefault >= 0 && eliteStopIdx === 1 && eliteDefault !== 1) setEliteStopIdx(eliteDefault);
-    // Intentionally one-shot on first load — user drags after this are preserved.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tierConfig]);
-
-  // If either slider moves off its default stop while Annual is selected, fall
-  // back to Monthly. Annual Stripe Prices only exist for the default stop, so
-  // staying on Annual at a non-default stop would resolve to the wrong SKU.
-  useEffect(() => {
-    if (billingCadence === 'annual' && !annualAvailable) {
-      setBillingCadence('monthly');
-    }
-  }, [billingCadence, annualAvailable]);
 
   useEffect(() => {
     const handleScroll = () => setNavbarScrolled(window.scrollY > 50);
@@ -505,40 +457,6 @@ const Pricing = () => {
     }
   };
 
-  // Try to activate the one-time Pro free trial. Returns true if the trial
-  // was started (caller should navigate); false if ineligible (caller should
-  // fall back to Stripe checkout).
-  const handleStartTrial = async (): Promise<boolean> => {
-    if (!user) return false;
-    setIsLoading(true);
-    try {
-      const auth = getAuth();
-      const fbUser = auth.currentUser;
-      if (!fbUser) return false;
-      const token = await fbUser.getIdToken();
-      const res = await fetch(`${BACKEND_URL}/api/users/start-trial`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({}),
-      });
-      if (res.ok) {
-        trackTrialStarted({ tier: 'pro', from_location: 'pricing_page' });
-        if (checkCredits) await checkCredits();
-        await fetchSubscriptionStatus();
-        navigate('/find');
-        return true;
-      }
-      // 409 = trial_already_used or already_subscribed → fall back to Stripe checkout
-      // 404 = user doc missing → also fall back (Stripe checkout will surface the real error)
-      return false;
-    } catch (e) {
-      console.error('start-trial failed:', e);
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const handleUpgrade = async (planType: 'free' | 'pro' | 'elite', fromFeature?: string) => {
     // Public pricing page - visitors without an account get bounced to sign-in
     // and brought back to /pricing with the plan they tapped pre-selected.
@@ -551,8 +469,8 @@ const Pricing = () => {
       if (planType === 'free') {
         await updateUser({
           tier: 'free',
-          credits: 500,
-          maxCredits: 500
+          credits: 300,
+          maxCredits: 300
         });
         navigate("/find");
       }
@@ -562,14 +480,8 @@ const Pricing = () => {
           plan_selected: planType,
         });
 
-        // For Pro: prefer the free trial over Stripe checkout when the user
-        // is eligible (Free tier + hasn't used trial). The backend returns
-        // 409 if ineligible, which we silently fall back to checkout for.
-        if (planType === 'pro' && !hasActiveSubscription && currentTier === 'free') {
-          const started = await handleStartTrial();
-          if (started) return;
-          // else: fall through to Stripe checkout
-        }
+        // Card-on-file trial: every upgrade goes through Stripe Checkout,
+        // which grants the 7-day trial server-side (skipped if already used).
 
         // Modify-in-place only works with a REAL Stripe subscription. A no-card
         // trial user has subscriptionStatus 'trialing' but no Stripe sub, so they
@@ -758,18 +670,14 @@ const Pricing = () => {
     ? new Date(subscriptionStatus.currentPeriodEnd * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     : null;
 
-  const periodLabel = billingCadence === 'annual' ? '/mo, billed yearly' : '/mo';
+  const periodLabel = '/mo';
 
   const freeEmails = emailsFromCredits(300, tierConfig.credit_costs.find_contact).toLocaleString();
   const proEmails = emailsFromCredits(proStop.credits, tierConfig.credit_costs.find_contact).toLocaleString();
   const eliteEmails = emailsFromCredits(eliteStop.credits, tierConfig.credit_costs.find_contact).toLocaleString();
 
-  // Displayed price per tier: annual shows the per-month equivalent with the
-  // monthly-cadence price struck through; student mode strikes the list price.
-  const proShown = billingCadence === 'annual' ? annualMonthlyEquivalent(proAnnualPrice) : proMonthlyPrice;
-  const proStruck = billingCadence === 'annual' ? proMonthlyPrice : (showStudentPrice ? proListMonthly : null);
-  const eliteShown = billingCadence === 'annual' ? annualMonthlyEquivalent(eliteAnnualPrice) : eliteMonthlyPrice;
-  const eliteStruck = billingCadence === 'annual' ? eliteMonthlyPrice : (showStudentPrice ? eliteListMonthly : null);
+  const proShown = proMonthlyPrice;
+  const eliteShown = eliteMonthlyPrice;
 
   const scrollToCompare = () => {
     document.getElementById('compare')?.scrollIntoView({ behavior: 'smooth' });
@@ -800,7 +708,6 @@ const Pricing = () => {
       ['Top-up credit packs', false, true, true],
     ]],
     ['Access & support', [
-      ['.edu student pricing', false, true, true],
       ['Priority queue', false, false, true],
       ['Early access to new AI tools', false, false, true],
       [`${trialDays}-day free trial`, false, true, false],
@@ -810,23 +717,19 @@ const Pricing = () => {
   const faqs: [string, string][] = [
     [
       'How does the free trial work?',
-      `You get ${trialDays} days of Pro access with 600 credits to spend, no credit card required. Use them on contact searches, firm search, hiring-manager lookups, and drafts. You can cancel anytime, and at the end of the window you drop to the Free plan automatically (no surprise charges). The trial is for Pro only; Elite users sign up directly or come in via the one-time upgrade offer right after checkout.`,
+      `You get ${trialDays} days of full Pro access. Add a payment method to start, and you won't be charged until day ${trialDays + 1}. Cancel anytime during the trial in two clicks from account settings and you pay nothing. After the trial it's $${proMonthlyPrice}/mo. The trial is for Pro; you can also use the Free plan forever with no card at all.`,
     ],
     [
-      "What's the .edu student discount?",
-      'The student price is the price you see - roughly 50% off the public list rate. As long as you signed up with a verified .edu email, you keep that student price for life, even after you graduate.',
+      'Is this really student pricing?',
+      `Yes. Offerloop is built for college students, so the price you see is the student price: $${proMonthlyPrice}/mo for Pro. No .edu verification, no coupon codes, no hoops. Everyone gets the student rate.`,
     ],
     [
       'What happens when I run out of credits?',
       "Searches pause until your plan renews (the 1st of the next month) or you upgrade. Pro and Elite subscribers can also top up with a credit pack, and purchased credits never expire. All your saved contacts and drafts stay put.",
     ],
     [
-      'Can I change plans anytime?',
-      'Yep, anytime. Upgrading? You get access immediately. Downgrading? Takes effect at your next billing cycle. Takes 10 seconds to switch.',
-    ],
-    [
-      'Monthly vs annual - which should I pick?',
-      "Annual saves ~20% - more than two months free. If you're committed to recruiting for the year, annual is the better deal whether or not you have a .edu email. If you're testing it out, start monthly and switch later.",
+      'Can I change plans or cancel anytime?',
+      'Yep, anytime. Upgrading? You get access immediately. Downgrading or canceling? Takes effect at your next billing cycle, and you keep access until then. Takes 10 seconds either way.',
     ],
     [
       'Do credits roll over?',
@@ -837,12 +740,8 @@ const Pricing = () => {
       `A one-time charge for ${tierConfig.season_pass.months} months of Pro-level access with ${tierConfig.season_pass.credits_per_month.toLocaleString()} credits refilled monthly, and no auto-renewal. Ideal for a focused recruiting sprint.`,
     ],
     [
-      "What if I don't have a .edu email?",
-      `You can still sign up and use Offerloop - you'll just get the standard ${trialDays}-day Pro trial and pay the public list price. Already a paid alumni? Reach out and we'll verify your old school manually.`,
-    ],
-    [
       "What's your refund policy?",
-      "Pro and Elite are refundable for 7 days from your first charge, whether monthly or annual. The Recruiting Season Pass has a 14-day window, provided you haven't used more than half of your month-1 credits. Top-up credit packs are non-refundable (your credits never expire, so there's no reason they should). Email support@offerloop.ai or request a refund from your account settings. We typically respond within 24 hours.",
+      "Pro and Elite are refundable for 7 days from your first charge. The Recruiting Season Pass has a 14-day window, provided you haven't used more than half of your month-1 credits. Top-up credit packs are non-refundable (your credits never expire, so there's no reason they should). Email support@offerloop.ai or request a refund from your account settings. We typically respond within 24 hours.",
     ],
   ];
 
@@ -850,7 +749,7 @@ const Pricing = () => {
     <div style={{ fontFamily: T.sans, color: T.ink, background: T.paper2, minHeight: '100vh' }}>
       <Helmet>
         <title>Offerloop Pricing - Student Plans for College Networking</title>
-        <meta name="description" content={`Students save ~50% with a .edu email. Pro $14.99/mo with ${trialDays}-day free trial, Elite $34.99/mo, plus annual plans. Offerloop helps college students network into consulting, investment banking, and tech.`} />
+        <meta name="description" content={`Student pricing for everyone: Pro $9.99/mo with a ${trialDays}-day free trial, Elite $34.99/mo. Offerloop helps college students network into consulting, investment banking, and tech.`} />
         <link rel="canonical" href="https://offerloop.ai/pricing" />
       </Helmet>
 
@@ -1001,142 +900,32 @@ const Pricing = () => {
             </div>
           )}
 
-          {/* Toggles: .edu student price stacked above billing cadence, both centered */}
+          {/* Student pricing badge — one price for everyone, no verification. */}
           <div
             className="of-up"
             style={{
               display: 'flex',
-              flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 12,
               marginBottom: 30,
               animationDelay: '.05s',
             }}
           >
-            {/* .edu student pricing badge — static, non-interactive. Eligibility
-                is derived from the signed-in user's email (see showStudentPrice
-                above) and cannot be toggled from the UI. */}
-            {showStudentPrice ? (
-              <div
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  background: T.primary100,
-                  border: `1px solid ${T.primary}`,
-                  borderRadius: 100,
-                  padding: '8px 14px',
-                  boxShadow: '0 1px 3px rgba(15,37,69,0.06)',
-                }}
-              >
-                <GraduationCap size={15} style={{ color: T.primary }} />
-                <span style={{ fontSize: 13, fontWeight: 600, color: T.heading }}>
-                  .edu student price applied, ~50% off
-                </span>
-              </div>
-            ) : (
-              <div
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  background: T.paper,
-                  border: `1px solid ${T.border}`,
-                  borderRadius: 100,
-                  padding: '8px 14px',
-                  boxShadow: '0 1px 3px rgba(15,37,69,0.06)',
-                }}
-              >
-                <GraduationCap size={15} style={{ color: T.ink3 }} />
-                <span style={{ fontSize: 13, fontWeight: 600, color: T.ink3 }}>
-                  .edu email required for ~50% off
-                </span>
-              </div>
-            )}
-
-            {/* Monthly / Annual pill with sliding navy thumb */}
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-              <div
-                style={{
-                  position: 'relative',
-                  display: 'inline-flex',
-                  background: T.paper,
-                  border: `1px solid ${T.border}`,
-                  borderRadius: 100,
-                  padding: 4,
-                  boxShadow: '0 1px 3px rgba(15,37,69,0.06)',
-                }}
-              >
-                <div
-                  aria-hidden
-                  style={{
-                    position: 'absolute',
-                    top: 4,
-                    left: 4,
-                    width: 'calc(50% - 4px)',
-                    height: 'calc(100% - 8px)',
-                    background: T.night,
-                    borderRadius: 100,
-                    transition: `transform .3s ${EASE}`,
-                    transform: billingCadence === 'annual' ? 'translateX(100%)' : 'translateX(0)',
-                  }}
-                />
-                <button
-                  onClick={() => setBillingCadence('monthly')}
-                  style={{
-                    position: 'relative',
-                    zIndex: 1,
-                    border: 'none',
-                    background: 'none',
-                    cursor: 'pointer',
-                    fontFamily: T.sans,
-                    fontWeight: 600,
-                    fontSize: 13.5,
-                    padding: '8px 22px',
-                    borderRadius: 100,
-                    color: billingCadence === 'monthly' ? '#fff' : T.ink3,
-                    transition: `color .3s ${EASE}`,
-                  }}
-                >
-                  Monthly
-                </button>
-                <button
-                  onClick={() => annualAvailable && setBillingCadence('annual')}
-                  disabled={!annualAvailable}
-                  title={annualAvailable ? undefined : 'Annual billing is available on the default credit amount. Reset the credit slider to its default to pay annually.'}
-                  style={{
-                    position: 'relative',
-                    zIndex: 1,
-                    border: 'none',
-                    background: 'none',
-                    cursor: annualAvailable ? 'pointer' : 'not-allowed',
-                    fontFamily: T.sans,
-                    fontWeight: 600,
-                    fontSize: 13.5,
-                    padding: '8px 22px',
-                    borderRadius: 100,
-                    color: billingCadence === 'annual' ? '#fff' : T.ink3,
-                    opacity: annualAvailable ? 1 : 0.4,
-                    transition: `color .3s ${EASE}`,
-                  }}
-                >
-                  Annual
-                </button>
-              </div>
-              <span
-                style={{
-                  fontSize: 11.5,
-                  fontWeight: 700,
-                  letterSpacing: '0.04em',
-                  color: '#fff',
-                  background: MAGENTA_GRADIENT,
-                  padding: '6px 11px',
-                  borderRadius: 100,
-                  textTransform: 'uppercase',
-                }}
-              >
-                Save 20%
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                background: T.primary100,
+                border: `1px solid ${T.primary}`,
+                borderRadius: 100,
+                padding: '8px 14px',
+                boxShadow: '0 1px 3px rgba(15,37,69,0.06)',
+              }}
+            >
+              <GraduationCap size={15} style={{ color: T.primary }} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: T.heading }}>
+                Student pricing, built for recruiting season
               </span>
             </div>
           </div>
@@ -1270,39 +1059,23 @@ const Pricing = () => {
                 >
                   Pro
                 </span>
-                {showStudentPrice && percentOff(proListMonthly, proMonthlyPrice) > 0 && (
-                  <span style={{ fontSize: 10.5, fontWeight: 700, color: T.magentaDeep, background: T.pinkTint, padding: '3px 8px', borderRadius: 100, letterSpacing: '0.03em' }}>
-                    {percentOff(proListMonthly, proMonthlyPrice)}% OFF
-                  </span>
-                )}
                 {currentTier === 'pro' && (
                   <Chip color={T.greenFg} background={T.greenBg}>Your plan</Chip>
                 )}
               </div>
               <div style={{ fontSize: 13, color: T.ink3, marginBottom: 16 }}>Best for students</div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, marginBottom: 2 }}>
-                {proStruck !== null && (
-                  <span style={{ fontSize: 17, color: T.ink4, textDecoration: 'line-through', fontVariantNumeric: 'tabular-nums' }}>
-                    {fmt(proStruck)}
-                  </span>
-                )}
                 <span style={{ fontFamily: T.serif, fontSize: 40, fontWeight: 600, color: T.heading, letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
                   {fmt(proShown)}
                 </span>
                 <span style={{ fontSize: 14, color: T.ink3 }}>{periodLabel}</span>
               </div>
               <div style={{ fontSize: 12.5, color: T.ink4, marginBottom: 14, minHeight: 16 }}>
-                {billingCadence === 'annual' ? (
-                  <>Billed yearly at {fmt(proAnnualPrice)}</>
-                ) : (
-                  <><strong style={{ color: T.ink3, fontWeight: 600 }}>~{proEmails} emails</strong> / month · {proStop.credits.toLocaleString()} credits</>
-                )}
+                <strong style={{ color: T.ink3, fontWeight: 600 }}>~{proEmails} emails</strong> / month · {proStop.credits.toLocaleString()} credits
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
-                {showStudentPrice && (
-                  <Chip color={T.primary} background={T.primary100} icon={<GraduationCap size={12} />}>.edu required</Chip>
-                )}
-                <Chip color={T.greenFg} background={T.greenBg}>{trialDays}-day trial · no card</Chip>
+                <Chip color={T.greenFg} background={T.greenBg}>{trialDays} days free</Chip>
+                <Chip color={T.primary} background={T.primary100}>Cancel anytime</Chip>
               </div>
 
               {!ctaReady ? (
@@ -1355,26 +1128,8 @@ const Pricing = () => {
                 </button>
               )}
 
-              {/* Credit slider — in-tier dial, below the CTA so price + button
-                  stay above the fold */}
-              <div style={{ marginTop: 6 }}>
-                <CreditSlider
-                  stops={proStops}
-                  selectedIndex={proStopIdx}
-                  onChange={(next) => {
-                    if (next !== proStopIdx) {
-                      trackSliderDragged({
-                        tier: 'pro',
-                        credits: proStops[next]?.credits ?? 0,
-                        from_index: proStopIdx,
-                        to_index: next,
-                      });
-                    }
-                    setProStopIdx(next);
-                  }}
-                  accentColor={T.purple}
-                  compact
-                />
+              <div style={{ fontSize: 12, color: T.ink4, textAlign: 'center', marginTop: 10 }}>
+                {trialDays} days free, then {fmt(proShown)}/mo. Cancel anytime.
               </div>
 
               <div style={{ borderTop: `1px solid ${T.borderLight}`, marginTop: 14, paddingTop: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1424,35 +1179,18 @@ const Pricing = () => {
                 >
                   Elite
                 </span>
-                {showStudentPrice && percentOff(eliteListMonthly, eliteMonthlyPrice) > 0 && (
-                  <span style={{ fontSize: 10.5, fontWeight: 700, color: '#E6A0FF', background: 'rgba(180,120,255,0.16)', padding: '3px 8px', borderRadius: 100, letterSpacing: '0.03em' }}>
-                    {percentOff(eliteListMonthly, eliteMonthlyPrice)}% OFF
-                  </span>
-                )}
               </div>
               <div style={{ fontSize: 13, color: '#A9B2C4', marginBottom: 16 }}>For serious recruiting season</div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, marginBottom: 2 }}>
-                {eliteStruck !== null && (
-                  <span style={{ fontSize: 17, color: '#6E7789', textDecoration: 'line-through', fontVariantNumeric: 'tabular-nums' }}>
-                    {fmt(eliteStruck)}
-                  </span>
-                )}
                 <span style={{ fontFamily: T.serif, fontSize: 40, fontWeight: 600, color: '#fff', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
                   {fmt(eliteShown)}
                 </span>
                 <span style={{ fontSize: 14, color: '#A9B2C4' }}>{periodLabel}</span>
               </div>
               <div style={{ fontSize: 12.5, color: '#7C8595', marginBottom: 14, minHeight: 16 }}>
-                {billingCadence === 'annual' ? (
-                  <>Billed yearly at {fmt(eliteAnnualPrice)}</>
-                ) : (
-                  <><strong style={{ color: '#C3CAD6', fontWeight: 600 }}>~{eliteEmails} emails</strong> / month · {eliteStop.credits.toLocaleString()} credits</>
-                )}
+                <strong style={{ color: '#C3CAD6', fontWeight: 600 }}>~{eliteEmails} emails</strong> / month · {eliteStop.credits.toLocaleString()} credits
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
-                {showStudentPrice && (
-                  <Chip color="#B9C4E4" background="rgba(156,168,205,0.16)" icon={<GraduationCap size={12} />}>.edu required</Chip>
-                )}
                 <Chip color="#B9C4E4" background="rgba(156,168,205,0.16)">Cancel anytime</Chip>
               </div>
 
@@ -1505,28 +1243,6 @@ const Pricing = () => {
                   {!isLoading && <ArrowRight size={16} />}
                 </button>
               )}
-
-              {/* Credit slider — dark variant for the night card */}
-              <div style={{ marginTop: 6 }}>
-                <CreditSlider
-                  stops={eliteStops}
-                  selectedIndex={eliteStopIdx}
-                  onChange={(next) => {
-                    if (next !== eliteStopIdx) {
-                      trackSliderDragged({
-                        tier: 'elite',
-                        credits: eliteStops[next]?.credits ?? 0,
-                        from_index: eliteStopIdx,
-                        to_index: next,
-                      });
-                    }
-                    setEliteStopIdx(next);
-                  }}
-                  accentColor={T.purpleLight}
-                  compact
-                  dark
-                />
-              </div>
 
               <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', marginTop: 14, paddingTop: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: '#7C8595', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: -1 }}>
@@ -1614,20 +1330,14 @@ const Pricing = () => {
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 14 }}>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, justifyContent: 'flex-end' }}>
-                  {showStudentPrice && (
-                    <span style={{ fontSize: 19, color: '#7C8595', textDecoration: 'line-through', fontVariantNumeric: 'tabular-nums' }}>
-                      {fmt(tierConfig.season_pass.list)}
-                    </span>
-                  )}
                   <span style={{ fontFamily: T.serif, fontSize: 46, fontWeight: 600, color: '#fff', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
-                    {fmt(showStudentPrice ? tierConfig.season_pass.student : tierConfig.season_pass.list)}
+                    {fmt(tierConfig.season_pass.student)}
                   </span>
                 </div>
                 <div style={{ fontSize: 12.5, color: '#9AA4B8', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                   <Clock size={12} />
                   {tierConfig.season_pass.months} months · ~{fmt(
-                    (showStudentPrice ? tierConfig.season_pass.student : tierConfig.season_pass.list) /
-                    tierConfig.season_pass.months
+                    tierConfig.season_pass.student / tierConfig.season_pass.months
                   )}/mo equivalent
                 </div>
               </div>
@@ -1796,7 +1506,7 @@ const Pricing = () => {
                 Start your {trialDays}-day free trial
                 <ArrowRight size={18} />
               </button>
-              <div style={{ fontSize: 13, color: T.ink3, marginTop: 13 }}>No card required for Free · cancel anytime</div>
+              <div style={{ fontSize: 13, color: T.ink3, marginTop: 13 }}>{trialDays} days free, then {fmt(proMonthlyPrice)}/mo · cancel anytime</div>
             </div>
           )}
         </div>

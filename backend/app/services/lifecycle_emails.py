@@ -354,7 +354,7 @@ def process_pricing_leads() -> dict:
                 body_paragraphs=[
                     f"Hey, {SIGNATURE_NAME} here. I help run Offerloop.",
                     "Saw you stopped by the pricing page. No script, no PDF, just want to flag what you'd actually get if you tried it.",
-                    "Offerloop is built for college students recruiting for internships and full-time roles. You search for alumni / hiring managers / recruiters at companies you want, we pull their verified email and draft a first-touch tied to your background, and the pipeline view tracks who's replied. Pro is $14.99/mo with a .edu and the trial is 14 days, no credit card.",
+                    "Offerloop is built for college students recruiting for internships and full-time roles. You search for alumni / hiring managers / recruiters at companies you want, we pull their verified email and draft a first-touch tied to your background, and the pipeline view tracks who's replied. Pro is $9.99/mo (student pricing for everyone) and the trial is 7 days free.",
                     "If anything's confusing or you want to ask whether the product makes sense for your situation, just reply.",
                 ],
                 cta_label="Start the free trial",
@@ -373,10 +373,10 @@ def process_pricing_leads() -> dict:
                 subject="fwiw on the trial",
                 body_paragraphs=[
                     "One honest thing about the trial:",
-                    "Most students don't get a lot out of Offerloop unless they actually send 10–15 emails during the 14-day window. If you sign up but don't end up doing real outreach, you'll think the product's not doing much.",
+                    "Most students don't get a lot out of Offerloop unless they actually send 10–15 emails during the 7-day window. If you sign up but don't end up doing real outreach, you'll think the product's not doing much.",
                     "So if you're not actively recruiting right now, it's fine to wait. If you are, the trial will tell you pretty quickly whether it fits how you work.",
                 ],
-                cta_label="Try Pro free for 14 days",
+                cta_label="Try Pro free for 7 days",
                 cta_url=f'{PUBLIC_BASE_URL}/signin?mode=signup&utm_source=lifecycle&utm_campaign=pricing_abandon&utm_content=day_2',
             )
             if res.get('sent'):
@@ -445,7 +445,7 @@ def process_checkout_abandons() -> dict:
                 body_paragraphs=[
                     f"Hey, {SIGNATURE_NAME} from Offerloop.",
                     "Saw you started checkout for Pro but didn't finish. If something actually went sideways on our end (Stripe weirdness, card got declined, redirect failed), reply and tell me what happened. I can usually sort it out fast.",
-                    "If you just second-guessed it, no worries. The trial is 14 days with no credit card required. That's probably the better starting point anyway.",
+                    "If you just second-guessed it, no worries. The trial is 7 days free and you can cancel anytime before it ends. That's probably the better starting point anyway.",
                 ],
                 cta_label="Pick up where you left off",
                 cta_url=f'{PUBLIC_BASE_URL}/pricing?utm_source=lifecycle&utm_campaign=checkout_abandon&utm_content=hour_1',
@@ -458,7 +458,7 @@ def process_checkout_abandons() -> dict:
             promo = _real_coupon('checkout_recovery')
             paragraphs = [
                 "Following up once on the checkout from yesterday. Then I'll leave you alone.",
-                "If you want to actually try Pro before paying, the 14-day trial doesn't ask for a card. That's the right move if you're on the fence. The product either clicks for how you work or it doesn't, and you'll know inside a week.",
+                "If you want to actually try Pro before paying, the 7-day free trial is the right move if you're on the fence. The product either clicks for how you work or it doesn't, and you'll know inside a week.",
             ]
             if promo:
                 paragraphs.append(
@@ -516,7 +516,7 @@ def process_trial_endings() -> dict:
                 body_paragraphs=[
                     f"Quick heads up. Your Pro trial ends in 2 days.",
                     f"You've saved {contacts_count} {'contact' if contacts_count == 1 else 'contacts'} so far. When the trial ends you drop to Free, so those contacts and their drafts stay visible, but you lose the things that found them: hiring-manager search, firm search, bulk drafting, and unlimited Coffee Chat Prep.",
-                    "If Pro's been useful, $14.99/mo with a .edu locks in that student price for life. If it hasn't been useful, no charge. You never gave us a card.",
+                    "If Pro's been useful, it's $9.99/mo, student pricing, no verification needed. If it hasn't been useful, no charge.",
                 ],
                 cta_label="Keep Pro",
                 cta_url=f'{PUBLIC_BASE_URL}/pricing?utm_source=lifecycle&utm_campaign=trial_ending&utm_content=h48',
@@ -1124,9 +1124,9 @@ def process_welcome_drips() -> dict:
                 body_paragraphs=[
                     f"Hey, {SIGNATURE_NAME} here.",
                     "You're two weeks in. Honest read on whether Pro is worth it:",
-                    "If you're running 5+ searches a week, want 8 contacts per search instead of 3, or you want the hiring-manager search unlocked, Pro is $14.99/mo with a .edu and pays for itself with one landed coffee chat.",
+                    "If you're running 5+ searches a week, want 8 contacts per search instead of 3, or you want the hiring-manager search unlocked, Pro is $9.99/mo and pays for itself with one landed coffee chat.",
                     "If you're doing 1-2 searches, stay on Free. You don't need it yet.",
-                    "The trial is 14 days, no credit card. If you want to try it or you're unsure whether it fits your situation, reply and I'll help you decide.",
+                    "The trial is 7 days free and you can cancel anytime. If you want to try it or you're unsure whether it fits your situation, reply and I'll help you decide.",
                 ],
                 cta_label="See Pro",
                 cta_url=f'{PUBLIC_BASE_URL}/pricing?utm_source=lifecycle&utm_campaign=welcome_drip&utm_content=day_14',
@@ -1342,7 +1342,7 @@ def process_free_ceilings() -> dict:
             body_paragraphs=[
                 f"Hey, {SIGNATURE_NAME} here.",
                 f"You've used {used} of your {max_credits} credits this month, which means you've been getting real value from Offerloop. Free tier resets on the 1st of next month, so you have a decision to make.",
-                "If you want to keep going before then, Pro is $14.99/mo with a .edu and gets you 3,000 credits (about 6x what you had this month) plus 8 contacts per search instead of 3. Trial is 14 days, no card.",
+                "If you want to keep going before then, Pro is $9.99/mo and gets you 2,000 credits (about 6x what you had this month) plus 8 contacts per search instead of 3. The trial is 7 days free.",
                 "If you'd rather just wait for the reset, that's a legitimate move too. Just wanted to flag where you are.",
             ],
             cta_label="See Pro",
@@ -1803,7 +1803,7 @@ def process_renewal_reminders() -> dict:
 
         renew_date = period_end.strftime('%B %-d')
         tier_label = 'Elite' if tier == 'elite' else 'Pro'
-        price_line = '$34.99' if tier == 'elite' else '$14.99'
+        price_line = '$34.99' if tier == 'elite' else '$9.99'
 
         paragraphs = [
             f"Hey, {SIGNATURE_NAME} here. Quick heads up: your Offerloop {tier_label} plan renews on {renew_date} for {price_line}.",

@@ -67,7 +67,7 @@ export function ProGate({ title, description, videoId, children, bypass }: ProGa
 
           <div className="mt-3 flex flex-col items-center space-y-1">
             <span className="text-sm font-medium text-foreground">14-day free trial</span>
-            <span className="text-xs text-muted-foreground">Then $14.99/mo · Cancel anytime</span>
+            <span className="text-xs text-muted-foreground">Then $9.99/mo · Cancel anytime</span>
           </div>
         </div>
       </div>
