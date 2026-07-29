@@ -153,6 +153,7 @@ def rank_people_for_user(
         return []
 
     exclude_keys = _already_known_keys(uid, db)
+    swiped_ids = _swiped_person_ids(uid, db)
 
     candidates = _fetch_candidates(
         user_ctx,
@@ -175,6 +176,11 @@ def rank_people_for_user(
         _id = _candidate_id(cand)
         if _id is None:
             # Drop: Rylan uses id as a render key; a null or dup breaks the deck.
+            continue
+        if _id in swiped_ids:
+            # User has already swiped left/skip on this person in a
+            # prior deck. peoplePreferences is the "don't show again"
+            # source of truth.
             continue
         item = _score_one(user_ctx, cand)
         if item is None:
@@ -268,6 +274,29 @@ def _already_known_keys(uid: str, db) -> set:
     except Exception as exc:
         logger.debug("person_ranker: known-contacts fetch failed: %s", exc)
     return keys
+
+
+def _swiped_person_ids(uid: str, db) -> set:
+    """candidate_ids the user has already swiped LEFT or SKIP — excluded
+    from future decks. Swipe-right is excluded elsewhere via
+    _already_known_keys (right → saved to contacts → matched by
+    (first, last, company)), so we intentionally do NOT read "right"
+    signals here — that would double-suppress.
+
+    peoplePreferences docs are keyed on the candidate_id we sent to the
+    client (LinkedIn slug preferred, pdlId fallback), so lookup here
+    matches the id we'll compute for fresh candidates in rank_people_for_user.
+
+    Empty set on any Firestore error; never breaks the deck.
+    """
+    ids: set = set()
+    try:
+        prefs_ref = db.collection("users").document(uid).collection("peoplePreferences")
+        for snap in prefs_ref.where("signal", "in", ["left", "skip"]).stream():
+            ids.add(snap.id)
+    except Exception as exc:
+        logger.debug("person_ranker: swiped-ids fetch failed: %s", exc)
+    return ids
 
 
 # ── Candidate fetch ───────────────────────────────────────────────────

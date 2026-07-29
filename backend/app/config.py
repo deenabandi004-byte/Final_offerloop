@@ -449,6 +449,11 @@ CREDIT_COSTS = {
     # that number moved to where prices actually live.
     'reveal_person':        8,
     'firm_search':          10,  # per firm returned, Pro+ gated
+    # iOS ranker swipe-right reveal-email. Cheaper than find_contact (10)
+    # because the firm_cache path saves us the PDL cost; we still pay
+    # Hunter Email Finder. Refunded when Hunter returns unverified /
+    # below-confidence / no-hit (see routes/ranker.py:REVEAL_CHARGE_MIN_CONFIDENCE).
+    'reveal_email':          8,
 
     # Generative actions — per output
     'coffee_chat_prep':     0,   # FREE (2026-07-07) — see COFFEE_CHAT_CREDITS
