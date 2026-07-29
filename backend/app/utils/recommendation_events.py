@@ -23,6 +23,14 @@ VALID_REC_EVENT_TYPES = {
     "email_replied",            # reply detected (via gmail webhook)
     "meeting_scheduled",        # meeting booked with contact
     "offer_received",           # offer from contact's company
+    # iOS swipe-deck (person_ranker) — added with the feedback + reveal
+    # endpoints. Bounce tracking (email_bounced) is deliberately deferred
+    # to the attribution follow-up PR — it belongs with the send-capture
+    # fix, not swipe feedback.
+    "person_swipe_right",       # user swiped right on a ranker candidate
+    "person_swipe_left",        # user swiped left on a ranker candidate
+    "person_swipe_skip",        # user skipped a ranker candidate (pass)
+    "email_revealed",           # metered Hunter lookup, credit-worthy result
 }
 
 
@@ -41,8 +49,15 @@ def log_recommendation_event(
     features_snapshot: dict | None = None,
     attribution_source: str = "",
     extra: dict | None = None,
+    doc_id: str | None = None,
 ) -> None:
-    """Write a recommendation event to Firestore. Swallows all errors."""
+    """Write a recommendation event to Firestore. Swallows all errors.
+
+    When doc_id is provided, uses .document(doc_id).set() — deterministic,
+    at-least-once retry safe (Pub/Sub redelivery, client retries can't
+    double-count). When omitted, falls back to .add() (auto-ID) for
+    backward compatibility with legacy call sites.
+    """
     try:
         if event_type not in VALID_REC_EVENT_TYPES:
             logger.warning("recommendation log called with unknown event_type=%s", event_type)
@@ -90,7 +105,10 @@ def log_recommendation_event(
             **(extra or {}),
         }
 
-        db.collection("recommendation_events").add(doc)
+        if doc_id:
+            db.collection("recommendation_events").document(doc_id).set(doc)
+        else:
+            db.collection("recommendation_events").add(doc)
 
         logger.debug(
             "recommendation event logged: type=%s uid=%s contact=%s",
