@@ -4027,13 +4027,6 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
         r = _session.post(url, headers=headers, json=body, timeout=30)
     pdl_api_time += time.time() - pdl_api_start
 
-    # TEMPORARY (delete before PR): iOS ranker prereq — measure response
-    # size + encoding under the expanded PDL_DATA_INCLUDE. Verifies gzip
-    # is active and body stays well under 1MB per page (100 records).
-    print(f"[PDL Bundle Debug] status={r.status_code} "
-          f"bytes_compressed={len(r.content)} bytes_text={len(r.text)} "
-          f"Content-Encoding={r.headers.get('Content-Encoding')!r}")
-
     # ✅ HANDLE 404 GRACEFULLY - Return (empty, 404) so prompt-search caller can retry with relaxed query
     if r.status_code == 404:
         print(f"\n❌ PDL 404 ERROR - No records found matching query")
