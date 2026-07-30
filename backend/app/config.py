@@ -349,6 +349,51 @@ TOPUP_PACKS = [
 ]
 
 # ========================================
+# In-app purchases (Apple, via RevenueCat)
+# ========================================
+# The iOS credit-pack ladder from SPEC-iap-v2-pricing-and-credits.md section 2:
+# 150 cr / $2.99, 400 cr / $5.99, 1,000 cr / $9.99. These are DELIBERATELY
+# stingier per dollar than the web TOPUP_PACKS above so "just subscribe" stays
+# the obvious answer for anyone topping up twice — the 1,000 pack sits at the
+# 2x-of-Pro floor and must not grow further (Rylan, 2026-07-28).
+#
+# NOTE the web/iOS divergence: $4.99 buys 500 credits on the web here (and
+# 1,500 for $9.99 on the web's own main branch) while the app's cheapest pack is
+# 150 for $2.99. Same wallet, different value depending on where you tapped buy.
+# Open question for Nick, spec section 9.2 — not resolved by this code.
+#
+# Product ids are the source of truth for how much a purchase is worth, so an id
+# we don't recognise grants NOTHING rather than guessing an amount. The .preview
+# ids are the staging bundle's mirrors of the same three packs.
+IAP_CREDIT_PACKS = {
+    'ai.offerloop.app.credits.150':          150,
+    'ai.offerloop.app.credits.400':          400,
+    'ai.offerloop.app.credits.1000':         1000,
+    'ai.offerloop.app.preview.credits.150':  150,
+    'ai.offerloop.app.preview.credits.400':  400,
+    'ai.offerloop.app.preview.credits.1000': 1000,
+}
+
+# RevenueCat entitlement id → our tier. Entitlements (not product ids) are what
+# we key tier off, so Rylan can rename/add products in App Store Connect without
+# a backend deploy. Anything unrecognised grants no tier.
+IAP_ENTITLEMENT_TIERS = {
+    'pro':   'pro',
+    'elite': 'elite',
+}
+
+# Shared secret RevenueCat sends in the Authorization header. Fail-closed: with
+# this unset the webhook 401s everything rather than becoming a credit faucet.
+REVENUECAT_WEBHOOK_SECRET = os.getenv('REVENUECAT_WEBHOOK_SECRET', '')
+# Secret API key (sk_…) for reading the authoritative subscriber snapshot back
+# from RevenueCat instead of hand-deriving tier from the event type.
+REVENUECAT_API_KEY = os.getenv('REVENUECAT_API_KEY', '')
+# Which store environment this deploy owns. Staging processes SANDBOX events
+# only; production processes PRODUCTION events only. Both RevenueCat apps can
+# safely point at the same URL with this set correctly on each service.
+REVENUECAT_EXPECT_PRODUCTION = os.getenv('REVENUECAT_EXPECT_PRODUCTION', '').lower() in ('1', 'true', 'yes')
+
+# ========================================
 # Trial configuration
 # ========================================
 # Trial duration — unified at 14 days for everyone. We dropped the .edu

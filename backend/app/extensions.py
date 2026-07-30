@@ -382,7 +382,17 @@ def get_rate_limit_key():
     if (request.method == 'GET' and
         _re.match(r'^/api/mobile/draft-jobs/[^/]+$', request.path)):
         return None
-    
+
+    # Exempt the RevenueCat webhook. Every purchase event from every buyer
+    # arrives from RevenueCat's own IPs, so the default per-IP limit would be a
+    # single shared bucket for the whole app's purchases. Tripping it returns
+    # 429 — not 2xx — so RevenueCat retries five times and then drops a
+    # purchase somebody actually paid for. The shared secret is the real
+    # authentication on that route; the IP bucket only adds a way to lose money.
+    if request.path == '/api/revenuecat/webhook':
+        return None
+
+
     # For authenticated requests, use user ID instead of IP address
     if hasattr(request, 'firebase_user') and request.firebase_user:
         user_id = request.firebase_user.get('uid')

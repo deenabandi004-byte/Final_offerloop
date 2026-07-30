@@ -40,6 +40,7 @@ from .app.routes.nudges import nudges_bp
 from .app.routes.queue import queue_bp
 from .app.routes.jobs import jobs_bp
 from .app.routes.mobile import mobile_bp
+from .app.routes.revenuecat_webhook import revenuecat_bp
 from .app.routes.extension_logs import extension_logs_bp
 from .app.routes.search_suggestions import search_suggestions_bp
 from .app.routes.briefing import briefing_bp
@@ -242,6 +243,7 @@ def create_app() -> Flask:
     app.register_blueprint(queue_bp)
     app.register_blueprint(jobs_bp)
     app.register_blueprint(mobile_bp)
+    app.register_blueprint(revenuecat_bp)
     app.register_blueprint(extension_logs_bp)
     app.register_blueprint(search_suggestions_bp)
     app.register_blueprint(briefing_bp)
