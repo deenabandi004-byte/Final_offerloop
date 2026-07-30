@@ -42,18 +42,6 @@ service cloud.firestore {
         && !('maxCredits' in request.resource.data.diff(resource.data).affectedKeys())
         && !('credits' in request.resource.data.diff(resource.data).affectedKeys())
         && !('lastCreditReset' in request.resource.data.diff(resource.data).affectedKeys())
-        // The other two ledger buckets. `credits` was blocked but these were
-        // not, and deduct spends monthly → bonus → promo (credit_ledger.py), so
-        // a client could set `bonusCredits: 999999` and never pay again. Doubly
-        // load-bearing now that the RevenueCat webhook grants Apple purchases
-        // into `bonusCredits` — that bucket IS the paid wallet.
-        && !('bonusCredits' in request.resource.data.diff(resource.data).affectedKeys())
-        && !('promoCredits' in request.resource.data.diff(resource.data).affectedKeys())
-        && !('promoCreditsExpiresAt' in request.resource.data.diff(resource.data).affectedKeys())
-        // Records WHICH store granted the tier. Client-writable would let a
-        // user set it to "apple" and switch off the guard that stops Apple
-        // events overwriting a live Stripe subscription.
-        && !('subscriptionSource' in request.resource.data.diff(resource.data).affectedKeys())
         && !('alumniSearchesUsed' in request.resource.data.diff(resource.data).affectedKeys())
         && !('coffeeChatPrepsUsed' in request.resource.data.diff(resource.data).affectedKeys())
         && !('interviewPrepsUsed' in request.resource.data.diff(resource.data).affectedKeys())
