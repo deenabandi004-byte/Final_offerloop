@@ -35,6 +35,7 @@ from app.models.users import (
 import logging
 
 from app.config import CREDIT_COSTS
+from app.services.credit_ledger import SystemClock, expire_promos, state_from_user_dict
 
 logger = logging.getLogger(__name__)
 
@@ -296,6 +297,22 @@ def _linkedin_highlights(u: dict) -> list:
     return out[:6]
 
 
+def _credit_display(u: dict, clock=None) -> dict:
+    """Spendable balance across ALL ledger buckets (monthly + purchased bonus
+    + unexpired promo), computed by the same pure functions the deduct path
+    uses so display and spend can never disagree. Before this the app showed
+    only the monthly bucket, which made top-up packs granted by the
+    RevenueCat webhook invisible (2026-07-31). The promo sweep here is
+    read-only; the deduct path persists expiry."""
+    ledger = expire_promos(state_from_user_dict(u), clock or SystemClock()).new_state
+    return {
+        'credits': ledger.total(),
+        'monthlyCredits': max(0, ledger.monthly),
+        'bonusCredits': max(0, ledger.bonus),
+        'promoCredits': max(0, ledger.promo),
+    }
+
+
 def _map_resume_experiences(parsed: dict) -> list:
     """Map resumeParsed.experience[] (written by the web resume parser, see
     routes/resume.py) onto the mobile ResumeExperience shape. Real data only —
@@ -385,7 +402,7 @@ def me():
         'school': get_structured_school(u),
         'plan': PLAN_LABEL.get(tier, 'Free'),
         'tier': tier,
-        'credits': int(u.get('credits') or 0),
+        **_credit_display(u),
         'maxCredits': int(u.get('maxCredits') or 0),
         'resetLabel': _reset_label(),
         # Per-CONTACT price of a swipe. Must match the actual charge in
