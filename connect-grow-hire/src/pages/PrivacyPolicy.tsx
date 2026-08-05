@@ -57,7 +57,7 @@ const PrivacyPolicy = () => {
                 Privacy Policy
               </h1>
               <p className="text-gray-500 text-sm mb-8">
-                <strong>Last Updated:</strong> 07.09.26
+                <strong>Last Updated:</strong> 08.05.26
               </p>
 
               {/* Content */}
@@ -65,8 +65,8 @@ const PrivacyPolicy = () => {
                 <p className="text-gray-600">
                   Offerloop.ai is operated by <strong>PipelinePath LLC</strong> ("Offerloop," "we," "us," or
                   "our"). This Privacy Policy explains what information we collect, how we use it, who we share it
-                  with, and the choices and rights you have when you use our website, web application, and related
-                  services (collectively, the "Services"). It does not cover our Chrome extension, which has its
+                  with, and the choices and rights you have when you use our website, web application, iOS app,
+                  and related services (collectively, the "Services"). It does not cover our Chrome extension, which has its
                   own policy on the <Link to="/extension-privacy" className="text-[#3B82F6] hover:underline">Chrome Extension Privacy</Link> tab above.
                 </p>
                 <p className="text-gray-600">
@@ -169,16 +169,23 @@ const PrivacyPolicy = () => {
 
                 <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">5. AI and automated processing</h2>
                 <p className="text-gray-600">
-                  We use third-party AI providers — primarily OpenAI and Anthropic — to generate emails, prepare for
-                  meetings, score and match jobs, and power our Scout assistant. To do this, we send these providers
-                  the information needed for the task, which may include your resume content, the professional
-                  details of a contact you are reaching out to, and, for the reply-coaching feature, the content of
-                  an email thread you choose to work with.
+                  We use third-party AI providers, specifically OpenAI, Anthropic, and Perplexity, to generate
+                  emails, prepare for meetings, score and match jobs, research companies and contacts, and power
+                  our Scout assistant. To do this, we send these providers the information needed for the task,
+                  which may include your resume content, your profile details (such as school, target roles, and
+                  about section), the jobs and contacts you choose to act on, messages you type or speak to Scout,
+                  and, for the reply-coaching feature, the content of an email thread you choose to work with.
                 </p>
                 <p className="text-gray-600">
                   Our AI providers process this data to return a result to you. They do not use data submitted
                   through their business APIs to train their general models. We do not use Google user data to train
                   any AI or machine-learning model (see Section 6).
+                </p>
+                <p className="text-gray-600">
+                  <strong>Your choice in the iOS app.</strong> The Offerloop iOS app shows you this disclosure and
+                  asks for your permission before any of your personal data is shared with an AI provider. You can
+                  change your choice at any time in Profile, then Settings, then AI and your data. If you decline,
+                  AI-powered features are disabled and no personal data is sent to AI providers from the app.
                 </p>
 
                 <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">6. Google user data and Gmail</h2>
@@ -237,7 +244,7 @@ const PrivacyPolicy = () => {
                 <ul className="text-gray-600 list-disc pl-6 space-y-1">
                   <li><strong>Google / Firebase</strong> — authentication, database, file storage, and (if connected) Gmail.</li>
                   <li><strong>OpenAI, Anthropic</strong> — AI content generation.</li>
-                  <li><strong>People Data Labs, Hunter.io, Coresignal, Bright Data, Apify</strong> — professional contact discovery and enrichment.</li>
+                  <li><strong>Licensed professional data providers</strong> — professional contact discovery and enrichment from publicly available and licensed business sources.</li>
                   <li><strong>NeverBounce</strong> — email-address verification.</li>
                   <li><strong>Perplexity, Firecrawl</strong> — live search and web extraction for jobs, companies, and verification.</li>
                   <li><strong>Stripe</strong> — payment processing.</li>
