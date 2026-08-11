@@ -66,6 +66,21 @@ def _check_and_count_editor_attempt(uid: str):
     return None
 
 
+def _thin_check(resume: CanonicalResume):
+    """Quality bar (mobile contract, 2026-08-10): a resume with neither
+    experience nor education entries is an empty one-pager, not a resume.
+    Saving one silently was the padded-fiction failure mode, except emptier.
+    Returns an error response tuple if too thin, else None."""
+    missing = [
+        section
+        for section, entries in (('experience', resume.experience), ('education', resume.education))
+        if not (entries or [])
+    ]
+    if len(missing) == 2:
+        return jsonify({'error': 'profile_too_thin', 'missing': missing}), 422
+    return None
+
+
 def _upload_pdf(uid: str, pdf_bytes: bytes):
     """Upload the generated PDF to the same bucket/path uploaded resumes use."""
     try:
@@ -132,26 +147,57 @@ def current():
         return jsonify({'success': True, 'resume': None, 'html': None})
 
 
-@resume_builder_bp.route('/from-linkedin', methods=['POST'])
-@require_firebase_auth
-def from_linkedin():
-    """Build + save a resume from the linkedinResumeParsed the enrichment
-    route already stored. Frontend calls /api/enrich-linkedin-onboarding first."""
-    uid = request.firebase_user['uid']
-    capped = _check_and_count_attempt(uid)
-    if capped:
-        return capped
+def _linkedin_resume_or_error(uid: str):
+    """Shared by the save and preview LinkedIn routes: load the enriched
+    profile, map it deterministically, thin-guard it. Returns
+    (resume, None) or (None, error_response_tuple)."""
     db = get_db()
     doc = db.collection('users').document(uid).get()
     linkedin_parsed = (doc.to_dict() or {}).get('linkedinResumeParsed') if doc.exists else None
     if not linkedin_parsed or not linkedin_parsed.get('name'):
-        return jsonify({'error': 'No LinkedIn profile data on file. Enrich first.'}), 400
+        return None, (jsonify({'error': 'No LinkedIn profile data on file. Enrich first.'}), 400)
     try:
         resume = from_resume_parsed(linkedin_parsed)
+    except Exception as e:
+        print(f"[ResumeBuilder] from-linkedin mapping failed: {e}")
+        return None, (jsonify({'error': 'Could not build a resume from your LinkedIn profile.'}), 502)
+    thin = _thin_check(resume)
+    if thin:
+        return None, thin
+    return resume, None
+
+
+@resume_builder_bp.route('/from-linkedin', methods=['POST'])
+@require_firebase_auth
+def from_linkedin():
+    """Build + save a resume from the linkedinResumeParsed the enrichment
+    route already stored. Frontend calls /api/enrich-linkedin-onboarding first.
+
+    No generation-cap charge (changed 2026-08-10, agreed with mobile): the
+    mapping is deterministic with no LLM call, and the cap exists to bound
+    LLM spend, which lives on /generate and the editor path only."""
+    uid = request.firebase_user['uid']
+    resume, err = _linkedin_resume_or_error(uid)
+    if err:
+        return err
+    try:
         return _render_save_respond(uid, resume)
     except Exception as e:
         print(f"[ResumeBuilder] from-linkedin failed: {e}")
         return jsonify({'error': 'Could not build a resume from your LinkedIn profile.'}), 502
+
+
+@resume_builder_bp.route('/from-linkedin/preview', methods=['POST'])
+@require_firebase_auth
+def from_linkedin_preview():
+    """Render-only variant (mobile contract, 2026-08-10): same deterministic
+    mapping as /from-linkedin but saves NOTHING and charges nothing. The
+    user approves in the app and /finalize performs the only save."""
+    uid = request.firebase_user['uid']
+    resume, err = _linkedin_resume_or_error(uid)
+    if err:
+        return err
+    return jsonify({'success': True, 'resume': resume.model_dump(), 'html': render_html(resume)})
 
 
 @resume_builder_bp.route('/download', methods=['POST'])
