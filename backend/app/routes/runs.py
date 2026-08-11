@@ -548,17 +548,39 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
             adjacency_metadata.setdefault("provider", "pdl")
         except Exception as pdl_err:
             # Reliability fallback only (NOT a credit-efficient secondary):
-            # if PDL itself is unreachable (5xx/timeout/etc.), fall through
-            # to Coresignal so users aren't shown an empty results page.
+            # if PDL itself is unreachable (5xx/timeout/402-out-of-credits),
+            # fall through so users aren't shown an empty results page.
             print(f"[ContactSearch] PDL primary failed ({pdl_err!r}); falling back to Coresignal")
             existing_contact_count = len(seen_contact_set) if seen_contact_set else 0
             fb_fetch_count = max_contacts + min(existing_contact_count, 3) + 2
-            contacts, retry_level_used, already_saved_contacts, adjacency_metadata = coresignal_client.search_contacts_from_prompt(
-                parsed, fb_fetch_count, exclude_keys=seen_contact_set, user_profile=user_data
-            )
+            try:
+                contacts, retry_level_used, already_saved_contacts, adjacency_metadata = coresignal_client.search_contacts_from_prompt(
+                    parsed, fb_fetch_count, exclude_keys=seen_contact_set, user_profile=user_data
+                )
+            except Exception as cs_err:
+                print(f"[ContactSearch] Coresignal fallback errored ({cs_err!r})")
+                contacts, retry_level_used, already_saved_contacts, adjacency_metadata = [], 0, [], {}
             adjacency_metadata = adjacency_metadata or {}
             adjacency_metadata["fallback_used"] = "coresignal"
             adjacency_metadata["primary_provider"] = "pdl"
+            # Second rung (2026-08-11, PDL account over limit during the
+            # billing dispute): Coresignal has no key configured on the
+            # mobile services, so its fallback returns nothing. The Hunter
+            # bridge (hunter_person_search, built for exactly this outage
+            # mode) covers company-targeted searches via Domain Search,
+            # which is every mobile swipe ("<title> at <company>"). Only
+            # fires when the rungs above produced zero contacts.
+            if not contacts and (parsed.get("companies") or []):
+                try:
+                    from app.services.hunter_person_search import search_people_via_hunter
+                    contacts, retry_level_used, already_saved_contacts, hunter_meta = search_people_via_hunter(
+                        parsed, max_contacts, exclude_keys=seen_contact_set, user_profile=user_data
+                    )
+                    adjacency_metadata.update(hunter_meta or {})
+                    adjacency_metadata["fallback_used"] = "hunter"
+                    print(f"[ContactSearch] Hunter bridge returned {len(contacts)} contacts")
+                except Exception as hunter_err:
+                    print(f"[ContactSearch] Hunter bridge failed ({hunter_err!r})")
         search_broadened = retry_level_used >= 1
 
         # Surface which dimensions were dropped at the rung that succeeded so the
