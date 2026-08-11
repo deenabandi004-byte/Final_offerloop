@@ -187,17 +187,51 @@ def from_linkedin():
         return jsonify({'error': 'Could not build a resume from your LinkedIn profile.'}), 502
 
 
+# The polish pass runs the deterministic LinkedIn mapping through the same
+# Harvard-rubric generator the website's builder uses, as a refinement of the
+# mapped draft. Instructions only rewrite wording; the FACTUAL DISCIPLINE
+# rules in the system prompt forbid inventing employers, dates, or numbers.
+_POLISH_INSTRUCTIONS = (
+    "Polish this resume draft, which was mapped mechanically from the user's "
+    "LinkedIn profile. Rewrite every bullet to meet the rubric: strong varied "
+    "action verbs, accomplishment over duty, consistent tense, 8 to 18 words. "
+    "Tighten section content to one page. Keep every employer, school, title, "
+    "date, location, and number EXACTLY as given; add nothing that is not in "
+    "the draft."
+)
+
+
 @resume_builder_bp.route('/from-linkedin/preview', methods=['POST'])
 @require_firebase_auth
 def from_linkedin_preview():
     """Render-only variant (mobile contract, 2026-08-10): same deterministic
-    mapping as /from-linkedin but saves NOTHING and charges nothing. The
-    user approves in the app and /finalize performs the only save."""
+    mapping as /from-linkedin but saves NOTHING. The user approves in the app
+    and /finalize performs the only save.
+
+    polish=true (2026-08-10): after mapping, run the draft through the same
+    Harvard-rubric LLM pass the website's builder uses, so the mobile build
+    matches web quality. The LLM call burns the lifetime generation cap; if
+    capped or the LLM fails, fall back to the unpolished mapping (polished:
+    false) rather than failing the preview."""
     uid = request.firebase_user['uid']
     resume, err = _linkedin_resume_or_error(uid)
     if err:
         return err
-    return jsonify({'success': True, 'resume': resume.model_dump(), 'html': render_html(resume)})
+    polished = False
+    if (request.get_json(silent=True) or {}).get('polish'):
+        capped = _check_and_count_attempt(uid)
+        if not capped:
+            try:
+                resume = generate_canonical_resume(_POLISH_INSTRUCTIONS, resume.model_dump())
+                polished = True
+            except ResumeBuilderError as e:
+                print(f"[ResumeBuilder] preview polish failed, serving unpolished: {e}")
+    return jsonify({
+        'success': True,
+        'resume': resume.model_dump(),
+        'html': render_html(resume),
+        'polished': polished,
+    })
 
 
 @resume_builder_bp.route('/download', methods=['POST'])
