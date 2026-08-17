@@ -10,9 +10,7 @@ Design invariants:
   2. Use indexed where() only — never in-memory filter on unindexed fields.
      Firestore charges per-doc-read; a stray full-collection scan on
      firm_employees could pull tens of thousands of docs.
-  3. Off by default. ENABLE_FIRM_CACHE_LOOKUP env flag gates every read so
-     Phase 3 can ship dark and be enabled independently of write.
-  4. Cache docs don't carry emails (we don't cache PII we can recompute).
+  3. Cache docs don't carry emails (we don't cache PII we can recompute).
      Contacts return with Email="" and EmailSource="cache_no_email";
      downstream flow's existing email-quality machinery handles them.
 
@@ -30,7 +28,6 @@ Firestore query limits reminder:
 from __future__ import annotations
 
 import logging
-import os
 from typing import Optional
 
 from app.extensions import get_db
@@ -43,17 +40,10 @@ from app.services.firm_cache.schema import (
 
 logger = logging.getLogger(__name__)
 
-_FLAG_ENV = "ENABLE_FIRM_CACHE_LOOKUP"
-
 # Firestore max docs per query. Well under the 10k billing wall — even
 # aggressive queries against a big firm (say McKinsey with 15k US docs
 # after cache warms) will still fit in one page.
 DEFAULT_QUERY_CAP = 500
-
-
-def _flag_enabled() -> bool:
-    raw = os.environ.get(_FLAG_ENV, "").strip().lower()
-    return raw in ("1", "true", "yes", "on")
 
 
 # ── Parse extraction helpers ─────────────────────────────────────────────
@@ -225,15 +215,13 @@ def search_firm_cache(
     """Query firm_employees. Return (contacts, retry_level_used, already_saved, metadata)
     matching pdl_client.search_contacts_from_prompt's shape for drop-in compat.
 
-    Returns ([], 0, [], None) on flag off, empty parsed prompt, Firestore
-    error, or no matches. Caller should treat empty result as cache-miss
-    and fall through to PDL.
+    Returns ([], 0, [], None) on empty parsed prompt, Firestore error, or
+    no matches. Caller should treat empty result as cache-miss and fall
+    through to PDL.
 
     max_contacts caps final returned list. Query fetches up to
     DEFAULT_QUERY_CAP (500) to give post-filters room to work.
     """
-    if not _flag_enabled():
-        return [], 0, [], None
     if not isinstance(parsed, dict) or max_contacts < 1:
         return [], 0, [], None
 

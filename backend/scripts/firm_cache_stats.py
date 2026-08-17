@@ -4,13 +4,12 @@ Read-only stats report on the JIT firm-employee cache. Answers:
   - How big is firm_employees today?
   - Which firms + schools dominate?
   - How stale is the data?
-  - If we flipped ENABLE_FIRM_CACHE_LOOKUP right now, what hit rate
-    would we get on recent traffic?
+  - What hit rate would we get on recent traffic against the current
+    cache state?
 
-The hit-rate simulation is the key data point for the day-60 decision
-on whether to enable the reader flag. Reconstructs queries from
-pdl_search_cache (which has query_meta.companies + schools intact)
-and runs each one through the reader logic to count hits.
+The hit-rate simulation reconstructs queries from pdl_search_cache
+(which has query_meta.companies + schools intact) and runs each one
+through the reader logic to count hits.
 
 Usage:
     cd ~/work/Offerloop

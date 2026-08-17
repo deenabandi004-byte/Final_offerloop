@@ -9,8 +9,6 @@ Design invariants (in priority order):
      search's return value is not affected by cache-write outcome.
   2. NEVER add user-visible latency. All Firestore writes go through
      one batched .commit() at the end, not per-doc awaits.
-  3. Off by default. ENABLE_FIRM_CACHE_WRITE env flag gates every call so
-     Phase 2 can ship dark and be enabled independently of Phase 3.
 
 Firestore batch limit is 500 ops per commit. Contact-search results max at
 ~15 per request (Elite tier), so one batch per call is always enough.
@@ -18,7 +16,6 @@ Firestore batch limit is 500 ops per commit. Contact-search results max at
 from __future__ import annotations
 
 import logging
-import os
 import threading
 from typing import Iterable, Optional
 
@@ -32,15 +29,6 @@ from app.services.firm_cache.schema import (
 )
 
 logger = logging.getLogger(__name__)
-
-_FLAG_ENV = "ENABLE_FIRM_CACHE_WRITE"
-
-
-def _flag_enabled() -> bool:
-    """Cheap env-var check. Reading os.environ per-call is fine — the
-    flag flip is expected at deploy boundary, not hot-path."""
-    raw = os.environ.get(_FLAG_ENV, "").strip().lower()
-    return raw in ("1", "true", "yes", "on")
 
 
 def cache_pdl_contacts(
@@ -65,11 +53,7 @@ def cache_pdl_contacts(
         Count of docs *queued* for upsert (may be less than input length —
         contacts without a canonicalizable LinkedIn URL, non-US, or missing
         a current company are silently skipped by the normalizer).
-        Returns 0 if the feature flag is off or any pre-flight check fails.
     """
-    if not _flag_enabled():
-        return 0
-
     if not contacts:
         return 0
 

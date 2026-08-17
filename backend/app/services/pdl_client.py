@@ -68,21 +68,47 @@ def _email_quality_score(contact: dict) -> int:
     return base + verified_bonus + score_bonus
 
 
+# HARD EXCLUSION — do not add: sex, birth_date, birth_year.
+# PDL's AUP prohibits profiling on protected characteristics, and the
+# iOS ranker's training data must not contain them. Adding these fields
+# is a policy violation, not a technical decision.
+#
+# Sub-field paths are DELIBERATELY not used for experience.* / education.*.
+# PDL's data_include restricts the parent object to only the listed
+# sub-paths — verified empirically 2026-07-28 via
+# scripts/pdl_bundle_check.py. A naive expanded list dropped
+# experience.title.name, experience.company.name/website, and
+# education.school.name, all of which extract_contact_from_pdl_person_enhanced
+# reads. Keep whole-object includes and only ADD genuinely new
+# top-level fields (skills, interests, job_title_class, ...).
+#
+# Whole-object includes mean PDL may return additional fields we don't
+# use. Enforcement for what actually lands on the contact doc is an
+# explicit allowlist in the contacts.py bulk write path — the include
+# list is not the sensitive-field gate.
 PDL_DATA_INCLUDE = ",".join([
     "id", "full_name", "first_name", "last_name",
     "job_title", "job_title_role", "job_title_levels", "job_title_sub_role",
+    "job_title_class",
     "job_company_name", "job_company_website",
     "job_company_location_locality", "job_company_location_region",
     "job_company_location_country", "job_company_location_metro",
     "location_locality", "location_region", "location_country", "location_metro",
+    "location_names", "regions", "countries",
     # `experience` is REQUIRED — extract_contact_from_pdl_person_enhanced reads
     # Title/Company from experience[0] (current job). Omitting it caused the
-    # frontend Company/Role columns to render as "-".
+    # frontend Company/Role columns to render as "-". Whole-object; do NOT
+    # add experience.* sub-paths (parent truncation — see comment above).
     "experience",
-    "education", "profiles", "emails",
+    # `education` is REQUIRED — same reason. Whole-object; do NOT add
+    # education.* sub-paths.
+    "education",
+    "profiles", "emails",
     "linkedin_url", "linkedin_username",
     "work_email", "personal_emails", "recommended_personal_email",
     "industry",
+    "skills", "interests",
+    "job_start_date", "job_last_changed",
 ])
 
 
@@ -3172,6 +3198,307 @@ def _pdl_email_is_fresh(person: dict, chosen_email: str = None, max_age_days: in
     return False
 
 
+# ─────────────────────────────────────────────────────────────────────
+# iOS ranker typed-field extraction (Commit 2 of the ranker prereqs).
+# Called from extract_contact_from_pdl_person_enhanced. Persisted on the
+# contact doc by contacts.py bulk-write (Commit 3), which enforces the
+# sensitive-field allowlist — this module never derives sex / birth
+# date / birth year even if PDL happens to return them.
+# ─────────────────────────────────────────────────────────────────────
+
+# PDL's job_title_levels canonical values (verified 2026-07-28 against
+# https://docs.peopledatalabs.com/docs/job-title-levels):
+#   cxo, director, entry, manager, owner, partner, senior, training,
+#   unpaid, vp
+#
+# The PDL doc lists these alphabetically and does NOT document relative
+# seniority ordering. This rank table is Offerloop's editorial ordering,
+# matching typical corporate hierarchies:
+#   training/unpaid = 0  (interns, non-standard)
+#   entry           = 1  (individual contributor)
+#   senior          = 2  (senior IC, no direct reports)
+#   manager         = 3  (people manager)
+#   director        = 4
+#   vp              = 5
+#   cxo/owner/partner = 6 (executive-terminal)
+# Unknown tokens rank at -1 so they never dominate a known level.
+# If PDL publishes an ordering, revisit.
+_SENIORITY_RANK = {
+    "training": 0, "unpaid": 0,
+    "entry": 1,
+    "senior": 2,
+    "manager": 3,
+    "director": 4,
+    "vp": 5,
+    "cxo": 6, "owner": 6, "partner": 6,
+}
+
+
+def _extract_seniority_level(levels) -> str | None:
+    """Pick the highest-ranked level from PDL's job_title_levels array.
+    Returns the canonical token (lowercased) or None if the array is
+    empty / contains no known tokens."""
+    if not isinstance(levels, list) or not levels:
+        return None
+    best_rank = -1
+    best_level = None
+    for lvl in levels:
+        if not isinstance(lvl, str):
+            continue
+        key = lvl.lower()
+        rank = _SENIORITY_RANK.get(key, -1)
+        if rank > best_rank:
+            best_rank = rank
+            best_level = key
+    return best_level
+
+
+def _parse_pdl_partial_date_to_ym(v):
+    """Parse a PDL date value to (year, month). Accepts:
+      - str "YYYY-MM-DD" / "YYYY-MM" / "YYYY"
+      - dict {"year": int, "month": int}
+      - int (bare year, e.g. 2011)
+    Returns None on None / {} / unparseable. Month defaults to 1 when
+    only a year is present."""
+    if not v:
+        return None
+    if isinstance(v, dict):
+        y = v.get("year")
+        if not isinstance(y, int) or not (1900 <= y <= 2100):
+            return None
+        m = v.get("month") or 1
+        try:
+            mi = int(m)
+        except (TypeError, ValueError):
+            mi = 1
+        if not (1 <= mi <= 12):
+            mi = 1
+        return (y, mi)
+    if isinstance(v, int) and 1900 <= v <= 2100:
+        return (v, 1)
+    if isinstance(v, str):
+        parts = v.strip().split("-")
+        try:
+            y = int(parts[0])
+        except (ValueError, IndexError):
+            return None
+        if not (1900 <= y <= 2100):
+            return None
+        m = 1
+        if len(parts) >= 2:
+            try:
+                mi = int(parts[1])
+                if 1 <= mi <= 12:
+                    m = mi
+            except ValueError:
+                pass
+        return (y, m)
+    return None
+
+
+def _months_between(start_ym, end_ym) -> int:
+    """Non-negative month delta between two (year, month) tuples."""
+    (ys, ms) = start_ym
+    (ye, me) = end_ym
+    return max((ye - ys) * 12 + (me - ms), 0)
+
+
+def _is_high_school_name(name) -> bool:
+    """Heuristic — True if a school name looks like a secondary school
+    to EXCLUDE from GradYear / Majors derivation.
+
+    Catches the common US format ("Homestead High School",
+    "Hefei No.8 Senior High School" → contains 'high school' ✓).
+    Will MISS:
+      - US prep schools ("Phillips Andover Academy",
+        "Choate Rosemary Hall")
+      - UK-format secondary schools where 'college' means secondary
+        ("Eton College" — WOULD then leak into gradYear as a
+        college-level entry)
+      - Non-Anglo secondary schools ("Lycée Louis-le-Grand",
+        "Gymnasium <Name>", "…Realschule")
+
+    Acceptable failure mode for MVP — the ranker treats GradYear and
+    Majors as rough signals, not authoritative. Revisit if hit-rate
+    data shows a specific school type polluting the labels.
+    """
+    if not isinstance(name, str):
+        return False
+    return "high school" in name.lower()
+
+
+def _extract_grad_year(education):
+    """end_date.year of most recent non-HS education entry, or None."""
+    if not isinstance(education, list):
+        return None
+    best = None
+    for e in education:
+        if not isinstance(e, dict):
+            continue
+        school = e.get("school") or {}
+        name = (school.get("name") if isinstance(school, dict) else "") or ""
+        if _is_high_school_name(name):
+            continue
+        ym = _parse_pdl_partial_date_to_ym(e.get("end_date"))
+        if ym is None:
+            continue
+        if best is None or ym[0] > best:
+            best = ym[0]
+    return best
+
+
+def _extract_majors(education) -> list:
+    """Majors from the most-recent-college entry (by end_date year).
+    Returns [] if none found. Empty list is a legitimate 'no data'
+    signal, distinct from None ('unknown')."""
+    if not isinstance(education, list):
+        return []
+    best_year = None
+    best_majors: list = []
+    for e in education:
+        if not isinstance(e, dict):
+            continue
+        school = e.get("school") or {}
+        name = (school.get("name") if isinstance(school, dict) else "") or ""
+        if _is_high_school_name(name):
+            continue
+        majors = e.get("majors") or []
+        if not isinstance(majors, list):
+            continue
+        ym = _parse_pdl_partial_date_to_ym(e.get("end_date"))
+        y = ym[0] if ym else -1
+        if best_year is None or y > best_year:
+            best_year = y
+            best_majors = [m for m in majors if isinstance(m, str) and m]
+    return best_majors
+
+
+# CareerSpanMonths is derived from experience[*].start_date, in months.
+# NOT computed from PDL's paid `inferred_years_experience` bundle. It
+# measures time from the OLDEST job's start_date to today INCLUDING
+# gaps — this is span-with-gaps, not net experience. Ranker must not
+# treat it as net years worked. Zero is a legitimate value (new grad,
+# first-month starts).
+def _extract_career_span_months(experience):
+    """Months from oldest experience.start_date to today. None only
+    when no parseable start_date exists."""
+    if not isinstance(experience, list) or not experience:
+        return None
+    from datetime import datetime, timezone
+    oldest = None
+    for exp in experience:
+        if not isinstance(exp, dict):
+            continue
+        ym = _parse_pdl_partial_date_to_ym(exp.get("start_date"))
+        if ym is None:
+            continue
+        if oldest is None or ym < oldest:
+            oldest = ym
+    if oldest is None:
+        return None
+    now = datetime.now(timezone.utc)
+    return _months_between(oldest, (now.year, now.month))
+
+
+def _extract_current_tenure_months(person, experience):
+    """Months from current job's start_date to today. Zero is
+    legitimate (month-1 starts).
+
+    Source priority:
+      1. Top-level `job_start_date` — always refers to the person's
+         current job per PDL's semantics.
+      2. The experience[] entry with no end_date — PDL's semantic
+         signal for "current." experience[0] was empirically that
+         entry in 25/25 sampled records, but concurrent-role edge
+         cases exist (record: exp[0] started 2019-08 no-end,
+         exp[1] started 2019-12) so we scan for the semantic signal
+         rather than trust position.
+      3. experience[0] as a last resort — rare case where every job
+         has an end_date, meaning we don't know what's current;
+         position 0 is still PDL's best guess.
+    """
+    from datetime import datetime, timezone
+    ym = _parse_pdl_partial_date_to_ym(person.get("job_start_date"))
+    if ym is None and isinstance(experience, list) and experience:
+        current_entry = None
+        for exp in experience:
+            if not isinstance(exp, dict):
+                continue
+            end = exp.get("end_date")
+            is_open = (
+                end is None
+                or (isinstance(end, str) and not end.strip())
+                or (isinstance(end, dict) and not end)
+            )
+            if is_open:
+                current_entry = exp
+                break
+        if current_entry is None and isinstance(experience[0], dict):
+            current_entry = experience[0]
+        if current_entry:
+            ym = _parse_pdl_partial_date_to_ym(current_entry.get("start_date"))
+    if ym is None:
+        return None
+    now = datetime.now(timezone.utc)
+    return _months_between(ym, (now.year, now.month))
+
+
+# HometownSignal is derived from the person's high-school entry (high
+# confidence) or the earliest known locality in location_names (low
+# confidence). It is NEVER inferred from name, ethnicity, area code,
+# phone prefix, or any other proxy. Any such inference is a policy
+# violation and would make the ranker discriminatory.
+#
+# Empirical ordering of location_names (verified 2026-07-28 across 25
+# records): most-recent-first. location_names[0] equals current
+# location_locality in every observed case; location_names[-1] is the
+# earliest known locality. Low-confidence fallback therefore reads the
+# LAST entry, not the first.
+def _extract_hometown_signal(education, location_names, current_locality):
+    """Return (HometownSignal, confidence). Both None when neither
+    source is available."""
+    if isinstance(education, list):
+        for e in education:
+            if not isinstance(e, dict):
+                continue
+            school = e.get("school") or {}
+            if not isinstance(school, dict):
+                continue
+            name = (school.get("name") or "").lower()
+            if "high school" not in name:
+                continue
+            loc = school.get("location") or {}
+            if not isinstance(loc, dict):
+                continue
+            locality = (loc.get("locality") or "").strip()
+            if locality:
+                return (locality, "high")
+
+    if isinstance(location_names, list) and location_names:
+        cur = (current_locality or "").strip().lower()
+        for entry in reversed(location_names):
+            if not isinstance(entry, str):
+                continue
+            first_field = entry.split(",", 1)[0].strip()
+            if first_field and first_field.lower() != cur:
+                return (first_field, "low")
+
+    return (None, None)
+
+
+def _extract_string_list(values, limit: int = 20) -> list:
+    """Filter to non-empty strings, cap at `limit`."""
+    if not isinstance(values, list):
+        return []
+    out = []
+    for v in values:
+        if isinstance(v, str) and v.strip():
+            out.append(v.strip())
+            if len(out) >= limit:
+                break
+    return out
+
+
 def _choose_best_email(emails: list[dict], recommended: str | None = None) -> str | None:
     """Choose the best email from a list of emails"""
     def is_valid(addr: str) -> bool:
@@ -3272,6 +3599,16 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None, pre_ve
         location_info = person.get('location') or {}
         city = location_info.get('locality', '') if isinstance(location_info, dict) else ''
         state = location_info.get('region', '') if isinstance(location_info, dict) else ''
+        # `country` falls back to PDL's flat `location_country` field because
+        # the location object is missing on ~half of PDL person responses
+        # (tech-firm employees especially). Without this the firm_cache
+        # writer defaults to country_code="unknown" on every doc even
+        # though the search was US-scoped.
+        country = (
+            (location_info.get('country', '') if isinstance(location_info, dict) else '')
+            or person.get('location_country', '')
+            or ''
+        )
 
         # Email selection - VERIFY PDL EMAILS WITH HUNTER USING TARGET COMPANY DOMAIN
         emails = person.get('emails') or []
@@ -3504,10 +3841,12 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None, pre_ve
                             else:
                                 print(f"[ContactExtraction] ⚠️ Not at target company - first job: {first_job_company_name} (cleaned: {cleaned_first_job}), target: {target_company} (cleaned: {cleaned_target})")
 
-        # Store minimal experience data for anchor detection (first 2 jobs with dates)
+        # Store minimal experience data for anchor detection (first 5 jobs with dates)
+        # Bumped [:2] → [:5] for iOS ranker CareerSpanMonths derivation, which
+        # measures span from the OLDEST job's start_date to today.
         experience_for_anchors = []
         if experience and isinstance(experience, list):
-            for i, job in enumerate(experience[:2]):  # Only need first 2 for transition detection
+            for i, job in enumerate(experience[:5]):
                 if isinstance(job, dict):
                     job_data = {
                         'company': job.get('company', {}),
@@ -3527,6 +3866,7 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None, pre_ve
             'Company': company_name,
             'City': city,
             'State': state,
+            'Country': country,
             'College': college_name,
             'Phone': phone,
             'PersonalEmail': recommended if isinstance(recommended, str) else '',
@@ -3544,6 +3884,33 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None, pre_ve
             'IsCurrentlyAtTarget': is_currently_at_target,  # Track if currently at target company
             'experience': experience_for_anchors  # Store minimal experience for anchor detection
         }
+
+        # ── iOS ranker typed fields (Commit 2) ────────────────────────
+        # All values are optional. Downstream write path (contacts.py
+        # bulk create, Commit 3) omits keys whose value is None. Zero
+        # and empty list are LEGITIMATE values that DO persist —
+        # CareerSpanMonths=0 for a new grad, CurrentTenureMonths=0 for
+        # a month-1 start, Majors=[] for "no majors data" (distinct
+        # from Majors absent = "unknown"). Our core demographic.
+        _hs, _hc = _extract_hometown_signal(
+            education,
+            person.get("location_names"),
+            person.get("location_locality"),
+        )
+        _typed = {
+            "GradYear":                 _extract_grad_year(education),
+            "Majors":                   _extract_majors(education),
+            "SeniorityLevel":           _extract_seniority_level(person.get("job_title_levels")),
+            "CareerSpanMonths":         _extract_career_span_months(experience),
+            "CurrentTenureMonths":      _extract_current_tenure_months(person, experience),
+            "HometownSignal":           _hs,
+            "HometownSignalConfidence": _hc,
+            "Skills":                   _extract_string_list(person.get("skills"), limit=20),
+            "Interests":                _extract_string_list(person.get("interests"), limit=20),
+        }
+        for _k, _v in _typed.items():
+            if _v is not None:
+                contact[_k] = _v
 
         extract_time = time.time() - extract_start
         print(f"DEBUG: ⏱️  Contact extraction successful: {extract_time:.2f}s total for {first_name} {last_name}")
@@ -3670,7 +4037,7 @@ def execute_pdl_search(headers, url, query_obj, desired_limit, search_type, page
     with _session_lock:
         r = _session.post(url, headers=headers, json=body, timeout=30)
     pdl_api_time += time.time() - pdl_api_start
-    
+
     # ✅ HANDLE 404 GRACEFULLY - Return (empty, 404) so prompt-search caller can retry with relaxed query
     if r.status_code == 404:
         print(f"\n❌ PDL 404 ERROR - No records found matching query")
@@ -5184,11 +5551,9 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
                 # if the doc already exists.
                 try:
                     from app.services.firm_cache import cache_pdl_contacts
-                    from app.services.firm_cache.writer import _flag_enabled
-                    _flag = _flag_enabled()
                     _in = len(cached["results"])
                     n = cache_pdl_contacts(cached["results"], shape="app")
-                    print(f"[FirmCache] cache-hit path: flag={_flag} in={_in} queued={n}")
+                    print(f"[FirmCache] cache-hit path: in={_in} queued={n}")
                 except Exception as e:
                     print(f"[FirmCache] cache-hit write failed (non-fatal): {e}")
                 return (
@@ -5459,19 +5824,16 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
     # Person-level cache complementing pdl_search_cache (query-level). Every
     # PDL search result gets upserted into firm_employees/{linkedin_id}, so
     # future searches that share people (different school / title / location
-    # combinations against the same person) can be served without PDL.
-    # Off by default via ENABLE_FIRM_CACHE_WRITE. Fires on a daemon thread —
-    # no user-visible latency, never breaks the search.
+    # combinations against the same person) can be served without PDL. Fires
+    # on a daemon thread — no user-visible latency, never breaks the search.
     try:
         from app.services.firm_cache import cache_pdl_contacts
-        from app.services.firm_cache.writer import _flag_enabled
         if filtered:
-            _flag = _flag_enabled()
             n = cache_pdl_contacts(filtered, shape="app")
-            print(f"[FirmCache] fresh-PDL path: flag={_flag} in={len(filtered)} queued={n}")
-            # If flag is on but nothing queued, dump the first contact's key
-            # fields so we can see why the normalizer rejected everything.
-            if _flag and n == 0 and filtered:
+            print(f"[FirmCache] fresh-PDL path: in={len(filtered)} queued={n}")
+            # If nothing queued, dump the first contact's key fields so we
+            # can see why the normalizer rejected everything.
+            if n == 0 and filtered:
                 c = filtered[0]
                 print(f"[FirmCache] sample dropped contact: "
                       f"LinkedIn={bool(c.get('LinkedIn'))} "

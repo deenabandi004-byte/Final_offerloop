@@ -438,6 +438,11 @@ CREDIT_COSTS = {
     'find_recruiter':       6,
     'find_employee':        4,
     'firm_search':          10,  # per firm returned, Pro+ gated
+    # iOS ranker swipe-right reveal-email. Cheaper than find_contact (10)
+    # because the firm_cache path saves us the PDL cost; we still pay
+    # Hunter Email Finder. Refunded when Hunter returns unverified /
+    # below-confidence / no-hit (see routes/ranker.py:REVEAL_CHARGE_MIN_CONFIDENCE).
+    'reveal_email':          8,
 
     # Generative actions — per output
     'coffee_chat_prep':     30,  # alias for back-compat with COFFEE_CHAT_CREDITS

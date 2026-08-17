@@ -15,6 +15,30 @@ from app.utils.validation import ContactCreateRequest, ContactUpdateRequest, val
 contacts_bp = Blueprint('contacts', __name__, url_prefix='/api/contacts')
 
 
+# ── iOS ranker typed-field allowlist (Commit 3 of the ranker prereqs) ──
+# THE sensitive-field write gate. PDL_DATA_INCLUDE upstream returns
+# whole `experience` and `education` objects, plus new top-level fields
+# (skills, interests, ...). The extractor (pdl_client.py) already scopes
+# what it reads and never touches sex / birth_date / birth_year. This
+# allowlist is defense-in-depth for the write path: only the fields
+# named below land on the Firestore contact doc. Anything else PDL
+# returned stays in memory and is discarded when the request ends.
+#
+# Source keys are TitleCase (per PDL extractor output);
+# destination keys are camelCase (per firebaseApi.ts convention).
+_RANKER_FIELDS = (
+    ('GradYear',                 'gradYear'),
+    ('Majors',                   'majors'),
+    ('SeniorityLevel',           'seniorityLevel'),
+    ('CareerSpanMonths',         'careerSpanMonths'),
+    ('CurrentTenureMonths',      'currentTenureMonths'),
+    ('HometownSignal',           'hometownSignal'),
+    ('HometownSignalConfidence', 'hometownSignalConfidence'),
+    ('Skills',                   'skills'),
+    ('Interests',                'interests'),
+)
+
+
 @contacts_bp.route('', methods=['GET'])
 @require_firebase_auth
 def get_contacts():
@@ -636,7 +660,19 @@ def bulk_create_contacts():
                     contact['pipelineStage'] = req_stage
                 else:
                     contact['pipelineStage'] = 'new'
-            
+
+            # ── iOS ranker typed fields (Commit 3) ────────────────────
+            # Copy from the extractor's TitleCase output → contact doc
+            # camelCase, filtered through _RANKER_FIELDS (the allowlist).
+            #
+            # None → key omitted (unknown to the ranker).
+            # Zero  → persisted (legitimate: new grad, month-1 start).
+            # []    → persisted (legitimate: 'no data' vs 'unknown').
+            for _src, _dst in _RANKER_FIELDS:
+                _val = rc.get(_src)
+                if _val is not None:
+                    contact[_dst] = _val
+
             doc_ref = contacts_ref.add(contact)
             contact['id'] = doc_ref[1].id
             created_contacts.append(contact)
