@@ -244,24 +244,21 @@ def prompt_search():
         # Credit-efficiency: pdl_client.search_contacts_from_prompt now caps
         # the PDL fetch at max_contacts + min(exclude_count, 3), so the
         # worst-case credit burn per search is ~max_contacts + 3.
-        # ---- JIT firm-employee cache lookup (Phase 3) ---------------------
-        # Check firm_employees BEFORE PDL. Gated by ENABLE_FIRM_CACHE_LOOKUP
-        # env flag (independent of the write flag). Returns cache hits in
-        # App-shape with Email="" — the existing email-quality machinery
-        # downstream flags them so nothing breaks. If cache fills the whole
-        # tier limit, PDL is skipped entirely (0 credits). If partial, PDL
-        # is called for the remainder and results are deduped.
+        # ---- JIT firm-employee cache lookup -------------------------------
+        # Check firm_employees BEFORE PDL. Returns cache hits in App-shape
+        # with Email="" — the existing email-quality machinery downstream
+        # flags them so nothing breaks. If cache fills the whole tier limit,
+        # PDL is skipped entirely (0 credits). If partial, PDL is called for
+        # the remainder and results are deduped.
         cache_hits: list[dict] = []
         cache_hit_metadata: dict | None = None
         try:
             from app.services.firm_cache import search_firm_cache
-            from app.services.firm_cache.reader import _flag_enabled as _lookup_enabled
-            if _lookup_enabled():
-                cache_hits, _, _, cache_hit_metadata = search_firm_cache(
-                    parsed, max_contacts, exclude_keys=seen_contact_set
-                )
-                if cache_hits:
-                    print(f"[FirmCache] LOOKUP hit — {len(cache_hits)}/{max_contacts} served from firm_employees")
+            cache_hits, _, _, cache_hit_metadata = search_firm_cache(
+                parsed, max_contacts, exclude_keys=seen_contact_set
+            )
+            if cache_hits:
+                print(f"[FirmCache] LOOKUP hit — {len(cache_hits)}/{max_contacts} served from firm_employees")
         except Exception as e:
             print(f"[FirmCache] lookup failed (non-fatal, falling through to PDL): {e}")
             cache_hits = []

@@ -9,7 +9,10 @@ Data flow
     uid
      → _load_user_context(uid, db)      user profile + resume in scorer shape
      → _already_known_keys(uid, db)     (first, last, company) exclude set
-     → _fetch_candidates(user_ctx, db)  firm_employees query, App-shape dicts
+     → _fetch_candidates(user_ctx, db)  firm_employees query, App-shape dicts;
+                                        falls through to bounded PDL warm-up
+                                        (_pdl_warmup_candidates) when the
+                                        cache pool is below threshold
      → _score_one(user_ctx, c)          {score, tier, reasons, briefing}
      → _diversify_people(scored, k)     MMR re-rank on company + role family
      → _to_response_dict(…)             trim to response contract (allowlist)
@@ -104,6 +107,19 @@ MAX_RANKED_LIMIT           = 100   # HTTP-level ceiling
 # MMR diversify penalties (ported from student_job_ranker.diversify).
 LAMBDA_COMPANY     = 3.0           # squared penalty per repeat company
 LAMBDA_ROLE_FAMILY = 0.5           # squared penalty per repeat role family
+
+# PDL warm-up bounds. When firm_employees returns a candidate pool below
+# MIN_POOL_SIZE_BEFORE_PDL, we fall through to PDL per (company, school)
+# combo — pdl_client.search_contacts_from_prompt hits pdl_search_cache
+# first (30-day TTL, shared across all users) so cold-PDL only fires on
+# genuinely-novel combos. Worst-case cold cost per user:
+#     PDL_WARMUP_MAX_COMBOS × PDL_WARMUP_PEOPLE_PER_COMBO PDL credits.
+# The write side of search_contacts_from_prompt seeds firm_employees, so
+# subsequent decks for the same user (and any other user with an
+# overlapping signal) hit cache for free.
+MIN_POOL_SIZE_BEFORE_PDL   = 20
+PDL_WARMUP_MAX_COMBOS      = 3
+PDL_WARMUP_PEOPLE_PER_COMBO = 10
 
 
 # ── Public entry point ────────────────────────────────────────────────
@@ -246,13 +262,25 @@ def _load_user_context(uid: str, db) -> Optional[dict]:
         dream_companies=dream_company_names,
     )
 
+    # Preserve the raw school string alongside its slug so the PDL warm-up
+    # path can pass display-form names to search_contacts_from_prompt
+    # (which slugifies internally and needs the real name to match PDL's
+    # education.school.name index).
+    school_names: list[str] = []
+    if school:
+        s = str(school).strip()
+        if s:
+            school_names.append(s)
+
     return {
         "uid":                 uid,
         "profile":             profile,
         "resume_parsed":       resume_parsed,
         "comparison":          comparison,
         "normalized_user":     normalized_user,
+        "dream_company_names": dream_company_names,
         "dream_company_slugs": dream_company_slugs,
+        "school_names":        school_names,
         "school_slugs":        school_slugs,
     }
 
@@ -316,8 +344,54 @@ def _fetch_candidates(
       companies + schools → company AND schools array-contains  (composite index)
       companies only      → company                             (single-field index)
       schools only        → schools array-contains              (single-field index)
+
+    If the firm_employees pool comes up below MIN_POOL_SIZE_BEFORE_PDL for
+    the user's signals, falls through to a bounded PDL warm-up. See
+    _pdl_warmup_candidates for cost bounds.
     """
     exclude_keys = exclude_keys or set()
+    pool = _fetch_from_firm_cache(user_ctx, db, cap, exclude_keys)
+
+    if len(pool) >= MIN_POOL_SIZE_BEFORE_PDL:
+        return pool
+
+    # Cache pool is thin — warm from PDL. Results come back in App-shape
+    # already; search_contacts_from_prompt's own JIT writer will backfill
+    # firm_employees so the next /candidates call for this user (or any
+    # user with an overlapping signal) hits cache for free.
+    warmed = _pdl_warmup_candidates(user_ctx, exclude_keys)
+    if not warmed:
+        return pool
+
+    # Dedupe merge: keep firm_cache entries first (they already have
+    # canonical company_display / schools_display), then append PDL fills
+    # whose LinkedIn slug isn't already in the pool.
+    seen: set[str] = set()
+    for c in pool:
+        slug = _linkedin_slug(c.get("LinkedIn") or "")
+        if slug:
+            seen.add(slug)
+    merged = list(pool)
+    for c in warmed:
+        slug = _linkedin_slug(c.get("LinkedIn") or "")
+        if slug and slug in seen:
+            continue
+        merged.append(c)
+        if slug:
+            seen.add(slug)
+        if len(merged) >= cap:
+            break
+    return merged
+
+
+def _fetch_from_firm_cache(
+    user_ctx: dict,
+    db,
+    cap: int,
+    exclude_keys: set,
+) -> list[dict]:
+    """firm_employees query only. Extracted from _fetch_candidates so the
+    PDL fallback path can measure pool size cleanly."""
     companies = user_ctx.get("dream_company_slugs") or []
     schools = user_ctx.get("school_slugs") or []
     if not companies and not schools:
@@ -367,6 +441,102 @@ def _fetch_candidates(
             break
 
     return [firm_employee_doc_to_app_contact(d) for d in kept]
+
+
+def _pdl_warmup_candidates(user_ctx: dict, exclude_keys: set) -> list[dict]:
+    """Bounded PDL fetch to seed the candidate pool when firm_employees
+    is cold. One search_contacts_from_prompt call per (company, school)
+    combo, capped at PDL_WARMUP_MAX_COMBOS combos × PDL_WARMUP_PEOPLE_PER_COMBO
+    people.
+
+    Cost path:
+      * Each call routes through pdl_client's pdl_search_cache first —
+        query-hash keyed, 30-day TTL, shared across all users. So if any
+        user has run the same (company, school) query recently, this
+        costs 0 PDL credits.
+      * On true cold-PDL, one call costs ~PDL_WARMUP_PEOPLE_PER_COMBO
+        credits. Worst case per fully cold user:
+        PDL_WARMUP_MAX_COMBOS × PDL_WARMUP_PEOPLE_PER_COMBO credits.
+
+    Never raises. Returns [] on any failure or when no combos are usable.
+    """
+    company_names = user_ctx.get("dream_company_names") or []
+    school_names = user_ctx.get("school_names") or []
+    if not company_names or not school_names:
+        # Ranker requires at least one dream company for meaningful PDL
+        # warm-up. School-only PDL sweep is too broad — would burn credits
+        # returning random alumni whose companies the user hasn't targeted.
+        return []
+
+    # Cap combos: top-N dream companies × user's school.
+    combos: list[tuple[str, str]] = []
+    for co in company_names[:PDL_WARMUP_MAX_COMBOS]:
+        for sch in school_names:
+            combos.append((co, sch))
+            if len(combos) >= PDL_WARMUP_MAX_COMBOS:
+                break
+        if len(combos) >= PDL_WARMUP_MAX_COMBOS:
+            break
+
+    if not combos:
+        return []
+
+    try:
+        from app.services.pdl_client import search_contacts_from_prompt
+    except Exception as exc:
+        logger.warning("person_ranker: pdl_client import failed: %s", exc)
+        return []
+
+    merged: list[dict] = []
+    seen_slugs: set[str] = set()
+    for co_name, sch_name in combos:
+        parsed_prompt = {
+            "companies":        [{"name": co_name}],
+            "schools":          [sch_name],
+            "title_variations": [],
+            "locations":        [],
+            "industries":       [],
+        }
+        try:
+            contacts, _rl, _saved, _meta = search_contacts_from_prompt(
+                parsed_prompt,
+                PDL_WARMUP_PEOPLE_PER_COMBO,
+                exclude_keys=exclude_keys,
+                user_profile=user_ctx.get("profile"),
+            )
+        except Exception as exc:
+            logger.warning(
+                "person_ranker: PDL warm-up failed co=%r sch=%r: %s",
+                co_name, sch_name, exc,
+            )
+            continue
+
+        for c in (contacts or []):
+            slug = _linkedin_slug(c.get("LinkedIn") or "")
+            if slug and slug in seen_slugs:
+                continue
+            if slug:
+                seen_slugs.add(slug)
+            merged.append(c)
+
+    if merged:
+        logger.info(
+            "person_ranker: PDL warm-up returned %d contacts across %d combos "
+            "(uid=%s)",
+            len(merged), len(combos), user_ctx.get("uid"),
+        )
+    return merged
+
+
+def _linkedin_slug(url: str) -> str:
+    """Canonical linkedin slug for dedupe. Empty string on any failure."""
+    if not url:
+        return ""
+    try:
+        _canon, slug = canonicalize_linkedin_url(url)
+        return slug or ""
+    except Exception:
+        return ""
 
 
 # ── Scoring ───────────────────────────────────────────────────────────

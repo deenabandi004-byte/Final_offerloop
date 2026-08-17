@@ -456,19 +456,25 @@ def firm_employee_doc_from_app_contact(contact: dict) -> Optional[dict]:
     if not company_slug:
         return None
 
-    # Location — the App-shape doesn't carry country code. Three cases:
+    # Location — cases:
     #   1) State is a valid US state → country_code="US"
-    #   2) State is non-empty but clearly non-US → skip (out of MVP scope)
-    #   3) State is empty (PDL data gap — very common for tech companies
-    #      like Apple/Google that don't always surface location on employees)
-    #      → accept but mark country_code="unknown". The person is still
-    #      queryable by company/schools/title; office_location just stays
-    #      empty. Better than dropping the cache entry entirely.
+    #   2) State is empty but Country field says United States (PDL data
+    #      gap on state is common for tech-firm employees; country still
+    #      populates) → country_code="US"
+    #   3) State is non-empty but clearly non-US → skip (out of MVP scope)
+    #   4) Neither state nor US country signal → mark country_code="unknown".
+    #      The person is still queryable by company/schools/title;
+    #      office_location just stays empty. Better than dropping the entry.
     state = (contact.get("State") or contact.get("state") or "").strip()
     city = (contact.get("City") or contact.get("city") or "").strip()
+    country_raw = (contact.get("Country") or contact.get("country") or "").strip().lower()
     if state and not _looks_like_us_state(state):
         return None
-    country_code = "US" if _looks_like_us_state(state) else "unknown"
+    is_us_country = country_raw in ("united states", "usa", "us", "u.s.", "u.s.a.")
+    if _looks_like_us_state(state) or is_us_country:
+        country_code = "US"
+    else:
+        country_code = "unknown"
 
     # Schools — parse EducationTop for multi-school history. Fall back to
     # the single College field if EducationTop is empty.

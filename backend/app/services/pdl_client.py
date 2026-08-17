@@ -3599,6 +3599,16 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None, pre_ve
         location_info = person.get('location') or {}
         city = location_info.get('locality', '') if isinstance(location_info, dict) else ''
         state = location_info.get('region', '') if isinstance(location_info, dict) else ''
+        # `country` falls back to PDL's flat `location_country` field because
+        # the location object is missing on ~half of PDL person responses
+        # (tech-firm employees especially). Without this the firm_cache
+        # writer defaults to country_code="unknown" on every doc even
+        # though the search was US-scoped.
+        country = (
+            (location_info.get('country', '') if isinstance(location_info, dict) else '')
+            or person.get('location_country', '')
+            or ''
+        )
 
         # Email selection - VERIFY PDL EMAILS WITH HUNTER USING TARGET COMPANY DOMAIN
         emails = person.get('emails') or []
@@ -3856,6 +3866,7 @@ def extract_contact_from_pdl_person_enhanced(person, target_company=None, pre_ve
             'Company': company_name,
             'City': city,
             'State': state,
+            'Country': country,
             'College': college_name,
             'Phone': phone,
             'PersonalEmail': recommended if isinstance(recommended, str) else '',
@@ -5540,11 +5551,9 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
                 # if the doc already exists.
                 try:
                     from app.services.firm_cache import cache_pdl_contacts
-                    from app.services.firm_cache.writer import _flag_enabled
-                    _flag = _flag_enabled()
                     _in = len(cached["results"])
                     n = cache_pdl_contacts(cached["results"], shape="app")
-                    print(f"[FirmCache] cache-hit path: flag={_flag} in={_in} queued={n}")
+                    print(f"[FirmCache] cache-hit path: in={_in} queued={n}")
                 except Exception as e:
                     print(f"[FirmCache] cache-hit write failed (non-fatal): {e}")
                 return (
@@ -5815,19 +5824,16 @@ def search_contacts_from_prompt(parsed_prompt: dict, max_contacts: int, exclude_
     # Person-level cache complementing pdl_search_cache (query-level). Every
     # PDL search result gets upserted into firm_employees/{linkedin_id}, so
     # future searches that share people (different school / title / location
-    # combinations against the same person) can be served without PDL.
-    # Off by default via ENABLE_FIRM_CACHE_WRITE. Fires on a daemon thread —
-    # no user-visible latency, never breaks the search.
+    # combinations against the same person) can be served without PDL. Fires
+    # on a daemon thread — no user-visible latency, never breaks the search.
     try:
         from app.services.firm_cache import cache_pdl_contacts
-        from app.services.firm_cache.writer import _flag_enabled
         if filtered:
-            _flag = _flag_enabled()
             n = cache_pdl_contacts(filtered, shape="app")
-            print(f"[FirmCache] fresh-PDL path: flag={_flag} in={len(filtered)} queued={n}")
-            # If flag is on but nothing queued, dump the first contact's key
-            # fields so we can see why the normalizer rejected everything.
-            if _flag and n == 0 and filtered:
+            print(f"[FirmCache] fresh-PDL path: in={len(filtered)} queued={n}")
+            # If nothing queued, dump the first contact's key fields so we
+            # can see why the normalizer rejected everything.
+            if n == 0 and filtered:
                 c = filtered[0]
                 print(f"[FirmCache] sample dropped contact: "
                       f"LinkedIn={bool(c.get('LinkedIn'))} "

@@ -301,6 +301,128 @@ def test_alumni_ranks_above_stranger_via_real_scorer(monkeypatch):
     )
 
 
+def test_pdl_warmup_fires_when_firm_cache_below_threshold(monkeypatch):
+    """When _fetch_from_firm_cache returns fewer than
+    MIN_POOL_SIZE_BEFORE_PDL candidates, _fetch_candidates falls through
+    to search_contacts_from_prompt (once per company × school combo) and
+    merges results into the pool, deduping on linkedin slug."""
+    ctx = {
+        "uid": "uid1", "profile": {"foo": "bar"}, "resume_parsed": {},
+        "comparison": {}, "normalized_user": MagicMock(),
+        "dream_company_names": ["Google"], "dream_company_slugs": ["google"],
+        "school_names": ["USC"], "school_slugs": ["usc"],
+    }
+
+    # firm_cache side: return one lonely candidate (below MIN=20 threshold).
+    lonely_cache_hit = {
+        "FirstName": "Alice", "LastName": "Smith",
+        "LinkedIn": "https://linkedin.com/in/alice-smith",
+        "Company": "Google", "Title": "SWE",
+        "College": "USC", "City": "MV", "State": "CA", "pdlId": "pdl_a",
+    }
+    monkeypatch.setattr(
+        pr, "_fetch_from_firm_cache",
+        lambda user_ctx, db, cap, exclude_keys: [lonely_cache_hit],
+    )
+
+    # PDL side: return two contacts, one of which duplicates alice.
+    pdl_fill_bob = {
+        "FirstName": "Bob", "LastName": "Jones",
+        "LinkedIn": "https://linkedin.com/in/bob-jones",
+        "Company": "Google", "Title": "SWE",
+        "College": "USC", "City": "MV", "State": "CA", "pdlId": "pdl_b",
+    }
+    pdl_dup_alice = dict(lonely_cache_hit)  # same LinkedIn slug — should dedupe
+
+    calls = []
+
+    def fake_search(parsed_prompt, count, *, exclude_keys=None, user_profile=None):
+        calls.append({
+            "companies": parsed_prompt.get("companies"),
+            "schools":   parsed_prompt.get("schools"),
+            "count":     count,
+            "exclude_keys": exclude_keys,
+        })
+        return [pdl_fill_bob, pdl_dup_alice], 0, [], None
+
+    monkeypatch.setattr(
+        "app.services.pdl_client.search_contacts_from_prompt",
+        fake_search,
+    )
+
+    result = pr._fetch_candidates(ctx, db=object(), cap=50, exclude_keys=set())
+
+    # Alice (cache) + Bob (PDL). Dup alice from PDL is filtered.
+    ids = [pr._candidate_id(c) for c in result]
+    assert "alice-smith" in ids
+    assert "bob-jones" in ids
+    assert len(result) == 2  # duplicate filtered
+
+    # Exactly one warm-up call for (Google, USC) — cap respected.
+    assert len(calls) == 1
+    assert calls[0]["companies"] == [{"name": "Google"}]
+    assert calls[0]["schools"] == ["USC"]
+    assert calls[0]["count"] == pr.PDL_WARMUP_PEOPLE_PER_COMBO
+
+
+def test_pdl_warmup_skipped_when_pool_above_threshold(monkeypatch):
+    """If firm_cache already returns >= MIN_POOL_SIZE_BEFORE_PDL, no
+    PDL calls fire (0 credits, cache-first)."""
+    ctx = {
+        "uid": "uid1", "profile": {}, "resume_parsed": {},
+        "comparison": {}, "normalized_user": MagicMock(),
+        "dream_company_names": ["Google"], "dream_company_slugs": ["google"],
+        "school_names": ["USC"], "school_slugs": ["usc"],
+    }
+    hot_pool = [
+        {
+            "FirstName": f"P{i}", "LastName": "X",
+            "LinkedIn": f"https://linkedin.com/in/p{i}-x",
+            "Company": "Google", "Title": "SWE",
+            "College": "USC", "City": "MV", "State": "CA",
+            "pdlId": f"pdl_{i}",
+        }
+        for i in range(pr.MIN_POOL_SIZE_BEFORE_PDL)
+    ]
+    monkeypatch.setattr(
+        pr, "_fetch_from_firm_cache",
+        lambda user_ctx, db, cap, exclude_keys: hot_pool,
+    )
+
+    calls = []
+    monkeypatch.setattr(
+        "app.services.pdl_client.search_contacts_from_prompt",
+        lambda *a, **k: calls.append(a) or ([], 0, [], None),
+    )
+
+    result = pr._fetch_candidates(ctx, db=object(), cap=50, exclude_keys=set())
+    assert len(result) == pr.MIN_POOL_SIZE_BEFORE_PDL
+    assert calls == []
+
+
+def test_pdl_warmup_skipped_without_company_signal(monkeypatch):
+    """School-only user (no dreamCompanies) → PDL warm-up short-circuits
+    to avoid burning credits on unbounded alumni sweep."""
+    ctx = {
+        "uid": "uid1", "profile": {}, "resume_parsed": {},
+        "comparison": {}, "normalized_user": MagicMock(),
+        "dream_company_names": [], "dream_company_slugs": [],
+        "school_names": ["USC"], "school_slugs": ["usc"],
+    }
+    monkeypatch.setattr(
+        pr, "_fetch_from_firm_cache",
+        lambda user_ctx, db, cap, exclude_keys: [],
+    )
+    calls = []
+    monkeypatch.setattr(
+        "app.services.pdl_client.search_contacts_from_prompt",
+        lambda *a, **k: calls.append(a) or ([], 0, [], None),
+    )
+    result = pr._fetch_candidates(ctx, db=object(), cap=50, exclude_keys=set())
+    assert result == []
+    assert calls == []
+
+
 def test_ranker_excludes_swiped_left_and_skip(monkeypatch):
     """peoplePreferences with signal in (left, skip) drops candidates from
     subsequent decks. swipe-right is excluded elsewhere via
