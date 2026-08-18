@@ -403,3 +403,105 @@ def test_system_prompt_mentions_every_workflow_tool():
         assert tool_name in prompt, f"system prompt is missing {tool_name}"
     # Interview prep tool is held back from Phase 5 (feature not shipping yet).
     assert "get_interview_prep_drafts" not in prompt
+
+
+# ============================================================================
+# get_followups: who is owed a move right now
+# ============================================================================
+
+def _seed_nudge(db, uid, nid, *, name="Sarah Kim", company="Bain",
+                days_ago=3, status="pending", kind="follow_up",
+                suggestion="Sarah hasn't written back. Nudge her.",
+                draft="Hi Sarah, following up on my note..."):
+    _put(db, uid, "nudges", nid, {
+        "contactId": f"c-{nid}",
+        "contactName": name,
+        "company": company,
+        "type": kind,
+        "generatedMessage": suggestion,
+        "followUpDraft": draft,
+        "createdAt": _now() - timedelta(days=days_ago),
+        "status": status,
+        "actedOn": False,
+    })
+
+
+def test_followups_empty_when_nothing_pending(db):
+    from app.services.scout.workflow_state import get_followups
+    assert get_followups("u1", db=db) == {"count": 0, "followups": []}
+
+
+def test_followups_ignores_dismissed_and_acted_rows(db):
+    # The Gmail webhook dismisses a nudge the moment that contact replies.
+    # Surfacing a dismissed row would have Scout chase someone who already
+    # wrote back, which is worse than saying nothing.
+    from app.services.scout.workflow_state import get_followups
+    _seed_nudge(db, "u1", "n1", status="dismissed")
+    _seed_nudge(db, "u1", "n2", status="acted_on")
+    _seed_nudge(db, "u1", "n3", name="Ana Diaz", status="pending")
+    out = get_followups("u1", db=db)
+    assert out["count"] == 1
+    assert out["followups"][0]["contact_name"] == "Ana Diaz"
+
+
+def test_followups_oldest_first(db):
+    # The one waiting longest is the one about to go cold, so it leads.
+    from app.services.scout.workflow_state import get_followups
+    _seed_nudge(db, "u1", "n1", name="Fresh One", days_ago=1)
+    _seed_nudge(db, "u1", "n2", name="Oldest One", days_ago=12)
+    _seed_nudge(db, "u1", "n3", name="Middle One", days_ago=6)
+    names = [f["contact_name"] for f in get_followups("u1", db=db)["followups"]]
+    assert names == ["Oldest One", "Middle One", "Fresh One"]
+
+
+def test_followups_field_shape(db):
+    from app.services.scout.workflow_state import get_followups
+    _seed_nudge(db, "u1", "n1", days_ago=9)
+    f = get_followups("u1", db=db)["followups"][0]
+    assert set(f) == {
+        "id", "kind", "contact_name", "contact_id", "company",
+        "suggestion", "draft_ready", "waiting_days", "created_at",
+    }
+    assert f["contact_name"] == "Sarah Kim"
+    assert f["company"] == "Bain"
+    assert f["draft_ready"] is True      # a body is written, so offer to send
+    assert f["waiting_days"] == 9
+
+
+def test_followups_draft_ready_false_without_a_body(db):
+    from app.services.scout.workflow_state import get_followups
+    _seed_nudge(db, "u1", "n1", draft="")
+    assert get_followups("u1", db=db)["followups"][0]["draft_ready"] is False
+
+
+def test_followups_count_is_total_and_list_truncates(db):
+    from app.services.scout.workflow_state import get_followups
+    for i in range(7):
+        _seed_nudge(db, "u1", f"n{i}", name=f"Person {i}", days_ago=i + 1)
+    out = get_followups("u1", limit=3, db=db)
+    assert out["count"] == 7          # counts everyone owed a move
+    assert len(out["followups"]) == 3  # the list stays small for the model
+
+
+def test_followups_keeps_pipeline_prompts(db):
+    # stuck_student rows have no contact to name; they still matter as "you
+    # have nobody in flight", so the tool keeps them and marks the kind.
+    from app.services.scout.workflow_state import get_followups
+    _seed_nudge(db, "u1", "n1", kind="stuck_student", name="", company="")
+    f = get_followups("u1", db=db)["followups"][0]
+    assert f["kind"] == "stuck_student"
+    assert f["contact_name"] == ""
+
+
+def test_followups_is_scoped_to_the_user(db):
+    from app.services.scout.workflow_state import get_followups
+    _seed_nudge(db, "u1", "n1", name="Mine")
+    _seed_nudge(db, "u2", "n1", name="Someone Else")
+    assert [f["contact_name"] for f in get_followups("u1", db=db)["followups"]] == ["Mine"]
+
+
+def test_system_prompt_advertises_followups():
+    from app.services.scout_assistant_service import ScoutAssistantService
+    import inspect
+    src = inspect.getsource(ScoutAssistantService)
+    assert "get_followups" in src

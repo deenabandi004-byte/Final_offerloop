@@ -337,6 +337,33 @@ GET_OUTBOX_STATUS_TOOL: Dict[str, Any] = {
     },
 }
 
+GET_FOLLOWUPS_TOOL: Dict[str, Any] = {
+    "name": "get_followups",
+    "description": (
+        "Read-only. Returns who the user owes a move RIGHT NOW: contacts "
+        "they emailed who have not replied in about a week, each with a "
+        "written suggestion and whether a follow-up draft is already "
+        "prepared, plus pipeline prompts when they have gone quiet "
+        "altogether. Oldest first, so the first row is the one about to go "
+        "cold. Call this for \"who should I follow up with\", \"what should "
+        "I do today\", \"what's next\", \"am I behind\", and whenever the "
+        "user opens with a greeting and no task - lead with the most urgent "
+        "one BY NAME and offer to draft the follow-up, rather than telling "
+        "them to go check a page. A row here is live: it is dismissed "
+        "automatically the moment that person replies. Read only, no writes."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "limit": {
+                "type": "integer",
+                "description": "Max follow-ups to return (default 5).",
+            },
+        },
+        "required": [],
+    },
+}
+
 GET_RECENT_SEARCHES_TOOL: Dict[str, Any] = {
     "name": "get_recent_searches",
     "description": (
@@ -819,6 +846,7 @@ HELPER_TOOLS: List[Dict[str, Any]] = [
     SAVE_STRATEGY_TOOL,
     UPDATE_STRATEGY_PROGRESS_TOOL,
     GET_OUTBOX_STATUS_TOOL,
+    GET_FOLLOWUPS_TOOL,
     GET_RECENT_SEARCHES_TOOL,
     GET_RECENT_COVER_LETTERS_TOOL,
     GET_MEETING_PREP_DRAFTS_TOOL,
@@ -977,6 +1005,7 @@ async def _run_workflow_read(
 # Per-tool defaults and empty envelopes. Kept here (not imported from
 # workflow_state) so the dispatch table stays self-contained.
 _OUTBOX_EMPTY = {"total_contacts": 0, "awaiting_reply": 0, "replied": 0, "recent": []}
+_FOLLOWUPS_EMPTY = {"count": 0, "followups": []}
 _LIST_EMPTY = {"count": 0, "recent": []}
 _APPLICATIONS_EMPTY = {
     "total": 0, "submitted": 0, "in_flight": 0, "needs_answers": 0,
@@ -1008,6 +1037,9 @@ async def run_helper_tool(
         return await _run_save_strategy(args, ctx)
     if name == "update_strategy_progress":
         return await _run_update_strategy_progress(args, ctx)
+    if name == "get_followups":
+        return await _run_workflow_read(
+            "get_followups", args, ctx, 5, _FOLLOWUPS_EMPTY)
     if name == "get_outbox_status":
         return await _run_workflow_read(
             "get_outbox_status", args, ctx, 10, _OUTBOX_EMPTY)

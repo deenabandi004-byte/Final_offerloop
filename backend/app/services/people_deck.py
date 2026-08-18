@@ -1,0 +1,733 @@
+"""
+The People deck built from a sentence.
+
+The mobile People feed used to be ranker-only: the server decided who you should
+meet, and the app swiped through the verdict. This is the other half (Nick
+2026-08-16): the student describes who they want ("investment banking analysts at
+Goldman Sachs in New York") and we go find twenty of them.
+
+The split that matters, and the reason this is not just prompt_search with a
+different name:
+
+    SEARCH  is free. One PDL person/search per prompt, no address handed to the
+            client, no email written, no credits moved. Someone can describe a
+            search, look through twenty faces, decide none of them are worth
+            writing to, and have spent nothing. That is the whole point.
+
+    REVEAL  is the paid step, and it is where the address and the written email
+            both come from. One call, one charge, because an address with no
+            draft is a lookup tool and this deck exists to not be one.
+
+Between the two, the deck lives in Firestore under the user. The app never holds
+enough about these people to identify them to PDL, which is deliberate: a reveal
+is addressed as (deck_id, person_id), so the app cannot ask us to enrich an
+arbitrary person it invented.
+
+Everything here reuses the existing pipeline (prompt_pdl_search, reply_generation,
+gmail_client). There is no new business logic about how a search runs or how an
+email is written, only about what gets charged and when.
+"""
+import hashlib
+import logging
+import traceback
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Tuple
+
+from app.config import CREDIT_COSTS, TIER_CONFIGS
+from app.services import neverbounce_client
+from app.services.auth import check_and_reset_credits, deduct_credits_atomic
+from app.services.gmail_client import _load_user_gmail_creds, download_resume_from_url
+from app.services.metering import attach_request_context
+from app.services.pdl_client import search_contacts_from_prompt
+from app.services.prompt_parser import parse_search_prompt_structured
+from app.services.reply_generation import (
+    PURPOSES_INCLUDE_RESUME,
+    batch_generate_emails,
+    email_body_mentions_resume,
+)
+from app.services.resume_parser import extract_text_from_pdf_bytes
+from app.utils.users import get_outreach_email
+from app.utils.warmth_scoring import build_briefing_line, score_and_sort_contacts
+
+logger = logging.getLogger(__name__)
+
+# How many people one batch surfaces. Twenty is a session's worth of swiping,
+# and small enough that a student who described the wrong thing finds out fast.
+BATCH_SIZE = 20
+MAX_BATCH_SIZE = 25
+
+# Searching is free, so the only thing standing between a bored user and a large
+# PDL bill is this. Deliberately loose: a real user rewriting their search five
+# times in an evening never touches it.
+DAILY_SEARCH_CAP = 12
+
+# A stashed deck is a promise we can still reveal from. Past this the PDL data is
+# stale enough that the person may have changed jobs, and the app is told the
+# search expired rather than being allowed to buy an address from last week.
+DECK_TTL_HOURS = 48
+
+PROMPT_MIN = 3
+PROMPT_MAX = 500
+
+
+def _person_id(contact: Dict[str, Any]) -> str:
+    """A stable, opaque id for one person in one deck.
+
+    LinkedIn first: it is the only identifier PDL reliably returns that is
+    genuinely unique to a human. Name plus company is the fallback, and is the
+    same pair the swipe-reservation keys use, so the two agree about who counts
+    as the same person.
+    """
+    linkedin = (contact.get("LinkedIn") or "").strip().lower()
+    if linkedin and linkedin.lower() != "not available":
+        linkedin = linkedin.split("?")[0].rstrip("/")
+        return hashlib.sha1(f"li:{linkedin}".encode("utf-8")).hexdigest()[:20]
+    name = f"{contact.get('FirstName', '')} {contact.get('LastName', '')}".strip().lower()
+    company = (contact.get("Company") or "").strip().lower()
+    return hashlib.sha1(f"nc:{name}|{company}".encode("utf-8")).hexdigest()[:20]
+
+
+def _has_address(contact: Dict[str, Any]) -> bool:
+    for key in ("Email", "WorkEmail", "PersonalEmail"):
+        v = (contact.get(key) or "").strip()
+        if v and v.lower() != "not available" and "@" in v:
+            return True
+    return False
+
+
+def _address_of(contact: Dict[str, Any]) -> str:
+    for key in ("Email", "WorkEmail", "PersonalEmail"):
+        v = (contact.get(key) or "").strip()
+        if v and v.lower() != "not available" and "@" in v:
+            return v.lower()
+    return ""
+
+
+def _public_person(contact: Dict[str, Any], person_id: str, rank: int) -> Dict[str, Any]:
+    """What the CARD gets. Everything the deck draws, and nothing it can email.
+
+    The address is the product; it stays on the server until it is paid for.
+    Sending it down "just for the client to hide" would put every address in the
+    deck one proxy log away from being free.
+    """
+    city = (contact.get("City") or "").strip()
+    state = (contact.get("State") or "").strip()
+    return {
+        "id": person_id,
+        "rank": rank,
+        "firstName": (contact.get("FirstName") or "").strip(),
+        "lastName": (contact.get("LastName") or "").strip(),
+        "title": (contact.get("Title") or "").strip(),
+        "company": (contact.get("Company") or "").strip(),
+        "city": city,
+        "state": state,
+        "college": (contact.get("College") or "").strip(),
+        "linkedinUrl": (contact.get("LinkedIn") or "").strip(),
+        # The card's "Why we surfaced them" list. Built from the warmth signals
+        # the same scorer produces for every other surface, so a prompt person
+        # and a ranked person explain themselves the same way.
+        "reasons": contact.get("_reasons") or [],
+        # Whether a right swipe can actually deliver. The card does not draw
+        # this yet, but the swipe needs it and a client that knows can stop
+        # charging for a person we already know has no address.
+        "hasEmail": _has_address(contact),
+    }
+
+
+#: Everything a stashed person needs to survive until a reveal: who they are,
+#: how to reach them, and what the writer needs to write well. PDL hands back a
+#: good deal more (full work summaries, volunteer prose, education blobs) and
+#: fifty of those in one document is how you find the 1MB Firestore limit.
+_STASH_FIELDS = (
+    "FirstName", "LastName", "LinkedIn", "Email", "WorkEmail", "PersonalEmail",
+    "Title", "Company", "City", "State", "College", "WorkSummary",
+    "warmth_score", "warmth_tier", "warmth_label", "warmth_signals", "briefing",
+    "personalization", "_reasons",
+)
+
+
+def _stashable(contact: Dict[str, Any]) -> Dict[str, Any]:
+    """Trim a PDL contact to what a later reveal actually reads."""
+    out = {k: contact[k] for k in _STASH_FIELDS if k in contact and contact[k] is not None}
+    # The writer uses this for context; a paragraph is plenty and the full blob
+    # is often several.
+    summary = out.get("WorkSummary")
+    if isinstance(summary, str) and len(summary) > 600:
+        out["WorkSummary"] = summary[:600]
+    return out
+
+
+def _deck_ref(db, user_id: str, deck_id: str):
+    return db.collection("users").document(user_id).collection("peopleDecks").document(deck_id)
+
+
+def _search_count_today(db, user_id: str) -> int:
+    """How many searches this user has run in the last 24h. Best effort: a guard
+    that cannot read must not block real work."""
+    try:
+        since = datetime.now(timezone.utc) - timedelta(hours=24)
+        docs = (
+            db.collection("users").document(user_id).collection("peopleDecks")
+            .where("createdAt", ">=", since)
+            .limit(DAILY_SEARCH_CAP + 1)
+            .get()
+        )
+        return len(docs)
+    except Exception:
+        logger.exception("people-deck search cap check failed for uid=%s", user_id)
+        return 0
+
+
+def search_people(
+    *,
+    user_id: str,
+    user_email: Optional[str],
+    prompt: str,
+    limit: int = BATCH_SIZE,
+    cursor: Optional[str] = None,
+) -> Tuple[Dict[str, Any], int]:
+    """Find people matching `prompt`. Free.
+
+    `cursor` asks for the NEXT slice of an existing deck rather than a new
+    search: it is "<deck_id>:<offset>", and it is the server's own token, so the
+    app never has to know that a deck and a batch are different things.
+
+    Returns (payload, http_status).
+    """
+    from app.extensions import get_db
+
+    prompt = (prompt or "").strip()
+    if len(prompt) < PROMPT_MIN:
+        return {"error": "Tell us a bit more about who you want to reach."}, 400
+    if len(prompt) > PROMPT_MAX:
+        return {"error": f"Keep it under {PROMPT_MAX} characters."}, 400
+
+    limit = max(1, min(int(limit or BATCH_SIZE), MAX_BATCH_SIZE))
+    db = get_db()
+    if db is None:
+        return {"error": "Database unavailable"}, 503
+
+    attach_request_context(user_id=user_id)
+
+    # Paging an existing deck: no parse, no PDL, no cap. The people are already
+    # bought and stashed; this is the free half of "show me twenty more".
+    if cursor:
+        return _serve_next_batch(db, user_id, cursor, limit)
+
+    if _search_count_today(db, user_id) >= DAILY_SEARCH_CAP:
+        return {
+            "error": "rate_limited",
+            "message": (
+                f"That's {DAILY_SEARCH_CAP} searches today. Swipe the ones you have, "
+                "or come back tomorrow."
+            ),
+        }, 429
+
+    parsed = parse_search_prompt_structured(prompt)
+    if parsed.get("error") or parsed.get("confidence") == "low":
+        return {
+            "error": "vague",
+            "message": (
+                "That was a little vague to search on. Add a role, a company, or a city."
+            ),
+        }, 400
+
+    # Over-fetch deliberately. PDL's post-filters (company match, alumni) drop a
+    # meaningful share of what comes back, and a deck that promised twenty and
+    # delivered nine reads as a broken search rather than a strict one. The
+    # surplus is stashed, not thrown away, so "show me twenty more" is free.
+    fetch_count = min(50, limit * 2 + 10)
+    parsed["max_results"] = fetch_count
+
+    # THE searcher, not a lookalike. search_contacts_from_prompt is what the
+    # website's Find feature runs, and it is the one that understands the shape
+    # parse_search_prompt_structured actually emits: `companies` as a list of
+    # {name, matched_titles} objects, plus title_variations and seniority.
+    #
+    # This used to call prompt_pdl_search.run_prompt_search, which reads a
+    # DIFFERENT, older filter shape (`company`/`roles`/`location` as flat string
+    # lists) produced by the other parser. Handed the structured output, its
+    # clause builders found none of the keys they wanted and silently emitted a
+    # query with no company and no title in it: "software engineer at roblox"
+    # went to PDL as "anyone whose industry is technology", which PDL answered
+    # with 404 on every relaxation tier. A search that looked run and found
+    # nobody, for every prompt.
+    try:
+        contacts, _retry_level, _already_saved, _adjacency = search_contacts_from_prompt(
+            parsed,
+            fetch_count,
+            exclude_keys=set(),
+            user_profile=_firestore_user(db, user_id),
+        )
+    except Exception:
+        logger.exception("people-deck search failed for uid=%s", user_id)
+        return {"error": "search_failed", "message": "Could not run that search."}, 502
+
+    contacts = contacts or []
+
+    if not contacts:
+        return {
+            "deck_id": "",
+            "people": [],
+            "next_cursor": None,
+            "reason": (
+                "We could not find anyone matching that. Try a broader role, or drop the city."
+            ),
+        }, 200
+
+    # Warmth scoring orders the deck and, more usefully here, produces the
+    # signals the card turns into "Why we surfaced them". Same scorer as every
+    # other surface, so a prompt person explains itself the same way a ranked
+    # one does.
+    try:
+        scoring_profile = _user_profile(db, user_id, user_email)
+        scoring_profile.pop("_userData", None)
+        contacts = score_and_sort_contacts(scoring_profile, contacts, search_context=parsed)
+        for c in contacts:
+            signals = c.get("warmth_signals") or []
+            briefing = build_briefing_line(c, signals)
+            reasons = [s for s in (signals if isinstance(signals, list) else []) if isinstance(s, str)]
+            if briefing:
+                reasons = [briefing] + reasons
+            c["_reasons"] = reasons[:3]
+    except Exception:
+        # Ordering and reasons are a nicety. A scorer that throws must not cost
+        # the user the search they already waited for.
+        logger.exception("people-deck warmth scoring failed for uid=%s", user_id)
+
+    # Stash the whole haul. The addresses live here and only here until a reveal
+    # pays for one.
+    deck_id = hashlib.sha1(
+        f"{user_id}|{prompt}|{datetime.now(timezone.utc).isoformat()}".encode("utf-8")
+    ).hexdigest()[:20]
+
+    stash: Dict[str, Any] = {}
+    order: List[str] = []
+    for c in contacts:
+        pid = _person_id(c)
+        if pid in stash:
+            continue
+        stash[pid] = _stashable(c)
+        order.append(pid)
+
+    try:
+        _deck_ref(db, user_id, deck_id).set({
+            "prompt": prompt,
+            "createdAt": datetime.now(timezone.utc),
+            "order": order,
+            "people": stash,
+            "delivered": 0,
+        })
+    except Exception:
+        logger.exception("people-deck stash failed for uid=%s", user_id)
+        return {"error": "search_failed", "message": "Could not save that search."}, 502
+
+    return _batch_payload(db, user_id, deck_id, order, stash, offset=0, limit=limit), 200
+
+
+def _serve_next_batch(db, user_id: str, cursor: str, limit: int) -> Tuple[Dict[str, Any], int]:
+    """Hand back the next slice of an already-bought deck. Costs nothing."""
+    deck_id, _, offset_raw = (cursor or "").partition(":")
+    try:
+        offset = max(0, int(offset_raw or 0))
+    except ValueError:
+        return {"error": "bad_cursor", "message": "That search expired."}, 400
+
+    snap = _deck_ref(db, user_id, deck_id).get() if deck_id else None
+    if not snap or not snap.exists:
+        return {"error": "expired", "message": "That search expired."}, 404
+    deck = snap.to_dict() or {}
+    if _deck_expired(deck):
+        return {"error": "expired", "message": "That search expired."}, 404
+
+    return _batch_payload(
+        db, user_id, deck_id, deck.get("order") or [], deck.get("people") or {}, offset, limit
+    ), 200
+
+
+def _batch_payload(
+    db,
+    user_id: str,
+    deck_id: str,
+    order: List[str],
+    stash: Dict[str, Any],
+    offset: int,
+    limit: int,
+) -> Dict[str, Any]:
+    slice_ids = order[offset : offset + limit]
+    people = [
+        _public_person(stash[pid], pid, offset + i)
+        for i, pid in enumerate(slice_ids)
+        if pid in stash
+    ]
+    next_offset = offset + len(slice_ids)
+    has_more = next_offset < len(order)
+    try:
+        _deck_ref(db, user_id, deck_id).update({"delivered": next_offset})
+    except Exception:
+        # Bookkeeping only. The cursor the client holds is what actually pages.
+        pass
+    return {
+        "deck_id": deck_id,
+        "people": people,
+        "next_cursor": f"{deck_id}:{next_offset}" if has_more else None,
+    }
+
+
+def _deck_expired(deck: Dict[str, Any]) -> bool:
+    created = deck.get("createdAt")
+    if not created:
+        return False
+    try:
+        if isinstance(created, str):
+            created = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) - created > timedelta(hours=DECK_TTL_HOURS)
+    except Exception:
+        return False
+
+
+def _firestore_user(db, user_id: str) -> Dict[str, Any]:
+    """The raw user doc, which is what search_contacts_from_prompt expects for
+    `user_profile` (it reads dreamCompanies / school off it to rank). Empty dict
+    on any trouble: the search must still run for a user we cannot read."""
+    if db is None or not user_id:
+        return {}
+    try:
+        doc = db.collection("users").document(user_id).get()
+        return (doc.to_dict() or {}) if doc.exists else {}
+    except Exception:
+        logger.exception("people-deck could not load user doc for uid=%s", user_id)
+        return {}
+
+
+def _user_profile(db, user_id: str, user_email: Optional[str]) -> Dict[str, Any]:
+    """The writer's own profile, as batch_generate_emails and the warmth scorer
+    expect it. Same construction as the prompt-search pipeline, kept short: the
+    fields either exist on the user doc or they do not, and a missing one just
+    makes the email less personal, never wrong."""
+    profile: Dict[str, Any] = {"name": "", "email": user_email or ""}
+    if db is None or not user_id:
+        return profile
+    user_data = {}
+    try:
+        doc = db.collection("users").document(user_id).get()
+        if doc.exists:
+            user_data = doc.to_dict() or {}
+    except Exception:
+        logger.exception("people-deck could not load user doc for uid=%s", user_id)
+        return profile
+
+    try:
+        prof = (
+            db.collection("users").document(user_id)
+            .collection("professionalInfo").document("info").get()
+        )
+        if prof.exists:
+            pi = prof.to_dict() or {}
+            profile.update({
+                "name": f"{pi.get('firstName', '')} {pi.get('lastName', '')}".strip() or profile["name"],
+                "university": pi.get("university", ""),
+                "major": pi.get("fieldOfStudy", ""),
+                "year": pi.get("graduationYear", ""),
+                "graduationYear": pi.get("graduationYear", ""),
+                "degree": pi.get("currentDegree", ""),
+            })
+    except Exception:
+        pass
+
+    for key in ("resumeParsed", "academics", "goals", "careerTrack",
+                "dreamCompanies", "hometown", "location", "pastCompanies"):
+        if key in user_data and key not in profile:
+            profile[key] = user_data[key]
+
+    # Prefer the .edu as the outreach identity, same as every other send path.
+    outreach = get_outreach_email(user_data)
+    if outreach:
+        profile["email"] = outreach
+    profile["_userData"] = user_data
+    return profile
+
+
+def reveal_person(
+    *,
+    user_id: str,
+    user_email: Optional[str],
+    auth_display_name: str,
+    deck_id: str,
+    person_id: str,
+    action: str = "draft",
+) -> Tuple[Dict[str, Any], int]:
+    """The paid step: unlock this person's address and write to them.
+
+    Charged UP FRONT and refunded on any outcome that did not deliver an
+    address, matching the ordering prompt_search uses. Charging after the work
+    leaves a window where a crash costs us the LLM call and the user nothing,
+    but a client retry does it all again and charges twice.
+
+    Returns (payload, http_status). The payload always says what actually
+    happened (email / verified / charged / drafted / sent) rather than what was
+    requested, because the app renders from it.
+    """
+    from app.extensions import get_db
+
+    db = get_db()
+    if db is None:
+        return {"error": "Database unavailable"}, 503
+    if not deck_id or not person_id:
+        return {"error": "deck_id and person_id are required"}, 400
+
+    attach_request_context(user_id=user_id)
+
+    snap = _deck_ref(db, user_id, deck_id).get()
+    if not snap.exists:
+        return {"error": "expired", "message": "That search expired."}, 404
+    deck = snap.to_dict() or {}
+    if _deck_expired(deck):
+        return {"error": "expired", "message": "That search expired."}, 404
+    contact = (deck.get("people") or {}).get(person_id)
+    if not contact:
+        return {"error": "not_found", "message": "We no longer have that person."}, 404
+
+    price = CREDIT_COSTS.get("reveal_person", CREDIT_COSTS.get("find_contact", 10))
+
+    # Already bought. A double-tap, a retry after a dropped response, or a card
+    # that came back on an undo must not charge twice for one human. The address
+    # is handed back free, because the user already paid for it.
+    already = (deck.get("revealed") or {}).get(person_id)
+    if already:
+        return {"email": _address_of(contact), "verified": True, "charged": False,
+                "drafted": bool(contact.get("emailBody")), "sent": False}, 200
+
+    # No address means nothing to sell. Answer before touching credits rather
+    # than charging and refunding, so the ledger has no phantom pair in it.
+    address = _address_of(contact)
+    if not address:
+        return {"email": None, "verified": False, "charged": False,
+                "drafted": False, "sent": False}, 200
+
+    user_ref = db.collection("users").document(user_id)
+    try:
+        user_doc = user_ref.get()
+        user_data = user_doc.to_dict() if user_doc.exists else {}
+        credits_available = check_and_reset_credits(user_ref, user_data)
+    except Exception:
+        logger.exception("people-deck could not read credits for uid=%s", user_id)
+        return {"error": "Could not load your account. Try again."}, 500
+
+    if credits_available < price:
+        return {"error": "Insufficient credits", "credits_needed": price,
+                "current_credits": credits_available}, 400
+
+    charged = False
+    try:
+        ok, _remaining = deduct_credits_atomic(user_id, price, "people_deck_reveal")
+        charged = bool(ok)
+        if not ok:
+            return {"error": "Insufficient credits", "credits_needed": price,
+                    "current_credits": credits_available}, 400
+    except Exception:
+        # Transient Firestore trouble: run uncharged rather than block the user,
+        # matching the prompt-search pipeline's forgiveness on deduct errors.
+        logger.exception("people-deck credit deduction failed for uid=%s", user_id)
+
+    def _refund(reason: str) -> None:
+        if not charged:
+            return
+        try:
+            from app.services.auth import refund_credits_atomic
+            refund_credits_atomic(user_id, price, reason)
+        except Exception:
+            traceback.print_exc()
+
+    # Verification is what the charge is FOR, so a bad address is refunded
+    # rather than sold. NeverBounce degrades to "unknown" when unconfigured or
+    # unreachable, and unknown is not a failure: we hold the address either way,
+    # and refusing to deliver on a verifier outage would be the app breaking,
+    # not the data.
+    verified = True
+    try:
+        if neverbounce_client.is_configured():
+            check = neverbounce_client.verify_email(address)
+            if check.get("result") == neverbounce_client.RESULT_INVALID:
+                verified = False
+    except Exception:
+        logger.exception("people-deck verification failed for %s", address)
+
+    if not verified:
+        _refund("people_deck_unverified")
+        return {"email": None, "verified": False, "charged": False,
+                "drafted": False, "sent": False}, 200
+
+    # ---- The write. From here the address is delivered no matter what, so a
+    # failure past this point reports what the user DID get rather than
+    # pretending the whole call failed.
+    profile = _user_profile(db, user_id, user_email)
+    user_data = profile.pop("_userData", {}) or {}
+
+    resume_text = user_data.get("resumeText")
+    resume_url = user_data.get("resumeUrl") or user_data.get("resumeURL")
+    resume_content = None
+    resume_filename = None
+    if (not resume_text or len(resume_text.strip()) <= 50) and resume_url:
+        try:
+            resume_content, resume_filename = download_resume_from_url(resume_url)
+            if resume_content:
+                resume_text = extract_text_from_pdf_bytes(resume_content)
+        except Exception:
+            logger.exception("people-deck resume fetch failed for uid=%s", user_id)
+
+    from app.routes.runs import _resolve_email_template
+    template_instructions, purpose, subject_line, signoff_config = _resolve_email_template(
+        None, user_id, db, user_data=user_data
+    )
+
+    subject = body = ""
+    try:
+        results = batch_generate_emails(
+            contacts=[contact],
+            resume_text=resume_text,
+            user_profile=profile,
+            career_interests=user_data.get("careerInterests", []),
+            fit_context=None,
+            pre_parsed_user_info=user_data.get("resumeParsed"),
+            template_instructions=template_instructions,
+            email_template_purpose=purpose,
+            resume_filename=user_data.get("resumeFileName"),
+            subject_line=subject_line,
+            signoff_config=signoff_config,
+            auth_display_name=auth_display_name or "",
+            warmth_data={0: {
+                "tier": contact.get("warmth_tier", ""),
+                "score": contact.get("warmth_score", 0),
+                "label": contact.get("warmth_label", ""),
+                "signals": contact.get("warmth_signals", []),
+            }},
+            uid=user_id,
+            enrichment_data=None,
+        )
+        out = results.get(0) or results.get("0") or {}
+        subject = out.get("subject", "") or ""
+        body = out.get("plain_body") or out.get("body", "") or ""
+    except Exception:
+        logger.exception("people-deck email generation failed for uid=%s", user_id)
+
+    if not subject or not body:
+        # The address is unlocked and the charge stands (we delivered the thing
+        # the price is for). Say what they got.
+        _record_reveal(db, user_id, deck_id, person_id, contact, address, None, None, sent=False)
+        return {"email": address, "verified": True, "charged": charged,
+                "drafted": False, "sent": False}, 200
+
+    contact["emailSubject"] = subject
+    contact["emailBody"] = body
+    item = {
+        "index": 0,
+        "contact": contact,
+        "email_subject": subject,
+        "email_body": body,
+        "attach_resume": (purpose in PURPOSES_INCLUDE_RESUME) or email_body_mentions_resume(body),
+    }
+
+    drafted = False
+    sent = False
+    draft_id = None
+    draft_url = None
+    try:
+        creds = _load_user_gmail_creds(user_id)
+        if creds:
+            user_info = {"name": profile.get("name", ""), "email": profile.get("email", ""),
+                         "phone": "", "linkedin": ""}
+            tier = user_data.get("subscriptionTier", user_data.get("tier", "free"))
+            if tier not in TIER_CONFIGS:
+                tier = "free"
+            if action == "send":
+                from app.services.gmail_client import send_emails_parallel
+                results = send_emails_parallel(
+                    [item], resume_bytes=resume_content, resume_filename=resume_filename,
+                    user_info=user_info, user_id=user_id, tier=tier, user_email=user_email,
+                    resume_url=resume_url,
+                )
+                first = results[0] if results else None
+                sent = bool(first and (first.get("message_id") if isinstance(first, dict) else first))
+            else:
+                from app.services.gmail_client import create_drafts_parallel
+                results = create_drafts_parallel(
+                    [item], resume_bytes=resume_content, resume_filename=resume_filename,
+                    user_info=user_info, user_id=user_id, tier=tier, user_email=user_email,
+                    resume_url=resume_url,
+                )
+                first = results[0] if results else None
+                draft_id = (first.get("draft_id") if isinstance(first, dict) else first) or None
+                draft_url = first.get("draft_url") if isinstance(first, dict) else None
+                drafted = bool(draft_id and not str(draft_id).startswith("mock_"))
+    except Exception:
+        logger.exception("people-deck gmail step failed for uid=%s", user_id)
+
+    _record_reveal(db, user_id, deck_id, person_id, contact, address, draft_id, draft_url, sent=sent)
+
+    return {"email": address, "verified": True, "charged": charged,
+            "drafted": drafted, "sent": sent}, 200
+
+
+def _record_reveal(db, user_id, deck_id, person_id, contact, address,
+                   draft_id, draft_url, *, sent: bool) -> None:
+    """Save the person into My Network / the Inbox, and mark them spent on the
+    deck so a second swipe cannot charge twice for the same human.
+
+    Writes the same contact doc shape the prompt-search pipeline writes, so this
+    person appears in the Inbox and the tracker exactly like every other one. A
+    failure here costs bookkeeping, never the user's money or their draft, so it
+    never raises."""
+    now_iso = datetime.utcnow().isoformat() + "Z"
+    today = datetime.now().strftime("%m/%d/%Y")
+    try:
+        doc = {
+            "firstName": (contact.get("FirstName") or "").strip(),
+            "lastName": (contact.get("LastName") or "").strip(),
+            "email": address,
+            "linkedinUrl": (contact.get("LinkedIn") or "").strip(),
+            "company": (contact.get("Company") or "").strip(),
+            "jobTitle": (contact.get("Title") or "").strip(),
+            "college": (contact.get("College") or "").strip(),
+            "city": (contact.get("City") or "").strip(),
+            "state": (contact.get("State") or "").strip(),
+            "firstContactDate": today,
+            "lastContactDate": today,
+            "status": "Not Contacted",
+            "userId": user_id,
+            "createdAt": now_iso,
+            "source": "people_deck",
+            "emailVerified": True,
+            "inOutbox": True,
+            "draftToEmail": address,
+            "lastActivityAt": now_iso,
+            "hasUnreadReply": False,
+        }
+        if contact.get("emailSubject"):
+            doc["emailSubject"] = contact["emailSubject"]
+        if contact.get("emailBody"):
+            doc["emailBody"] = contact["emailBody"]
+            doc["emailGeneratedAt"] = now_iso
+        if draft_id:
+            doc["gmailDraftId"] = draft_id
+            doc["pipelineStage"] = "draft_created"
+            doc["draftCreatedAt"] = now_iso
+            doc["draftStillExists"] = True
+        if draft_url:
+            doc["gmailDraftUrl"] = draft_url
+        if sent:
+            doc["pipelineStage"] = "waiting_on_reply"
+            doc["emailSentAt"] = now_iso
+            doc["draftStillExists"] = False
+        if contact.get("briefing"):
+            doc["briefing"] = contact["briefing"]
+        db.collection("users").document(user_id).collection("contacts").add(doc)
+    except Exception:
+        logger.exception("people-deck contact save failed for uid=%s", user_id)
+
+    try:
+        _deck_ref(db, user_id, deck_id).update({f"revealed.{person_id}": now_iso})
+    except Exception:
+        pass

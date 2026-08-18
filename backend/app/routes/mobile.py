@@ -1715,6 +1715,14 @@ _ASK_ERROR_CODES = {
     'GMAIL_NOT_CONNECTED': 'gmail_disconnected',
     'LIMIT_REACHED': 'cap_reached',
     'TIER_REQUIRED': 'cap_reached',
+    # Auto-apply's own blockers. Each one has a real next move on the app, so
+    # each one gets a code the Feed can turn into a button instead of leaving
+    # the user with a sentence and nowhere to tap.
+    'PROFILE_REQUIRED': 'application_profile_required',
+    'WORK_AUTH_REQUIRED': 'application_profile_required',
+    'INELIGIBLE': 'job_not_auto_appliable',
+    'JOB_NOT_FOUND': 'job_not_auto_appliable',
+    'AUTOAPPLY_UNAVAILABLE': 'auto_apply_unavailable',
 }
 
 # Zero-result receipts from these tools surface as error.no_results so the
@@ -1819,13 +1827,91 @@ def _scout_ask_contract(env: dict, ask_id: str) -> dict:
                     {'contact_name': res.get('contact_name') or ''},
                     job_ref={'kind': 'meeting_prep', 'id': res['prep_id']},
                 ))
-        elif name == 'auto_apply_to_job' and not code:
-            job_id = res.get('job_id') or res.get('jobId') or res.get('id') or ''
-            if job_id:
+        elif name == 'get_followups':
+            # Scout offering "want me to send the follow-up?" with nothing to
+            # tap is the old failure in a new place: the offer has to arrive
+            # as an action. One chip for the person actually going cold; the
+            # rest of the list stays in `say` where it reads better.
+            rows = [
+                f for f in (res.get('followups') or [])
+                if isinstance(f, dict) and (f.get('contact_name') or '').strip()
+            ]
+            if rows:
+                top = rows[0]
                 actions.append(_ask_action(
-                    'auto_apply', {},
-                    job_ref={'kind': 'auto_apply', 'id': str(job_id)},
+                    'followup',
+                    {
+                        'contactName': top.get('contact_name') or '',
+                        'company':     top.get('company') or '',
+                        'draftReady':  bool(top.get('draft_ready')),
+                        'waitingDays': top.get('waiting_days'),
+                        'more':        max(0, len(rows) - 1),
+                    },
                 ))
+        elif name == 'find_jobs':
+            # Job results had no translation at all, so every "find me jobs"
+            # and every find-then-apply turn lost its list on the way to the
+            # app: the user saw prose about jobs they could not see or tap.
+            items = []
+            for j in (res.get('jobs') or []):
+                if not isinstance(j, dict) or not j.get('job_id'):
+                    continue
+                items.append({
+                    'jobId':      str(j.get('job_id')),
+                    'title':      j.get('title') or '',
+                    'company':    j.get('company') or '',
+                    'location':   j.get('location') or '',
+                    'autoApplyEligible': bool(j.get('auto_apply_eligible')),
+                })
+            if items:
+                actions.append(_ask_action(
+                    'find_jobs',
+                    {'query': res.get('query') or ''},
+                    results={'kind': 'jobs', 'items': items},
+                ))
+            elif res.get('count') == 0 and not code and error is None:
+                error = {'code': 'no_results', 'detail': ''}
+        elif name == 'auto_apply_to_job' and not code:
+            # The tracking id is auto_apply_id: /auto-apply/<id>/status is
+            # keyed on it, NOT on job_id. Sending job_id here (the old first
+            # choice) made every status poll 404, so a submission the backend
+            # really ran showed the user nothing.
+            apply_id = res.get('auto_apply_id') or res.get('autoApplyId') or ''
+            if apply_id:
+                actions.append(_ask_action(
+                    'auto_apply',
+                    {
+                        'jobId':   str(res.get('job_id') or ''),
+                        'title':   res.get('job_title') or '',
+                        'company': res.get('company') or '',
+                        'status':  res.get('status') or 'queued',
+                    },
+                    job_ref={'kind': 'auto_apply', 'id': str(apply_id)},
+                ))
+
+    # ── Two receipts the model can legitimately produce that must not reach
+    # the app as-is.
+    #
+    # 1. A turn can call auto_apply_to_job twice for the same job (observed:
+    #    "apply me to a data analyst job" fired it once per candidate job and
+    #    the server deduped both to one application). The submission is
+    #    already deduped server-side, so a second card is a lie about how
+    #    much happened AND a second status poller on one id.
+    # 2. Offering "draft a follow-up to Sarah" in the same breath as the
+    #    receipt saying a follow-up to Sarah was just drafted.
+    deduped: list = []
+    seen_apply: set = set()
+    drafted = any(a['type'] == 'draft_outreach' for a in actions)
+    for a in actions:
+        if a['type'] == 'auto_apply':
+            key = (a.get('jobRef') or {}).get('id')
+            if key in seen_apply:
+                continue
+            seen_apply.add(key)
+        if a['type'] == 'followup' and drafted:
+            continue
+        deduped.append(a)
+    actions = deduped
 
     nav = env.get('navigate') if env.get('tool') == 'navigate' else None
     cta = env.get('cta')
@@ -2082,3 +2168,54 @@ def scout_transcribe_ask():
         'transcript_source': source,
         'classification': classification,
     }), 200
+
+
+# ---------------------------------------------------------------------------
+# People deck: describe who you want to reach, swipe the results.
+#
+# Thin shims, deliberately. Everything about how a search runs, what it costs
+# and when, lives in services/people_deck.py; these two only translate HTTP to
+# that and back. See that module's docstring for why search is free and reveal
+# is not.
+# ---------------------------------------------------------------------------
+
+@mobile_bp.route('/people-search', methods=['POST'])
+@require_firebase_auth
+def people_search_route():
+    from app.services.feature_flags import PDL_OUTAGE_ACTIVE
+    if PDL_OUTAGE_ACTIVE:
+        return jsonify({
+            'error': 'service_unavailable',
+            'message': 'People search is temporarily unavailable.',
+            'code': 'PDL_OUTAGE',
+        }), 503
+
+    from app.services.people_deck import BATCH_SIZE, search_people
+    data = request.get_json(silent=True) or {}
+    payload, status = search_people(
+        user_id=request.firebase_user['uid'],
+        user_email=request.firebase_user.get('email'),
+        prompt=data.get('prompt') or '',
+        limit=data.get('limit') or BATCH_SIZE,
+        cursor=(data.get('cursor') or None),
+    )
+    return jsonify(payload), status
+
+
+@mobile_bp.route('/people-search/reveal', methods=['POST'])
+@require_firebase_auth
+def people_search_reveal_route():
+    from app.services.people_deck import reveal_person
+    data = request.get_json(silent=True) or {}
+    action = (data.get('action') or 'draft').strip().lower()
+    if action not in ('draft', 'send'):
+        action = 'draft'
+    payload, status = reveal_person(
+        user_id=request.firebase_user['uid'],
+        user_email=request.firebase_user.get('email'),
+        auth_display_name=(request.firebase_user or {}).get('name') or '',
+        deck_id=(data.get('deck_id') or '').strip(),
+        person_id=(data.get('person_id') or '').strip(),
+        action=action,
+    )
+    return jsonify(payload), status

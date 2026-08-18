@@ -174,14 +174,70 @@ class TestContractTranslator:
         assert out['say'] == 'How many should I pull?'
 
     def test_auto_apply_receipt_carries_job_ref(self):
+        # jobRef.id is the AUTO_APPLY_ID, not the job_id: the status route the
+        # app polls is /auto-apply/<auto_apply_id>/status. This test used to
+        # assert job_id, which is why a submission the backend really queued
+        # showed the user nothing — every poll 404'd.
         out = _contract(_env(tool_results=[{
             'name': 'auto_apply_to_job',
-            'result': {'ok': True, 'job_id': 'job-77', 'status': 'queued'},
+            'result': {
+                'auto_apply_id': 'aa-9', 'job_id': 'job-77',
+                'job_title': 'Data Analyst', 'company': 'Snap',
+                'status': 'queued',
+            },
         }]), 'ask-13')
         assert out['actions'][0] == {
-            'type': 'auto_apply', 'params': {}, 'needsConfirm': False,
-            'jobRef': {'kind': 'auto_apply', 'id': 'job-77'}, 'results': None,
+            'type': 'auto_apply',
+            'params': {
+                'jobId': 'job-77', 'title': 'Data Analyst',
+                'company': 'Snap', 'status': 'queued',
+            },
+            'needsConfirm': False,
+            'jobRef': {'kind': 'auto_apply', 'id': 'aa-9'}, 'results': None,
         }
+
+    def test_find_jobs_receipt_carries_job_list(self):
+        # Job results had no translation at all, so a find-then-apply turn
+        # reached the app as prose about jobs it could not show or tap.
+        out = _contract(_env(tool_results=[{
+            'name': 'find_jobs',
+            'result': {'count': 2, 'query': 'data analyst', 'jobs': [
+                {'job_id': 'j1', 'title': 'Data Analyst', 'company': 'Snap',
+                 'location': 'LA', 'auto_apply_eligible': True},
+                {'job_id': 'j2', 'title': 'BI Analyst', 'company': 'Hulu',
+                 'location': 'LA', 'auto_apply_eligible': False},
+            ]},
+        }]), 'ask-14')
+        action = out['actions'][0]
+        assert action['type'] == 'find_jobs'
+        assert action['params'] == {'query': 'data analyst'}
+        assert action['results']['kind'] == 'jobs'
+        assert [j['jobId'] for j in action['results']['items']] == ['j1', 'j2']
+        assert action['results']['items'][0]['autoApplyEligible'] is True
+
+    def test_find_jobs_zero_results_surfaces_no_results(self):
+        out = _contract(_env(tool_results=[{
+            'name': 'find_jobs',
+            'result': {'count': 0, 'jobs': [], 'query': 'underwater welder'},
+        }]), 'ask-15')
+        assert out['actions'] == []
+        assert out['error']['code'] == 'no_results'
+
+    def test_auto_apply_blockers_get_app_affordances(self):
+        # Each of these has a real next move on the app, so each needs a code
+        # the Feed can turn into a button instead of a dead sentence.
+        for tool_code, contract_code in (
+            ('PROFILE_REQUIRED', 'application_profile_required'),
+            ('WORK_AUTH_REQUIRED', 'application_profile_required'),
+            ('AUTOAPPLY_UNAVAILABLE', 'auto_apply_unavailable'),
+            ('INELIGIBLE', 'job_not_auto_appliable'),
+        ):
+            out = _contract(_env(tool_results=[{
+                'name': 'auto_apply_to_job',
+                'result': {'error': 'nope', 'code': tool_code},
+            }]), 'ask-16')
+            assert out['error']['code'] == contract_code, tool_code
+            assert out['actions'] == []  # errored auto-apply carries no jobRef
 
 
 def test_mobile_tool_exclusions():
@@ -305,3 +361,281 @@ class TestAskRoute:
         resp = _post(client, {'ask': 'hi', 'askId': 'ask-abc-128',
                               'action': 'destroy'})
         assert resp.status_code == 400
+
+
+# ===========================================================================
+# The app's transcript: what the tool gates are allowed to see
+# ===========================================================================
+
+
+class TestTurnContextTexts:
+    """The mobile route calls handle_chat with conversation_history=[] on
+    purpose: the app never carries the transcript, the persisted chat is the
+    record. Everything that gates an execute tool therefore has to read the
+    RESOLVED history window, not the raw argument. Reading the argument is
+    what made "yes", "do it" and "the second one" dead on the app while the
+    same words worked on the website.
+    """
+
+    @staticmethod
+    def _texts(history, message):
+        from app.services.scout_assistant_service import ScoutAssistantService
+        return ScoutAssistantService._turn_context_texts(history, message)
+
+    def test_loaded_history_feeds_the_gates(self):
+        history = [
+            {'role': 'user', 'content': 'find me data analyst jobs in LA'},
+            {'role': 'assistant', 'content': 'Found 3. Want me to apply to any?'},
+        ]
+        recent, last_assistant = self._texts(history, 'yes')
+        assert 'data analyst jobs' in recent      # the ask survives the turn
+        assert recent.endswith('yes')             # current message rides last
+        assert 'apply' in last_assistant          # affirmation has an anchor
+
+    def test_empty_history_is_just_this_message(self):
+        recent, last_assistant = self._texts([], 'apply me to a data analyst role')
+        assert recent == 'apply me to a data analyst role'
+        assert last_assistant == ''
+
+    def test_only_the_last_three_user_turns_ride_along(self):
+        history = [{'role': 'user', 'content': f'ask {i}'} for i in range(6)]
+        recent, _ = self._texts(history, 'now')
+        assert 'ask 5' in recent and 'ask 3' in recent
+        assert 'ask 2' not in recent
+
+    def test_junk_entries_never_raise(self):
+        recent, last_assistant = self._texts(
+            [None, 'nope', {'role': 'assistant'}, {'role': 'user', 'content': None}],
+            'hi',
+        )
+        assert recent.endswith('hi')
+        assert last_assistant == ''
+
+    def test_consent_gate_accepts_an_affirmation_with_this_history(self):
+        # The end the user actually feels: Scout offered, the student said
+        # "yes", and the apply tool is allowed to run.
+        from app.services.scout.tools import _user_authorized, _APPLY_KEYWORDS
+        recent, last_assistant = self._texts(
+            [{'role': 'assistant', 'content': 'Want me to apply to the Snap role?'}],
+            'yes',
+        )
+        context = {
+            'recent_user_text': recent,
+            'last_assistant_text': last_assistant,
+            'user_message': 'yes',
+        }
+        assert _user_authorized(context, _APPLY_KEYWORDS) is True
+
+    def test_consent_gate_still_refuses_an_unprompted_apply(self):
+        from app.services.scout.tools import _user_authorized, _APPLY_KEYWORDS
+        recent, last_assistant = self._texts(
+            [{'role': 'assistant', 'content': 'Here are 3 jobs.'}],
+            'what is investment banking',
+        )
+        context = {
+            'recent_user_text': recent,
+            'last_assistant_text': last_assistant,
+            'user_message': 'what is investment banking',
+        }
+        assert _user_authorized(context, _APPLY_KEYWORDS) is False
+
+
+# ===========================================================================
+# The import that was missing
+# ===========================================================================
+
+
+class TestApplyToolIsReachable:
+    """auto_apply_to_job imports submit_service lazily, inside a try/except
+    that turns any failure into code INTERNAL. That swallowed an ImportError
+    on this branch, where the module simply did not exist: every "apply me to
+    that job" asked in the app died there and came back as a vague error, and
+    no test noticed because nothing ever imported it.
+    """
+
+    def test_submit_service_import_resolves(self):
+        from app.services.auto_apply.submit_service import submit_auto_apply_for_user
+        assert callable(submit_auto_apply_for_user)
+
+    def test_apply_tool_imports_what_it_calls(self):
+        # Pin the exact import the tool executes at call time, so deleting or
+        # renaming the module fails here instead of in a user's chat.
+        import importlib
+        import inspect
+        from app.services.scout import tools
+        src = inspect.getsource(tools._run_auto_apply)
+        assert 'from app.services.auto_apply.submit_service import submit_auto_apply_for_user' in src
+        mod = importlib.import_module('app.services.auto_apply.submit_service')
+        assert hasattr(mod, 'submit_auto_apply_for_user')
+
+    def test_submit_service_refuses_without_browserbase(self, monkeypatch):
+        # First gate, before any Firestore read or credit spend.
+        from app.services.auto_apply.submit_service import submit_auto_apply_for_user
+        monkeypatch.delenv('BROWSERBASE_API_KEY', raising=False)
+        monkeypatch.delenv('BROWSERBASE_PROJECT_ID', raising=False)
+        payload, status = submit_auto_apply_for_user('u1', 'job-1', dry_run=False)
+        assert status == 501
+        assert payload['code'] == 'BROWSERBASE_NOT_CONFIGURED'
+
+
+# ===========================================================================
+# The call site: what handle_chat actually hands the tools
+# ===========================================================================
+
+
+class TestHandleChatFeedsTheGates:
+    """Pins the WIRING, not just the helper.
+
+    The bug was never in how the two strings are built, it was in which list
+    handle_chat built them from. Unit-testing the helper alone cannot see
+    that: swap the argument back to the raw conversation_history and the
+    helper's own tests stay green. This asserts the thing that broke, from
+    the mobile route's exact calling convention (conversation_history=[],
+    a persisted chat carrying the transcript).
+    """
+
+    @staticmethod
+    async def _capture_tool_context(monkeypatch, history):
+        from app.services.scout_assistant_service import ScoutAssistantService
+
+        svc = ScoutAssistantService()
+        seen = {}
+
+        async def fake_load_history_window(**kwargs):
+            return list(history)
+
+        async def fake_call_scout_tools(messages, tool_context, **kwargs):
+            seen.update(tool_context)
+            return ({'name': 'answer', 'input': {'text': 'ok'}}, {}, [], [])
+
+        async def noop(*a, **k):
+            return None
+
+        monkeypatch.setattr(svc, '_load_history_window', fake_load_history_window)
+        monkeypatch.setattr(svc, '_call_scout_tools', fake_call_scout_tools)
+        monkeypatch.setattr(svc, '_fetch_active_strategy', noop)
+        monkeypatch.setattr(svc, '_append_chat_message', noop)
+        monkeypatch.setattr(svc, '_classify_intent_with_haiku', noop)
+        monkeypatch.setattr(svc, '_lookup_caches', noop, raising=False)
+
+        async def fake_ensure_chat(**kwargs):
+            return ('chat-1', False)
+
+        monkeypatch.setattr(svc, '_ensure_chat', fake_ensure_chat)
+
+        await svc.handle_chat(
+            message='yes',
+            conversation_history=[],      # exactly what the mobile route sends
+            uid='u1',
+            chat_id='chat-1',
+            surface='mobile',
+        )
+        return seen
+
+    @pytest.mark.asyncio
+    async def test_persisted_history_reaches_the_tool_context(self, monkeypatch):
+        seen = await self._capture_tool_context(monkeypatch, [
+            {'role': 'user', 'content': 'find me data analyst jobs at Snap'},
+            {'role': 'assistant', 'content': 'Found 3. Want me to apply to any?'},
+        ])
+        # Without this, "yes" arrives naked and the apply gate refuses.
+        assert 'data analyst jobs at Snap' in seen.get('recent_user_text', '')
+        assert 'apply' in seen.get('last_assistant_text', '')
+        assert seen.get('user_message') == 'yes'
+
+    @pytest.mark.asyncio
+    async def test_affirmation_is_authorized_end_to_end(self, monkeypatch):
+        from app.services.scout.tools import _user_authorized, _APPLY_KEYWORDS
+        seen = await self._capture_tool_context(monkeypatch, [
+            {'role': 'assistant', 'content': 'Want me to apply to the Snap role?'},
+        ])
+        assert _user_authorized(seen, _APPLY_KEYWORDS) is True
+
+
+class TestFollowupReceipt:
+    """A follow-up offer has to reach the app as something tappable."""
+
+    def test_followup_receipt_becomes_a_tappable_offer(self):
+        out = _contract(_env(
+            message='Sarah has been waiting nine days. Want me to send it?',
+            tool_results=[{
+                'name': 'get_followups',
+                'result': {'count': 2, 'followups': [
+                    {'id': 'n1', 'kind': 'follow_up', 'contact_name': 'Sarah Kim',
+                     'contact_id': 'c-1', 'company': 'Bain', 'suggestion': 'Nudge her.',
+                     'draft_ready': True, 'waiting_days': 9, 'created_at': None},
+                    {'id': 'n2', 'kind': 'follow_up', 'contact_name': 'Dev Patel',
+                     'contact_id': 'c-2', 'company': 'McKinsey', 'suggestion': '',
+                     'draft_ready': False, 'waiting_days': 4, 'created_at': None},
+                ]},
+            }],
+        ), 'ask-17')
+        act = next(a for a in out['actions'] if a['type'] == 'followup')
+        assert act['params'] == {
+            'contactName': 'Sarah Kim', 'company': 'Bain',
+            'draftReady': True, 'waitingDays': 9, 'more': 1,
+        }
+
+    def test_pipeline_prompt_has_nobody_to_offer(self):
+        # stuck_student rows name no contact, so there is no person to act on.
+        out = _contract(_env(tool_results=[{
+            'name': 'get_followups',
+            'result': {'count': 1, 'followups': [
+                {'id': 'n1', 'kind': 'stuck_student', 'contact_name': '',
+                 'company': '', 'suggestion': 'Nobody in flight yet.',
+                 'draft_ready': False, 'waiting_days': 2},
+            ]},
+        }]), 'ask-18')
+        assert [a for a in out['actions'] if a['type'] == 'followup'] == []
+
+    def test_no_followups_no_action(self):
+        out = _contract(_env(tool_results=[{
+            'name': 'get_followups', 'result': {'count': 0, 'followups': []},
+        }]), 'ask-19')
+        assert out['actions'] == []
+        assert 'error' not in out  # an empty inbox is not an error state
+
+
+class TestReceiptHygiene:
+    """Receipts the model can legitimately duplicate or contradict."""
+
+    def test_two_apply_calls_on_one_job_render_once(self):
+        # Observed live: "apply me to a data analyst job" fired the tool once
+        # per candidate job; the server deduped both to one application. Two
+        # cards would overstate what happened and start two pollers on one id.
+        receipt = {
+            'name': 'auto_apply_to_job',
+            'result': {'auto_apply_id': 'aa-77', 'job_id': 'j1',
+                       'job_title': 'Data Analyst', 'company': 'Snap',
+                       'status': 'queued'},
+        }
+        out = _contract(_env(tool_results=[receipt, dict(receipt)]), 'ask-20')
+        applies = [a for a in out['actions'] if a['type'] == 'auto_apply']
+        assert len(applies) == 1
+        assert applies[0]['jobRef']['id'] == 'aa-77'
+
+    def test_two_apply_calls_on_different_jobs_both_render(self):
+        out = _contract(_env(tool_results=[
+            {'name': 'auto_apply_to_job',
+             'result': {'auto_apply_id': 'aa-1', 'job_id': 'j1', 'status': 'queued'}},
+            {'name': 'auto_apply_to_job',
+             'result': {'auto_apply_id': 'aa-2', 'job_id': 'j2', 'status': 'queued'}},
+        ]), 'ask-21')
+        ids = [a['jobRef']['id'] for a in out['actions'] if a['type'] == 'auto_apply']
+        assert ids == ['aa-1', 'aa-2']
+
+    def test_no_followup_offer_when_the_draft_already_happened(self):
+        # Scout reads the follow-up list, then drafts. Offering to draft it
+        # again in the same turn contradicts the receipt next to it.
+        out = _contract(_env(tool_results=[
+            {'name': 'get_followups',
+             'result': {'count': 1, 'followups': [
+                 {'id': 'n1', 'kind': 'follow_up', 'contact_name': 'Sarah Kim',
+                  'company': 'Bain', 'draft_ready': True, 'waiting_days': 9}]}},
+            {'name': 'draft_outreach_emails',
+             'result': {'count': 1, 'drafted': [
+                 {'name': 'Sarah Kim', 'company': 'Bain', 'contact_id': 'c-1'}]}},
+        ]), 'ask-22')
+        types = [a['type'] for a in out['actions']]
+        assert 'draft_outreach' in types
+        assert 'followup' not in types

@@ -226,6 +226,48 @@ def save_resume_to_firebase(user_id, resume_text, resume_url, parsed_info=None, 
                 else:
                     print(f"[Resume] Skills (legacy format): {len(parsed_info['skills']) if isinstance(parsed_info['skills'], list) else 'N/A'}")
         
+        # ── Backfill the profile from what the resume just told us ───────
+        # The parse was being stored under resumeParsed and nowhere else, so a
+        # student who uploaded a resume was still asked for their school and
+        # grad year on the profile page — facts their own resume had already
+        # given us. Fill only BLANKS: anything the user typed themselves wins,
+        # because they know their situation better than a PDF parse does.
+        if parsed_info:
+            try:
+                existing = (db.collection('users').document(user_id).get().to_dict()) or {}
+                education = parsed_info.get('education') or {}
+                academics = existing.get('academics') or {}
+
+                def _blank(*values) -> bool:
+                    return not any(str(v or '').strip() for v in values)
+
+                backfill = {}
+                university = str(education.get('university') or '').strip()
+                if university and _blank(existing.get('school'), academics.get('school')):
+                    backfill['school'] = university
+                    backfill['academics.school'] = university
+
+                graduation = str(education.get('graduation') or '').strip()
+                if graduation and _blank(existing.get('gradYear'), academics.get('gradYear')):
+                    backfill['gradYear'] = graduation
+                    backfill['academics.gradYear'] = graduation
+
+                major = str(education.get('major') or '').strip()
+                if major and _blank(existing.get('major'), academics.get('major')):
+                    backfill['major'] = major
+                    backfill['academics.major'] = major
+
+                full_name = str(parsed_info.get('name') or '').strip()
+                if full_name and full_name.lower() != 'unknown' and _blank(existing.get('name')):
+                    backfill['name'] = full_name
+
+                if backfill:
+                    update_data.update(backfill)
+                    print(f"[Resume] Backfilled profile fields from resume: {sorted(backfill)}")
+            except Exception as backfill_err:
+                # Never let a backfill problem cost the user their upload.
+                print(f"[Resume] profile backfill skipped: {backfill_err}")
+
         # Save to Firestore
         db.collection('users').document(user_id).update(update_data)
         

@@ -19,16 +19,13 @@ though they cannot run auto-apply).
 from __future__ import annotations
 
 import logging
-import os
-import uuid
 from datetime import datetime
 from typing import Any, Dict
 
 from flask import Blueprint, jsonify, request
 
-from app.config import AUTO_APPLY_CREDITS
 from app.extensions import get_db, require_firebase_auth, require_tier
-from app.services.auth import deduct_credits_atomic, refund_credits_atomic
+from app.services.auth import refund_credits_atomic
 from app.services.auto_apply.answer_library import save_answer
 from app.services.auto_apply.application_profile import (
     get_application_profile,
@@ -38,7 +35,8 @@ from app.services.auto_apply.application_profile import (
 )
 from app.services.auto_apply.ats_detector import detect_platform, is_eligible
 from app.services.auto_apply.preview import build_preview, load_user_for_apply
-from app.services.rq_queue import enqueue, is_durable
+from app.services.auto_apply.submit_service import submit_auto_apply_for_user
+from app.services.rq_queue import enqueue
 
 # The filler itself runs OUT of this process — see services/auto_apply/jobs.py.
 # Playwright's driver, started inside a web worker, killed the whole container
@@ -236,125 +234,21 @@ def submit_auto_apply(job_id: str):
     the client polls for status. Body:
       { dry_run: bool, edited_answers: { why_role: str, why_company: str } }
     Dry-run runs the filler but does NOT click Submit — useful for verifying
-    selectors and previewing the filled state with a screenshot."""
-    if not os.getenv("BROWSERBASE_API_KEY") or not os.getenv("BROWSERBASE_PROJECT_ID"):
-        return jsonify({
-            "error": "Browserbase is not configured. Set BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID in the environment to enable submissions.",
-            "code": "BROWSERBASE_NOT_CONFIGURED",
-        }), 501
+    selectors and previewing the filled state with a screenshot.
 
+    The body of this handler now lives in auto_apply.submit_service so Scout's
+    auto_apply_to_job tool runs the SAME eligibility, profile, dedupe, worker
+    and credit path the website's Apply button runs. Two copies would drift,
+    and the copy Scout could not reach was the one that never existed."""
     uid = request.firebase_user["uid"]
     payload = request.get_json(silent=True) or {}
-    dry_run = bool(payload.get("dry_run", True))
-    edited_answers = payload.get("edited_answers") or {}
-    if not isinstance(edited_answers, dict):
-        edited_answers = {}
-
-    # Eligibility re-check (cheap; prevents stale prepare → submit drift)
-    db = get_db()
-    job_snap = db.collection("jobs").document(str(job_id)).get()
-    if not job_snap.exists:
-        return jsonify({"error": "job not found", "code": "JOB_NOT_FOUND"}), 404
-    job_data = job_snap.to_dict() or {}
-    if not is_eligible(job_data):
-        return jsonify({"error": "job is not auto-apply eligible", "code": "INELIGIBLE"}), 400
-
-    profile = get_application_profile(uid)
-    if not is_acknowledged(profile) or not work_auth_complete(profile):
-        return jsonify({
-            "error": "application profile incomplete",
-            "code": "PROFILE_REQUIRED",
-        }), 409
-
-    # Dedupe: one live application per (user, job). Multiple client surfaces
-    # can fire submit for the same role; return the existing record instead of
-    # charging credits and spawning a second Browserbase run. Failed attempts
-    # and dry-runs don't count, so retries stay possible.
-    if not dry_run:
-        existing = (
-            db.collection("users").document(uid).collection("autoApplyJobs")
-            .where("job_id", "==", str(job_id))
-            .stream()
-        )
-        for snap in existing:
-            data = snap.to_dict() or {}
-            if data.get("dry_run") or data.get("status") in ("failed", "submit_failed"):
-                continue
-            logger.info(
-                "dedupe: uid=%s already applied to job=%s (auto_apply_id=%s, status=%s); skipping",
-                uid, job_id, snap.id, data.get("status"),
-            )
-            return jsonify({
-                "auto_apply_id": snap.id,
-                "job_id": str(job_id),
-                "dry_run": False,
-                "status": data.get("status") or "queued",
-                "deduped": True,
-            }), 200
-
-    # Auto-apply MUST run out-of-process. Playwright's driver, started inside a
-    # web worker, killed the whole container ~23s in (2026-07-12) — taking
-    # drafts, Scout and the feed down with it. rq_queue's dev fallback would run
-    # it in-process, which is exactly that crash, so if the RQ worker isn't
-    # configured we refuse CLEANLY instead of taking the box down. Checked
-    # before the credit deduction so a refusal never charges anyone.
-    if not is_durable():
-        logger.error("auto-apply refused: no REDIS_URL/RQ worker (would run in-process)")
-        return jsonify({
-            "error": "Auto-apply is temporarily unavailable. Nothing was charged.",
-            "code": "AUTOAPPLY_UNAVAILABLE",
-        }), 503
-
-    # Credit deduction: only on REAL submits. Dry-runs are free so users can
-    # iterate without burning credits. Refund on failure.
-    if not dry_run:
-        ok, _ = deduct_credits_atomic(uid, AUTO_APPLY_CREDITS, "auto_apply")
-        if not ok:
-            return jsonify({
-                "error": "insufficient credits",
-                "credits_needed": AUTO_APPLY_CREDITS,
-                "code": "INSUFFICIENT_CREDITS",
-            }), 402
-
-    auto_apply_id = uuid.uuid4().hex
-    job_ref = db.collection("users").document(uid).collection(
-        "autoApplyJobs"
-    ).document(auto_apply_id)
-    job_ref.set({
-        "auto_apply_id": auto_apply_id,
-        "job_id": str(job_id),
-        "ats_platform": detect_platform(job_data),
-        # Denormalized for the Auto-Submission + Needs Attention tab cards so
-        # they don't have to round-trip jobs/{job_id} for every list render.
-        "job_title": job_data.get("title") or "",
-        "company": job_data.get("company") or "",
-        "apply_url": job_data.get("apply_url") or "",
-        "dry_run": dry_run,
-        "status": "queued",
-        "stage": "queued",
-        "credits_charged": 0 if dry_run else AUTO_APPLY_CREDITS,
-        "created_at": datetime.utcnow().isoformat(),
-    })
-
-    # Hand off to the RQ worker. The browser (Playwright + Browserbase) starts
-    # ONLY in that process — never here. The task owns the terminal state and
-    # the refund; if the worker itself dies mid-fill, _reap_if_stale finalizes
-    # and refunds on the next poll, so nothing can sit at 'running' forever.
-    enqueue(
-        "run_auto_apply",
-        auto_apply_id=auto_apply_id,
-        uid=uid,
-        job_id=str(job_id),
-        dry_run=dry_run,
-        edited_answers=edited_answers,
+    result, status = submit_auto_apply_for_user(
+        uid,
+        str(job_id),
+        dry_run=bool(payload.get("dry_run", True)),
+        edited_answers=payload.get("edited_answers") or {},
     )
-
-    return jsonify({
-        "auto_apply_id": auto_apply_id,
-        "job_id": str(job_id),
-        "dry_run": dry_run,
-        "status": "queued",
-    }), 200
+    return jsonify(result), status
 
 
 @auto_apply_bp.route(

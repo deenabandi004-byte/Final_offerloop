@@ -424,6 +424,7 @@ NEVER pitch Loop more than once per thread, even when subsequent turns would als
 You can read the user's actual workflow state across the product through read-only helper tools. They are reads, not writes: you cannot change anything through them. The workflow pages remain the source of truth; you reach in when you need the data.
 
 - get_outbox_status: their outreach pipeline (total contacts, awaiting reply, replied, recent contacts with status and days since the last send). The most important one.
+- get_followups: who is owed a move right now, oldest first, each with a written suggestion and whether a follow-up draft is already prepared. This is the sharp end of the outbox: a row here means that person was emailed, has not replied in about a week, and is going cold. Rows disappear on their own the moment someone replies, so what you see is live.
 - get_recent_searches: recent natural-language contact searches from the Find page.
 - get_recent_firm_searches: recent structured firm-discovery searches.
 - get_recent_cover_letters: metadata for recent cover letters (company, role, created date, length). Not the body.
@@ -431,7 +432,11 @@ You can read the user's actual workflow state across the product through read-on
 - get_applications_status: their auto-apply applications, per queue (submitted, in flight, needs the user's answers, finish in browser, failed) with the most recent jobs. Call it whenever they ask about applications or auto-apply; answer with the specific jobs and companies, and when something needs them (answers or a browser step), say which job and point them to /applications.
 - get_loops_status: their Loops (recurring outreach agents) with per-loop status, cadence, last and next run, pending drafts, and unread replies. Call it whenever they ask about their Loops or automated outreach; name the loops.
 
-"What's waiting on me?" style questions usually need three reads together: get_outbox_status (replies to respond to), get_applications_status (answers or browser steps owed), and get_loops_status (pending drafts to review). Pull what applies and lead with whichever has the most urgent item.
+"What's waiting on me?" style questions usually need three reads together: get_followups (people going cold), get_applications_status (answers or browser steps owed), and get_loops_status (pending drafts to review). Pull what applies and lead with whichever has the most urgent item.
+
+OPENING A CONVERSATION. When the user opens with a greeting, a shrug, or nothing in particular ("hey", "what's up", "what should I do", "I'm back", "anything for me?"), do not answer with a menu of what you can do. Call get_followups and lead with the single most urgent real thing, by name, then offer to do it. "Sarah at Bain has been sitting nine days without a reply. Want me to send the follow-up?" is the shape. One item, not a list: name the person, say how long it has been waiting, and make the offer. If they say yes, draft it with draft_outreach_emails, do not tell them where to click.
+
+When get_followups comes back empty, say so plainly and move to the next real thing (applications needing answers, loops with drafts waiting, or nobody contacted yet at their target firms). Never invent a follow-up that is not in the data, and never pad an empty result into sounding busy.
 
 Call them in two situations. One: when the answer depends on workflow state ("how many people have I emailed?", "what did I search for last week?", "did anyone reply yet?"). Two: proactively when you are about to suggest next steps on an active strategy or talk through a plan, so the advice is grounded in what actually happened, not assumed. Before telling someone to start outreach for the consulting plan, peek at the outbox; if they already sent 4 emails to BCG alums and got 1 reply, name that and build from it.
 
@@ -941,6 +946,17 @@ class ScoutAssistantService:
         else:
             history_for_llm = self._window_client_history(conversation_history)
 
+        # Everything downstream that needs "what was said before this turn"
+        # reads the RESOLVED window, not the raw argument. The mobile route
+        # passes conversation_history=[] on purpose (the app never carries the
+        # transcript; the persisted chat is the record), so reading the raw
+        # argument left the classifier and the tool gates blind on every app
+        # turn: "yes", "do it", "the second one" and "make it 10" arrived with
+        # no prior context, and find/apply refused work the user HAD asked for
+        # one message earlier. Web was unaffected only because its client
+        # happens to send the same messages it just persisted.
+        history_for_context = history_for_llm or conversation_history or []
+
         # Kick off the Haiku intent classifier concurrently. We start it now and
         # await later so the cache lookups and main LLM call run in parallel
         # rather than sequentially after a Haiku round-trip. On failure or
@@ -951,7 +967,7 @@ class ScoutAssistantService:
             intent_task = asyncio.create_task(
                 self._classify_intent_with_haiku(
                     message=message,
-                    history=conversation_history,
+                    history=history_for_context,
                     current_page=current_page,
                 )
             )
@@ -1042,21 +1058,8 @@ class ScoutAssistantService:
         # refuses a count the user never gave, and the execute tools refuse
         # workflows the user never asked for (a bare count answer once
         # triggered an unrequested draft AND a 30-credit meeting prep).
-        recent_user_text = " \n".join(
-            [
-                str(m.get("content") or "")
-                for m in (conversation_history or [])
-                if isinstance(m, dict) and m.get("role") == "user"
-            ][-3:]
-            + [message]
-        )
-        last_assistant_text = next(
-            (
-                str(m.get("content") or "")
-                for m in reversed(conversation_history or [])
-                if isinstance(m, dict) and m.get("role") == "assistant"
-            ),
-            "",
+        recent_user_text, last_assistant_text = self._turn_context_texts(
+            history_for_context, message,
         )
         tool_context: Dict[str, Any] = {
             "uid": uid, "tier": tier, "chat_id": chat_id,
@@ -1329,6 +1332,41 @@ class ScoutAssistantService:
             kept_reversed.append({"role": msg.get("role", "user"), "content": content})
         kept_reversed.reverse()
         return kept_reversed
+
+    @staticmethod
+    def _turn_context_texts(
+        history: List[Dict[str, str]], message: str,
+    ) -> Tuple[str, str]:
+        """(recent_user_text, last_assistant_text) for the tool gates.
+
+        These two strings decide whether an execute tool is allowed to run:
+        find_contacts refuses a count the user never gave, and apply / draft /
+        prep refuse workflows the user never asked for. `last_assistant_text`
+        is also the whole "yes / do it" path — an affirmation only counts as
+        consent when Scout's previous line offered that exact workflow.
+
+        Pass the RESOLVED history window here, never the raw request argument.
+        The mobile route sends conversation_history=[] by design (the persisted
+        chat is the record), so reading the argument left both strings empty on
+        every app turn and quietly killed multi-turn consent there.
+        """
+        recent_user_text = " \n".join(
+            [
+                str(m.get("content") or "")
+                for m in (history or [])
+                if isinstance(m, dict) and m.get("role") == "user"
+            ][-3:]
+            + [message]
+        )
+        last_assistant_text = next(
+            (
+                str(m.get("content") or "")
+                for m in reversed(history or [])
+                if isinstance(m, dict) and m.get("role") == "assistant"
+            ),
+            "",
+        )
+        return recent_user_text, last_assistant_text
 
     def _window_client_history(
         self, conversation_history: List[Dict[str, str]],
@@ -2506,6 +2544,7 @@ class ScoutAssistantService:
 
     _TOOL_LABELS: Dict[str, str] = {
         "get_outbox_status": "Reading your outbox",
+        "get_followups": "Checking who's gone quiet",
         "get_recent_searches": "Checking your recent searches",
         "get_recent_firm_searches": "Checking your firm searches",
         "get_recent_cover_letters": "Checking your cover letters",

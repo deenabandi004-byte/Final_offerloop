@@ -545,3 +545,60 @@ def get_loops_status(uid: str, limit: int = 6, db=None) -> Dict[str, Any]:
         "unread_replies": unread_replies,
         "loops": loops,
     }
+
+
+_EMPTY_FOLLOWUPS = {"count": 0, "followups": []}
+
+
+def get_followups(uid: str, limit: int = 5, db=None) -> Dict[str, Any]:
+    """Who the user owes a move right now, ready for Scout to offer.
+
+    Reads users/{uid}/nudges, the collection the tracker daemon fills every
+    six hours: a contact who was emailed and has not replied in a week, plus
+    the "stuck student" prompts when nobody has been contacted at all. Each
+    row already carries a written suggestion and, for follow-ups, a ready
+    draft body, so Scout can say who is owed a reply AND offer to send it in
+    the same breath instead of telling the student to go look.
+
+    Only `pending` nudges are returned: the Gmail webhook dismisses a nudge
+    the moment that contact replies, so a pending row is still true. Ordered
+    oldest first, because the follow-up that has been waiting longest is the
+    one about to go cold.
+    """
+    if not uid:
+        return dict(_EMPTY_FOLLOWUPS)
+    db = db or _db()
+    if db is None:
+        return dict(_EMPTY_FOLLOWUPS)
+
+    coll = _subcollection(db, uid, "nudges")
+    items: List[Dict[str, Any]] = []
+    for snap in _stream(coll):
+        data = snap.to_dict() or {}
+        if (data.get("status") or "pending") != "pending":
+            continue
+        items.append({"_id": snap.id, **data})
+
+    _sort_by_timestamp(items, "createdAt", reverse=False)
+    now = datetime.now(timezone.utc)
+
+    followups: List[Dict[str, Any]] = []
+    for it in items[:max(0, int(limit))]:
+        kind = _truncate(it.get("type") or "follow_up", 40)
+        followups.append({
+            "id": it["_id"],
+            "kind": kind,
+            # Empty for a stuck_student prompt, which is about the student's
+            # whole pipeline rather than one person.
+            "contact_name": _truncate(it.get("contactName"), 120),
+            "contact_id": _truncate(it.get("contactId"), 120),
+            "company": _truncate(it.get("company"), 120),
+            "suggestion": _truncate(it.get("generatedMessage"), 400),
+            # True when a follow-up body is already written, so Scout can
+            # offer to send rather than offering to write.
+            "draft_ready": bool(it.get("followUpDraft")),
+            "waiting_days": _days_since(it.get("createdAt"), now),
+            "created_at": _iso(it.get("createdAt")),
+        })
+
+    return {"count": len(items), "followups": followups}

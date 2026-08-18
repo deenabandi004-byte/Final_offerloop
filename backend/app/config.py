@@ -441,6 +441,13 @@ CREDIT_COSTS = {
     'find_hiring_manager':  10,  # Pro+ gated
     'find_recruiter':       6,
     'find_employee':        4,
+    # A right swipe on the mobile People deck: unlock this one person's address
+    # and write to them. Cheaper than find_contact because the search that found
+    # them was already paid for (the deck was surfaced free, one PDL search for
+    # twenty people) — this buys the verification and the written email, not a
+    # fresh search. The app has shown 8 since the ranker deck shipped; this is
+    # that number moved to where prices actually live.
+    'reveal_person':        8,
     'firm_search':          10,  # per firm returned, Pro+ gated
 
     # Generative actions — per output
