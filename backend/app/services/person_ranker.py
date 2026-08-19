@@ -516,6 +516,11 @@ def _to_response_dict(scored_item: dict) -> dict:
             "college":     cand.get("College") or "",
             "city":        cand.get("City") or "",
             "state":       cand.get("State") or "",
+            # Deliberate allowlist extension (Rylan 2026-08-18): the year they
+            # joined their current company. A professional fact from the
+            # current-job block, nothing in the sensitive class this list
+            # exists to block, and the card's best outreach hook.
+            "joinedYear":  cand.get("JoinedYear") or None,
         },
         "score":    scored_item["score"],
         "tier":     scored_item["tier"],

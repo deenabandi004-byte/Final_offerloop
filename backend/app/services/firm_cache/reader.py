@@ -184,6 +184,9 @@ def firm_employee_doc_to_app_contact(doc: dict) -> dict:
         "Group":              f"{company_display} {title_display.split()[0] if title_display else 'Professional'} Team",
         "LinkedInConnections": 0,
         "DataVersion":        "firm_cache",
+        # Professional tenure fact for the deck card ("joined this year" is a
+        # real outreach hook). Allowlist extension approved by Rylan 2026-08-18.
+        "JoinedYear":         doc.get("joined_year") or None,
         "EmailSource":        "cache_no_email",
         "EmailVerified":      False,
         "EmailConfidenceScore": 0,
