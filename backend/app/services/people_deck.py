@@ -546,6 +546,40 @@ def reveal_person(
         return {"email": None, "verified": False, "charged": False,
                 "drafted": False, "sent": False}, 200
 
+    # Cross-deck guard (2026-08-18). The `revealed` map above is PER DECK, and
+    # a re-run of the same prompt mints a new deck_id, so without this the
+    # same human could be charged again and written into the tracker again
+    # (the "Margot x3" bug). If they are already a contact, hand the address
+    # back free and stamp this deck's revealed map so the cheap guard catches
+    # the next tap.
+    try:
+        contacts_col = db.collection("users").document(user_id).collection("contacts")
+        existing = None
+        for key_field, key_val in (
+            ("email", address),
+            ("email", address.strip().lower()),
+            ("linkedinUrl", (contact.get("LinkedIn") or "").strip()),
+        ):
+            if not key_val:
+                continue
+            hits = list(contacts_col.where(key_field, "==", key_val).limit(1).stream())
+            if hits:
+                existing = hits[0].to_dict() or {}
+                break
+        if existing is not None:
+            try:
+                _deck_ref(db, user_id, deck_id).update(
+                    {f"revealed.{person_id}": datetime.utcnow().isoformat() + "Z"}
+                )
+            except Exception:
+                pass
+            return {"email": address, "verified": True, "charged": False,
+                    "drafted": bool(existing.get("emailBody") or existing.get("gmailDraftId")),
+                    "sent": bool(existing.get("emailSentAt"))}, 200
+    except Exception:
+        # A broken guard must never block a legitimate reveal.
+        logger.exception("people-deck cross-deck guard failed for uid=%s", user_id)
+
     user_ref = db.collection("users").document(user_id)
     try:
         user_doc = user_ref.get()
@@ -725,7 +759,7 @@ def _record_reveal(db, user_id, deck_id, person_id, contact, address,
         doc = {
             "firstName": (contact.get("FirstName") or "").strip(),
             "lastName": (contact.get("LastName") or "").strip(),
-            "email": address,
+            "email": (address or "").strip().lower(),
             "linkedinUrl": (contact.get("LinkedIn") or "").strip(),
             "company": (contact.get("Company") or "").strip(),
             "jobTitle": (contact.get("Title") or "").strip(),

@@ -26,7 +26,7 @@ from flask import Blueprint, jsonify, request
 
 from app.extensions import get_db, require_firebase_auth, require_tier
 from app.services.auth import refund_credits_atomic
-from app.services.auto_apply.answer_library import save_answer
+from app.services.auto_apply.answer_library import delete_answer, list_for_user, save_answer
 from app.services.auto_apply.application_profile import (
     get_application_profile,
     is_acknowledged,
@@ -119,6 +119,24 @@ def read_application_profile():
         "acknowledged": is_acknowledged(profile),
         "work_auth_complete": work_auth_complete(profile),
     })
+
+
+@auto_apply_bp.route("/api/users/application-answers", methods=["GET"])
+@require_firebase_auth
+def list_saved_answers():
+    """The saved custom-question answers, for the transparency surface
+    (Rylan 2026-08-18: "you don't ever get to see those answers"). Read-only
+    list of what auto-apply has learned and reuses; sensitive slots never
+    land in this library by design (answer_library refuses them)."""
+    uid = request.firebase_user["uid"]
+    return jsonify({"answers": list_for_user(uid)})
+
+
+@auto_apply_bp.route("/api/users/application-answers/<question_id>", methods=["DELETE"])
+@require_firebase_auth
+def remove_saved_answer(question_id):
+    uid = request.firebase_user["uid"]
+    return jsonify({"deleted": bool(delete_answer(uid, question_id))})
 
 
 @auto_apply_bp.route("/api/users/application-profile", methods=["POST"])

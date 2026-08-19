@@ -1377,7 +1377,7 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
                     contact_doc = {
                         "firstName": first_name,
                         "lastName": last_name,
-                        "email": contact.get("Email") or contact.get("WorkEmail") or contact.get("PersonalEmail") or "",
+                        "email": (contact.get("Email") or contact.get("WorkEmail") or contact.get("PersonalEmail") or "").strip().lower(),
                         "linkedinUrl": linkedin,
                         "company": company,
                         "jobTitle": contact.get("Title") or contact.get("jobTitle") or "",
@@ -1479,7 +1479,7 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
                     if linkedin:
                         existing_linkedins_set.add(linkedin)
                     if first_name and last_name and company:
-                        existing_name_company_set.add(f"{first_name}_{last_name}_{company}".lower().strip())
+                        existing_name_company_set.add(f"{first_name}_{last_name}_{normalize_company_for_identity(company)}".lower().strip())
                 print(f"✅ Prompt-search: saved {saved_count} new contacts to Firestore, skipped {skipped_count} duplicates")
                 _invalidate_exclusion_cache(user_id)
                 if notify_draft_ready and draft_ready_items:
