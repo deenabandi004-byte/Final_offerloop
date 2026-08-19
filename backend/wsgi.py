@@ -327,6 +327,91 @@ def create_app() -> Flask:
         else:
             return "Frontend build not found", 500
 
+    # --- 405 handler: JSON for API callers, a themed page for humans ---
+    # The GET-only SPA catch-all means any non-GET request to an unmatched
+    # path lands here (so does a wrong method on a real route). Flask's
+    # default is a bare HTML stub, which API clients then fail to parse.
+    @app.errorhandler(405)
+    def method_not_allowed(e):
+        if request.path.startswith('/api/'):
+            return {
+                "error": "method_not_allowed",
+                "message": f"{request.method} is not supported at {request.path}.",
+            }, 405
+        page = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>405, Offerloop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #FFFFFF; --surface: #F5F6F8; --ink: #111318;
+    --accent: #4A60A8; --heading: #1E2D4D; --hairline: #E5E5E0;
+  }
+  * { margin: 0; box-sizing: border-box; }
+  body {
+    background: var(--paper); color: var(--ink);
+    font-family: 'Inter', -apple-system, system-ui, sans-serif;
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .card { text-align: center; max-width: 26rem; }
+  .code {
+    font-family: 'Instrument Serif', Georgia, serif;
+    font-size: clamp(7rem, 24vw, 11rem); line-height: 1;
+    color: var(--heading); letter-spacing: -0.02em;
+  }
+  .code em {
+    font-style: normal;
+    background: linear-gradient(135deg, #6D9BFF 0%, #3B82F6 55%, #2563EB 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  h1 {
+    font-family: 'Instrument Serif', Georgia, serif; font-weight: 400;
+    font-size: 1.6rem; color: var(--heading); margin-top: 8px;
+  }
+  p { color: #565b66; font-size: 0.95rem; line-height: 1.55; margin-top: 10px; }
+  .rule { height: 1px; background: var(--hairline); margin: 26px auto; width: 72px; }
+  a.btn {
+    display: inline-block; color: var(--paper);
+    background: linear-gradient(135deg, #4B8AF9 0%, #3B82F6 45%, #2563EB 100%);
+    text-decoration: none; font-weight: 600; font-size: 0.95rem;
+    padding: 13px 26px; border-radius: 8px;
+    box-shadow: 0 8px 20px rgba(59, 130, 246, 0.28);
+  }
+  a.btn:hover { filter: brightness(0.94); }
+  .hint {
+    margin-top: 18px; font-size: 0.8rem; color: #8b8f98;
+    background: var(--surface); border: 1px solid var(--hairline);
+    border-radius: 10px; padding: 10px 14px; display: inline-block;
+  }
+  .hint code { font-family: 'JetBrains Mono', ui-monospace, monospace; color: #2563EB; }
+</style>
+</head>
+<body>
+  <main class="card">
+    <div class="code">4<em>0</em>5</div>
+    <h1>Right door, wrong knock.</h1>
+    <p>This address is real, but it does not answer to REQ_METHOD.
+       Even the best outreach needs the right approach.</p>
+    <div class="rule"></div>
+    <a class="btn" href="/">Back to Offerloop</a>
+    <div class="hint">method not allowed: <code>REQ_METHOD REQ_PATH</code></div>
+  </main>
+</body>
+</html>"""
+        # Escape via replacement, never f-string the raw path into HTML.
+        from markupsafe import escape
+        page = (page
+                .replace("REQ_METHOD", str(escape(request.method))[:12])
+                .replace("REQ_PATH", str(escape(request.path))[:80]))
+        resp = make_response(page, 405)
+        resp.headers['Content-Type'] = 'text/html; charset=utf-8'
+        return resp
+
     # Start tracker scanner background thread (every 6 hours).
     #
     # This single thread dispatches to multiple scanners per iteration. Each
