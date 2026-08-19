@@ -469,3 +469,332 @@ def reveal_candidate_email(candidate_id):
         "cached":     False,
         "charged":    True,
     })
+
+
+@ranker_bp.route("/candidates/<candidate_id>/outreach", methods=["POST"])
+@require_firebase_auth
+def candidate_outreach(candidate_id):
+    """POST /api/ranker/candidates/<candidate_id>/outreach
+
+    Write to the person the user swiped on. Every other drafting path is
+    find-then-draft; here the person is already chosen by hand, so this
+    route must never go looking for "someone like them".
+
+    Request body: {"action": "draft"|"send", "deck_id": optional str}
+
+    Pricing: NO additional charge. The reveal-email swipe already paid
+    for "the verification and the written email" (see the reveal_person
+    note in config.CREDIT_COSTS), so this route requires a fresh reveal
+    and generates the email for free. Double-charging the same swipe
+    would break that promise.
+
+    Flow:
+      1. Idempotency: an existing ranker contact doc for this candidate
+         short-circuits to its recorded outcome (client retries on the
+         60s timeout must not write the same person twice).
+      2. Require a fresh revealedEmails cache entry (the reveal charge).
+         No entry, or expired, is a 404: the client reveals first.
+      3. Generate with the same batch_generate_emails call prompt-search
+         uses, so the voice matches the swipe drafts exactly.
+      4. Gmail connected: create the draft there (or send, for
+         action=send, behind the same quality gate + daily cap as
+         prompt-search send mode). Not connected: the contact doc alone
+         is the in-app draft, sent stays false.
+      5. Save the contact doc in the runs.py shape so Inbox/Network
+         render it like any other outreach.
+
+    Response 200: {"drafted": bool, "sent": bool}
+    Response 404: {"error": "candidate_not_found"} unknown candidate
+                  {"error": "no_verified_email"} no fresh reveal
+    Response 500: {"error": "generation_failed"} LLM produced nothing
+    """
+    uid = request.firebase_user["uid"]
+    user_email = request.firebase_user.get("email") or ""
+    data = request.get_json(silent=True) or {}
+    action = (data.get("action") or "draft").strip().lower()
+    if action not in ("draft", "send"):
+        return jsonify({"error": "action must be draft or send"}), 400
+    deck_id = (data.get("deck_id") or "").strip()
+
+    candidate_id = (candidate_id or "").strip()
+    if not candidate_id:
+        return jsonify({"error": "candidate_id required in path"}), 400
+
+    db = get_db()
+    if not db:
+        return jsonify({"error": "Database not initialized"}), 500
+
+    # 1. Idempotency. Deterministic doc id, so a client retry after a
+    # timeout replays the recorded outcome instead of drafting twice.
+    contact_ref = (db.collection("users").document(uid)
+                     .collection("contacts").document(f"ranker_{candidate_id}"))
+    try:
+        existing_snap = contact_ref.get()
+    except Exception:
+        existing_snap = None
+    if existing_snap is not None and getattr(existing_snap, "exists", False):
+        existing = existing_snap.to_dict() or {}
+        if existing.get("emailBody"):
+            return jsonify({
+                "drafted": True,
+                "sent":    bool(existing.get("emailSent")),
+            })
+
+    # 2. The reveal is the ticket. Same cache + TTL as reveal-email.
+    reveal_ref = (db.collection("users").document(uid)
+                    .collection("revealedEmails").document(candidate_id))
+    try:
+        reveal_snap = reveal_ref.get()
+    except Exception:
+        reveal_snap = None
+    reveal = (reveal_snap.to_dict() or {}) if (
+        reveal_snap is not None and getattr(reveal_snap, "exists", False)) else {}
+    to_email = (reveal.get("email") or "").strip()
+    if not to_email or not _within_ttl(reveal.get("revealed_at"), days=REVEAL_CACHE_TTL_DAYS):
+        return jsonify({"error": "no_verified_email"}), 404
+
+    # Candidate identity from the firm cache.
+    from app.services.firm_cache.schema import FIRM_EMPLOYEES_COLLECTION
+    from app.services.firm_cache.reader import firm_employee_doc_to_app_contact
+    try:
+        fs_snap = db.collection(FIRM_EMPLOYEES_COLLECTION).document(candidate_id).get()
+    except Exception:
+        fs_snap = None
+    if fs_snap is None or not getattr(fs_snap, "exists", False):
+        return jsonify({"error": "candidate_not_found"}), 404
+    contact = firm_employee_doc_to_app_contact(fs_snap.to_dict() or {})
+    contact["Email"] = to_email
+    contact["EmailSource"] = reveal.get("source") or ""
+    contact["EmailVerified"] = bool(reveal.get("verified"))
+    contact["EmailConfidenceScore"] = int(reveal.get("confidence") or 0)
+
+    # 3. Generate in the prompt-search voice.
+    from app.utils.users import get_outreach_email
+    from app.routes.runs import _resolve_email_template
+    from app.services.reply_generation import (
+        batch_generate_emails, PURPOSES_INCLUDE_RESUME, email_body_mentions_resume,
+    )
+
+    user_data = {}
+    try:
+        user_snap = db.collection("users").document(uid).get()
+        if getattr(user_snap, "exists", False):
+            user_data = user_snap.to_dict() or {}
+    except Exception:
+        pass
+    user_tier = user_data.get("subscriptionTier", user_data.get("tier", "free")) or "free"
+    auth_display_name = (request.firebase_user or {}).get("name") or ""
+
+    user_profile = None
+    try:
+        prof_snap = (db.collection("users").document(uid)
+                       .collection("professionalInfo").document("info").get())
+        if getattr(prof_snap, "exists", False):
+            pi = prof_snap.to_dict() or {}
+            user_profile = {
+                "name": f"{pi.get('firstName', '')} {pi.get('lastName', '')}".strip() or user_email,
+                "email": user_email,
+                "university": pi.get("university", ""),
+                "major": pi.get("fieldOfStudy", ""),
+                "year": pi.get("graduationYear", ""),
+                "graduationYear": pi.get("graduationYear", ""),
+                "degree": pi.get("currentDegree", ""),
+            }
+    except Exception:
+        pass
+    if not user_profile:
+        user_profile = {"name": "", "email": user_email}
+    for key in ("resumeParsed", "academics", "goals", "careerTrack",
+                "dreamCompanies", "hometown", "location", "pastCompanies"):
+        if key in user_data and key not in user_profile:
+            user_profile[key] = user_data[key]
+    outreach_identity = get_outreach_email(user_data)
+    if outreach_identity:
+        user_profile["email"] = outreach_identity
+
+    career_interests = user_data.get("careerInterests", [])
+    (template_instructions, email_template_purpose,
+     template_subject_line, signoff_config) = _resolve_email_template(None, uid, db, user_data=user_data)
+
+    # Cached resume text only. A cold PDF parse here would blow the
+    # client's 60s budget; no cache means the draft just leans on the
+    # profile instead.
+    resume_url = user_data.get("resumeUrl") or user_data.get("resumeURL")
+    resume_text = None
+    cached_resume_text = user_data.get("resumeText")
+    cached_resume_src = user_data.get("resumeTextSourceUrl")
+    if (cached_resume_text and len(cached_resume_text.strip()) > 50
+            and not (cached_resume_src and cached_resume_src != resume_url)):
+        resume_text = cached_resume_text
+
+    try:
+        email_results = batch_generate_emails(
+            contacts=[contact],
+            resume_text=resume_text,
+            user_profile=user_profile,
+            career_interests=career_interests,
+            pre_parsed_user_info=user_data.get("resumeParsed"),
+            template_instructions=template_instructions,
+            email_template_purpose=email_template_purpose,
+            resume_filename=user_data.get("resumeFileName"),
+            subject_line=template_subject_line,
+            signoff_config=signoff_config,
+            auth_display_name=auth_display_name,
+            uid=uid,
+        )
+    except Exception as exc:
+        logger.warning("outreach: generation raised uid=%s cid=%s: %s", uid, candidate_id, exc)
+        email_results = {}
+    result = (email_results or {}).get(0) or (email_results or {}).get("0") or {}
+    subject = (result.get("subject") or "").strip()
+    body = (result.get("plain_body") or result.get("body") or "").strip()
+    if not subject or not body:
+        return jsonify({"error": "generation_failed"}), 500
+
+    attach_resume = (email_template_purpose in PURPOSES_INCLUDE_RESUME) or email_body_mentions_resume(body)
+    item = {"contact": contact, "email_subject": subject,
+            "email_body": body, "attach_resume": attach_resume}
+    user_info = {"name": user_profile.get("name", ""),
+                 "email": user_profile.get("email", ""), "phone": "", "linkedin": ""}
+
+    # 4. Gmail. Send only behind the same guardrails as prompt-search
+    # send mode: quality gate, then the shared daily send cap.
+    sent = False
+    gmail_draft_id = ""
+    gmail_draft_url = ""
+    gmail_message_id = ""
+    gmail_thread_id = ""
+    try:
+        from app.services.gmail_client import _load_user_gmail_creds
+        creds = _load_user_gmail_creds(uid)
+    except Exception:
+        creds = None
+
+    if creds and action == "send":
+        try:
+            from app.utils.email_quality import check_email_quality
+            qr = check_email_quality(subject, body, contact,
+                                     (user_profile.get("university") or ""))
+            quality_ok = bool(qr.get("passed", False))
+        except Exception:
+            quality_ok = False
+
+        cap_ok = False
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        sends_today = 0
+        if quality_ok:
+            try:
+                if user_data.get("dailySendDate") == today_str:
+                    sends_today = int(user_data.get("dailySendCount", 0) or 0)
+                cap_ok = sends_today < 20  # ELITE_DAILY_SEND_CAP in runs.py
+            except Exception:
+                cap_ok = False
+
+        if quality_ok and cap_ok:
+            try:
+                from app.services.gmail_client import send_emails_parallel
+                send_results = send_emails_parallel(
+                    [item], user_info=user_info, user_id=uid,
+                    tier=user_tier, user_email=user_email, resume_url=resume_url,
+                )
+                sr = send_results[0] if send_results else None
+                message_id = sr.get("message_id", "") if isinstance(sr, dict) else ""
+                if message_id and not str(message_id).startswith("mock_"):
+                    sent = True
+                    gmail_message_id = message_id
+                    gmail_thread_id = sr.get("thread_id") or ""
+                    db.collection("users").document(uid).set(
+                        {"dailySendCount": sends_today + 1, "dailySendDate": today_str},
+                        merge=True,
+                    )
+            except Exception as exc:
+                logger.warning("outreach: send failed uid=%s cid=%s: %s", uid, candidate_id, exc)
+
+    if creds and not sent:
+        try:
+            from app.services.gmail_client import create_drafts_parallel
+            draft_results = create_drafts_parallel(
+                [item], user_info=user_info, user_id=uid,
+                tier=user_tier, user_email=user_email, resume_url=resume_url,
+            )
+            dr = draft_results[0] if draft_results else None
+            draft_id = dr.get("draft_id", "") if isinstance(dr, dict) else (dr or "")
+            if draft_id and not str(draft_id).startswith("mock_"):
+                gmail_draft_id = draft_id
+                if isinstance(dr, dict):
+                    gmail_draft_url = dr.get("draft_url") or ""
+        except Exception as exc:
+            logger.warning("outreach: Gmail draft failed uid=%s cid=%s: %s", uid, candidate_id, exc)
+
+    # 5. Persist in the runs.py contact-doc shape so Inbox and Network
+    # render this like any other outreach.
+    now_iso = datetime.now(timezone.utc).isoformat()
+    today = datetime.now(timezone.utc).strftime("%m/%d/%Y")
+    contact_doc = {
+        "firstName": contact.get("FirstName") or "",
+        "lastName": contact.get("LastName") or "",
+        "email": to_email,
+        "linkedinUrl": contact.get("LinkedIn") or "",
+        "company": contact.get("Company") or "",
+        "jobTitle": contact.get("Title") or "",
+        "college": contact.get("College") or "",
+        "location": "",
+        "city": contact.get("City") or "",
+        "state": contact.get("State") or "",
+        "firstContactDate": today,
+        "status": "Not Contacted",
+        "lastContactDate": today,
+        "userId": uid,
+        "createdAt": now_iso,
+        "pdlId": contact.get("pdlId") or "",
+        "candidateId": candidate_id,
+        "attributionSource": "ranker_deck",
+        "emailSource": contact.get("EmailSource") or None,
+        "emailVerified": bool(contact.get("EmailVerified")),
+        "emailConfidenceScore": int(contact.get("EmailConfidenceScore") or 0),
+        "emailSubject": subject,
+        "emailBody": body,
+        "inOutbox": True,
+        "draftToEmail": to_email,
+        "draftCreatedAt": now_iso,
+        "emailGeneratedAt": now_iso,
+        "draftStillExists": not sent,
+        "lastActivityAt": now_iso,
+        "hasUnreadReply": False,
+        "gmailMessageId": gmail_message_id or None,
+        "pipelineStage": "waiting_on_reply" if sent else (
+            "draft_created" if gmail_draft_id else "generated"),
+    }
+    if gmail_draft_id:
+        contact_doc["gmailDraftId"] = gmail_draft_id
+    if gmail_draft_url:
+        contact_doc["gmailDraftUrl"] = gmail_draft_url
+    if sent:
+        contact_doc["emailSent"] = True
+        contact_doc["emailSentAt"] = now_iso
+        if gmail_thread_id:
+            contact_doc["gmailThreadId"] = gmail_thread_id
+    try:
+        contact_ref.set(contact_doc)
+    except Exception as exc:
+        logger.warning(
+            "outreach: contact doc write failed uid=%s cid=%s: %s "
+            "(draft may exist in Gmail without an app record)",
+            uid, candidate_id, exc,
+        )
+        return jsonify({"error": "storage_failed"}), 500
+
+    log_recommendation_event(
+        event_type="outreach_sent" if sent else "outreach_drafted",
+        uid=uid,
+        contact_id=candidate_id,
+        contact_email=to_email,
+        model_version="person_ranker_v0",
+        surface="ios_swipe_deck",
+        features_snapshot={"deck_id": deck_id, "action": action},
+        attribution_source="ranker_deck",
+        extra={"cost_credits": 0},
+        doc_id=f"outreach_{uid}_{candidate_id}",
+    )
+
+    return jsonify({"drafted": True, "sent": sent})
