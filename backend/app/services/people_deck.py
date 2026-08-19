@@ -252,25 +252,64 @@ def search_people(
     # went to PDL as "anyone whose industry is technology", which PDL answered
     # with 404 on every relaxation tier. A search that looked run and found
     # nobody, for every prompt.
+    user_doc = _firestore_user(db, user_id)
     try:
         contacts, _retry_level, _already_saved, _adjacency = search_contacts_from_prompt(
             parsed,
             fetch_count,
             exclude_keys=set(),
-            user_profile=_firestore_user(db, user_id),
+            user_profile=user_doc,
         )
     except Exception:
-        logger.exception("people-deck search failed for uid=%s", user_id)
-        return {"error": "search_failed", "message": "Could not run that search."}, 502
+        # A PDL failure is NOT the end of the search any more (2026-08-18).
+        # It used to 502 here, which showed "Could not run that search" for
+        # the whole PDL billing outage. Fall through to the Hunter rung below,
+        # the same ladder the website's Find flow got in commit ed8961d8.
+        logger.exception("people-deck PDL search raised for uid=%s", user_id)
+        contacts, _retry_level, _already_saved, _adjacency = [], 0, [], {}
 
     contacts = contacts or []
+    _adjacency = _adjacency or {}
+
+    # The outage rung, previously wired into routes/runs.py only, which left
+    # THIS route with zero fallbacks. Fires on empty as well as on raise,
+    # because a PDL 404 returns [] without raising. Hunter Domain Search
+    # covers company-targeted prompts, which is most mobile searches, and its
+    # addresses are Hunter-verified (no synthesized-email risk).
+    if not contacts and (parsed.get("companies") or []):
+        try:
+            from app.services.hunter_person_search import search_people_via_hunter
+            contacts, _retry_level, _already_saved, hunter_meta = search_people_via_hunter(
+                parsed,
+                limit,
+                exclude_keys=set(),
+                user_profile=user_doc,
+            )
+            contacts = contacts or []
+            _adjacency.update(hunter_meta or {})
+            _adjacency["fallback_used"] = "hunter"
+            logger.info(
+                "people-deck hunter bridge uid=%s returned %d contacts", user_id, len(contacts)
+            )
+        except Exception:
+            logger.exception("people-deck hunter bridge failed for uid=%s", user_id)
+            contacts = contacts or []
 
     if not contacts:
+        # The searcher often KNOWS why it came back empty ("found 25 people
+        # who previously worked at X but have since moved on") and that
+        # message used to be computed and then thrown away. Surface it; the
+        # app renders `reason` verbatim.
+        diagnosis = (_adjacency.get("message") or "").strip()
+        logger.warning(
+            "people-deck zero-hit uid=%s rung=%s diagnosis=%r",
+            user_id, _retry_level, diagnosis[:200],
+        )
         return {
             "deck_id": "",
             "people": [],
             "next_cursor": None,
-            "reason": (
+            "reason": diagnosis or (
                 "We could not find anyone matching that. Try a broader role, or drop the city."
             ),
         }, 200
