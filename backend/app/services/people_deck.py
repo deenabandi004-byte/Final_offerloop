@@ -142,7 +142,7 @@ _STASH_FIELDS = (
     "FirstName", "LastName", "LinkedIn", "Email", "WorkEmail", "PersonalEmail",
     "Title", "Company", "City", "State", "College", "WorkSummary",
     "warmth_score", "warmth_tier", "warmth_label", "warmth_signals", "briefing",
-    "personalization", "_reasons",
+    "personalization", "_reasons", "_provider",
 )
 
 
@@ -253,47 +253,72 @@ def search_people(
     # with 404 on every relaxation tier. A search that looked run and found
     # nobody, for every prompt.
     user_doc = _firestore_user(db, user_id)
+
+    # Crustdata TEST rung (2026-08-19, Rylan: spend 30-35 trial credits for
+    # real signal). Primary when the key is present and budget remains, so
+    # phone testing exercises the candidate provider on real prompts. A
+    # search is ~0.03 credits per result; addresses come later, at reveal.
+    # Empty or disabled falls straight through to the PDL ladder unchanged.
+    contacts: list = []
+    _retry_level, _already_saved, _adjacency = 0, [], {}
     try:
-        contacts, _retry_level, _already_saved, _adjacency = search_contacts_from_prompt(
-            parsed,
-            fetch_count,
-            exclude_keys=set(),
-            user_profile=user_doc,
-        )
+        from app.services import crustdata_client
+        if crustdata_client.enabled(db):
+            crustdata_client.log_balance()
+            contacts = crustdata_client.search_from_parsed(parsed, fetch_count, db)
+            if contacts:
+                _adjacency = {"provider": "crustdata_test"}
+                logger.info(
+                    "people-deck crustdata rung uid=%s returned %d contacts",
+                    user_id, len(contacts),
+                )
     except Exception:
-        # A PDL failure is NOT the end of the search any more (2026-08-18).
-        # It used to 502 here, which showed "Could not run that search" for
-        # the whole PDL billing outage. Fall through to the Hunter rung below,
-        # the same ladder the website's Find flow got in commit ed8961d8.
-        logger.exception("people-deck PDL search raised for uid=%s", user_id)
-        contacts, _retry_level, _already_saved, _adjacency = [], 0, [], {}
+        logger.exception("people-deck crustdata rung failed for uid=%s", user_id)
+        contacts = []
 
-    contacts = contacts or []
-    _adjacency = _adjacency or {}
-
-    # The outage rung, previously wired into routes/runs.py only, which left
-    # THIS route with zero fallbacks. Fires on empty as well as on raise,
-    # because a PDL 404 returns [] without raising. Hunter Domain Search
-    # covers company-targeted prompts, which is most mobile searches, and its
-    # addresses are Hunter-verified (no synthesized-email risk).
-    if not contacts and (parsed.get("companies") or []):
+    if not contacts:
         try:
-            from app.services.hunter_person_search import search_people_via_hunter
-            contacts, _retry_level, _already_saved, hunter_meta = search_people_via_hunter(
+            contacts, _retry_level, _already_saved, _adjacency = search_contacts_from_prompt(
                 parsed,
-                limit,
+                fetch_count,
                 exclude_keys=set(),
                 user_profile=user_doc,
             )
-            contacts = contacts or []
-            _adjacency.update(hunter_meta or {})
-            _adjacency["fallback_used"] = "hunter"
-            logger.info(
-                "people-deck hunter bridge uid=%s returned %d contacts", user_id, len(contacts)
-            )
         except Exception:
-            logger.exception("people-deck hunter bridge failed for uid=%s", user_id)
-            contacts = contacts or []
+            # A PDL failure is NOT the end of the search any more (2026-08-18).
+            # It used to 502 here, which showed "Could not run that search" for
+            # the whole PDL billing outage. Fall through to the Hunter rung below,
+            # the same ladder the website's Find flow got in commit ed8961d8.
+            logger.exception("people-deck PDL search raised for uid=%s", user_id)
+            contacts, _retry_level, _already_saved, _adjacency = [], 0, [], {}
+
+        contacts = contacts or []
+        _adjacency = _adjacency or {}
+
+        # The outage rung, previously wired into routes/runs.py only, which left
+        # THIS route with zero fallbacks. Fires on empty as well as on raise,
+        # because a PDL 404 returns [] without raising. Hunter Domain Search
+        # covers company-targeted prompts, which is most mobile searches, and its
+        # addresses are Hunter-verified (no synthesized-email risk).
+        if not contacts and (parsed.get("companies") or []):
+            try:
+                from app.services.hunter_person_search import search_people_via_hunter
+                contacts, _retry_level, _already_saved, hunter_meta = search_people_via_hunter(
+                    parsed,
+                    limit,
+                    exclude_keys=set(),
+                    user_profile=user_doc,
+                )
+                contacts = contacts or []
+                _adjacency.update(hunter_meta or {})
+                _adjacency["fallback_used"] = "hunter"
+                logger.info(
+                    "people-deck hunter bridge uid=%s returned %d contacts", user_id, len(contacts)
+                )
+            except Exception:
+                logger.exception("people-deck hunter bridge failed for uid=%s", user_id)
+                contacts = contacts or []
+
 
     if not contacts:
         # The searcher often KNOWS why it came back empty ("found 25 people
@@ -542,6 +567,25 @@ def reveal_person(
     # No address means nothing to sell. Answer before touching credits rather
     # than charging and refunding, so the ledger has no phantom pair in it.
     address = _address_of(contact)
+
+    # Crustdata TEST rung: their contacts surface address-less on purpose
+    # (search is 0.03/result); the paid enrich happens HERE, on the swipe,
+    # and only a deliverable-labeled email counts as an address at all.
+    if not address and contact.get("_provider") == "crustdata":
+        try:
+            from app.services import crustdata_client
+            enriched = crustdata_client.enrich_deliverable_email(
+                (contact.get("LinkedIn") or "").strip(), db,
+            )
+        except Exception:
+            logger.exception("people-deck crustdata enrich failed uid=%s", user_id)
+            enriched = None
+        if enriched and enriched.get("email"):
+            address = enriched["email"]
+            contact["Email"] = address
+            contact["EmailSource"] = "crustdata_deliverable"
+            contact["EmailVerified"] = True
+
     if not address:
         return {"email": None, "verified": False, "charged": False,
                 "drafted": False, "sent": False}, 200
