@@ -113,6 +113,7 @@ def rank_people_for_user(
     uid: str,
     db,
     limit: int = DEFAULT_RANKED_LIMIT,
+    exclude_ids: set | None = None,
 ) -> list[dict]:
     """Return a diversified, ranked feed of people uid should reach out to.
 
@@ -177,7 +178,7 @@ def rank_people_for_user(
         if _id is None:
             # Drop: Rylan uses id as a render key; a null or dup breaks the deck.
             continue
-        if _id in swiped_ids:
+        if _id in swiped_ids or (exclude_ids and _id in exclude_ids):
             # User has already swiped left/skip on this person in a
             # prior deck. peoplePreferences is the "don't show again"
             # source of truth.

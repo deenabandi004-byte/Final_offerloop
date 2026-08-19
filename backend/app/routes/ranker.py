@@ -122,11 +122,21 @@ def get_ranked_candidates():
         limit = DEFAULT_RANKED_LIMIT
     limit = max(1, min(limit, MAX_RANKED_LIMIT))
 
+    # ?exclude=id1,id2 — candidate ids the client has already shown, so a
+    # refresh EXTENDS the feed with new people instead of replaying the same
+    # top-N (Rylan 2026-08-19: "refresh should cache a new 20 to continue
+    # what the default feed would show"). Capped defensively.
+    exclude_ids = {
+        e.strip() for e in (request.args.get("exclude") or "").split(",") if e.strip()
+    }
+    if len(exclude_ids) > 500:
+        exclude_ids = set(list(exclude_ids)[:500])
+
     db = get_db()
     if not db:
         return jsonify({"error": "Database not initialized"}), 500
 
-    candidates = rank_people_for_user(uid=uid, db=db, limit=limit)
+    candidates = rank_people_for_user(uid=uid, db=db, limit=limit, exclude_ids=exclude_ids)
     generated_at = datetime.now(timezone.utc).isoformat()
 
     # deck_id is generated per-call. Client MUST echo it on feedback +
