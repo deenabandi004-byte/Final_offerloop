@@ -289,6 +289,27 @@ def _labeled_email_candidates(blob: Dict[str, Any]) -> List[Dict[str, Any]]:
     return found
 
 
+def _hunter_says_deliverable(addr: str) -> bool:
+    """One Hunter email-verifier check, the same SMTP-grade handshake the
+    eval used as ground truth. Only 'deliverable' passes; 'risky' is usually
+    an accept-all domain and unprovable without sending. Never raises."""
+    key = (os.getenv("HUNTER_API_KEY") or "").strip()
+    if not key or not addr:
+        return False
+    try:
+        r = requests.get(
+            "https://api.hunter.io/v2/email-verifier",
+            params={"email": addr, "api_key": key},
+            timeout=15,
+        )
+        status = ((r.json().get("data") or {}).get("status") or "") if r.status_code == 200 else ""
+        logger.info("crustdata enrich hunter-verify %s -> %s %s", addr, r.status_code, status)
+        return status == "deliverable"
+    except Exception:
+        logger.exception("crustdata: hunter verify failed")
+        return False
+
+
 def enrich_deliverable_email(linkedin_url: str, db) -> Optional[Dict[str, Any]]:
     """Contact enrich for one person; returns {email, verified: True} only
     for an address we can stand behind. Two ways in:
@@ -344,13 +365,18 @@ def enrich_deliverable_email(linkedin_url: str, db) -> Optional[Dict[str, Any]]:
                 unlabeled.append(addr)
 
         # No label from Crustdata: let SMTP be the judge, same ground truth
-        # the eval used. Costs ~$0.005 and only ever runs on a paid reveal.
-        from app.services.neverbounce_client import RESULT_VALID, verify_email
+        # the eval used. NeverBounce first when configured; otherwise Hunter's
+        # email-verifier (the eval's own instrument; its key is already on the
+        # service for the search rung). Both only ever run on a paid reveal.
+        from app.services.neverbounce_client import RESULT_VALID, is_configured, verify_email
         for addr in unlabeled[:3]:
-            verdict = verify_email(addr)
-            logger.info("crustdata enrich neverbounce %s -> %s", addr, verdict.get("result"))
-            if verdict.get("result") == RESULT_VALID:
-                return {"email": addr, "verified": True, "label": "neverbounce_valid"}
+            if is_configured():
+                verdict = verify_email(addr)
+                logger.info("crustdata enrich neverbounce %s -> %s", addr, verdict.get("result"))
+                if verdict.get("result") == RESULT_VALID:
+                    return {"email": addr, "verified": True, "label": "neverbounce_valid"}
+            elif _hunter_says_deliverable(addr):
+                return {"email": addr, "verified": True, "label": "hunter_deliverable"}
         return None
     except Exception:
         logger.exception("crustdata: enrich failed")
