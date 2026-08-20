@@ -433,6 +433,22 @@ def _normalize_to_contact(
                 email = cand
                 break
 
+    # Trust tiering, calibrated 2026-08-20 by SMTP-verifying every address
+    # in an 18-profile benchmark: guessed tiers went 6 of 6 invalid (pure
+    # pattern guesses, one set aimed at a recruiting domain), matched_email
+    # went 4 of 5 valid, and nothing arrived as "verified". So:
+    #   verified      -> sendable as-is
+    #   matched_email -> held as PendingEmail; the reveal step SMTP-checks
+    #                    it before it counts (free of Coresignal credits)
+    #   guessed_*     -> discarded outright; a bounce costs more trust
+    #                    than a miss
+    email_status = (prof.get("primary_professional_email_status") or "").strip().lower()
+    pending_email = ""
+    if email and email_status != "verified":
+        if email_status == "matched_email":
+            pending_email = email
+        email = ""
+
     # Education: pick the highest-signal school (prefer first entry in array,
     # which Coresignal orders by recency).
     college = ""
@@ -475,11 +491,25 @@ def _normalize_to_contact(
         "WorkSummary": _format_experience((prof.get("experience") or [])[:3]),
         "experience": _summarize_experience((prof.get("experience") or [])[:2]),
         "Phone": "",  # Coresignal multi-source doesn't expose phone in standard plan
+        # Benchmarked 18/18 present (2026-08-20): real LinkedIn headshots plus
+        # the employer logo. snake-case photo_url is what the app card reads.
+        "PhotoUrl": (prof.get("picture_url") or "").strip(),
+        "CompanyLogoUrl": (
+            (prof["experience"][0].get("company_logo_url") or "").strip()
+            if isinstance(prof.get("experience"), list) and prof.get("experience")
+            and isinstance(prof["experience"][0], dict) else ""
+        ),
+        "PendingEmail": pending_email,
+        "PendingEmailStatus": email_status if pending_email else "",
         "_source": "coresignal",
+        "_provider": "coresignal",
         "_coresignal_profile_score": prof.get("profile_score"),
         "_coresignal_is_decision_maker": prof.get("is_decision_maker"),
         "EmailSource": "coresignal" if email else "",
-        "EmailVerified": bool(email and prof.get("primary_professional_email_status") == "valid"),
+        # Their statuses are verified/matched_email/matched_pattern/
+        # guessed_common_pattern; the old check compared against "valid",
+        # which never occurs, so nothing was ever marked verified.
+        "EmailVerified": bool(email and email_status == "verified"),
     }
     # IsCurrentlyAtTarget mirrors the PDL flag used downstream by the
     # frontend's "still at target company" UI badge.

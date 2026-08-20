@@ -144,8 +144,8 @@ def _public_person(contact: Dict[str, Any], person_id: str, rank: int) -> Dict[s
 #: fifty of those in one document is how you find the 1MB Firestore limit.
 _STASH_FIELDS = (
     "FirstName", "LastName", "LinkedIn", "LinkedInUrn", "Email", "WorkEmail",
-    "PersonalEmail", "Title", "Company", "City", "State", "College",
-    "WorkSummary", "PhotoUrl",
+    "PersonalEmail", "PendingEmail", "PendingEmailStatus", "Title", "Company",
+    "City", "State", "College", "WorkSummary", "PhotoUrl",
     "warmth_score", "warmth_tier", "warmth_label", "warmth_signals", "briefing",
     "personalization", "_reasons", "_provider",
 )
@@ -280,6 +280,56 @@ def search_people(
     except Exception:
         logger.exception("people-deck crustdata rung failed for uid=%s", user_id)
         contacts = []
+
+    # Coresignal TEST rung (2026-08-20, the canceled-call pivot: extract the
+    # signal from our own infrastructure). Runs when the Crustdata rung came
+    # up empty (its trial is out of credits), the Coresignal key is present,
+    # and the trial budget holds. A collect is 20 credits, so collects are
+    # capped hard per search and tracked in Firestore. Emails ship tiered by
+    # the client: verified sells as-is, matched holds for an SMTP check at
+    # reveal, guesses never leave the backend (benchmarked 6 of 6 invalid).
+    if not contacts:
+        try:
+            import os as _os
+            from app.services import coresignal_client
+            if coresignal_client.CORESIGNAL_API_KEY:
+                _budget = float(_os.getenv("CORESIGNAL_TEST_BUDGET", "1500"))
+                _bref = db.collection("meta").document("coresignalTestBudget")
+                try:
+                    _bsnap = _bref.get()
+                    _spent = float((_bsnap.to_dict() or {}).get("spent_estimate", 0.0)) if _bsnap.exists else 0.0
+                except Exception:
+                    logger.exception("coresignal budget read failed; treating as exhausted")
+                    _spent = _budget
+                if _spent < _budget:
+                    _max_collects = int(_os.getenv("CORESIGNAL_MAX_COLLECTS", "8"))
+                    cs_contacts, _lvl, _saved, cs_meta = coresignal_client.search_contacts_from_prompt(
+                        parsed,
+                        min(limit, _max_collects),
+                        exclude_keys=set(),
+                        user_profile=user_doc,
+                    )
+                    _collected = int((cs_meta or {}).get("collected_count") or 0)
+                    if _collected:
+                        try:
+                            from google.cloud import firestore as _fs
+                            _bref.set({"spent_estimate": _fs.Increment(20.0 * _collected),
+                                       "collect_count": _fs.Increment(_collected)}, merge=True)
+                        except Exception:
+                            logger.exception("coresignal budget write failed (%d collects untracked)", _collected)
+                    if cs_contacts:
+                        contacts = cs_contacts
+                        _adjacency = dict(cs_meta or {})
+                        _adjacency["provider"] = "coresignal_test"
+                        logger.info(
+                            "people-deck coresignal rung uid=%s returned %d contacts (%d collects, ~%d credits)",
+                            user_id, len(cs_contacts), _collected, _collected * 20,
+                        )
+                else:
+                    logger.warning("coresignal: test budget exhausted (%.0f of %.0f)", _spent, _budget)
+        except Exception:
+            logger.exception("people-deck coresignal rung failed for uid=%s", user_id)
+            contacts = contacts or []
 
     if not contacts:
         try:
@@ -592,6 +642,30 @@ def reveal_person(
             contact["Email"] = address
             contact["EmailSource"] = "crustdata_deliverable"
             contact["EmailVerified"] = True
+
+    # Coresignal TEST rung: a matched-tier address was collected up front but
+    # held unsold until this SMTP check (benchmark 2026-08-20: matched went
+    # 4 of 5 valid, so one check turns "plausible" into "sendable"). Costs no
+    # Coresignal credits; NeverBounce when configured, Hunter otherwise.
+    if not address and contact.get("_provider") == "coresignal":
+        pending = (contact.get("PendingEmail") or "").strip().lower()
+        if pending:
+            ok = False
+            try:
+                if neverbounce_client.is_configured():
+                    verdict = neverbounce_client.verify_email(pending)
+                    ok = verdict.get("result") == neverbounce_client.RESULT_VALID
+                    logger.info("people-deck coresignal neverbounce %s -> %s", pending, verdict.get("result"))
+                else:
+                    from app.services.crustdata_client import _hunter_says_deliverable
+                    ok = _hunter_says_deliverable(pending)
+            except Exception:
+                logger.exception("people-deck coresignal verify failed uid=%s", user_id)
+            if ok:
+                address = pending
+                contact["Email"] = address
+                contact["EmailSource"] = "coresignal_smtp_valid"
+                contact["EmailVerified"] = True
 
     if not address:
         return {"email": None, "verified": False, "charged": False,
