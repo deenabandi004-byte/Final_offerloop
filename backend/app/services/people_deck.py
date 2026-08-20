@@ -123,6 +123,10 @@ def _public_person(contact: Dict[str, Any], person_id: str, rank: int) -> Dict[s
         "state": state,
         "college": (contact.get("College") or "").strip(),
         "linkedinUrl": (contact.get("LinkedIn") or "").strip(),
+        # snake_case on purpose: the app's candidate mapper reads photo_url.
+        # A real headshot when the provider has one; the card falls back to
+        # the initials tile on its own when this is empty or the link dies.
+        "photo_url": (contact.get("PhotoUrl") or "").strip(),
         # The card's "Why we surfaced them" list. Built from the warmth signals
         # the same scorer produces for every other surface, so a prompt person
         # and a ranked person explain themselves the same way.
@@ -139,8 +143,9 @@ def _public_person(contact: Dict[str, Any], person_id: str, rank: int) -> Dict[s
 #: good deal more (full work summaries, volunteer prose, education blobs) and
 #: fifty of those in one document is how you find the 1MB Firestore limit.
 _STASH_FIELDS = (
-    "FirstName", "LastName", "LinkedIn", "Email", "WorkEmail", "PersonalEmail",
-    "Title", "Company", "City", "State", "College", "WorkSummary",
+    "FirstName", "LastName", "LinkedIn", "LinkedInUrn", "Email", "WorkEmail",
+    "PersonalEmail", "Title", "Company", "City", "State", "College",
+    "WorkSummary", "PhotoUrl",
     "warmth_score", "warmth_tier", "warmth_label", "warmth_signals", "briefing",
     "personalization", "_reasons", "_provider",
 )
@@ -575,7 +580,9 @@ def reveal_person(
         try:
             from app.services import crustdata_client
             enriched = crustdata_client.enrich_deliverable_email(
-                (contact.get("LinkedIn") or "").strip(), db,
+                # The urn-form URL is what their enrich matches on; LinkedIn
+                # holds the flagship URL for the card button since 2026-08-19.
+                (contact.get("LinkedInUrn") or contact.get("LinkedIn") or "").strip(), db,
             )
         except Exception:
             logger.exception("people-deck crustdata enrich failed uid=%s", user_id)

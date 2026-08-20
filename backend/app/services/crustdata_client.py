@@ -113,23 +113,48 @@ def _first(*vals):
 
 
 def _map_profile(p: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Best-effort map of one search profile to the app-contact shape.
+    """Map one search profile to the app-contact shape.
 
-    Field names are defensive (the eval scripts are gone with their session):
-    every read tolerates absence, and the caller logs one full raw record per
-    search so the mapping can be calibrated from Render logs.
+    Calibrated 2026-08-19 against a live sample record from Render logs. The
+    profile's current job lives in `employer` (a list of positions), matched
+    to `default_position_company_linkedin_id` when possible; the person-level
+    title is `default_position_title`. `headline` is the user-written
+    LinkedIn tagline, kept only as a last resort because it reads like a
+    slogan, not a job title. The old-guess keys stay as fallbacks in case
+    other plans or endpoints shape records differently.
     """
     if not isinstance(p, dict):
         return None
     name = _first(p.get("name"), p.get("full_name"))
     first = _first(p.get("first_name"), (name.split(" ", 1)[0] if name else ""))
     last = _first(p.get("last_name"), (name.split(" ", 1)[1] if name and " " in name else ""))
-    linkedin = _first(
+    # The urn-style linkedin_profile_url is what enrich matches on; the
+    # flagship URL is the human-readable one the card's button should open.
+    urn_url = _first(
         p.get("linkedin_profile_url"), p.get("linkedin_url"), p.get("linkedin"),
         (p.get("linkedin_profile") or {}).get("url") if isinstance(p.get("linkedin_profile"), dict) else "",
     )
-    title = _first(p.get("current_title"), p.get("title"), p.get("headline"))
+    linkedin = _first(p.get("flagship_profile_url"), urn_url)
+
+    employers = p.get("employer") if isinstance(p.get("employer"), list) else []
+    employers = [e for e in employers if isinstance(e, dict)]
+    default_cid = str(p.get("default_position_company_linkedin_id") or "")
+    current_emp: Dict[str, Any] = {}
+    if default_cid:
+        for e in employers:
+            if str(e.get("company_linkedin_id") or "") == default_cid:
+                current_emp = e
+                break
+    if not current_emp and employers:
+        current_emp = employers[0]
+
+    title = _first(
+        p.get("default_position_title"),
+        current_emp.get("title"),
+        p.get("current_title"), p.get("title"), p.get("headline"),
+    )
     company = _first(
+        current_emp.get("company_name"),
         p.get("current_company"), p.get("company"),
         (p.get("current_employers") or [{}])[0].get("employer_name")
         if isinstance(p.get("current_employers"), list) and p.get("current_employers") else "",
@@ -143,19 +168,33 @@ def _map_profile(p: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         city, state = bits[0], bits[1] if len(bits) > 1 else ""
     elif location:
         city = location
+
+    education = p.get("education_background")
+    if not isinstance(education, list):
+        education = p.get("education") if isinstance(p.get("education"), list) else []
+    education = [e for e in education if isinstance(e, dict)]
+    schools = p.get("all_schools") if isinstance(p.get("all_schools"), list) else []
+    college = _first(
+        education[0].get("institute_name") if education else "",
+        education[0].get("school") if education else "",
+        schools[0] if schools and isinstance(schools[0], str) else "",
+    )
+
     return {
         "FirstName": first,
         "LastName": last,
         "LinkedIn": linkedin,
+        "LinkedInUrn": urn_url,
         "Email": "",
         "Title": title,
         "Company": company,
         "City": city,
         "State": state,
-        "College": _first(
-            (p.get("education") or [{}])[0].get("school")
-            if isinstance(p.get("education"), list) and p.get("education") else "",
-        ),
+        "College": college,
+        # snake_case on purpose: the app's candidate mapper already reads
+        # photo_url, so the photo flows with no app change and no OTA.
+        "PhotoUrl": _first(p.get("profile_picture_url"), p.get("profile_picture_permalink")),
+        "CompanyLogoUrl": current_emp.get("company_logo_url") or "",
         "EmailSource": "crustdata_pending",
         "EmailVerified": False,
         "EmailConfidenceScore": 0,
@@ -211,11 +250,57 @@ def search_from_parsed(parsed: Dict[str, Any], limit: int, db) -> List[Dict[str,
         return []
 
 
+def _labeled_email_candidates(blob: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Every address in an enrich response, each as {email, label}.
+
+    Collects from the field names this endpoint actually offers
+    (business_email, personal_contact_info.*) plus the older guesses, and
+    tolerates strings, dicts, and lists of either. A bare string has no
+    label; the caller decides what an unlabeled address is worth.
+    """
+    found: List[Dict[str, Any]] = []
+
+    def _collect(v, default_label=""):
+        if isinstance(v, str) and "@" in v:
+            found.append({"email": v, "label": default_label})
+        elif isinstance(v, dict):
+            addr = _first(v.get("email"), v.get("address"), v.get("value"))
+            label = str(_first(v.get("deliverability"), v.get("status"), v.get("label"))).lower()
+            if addr:
+                found.append({"email": addr, "label": label or default_label})
+        elif isinstance(v, list):
+            for item in v:
+                _collect(item, default_label)
+
+    contact = blob.get("contact") if isinstance(blob.get("contact"), dict) else {}
+    for source in (blob, contact):
+        if not isinstance(source, dict):
+            continue
+        _collect(source.get("business_email"))
+        _collect(source.get("emails"))
+        _collect(source.get("business_emails"))
+        _collect(source.get("email"))
+    pci = blob.get("personal_contact_info")
+    if isinstance(pci, dict):
+        for v in pci.values():
+            _collect(v)
+    elif pci is not None:
+        _collect(pci)
+    return found
+
+
 def enrich_deliverable_email(linkedin_url: str, db) -> Optional[Dict[str, Any]]:
-    """Contact enrich for one person; returns {email, verified: True} ONLY
-    when Crustdata labels the address deliverable. Anything else is None:
-    their unlabeled emails bounced in the eval, and a bounce costs more
-    trust than a miss. Never raises."""
+    """Contact enrich for one person; returns {email, verified: True} only
+    for an address we can stand behind. Two ways in:
+
+      1. Crustdata labels it deliverable (their labels passed independent
+         SMTP verification 9 of 11 times in the eval).
+      2. The address arrives unlabeled and NeverBounce confirms it valid
+         (their unlabeled emails bounced in the eval, so an unlabeled
+         address is worth nothing until an SMTP check says otherwise).
+
+    Anything else is None: a bounce costs more trust than a miss. Never
+    raises."""
     if not linkedin_url or not enabled(db):
         return None
     try:
@@ -225,32 +310,47 @@ def enrich_deliverable_email(linkedin_url: str, db) -> Optional[Dict[str, Any]]:
             params={
                 "linkedin_profile_url": linkedin_url,
                 # `fields`, never `include` (eval gotcha #1: include is
-                # accepted, ignored, and charged).
-                "fields": "basic_profile,contact",
+                # accepted, ignored, and charged). Field names are from this
+                # endpoint's own 400 listing (2026-08-19): the eval-era names
+                # basic_profile/contact are invalid here and 400 on every
+                # call, which is what "no one ever has an email" looks like.
+                "fields": "business_email,personal_contact_info",
             },
             timeout=25,
         )
         logger.info("crustdata enrich %s -> %s %s", linkedin_url, r.status_code, r.text[:2000])
+        if r.status_code != 200:
+            # Errored requests are free (eval, section 2d). Counting them
+            # used to eat 2.0 of the trial budget per failed call.
+            return None
         # 2.0 credits with contact data, 1.0 matched-no-email; estimate the
         # worst case so the guard errs toward stopping early.
         _add_spend(db, 2.0, "enrich")
-        if r.status_code != 200:
-            return None
         data = r.json()
         blob = data[0] if isinstance(data, list) and data else data
         if not isinstance(blob, dict):
             return None
-        contact = blob.get("contact") or blob
-        emails = contact.get("emails") or contact.get("business_emails") or []
-        if isinstance(emails, dict):
-            emails = [emails]
-        for e in emails:
-            if not isinstance(e, dict):
+
+        candidates = _labeled_email_candidates(blob)
+        unlabeled: List[str] = []
+        for e in candidates:
+            addr = (e["email"] or "").strip().lower()
+            label = e["label"]
+            if not addr:
                 continue
-            addr = _first(e.get("email"), e.get("address"))
-            label = str(_first(e.get("deliverability"), e.get("status"), e.get("label"))).lower()
-            if addr and "deliverable" in label and "un" not in label:
-                return {"email": addr.strip().lower(), "verified": True, "label": label}
+            if "deliverable" in label and "un" not in label:
+                return {"email": addr, "verified": True, "label": label}
+            if not label:
+                unlabeled.append(addr)
+
+        # No label from Crustdata: let SMTP be the judge, same ground truth
+        # the eval used. Costs ~$0.005 and only ever runs on a paid reveal.
+        from app.services.neverbounce_client import RESULT_VALID, verify_email
+        for addr in unlabeled[:3]:
+            verdict = verify_email(addr)
+            logger.info("crustdata enrich neverbounce %s -> %s", addr, verdict.get("result"))
+            if verdict.get("result") == RESULT_VALID:
+                return {"email": addr, "verified": True, "label": "neverbounce_valid"}
         return None
     except Exception:
         logger.exception("crustdata: enrich failed")
