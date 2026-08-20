@@ -168,6 +168,14 @@ def google_oauth_start():
     if user_email:
         params["login_hint"] = user_email
 
+    # account=other (mobile onboarding, 2026-08-19): the user intends to
+    # connect a DIFFERENT inbox than the one they signed in with, usually
+    # their school email after signing in with a personal Gmail. Drop the
+    # hint and show the account picker; consent still always shows.
+    if (request.args.get("account") or "").strip().lower() == "other":
+        params.pop("login_hint", None)
+        params["prompt"] = "select_account consent"
+
     # Note: In Testing mode, users must be added to Test users list in OAuth consent screen
     # Google Cloud Console > APIs & Services > OAuth consent screen > Test users
     #
