@@ -304,7 +304,11 @@ def _hunter_says_deliverable(addr: str) -> bool:
         )
         status = ((r.json().get("data") or {}).get("status") or "") if r.status_code == 200 else ""
         logger.info("crustdata enrich hunter-verify %s -> %s %s", addr, r.status_code, status)
-        return status == "deliverable"
+        # Hunter's live vocabulary is valid/invalid/accept_all/unknown; the
+        # eval notes said deliverable/risky/undeliverable. Accept both eras'
+        # good words: proven the hard way 2026-08-20, when three Hunter-VALID
+        # addresses were refused and every swipe said "no email found".
+        return status in ("deliverable", "valid")
     except Exception:
         logger.exception("crustdata: hunter verify failed")
         return False
