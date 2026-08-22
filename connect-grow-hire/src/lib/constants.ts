@@ -1,3 +1,7 @@
+// Live iOS App Store listing (ascAppId 6789441106 — see offerloop-mobile/eas.json).
+// Any "Download on the App Store" CTA on the marketing site should point here.
+export const APP_STORE_URL = 'https://apps.apple.com/us/app/offerloop/id6789441106';
+
 // Frontend mirror of backend/app/config.py — kept in sync.
 // 2026-06-23: find_contact standardized at 10 (find + draft + search bundle)
 // across website prompt_search, MCP find_contacts, and Loops. Pro 2000 /

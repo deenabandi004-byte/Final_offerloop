@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { useNavigate, Link } from 'react-router-dom';
 import { ArrowRight, Menu, X } from 'lucide-react';
+import { APP_STORE_URL } from '@/lib/constants';
 import OfferloopLogo from '@/assets/offerloop_logo2.png';
 import HeroVideo from '@/assets/person-couch-swipe-apply-pass-wide-v2-blurred.mp4';
 const companyIconModules = import.meta.glob('@/assets/company-icons/*.png', {
@@ -391,10 +392,12 @@ const Index = () => {
                 <ArrowRight size={18} strokeWidth={2.2} />
               </button>
 
-              {/* App Store download button. Routes to the waitlist until the iOS app is live. */}
-              <button
-                onClick={() => navigate('/waitlist')}
-                aria-label="Download on the App Store"
+              {/* App Store download button — links straight to the live iOS listing. */}
+              <a
+                href={APP_STORE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Download Offerloop on the App Store"
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -405,6 +408,7 @@ const Index = () => {
                   borderRadius: '100px',
                   border: '1px solid rgba(255,255,255,0.28)',
                   cursor: 'pointer',
+                  textDecoration: 'none',
                   transition: 'transform 0.15s ease, background 0.15s ease',
                   whiteSpace: 'nowrap',
                 }}
@@ -418,7 +422,7 @@ const Index = () => {
                   <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.02em', opacity: 0.85 }}>Download on the</span>
                   <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.01em' }}>App Store</span>
                 </span>
-              </button>
+              </a>
             </div>
           </div>
         </div>
