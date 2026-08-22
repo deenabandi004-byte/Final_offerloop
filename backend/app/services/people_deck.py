@@ -29,6 +29,7 @@ email is written, only about what gets charged and when.
 """
 import hashlib
 import logging
+import re
 import traceback
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -183,6 +184,109 @@ def _search_count_today(db, user_id: str) -> int:
         return 0
 
 
+
+# ---------------------------------------------------------------------------
+# Search hygiene (Rylan 2026-08-21). Provider-agnostic rules that make every
+# rung's results land closer to what a student meant. Calibrated on the
+# benchmark runs: global freelancers for "software engineers", retired and
+# "incoming intern" profiles, synthetic "Trent-xyz Doe" test records, regional
+# resellers matched on a brand name, and single-word title variants like
+# "Engineer" dragging in process engineers.
+# ---------------------------------------------------------------------------
+
+DEFAULT_SEARCH_LOCATION = "United States"
+
+#: Title variants too generic to search on alone when a specific one exists.
+_GENERIC_TITLE_WORDS = {
+    "engineer", "manager", "analyst", "consultant", "associate", "director",
+    "specialist", "developer", "designer", "intern", "lead", "scientist",
+    "recruiter", "partner", "coordinator", "assistant", "officer", "advisor",
+}
+
+#: Title or company fragments that mean "not actually there to network with".
+_DISQUALIFYING_TITLE_PREFIXES = ("incoming", "aspiring", "future", "prospective")
+_DISQUALIFYING_FRAGMENTS = ("retired", "seeking opportunities", "looking for", "open to work")
+
+_SYNTHETIC_LAST_NAMES = {"doe", "test", "tester", "sample", "example"}
+_SYNTHETIC_FIRST_RE = re.compile(r"-[A-Za-z0-9]{6,}$")
+
+
+def _apply_search_rules(parsed: Dict[str, Any]) -> Dict[str, Any]:
+    """Shape the parsed prompt before any provider sees it."""
+    # Rule 1: no location means the US, not the planet.
+    if not parsed.get("locations"):
+        parsed["locations"] = [DEFAULT_SEARCH_LOCATION]
+        parsed["_defaulted_location"] = True
+
+    # Rule 3: a specific multi-word title makes its single-word generic
+    # siblings harmful ("Software Engineer" must not fan out to "Engineer").
+    titles = [t for t in (parsed.get("title_variations") or []) if isinstance(t, str) and t.strip()]
+    if any(len(t.split()) > 1 for t in titles):
+        kept = [t for t in titles if not (len(t.split()) == 1 and t.strip().lower() in _GENERIC_TITLE_WORDS)]
+        if kept:
+            parsed["title_variations"] = kept
+    return parsed
+
+
+def _missing_target(parsed: Dict[str, Any]) -> bool:
+    """Rule 2: a people search needs a company or an industry to aim at."""
+    return not (parsed.get("companies") or parsed.get("industries"))
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"[^a-z0-9 ]+", " ", (s or "").lower()).strip()
+
+
+def _filter_contacts(contacts: List[Dict[str, Any]], parsed: Dict[str, Any], user_id: str) -> List[Dict[str, Any]]:
+    """Drop what no student would want to email, and log why."""
+    targets = [
+        _norm(c.get("name") if isinstance(c, dict) else c)
+        for c in (parsed.get("companies") or [])
+    ]
+    targets = [t for t in targets if t]
+    dropped: Dict[str, int] = {}
+    seen: set = set()
+    out: List[Dict[str, Any]] = []
+
+    def drop(reason: str) -> None:
+        dropped[reason] = dropped.get(reason, 0) + 1
+
+    for c in contacts:
+        first = (c.get("FirstName") or "").strip()
+        last = (c.get("LastName") or "").strip()
+        title = (c.get("Title") or "").strip()
+        company = (c.get("Company") or "").strip()
+        tl, cl = title.lower(), company.lower()
+
+        if last.lower() in _SYNTHETIC_LAST_NAMES or _SYNTHETIC_FIRST_RE.search(first) or "test" in first.lower().split("-")[0:1]:
+            drop("synthetic_profile"); continue
+        if any(tl.startswith(p) for p in _DISQUALIFYING_TITLE_PREFIXES):
+            drop("not_there_yet"); continue
+        if any(f in tl or f in cl for f in _DISQUALIFYING_FRAGMENTS):
+            drop("retired_or_seeking"); continue
+
+        # Company precision: a brand name that appears but not at the start
+        # ("ABM SPORT - Nike representative") is a reseller or partner, not
+        # the company. Subsidiaries that lead with the name ("Deloitte
+        # Consulting") stay. A company string without the name at all is
+        # left alone: the provider matched it by id and we cannot judge.
+        if targets and company:
+            cn = _norm(company)
+            hit = [t for t in targets if t in cn]
+            if hit and not any(cn.startswith(t) for t in hit):
+                drop("brand_not_employer"); continue
+
+        key = (first.lower(), last.lower(), cl)
+        if key in seen:
+            drop("duplicate"); continue
+        seen.add(key)
+        out.append(c)
+
+    if dropped:
+        logger.info("people-deck hygiene uid=%s kept=%d dropped=%s", user_id, len(out), dropped)
+    return out
+
+
 def search_people(
     *,
     user_id: str,
@@ -236,6 +340,21 @@ def search_people(
                 "That was a little vague to search on. Add a role, a company, or a city."
             ),
         }, 400
+
+    parsed = _apply_search_rules(parsed)
+    if _missing_target(parsed):
+        # Rule 2 (Rylan 2026-08-21): without a company or industry every
+        # provider returns the planet's engineers. The app renders `reason`
+        # verbatim in the empty state, so say exactly what to add.
+        return {
+            "deck_id": "",
+            "people": [],
+            "next_cursor": None,
+            "reason": (
+                "Add a company or an industry so we search the right people. "
+                "Try \"software engineers at Stripe\" or \"analysts in consulting\"."
+            ),
+        }, 200
 
     # Over-fetch deliberately. PDL's post-filters (company match, alumni) drop a
     # meaningful share of what comes back, and a deck that promised twenty and
@@ -374,6 +493,8 @@ def search_people(
                 logger.exception("people-deck hunter bridge failed for uid=%s", user_id)
                 contacts = contacts or []
 
+
+    contacts = _filter_contacts(contacts or [], parsed, user_id)
 
     if not contacts:
         # The searcher often KNOWS why it came back empty ("found 25 people

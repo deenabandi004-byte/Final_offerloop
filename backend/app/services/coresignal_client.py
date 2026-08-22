@@ -403,17 +403,27 @@ def _normalize_to_contact(
     # most recent experience array entry.
     title = (prof.get("active_experience_title") or "").strip()
     company = ""
+    actives = [e for e in (prof.get("experience") or []) if isinstance(e, dict) and e.get("active_experience") == 1]
+    # People hold two active positions (a Deloitte consultant who also lists
+    # a side role first, benchmark 2026-08-20). When the search named a
+    # company, the active position AT that company is the one the card and
+    # the "currently at target" flag should describe.
+    if target_company and actives:
+        tc = target_company.strip().lower()
+        for exp in actives:
+            if tc and tc in (exp.get("company_name") or "").lower():
+                title = (exp.get("position_title") or "").strip() or title
+                company = (exp.get("company_name") or "").strip()
+                break
     if not title:
-        for exp in prof.get("experience") or []:
-            if exp.get("active_experience") == 1:
-                title = (exp.get("position_title") or "").strip()
-                company = (exp.get("company_name") or "").strip()
-                break
+        for exp in actives:
+            title = (exp.get("position_title") or "").strip()
+            company = company or (exp.get("company_name") or "").strip()
+            break
     if not company:
-        for exp in prof.get("experience") or []:
-            if exp.get("active_experience") == 1:
-                company = (exp.get("company_name") or "").strip()
-                break
+        for exp in actives:
+            company = (exp.get("company_name") or "").strip()
+            break
     if not company and (prof.get("experience") or []):
         company = (prof["experience"][0].get("company_name") or "").strip()
 
