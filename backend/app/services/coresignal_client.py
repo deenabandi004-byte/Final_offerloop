@@ -301,14 +301,17 @@ def _build_es_query(parsed: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             }
         })
 
-    # Location is a flat field on the profile.
+    # Location is a flat field on the profile. match_phrase, not match:
+    # analyzed OR-matching let "United Kingdom" pass a "United States"
+    # filter token-by-token (caught via a Goa profile on a US-defaulted
+    # deck, 2026-08-24). Phrase matching pins the whole value.
     if locations:
         must.append({
             "bool": {
                 "should": [
-                    {"match": {"location_full": loc}} for loc in locations
+                    {"match_phrase": {"location_full": loc}} for loc in locations
                 ] + [
-                    {"match": {"location_country": loc}} for loc in locations
+                    {"match_phrase": {"location_country": loc}} for loc in locations
                 ],
                 "minimum_should_match": 1,
             }
