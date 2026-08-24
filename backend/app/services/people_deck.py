@@ -788,6 +788,42 @@ def reveal_person(
                 contact["EmailSource"] = "coresignal_smtp_valid"
                 contact["EmailVerified"] = True
 
+    # FullEnrich waterfall (2026-08-24, the chosen email layer): when no
+    # provider handed us a sellable address, hunt one at reveal time. Works
+    # for ANY provider's contact. 1 credit only when an email is found.
+    # DELIVERABLE sells as-is (their measured ~2% bounce); HIGH_PROBABILITY
+    # must also pass our SMTP gate; everything else stays a miss.
+    if not address:
+        try:
+            from app.services import fullenrich_client
+            hit = fullenrich_client.find_work_email(
+                first_name=(contact.get("FirstName") or "").strip(),
+                last_name=(contact.get("LastName") or "").strip(),
+                company=(contact.get("Company") or "").strip(),
+                linkedin_url=(contact.get("LinkedIn") or "").strip(),
+                db=db,
+            )
+        except Exception:
+            logger.exception("people-deck fullenrich failed uid=%s", user_id)
+            hit = None
+        if hit:
+            ok = hit["status"] == "DELIVERABLE"
+            if not ok:
+                try:
+                    if neverbounce_client.is_configured():
+                        ok = neverbounce_client.verify_email(hit["email"]).get("result") == neverbounce_client.RESULT_VALID
+                    else:
+                        from app.services.crustdata_client import _hunter_says_deliverable
+                        ok = _hunter_says_deliverable(hit["email"])
+                except Exception:
+                    logger.exception("people-deck fullenrich verify failed uid=%s", user_id)
+                    ok = False
+            if ok:
+                address = hit["email"]
+                contact["Email"] = address
+                contact["EmailSource"] = f"fullenrich_{hit['status'].lower()}"
+                contact["EmailVerified"] = True
+
     if not address:
         return {"email": None, "verified": False, "charged": False,
                 "drafted": False, "sent": False}, 200
