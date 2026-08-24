@@ -896,8 +896,11 @@ def reveal_person(
             from app.services import fullenrich_client
             fe_job = deck.get("fe_job") or {}
             if fe_job.get("id"):
-                fe_checked = True
-                results = fullenrich_client.fetch_bulk(fe_job["id"], wait_seconds=25, db=db)
+                ready, results = fullenrich_client.fetch_bulk(fe_job["id"], wait_seconds=10, db=db)
+                # Authoritative only when the job FINISHED: then a missing
+                # pid is a real miss and the live fallback would waste 30s
+                # rediscovering it. A still-running job falls through.
+                fe_checked = bool(ready)
                 hit_pre = results.get(str(person_id))
                 if hit_pre:
                     ok = hit_pre["status"] == "DELIVERABLE"

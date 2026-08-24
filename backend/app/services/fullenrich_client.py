@@ -173,11 +173,13 @@ def start_bulk(people, db=None) -> str:
         return ""
 
 
-def fetch_bulk(enrichment_id: str, wait_seconds: int = 12, db=None) -> Dict[str, Dict[str, Any]]:
-    """Result of a prefetch job as {pid: {email, status}}, sellable tiers
-    only. Waits briefly if the job is still running. {} on any failure."""
+def fetch_bulk(enrichment_id: str, wait_seconds: int = 12, db=None):
+    """(ready, {pid: {email, status}}) for a prefetch job, sellable tiers
+    only. ready=False means the job is still running (caller should fall
+    back to a live lookup); ready=True with a missing pid is an
+    authoritative miss. (False, {}) on any failure."""
     if not _key() or not enrichment_id:
-        return {}
+        return False, {}
     deadline = time.time() + max(0, wait_seconds)
     body = None
     try:
@@ -189,7 +191,7 @@ def fetch_bulk(enrichment_id: str, wait_seconds: int = 12, db=None) -> Dict[str,
                 break
             if time.time() >= deadline:
                 logger.info("fullenrich prefetch %s not ready in %ss", enrichment_id, wait_seconds)
-                return {}
+                return False, {}
             time.sleep(3)
         credits = float((body.get("cost") or {}).get("credits") or 0)
         if credits and db is not None and not _spent_marked(db, enrichment_id):
@@ -202,10 +204,12 @@ def fetch_bulk(enrichment_id: str, wait_seconds: int = 12, db=None) -> Dict[str,
             status = (best.get("status") or "").upper()
             if pid and email and status in ("DELIVERABLE", "HIGH_PROBABILITY"):
                 out[pid] = {"email": email, "status": status}
-        return out
+        logger.info("fullenrich prefetch %s FINISHED: %d sellable of %d rows",
+                    enrichment_id, len(out), len(body.get("data") or []))
+        return True, out
     except Exception:
         logger.exception("fullenrich: fetch_bulk failed")
-        return {}
+        return False, {}
 
 
 def _spent_marked(db, enrichment_id: str) -> bool:
