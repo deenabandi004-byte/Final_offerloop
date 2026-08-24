@@ -357,6 +357,18 @@ def search_people(
         }, 400
 
     parsed = _apply_search_rules(parsed)
+
+    # Recency lever (2026-08-24, shipped for real this time): recency
+    # phrasing becomes a joined-after filter the Coresignal builder folds
+    # into the company clause ("February 2026"-style formats).
+    if re.search(
+        r"recent(ly)?\s+(hired|joined|hires?|joiners?)|new\s+(hires?|joiners?)"
+        r"|just\s+(joined|hired|started)|joined\s+recently|last\s+\d+\s+months",
+        prompt.lower(),
+    ):
+        parsed["joined_after"] = (datetime.utcnow() - timedelta(days=183)).strftime("%B %Y")
+        logger.info("people-deck recency lever: joined_after=%s prompt=%r",
+                    parsed["joined_after"], prompt[:80])
     if _missing_target(parsed):
         # Rule 2 (Rylan 2026-08-21): without a company or industry every
         # provider returns the planet's engineers. The app renders `reason`
@@ -852,6 +864,7 @@ def reveal_person(
                 contact["EmailSource"] = "coresignal_smtp_valid"
                 contact["EmailVerified"] = True
 
+    fe_checked = False
     # Prefetched waterfall result first: the deck-serve started one bulk
     # enrichment for these people; by swipe time it is usually FINISHED,
     # so this is a lookup, not a wait.
@@ -860,7 +873,8 @@ def reveal_person(
             from app.services import fullenrich_client
             fe_job = deck.get("fe_job") or {}
             if fe_job.get("id"):
-                results = fullenrich_client.fetch_bulk(fe_job["id"], wait_seconds=12, db=db)
+                fe_checked = True
+                results = fullenrich_client.fetch_bulk(fe_job["id"], wait_seconds=25, db=db)
                 hit_pre = results.get(str(person_id))
                 if hit_pre:
                     ok = hit_pre["status"] == "DELIVERABLE"
@@ -902,7 +916,7 @@ def reveal_person(
     # for ANY provider's contact. 1 credit only when an email is found.
     # DELIVERABLE sells as-is (their measured ~2% bounce); HIGH_PROBABILITY
     # must also pass our SMTP gate; everything else stays a miss.
-    if not address:
+    if not address and not fe_checked:
         try:
             from app.services import fullenrich_client
             hit = fullenrich_client.find_work_email(

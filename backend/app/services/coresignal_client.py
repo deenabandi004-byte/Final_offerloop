@@ -141,6 +141,14 @@ def search_contacts_from_prompt(
             normalized = _normalize_to_contact(prof, target_company=target_company)
             if not normalized:
                 continue
+            # Promotion guard: "joined recently" means the person's FIRST
+            # entry at the target company is recent, not merely their
+            # newest title.
+            if parsed_prompt.get("joined_after") and target_company:
+                if not _joined_recently(prof, target_company, parsed_prompt["joined_after"]):
+                    logger.info("coresignal recency guard dropped %s (tenure predates cutoff)",
+                                normalized.get("FirstName", "?"))
+                    continue
             key = _contact_key(normalized)
             if key and key in seen_keys:
                 already_saved.append(normalized)
@@ -216,6 +224,11 @@ def _build_es_query(parsed: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         nested_must: List[Dict[str, Any]] = [
             {"term": {"experience.active_experience": 1}},
         ]
+        # Joined-recently constrains the SAME experience entry as the
+        # company match; a sibling clause matched ANY recent entry, which
+        # let a 4-year veteran with a fresh promotion pass as a new hire.
+        if parsed.get("joined_after"):
+            nested_must.append({"range": {"experience.date_from": {"gte": parsed["joined_after"]}}})
         if len(company_names) == 1:
             nested_must.append({"match_phrase": {"experience.company_name": company_names[0]}})
         else:
@@ -277,21 +290,6 @@ def _build_es_query(parsed: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             }
         })
 
-    # Joined-company-recently (capability matrix 2026-08-24): their date
-    # fields want "February 2026"-style values; a bare year also works.
-    joined_after = parsed.get("joined_after")  # e.g. "February 2026"
-    if joined_after and company_names:
-        # fold into the same nested experience clause via a sibling must
-        must.append({
-            "nested": {
-                "path": "experience",
-                "query": {"bool": {"must": [
-                    {"term": {"experience.active_experience": 1}},
-                    {"range": {"experience.date_from": {"gte": joined_after}}},
-                ]}},
-            }
-        })
-
     # Skills, matched against Coresignal's inferred_skills (982 React
     # engineers at Stripe in the live probe).
     skills = [sk for sk in (parsed.get("skills") or []) if isinstance(sk, str) and sk.strip()]
@@ -336,6 +334,30 @@ def _target_company_name(parsed: Dict[str, Any]) -> Optional[str]:
 
 def _headers() -> Dict[str, str]:
     return {"apikey": CORESIGNAL_API_KEY, "Content-Type": "application/json"}
+
+
+def _joined_recently(prof: Dict[str, Any], target_company: str, joined_after: str) -> bool:
+    """True when the person's EARLIEST stint at the target company started
+    on or after the cutoff ("February 2026"-style). Unknown dates pass."""
+    from datetime import datetime as _dt
+    try:
+        cutoff = _dt.strptime(joined_after, "%B %Y")
+    except Exception:
+        return True
+    tc = (target_company or "").strip().lower()
+    earliest = None
+    for e in prof.get("experience") or []:
+        if not isinstance(e, dict):
+            continue
+        if tc not in (e.get("company_name") or "").lower():
+            continue
+        y, mo = e.get("date_from_year"), e.get("date_from_month") or 1
+        if not y:
+            continue
+        stamp = _dt(int(y), int(mo), 1)
+        if earliest is None or stamp < earliest:
+            earliest = stamp
+    return earliest is None or earliest >= cutoff
 
 
 def alumni_first_ids(parsed, school: str, page_size: int = 30):
