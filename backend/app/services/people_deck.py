@@ -427,6 +427,9 @@ def search_people(
                         min(limit, _max_collects),
                         exclude_keys=set(),
                         user_profile=user_doc,
+                        # Alumni-first: same filters, the student's school,
+                        # those people lead the deck (free extra search).
+                        alumni_school=(user_doc.get("school") or "").strip() or None,
                     )
                     _collected = int((cs_meta or {}).get("collected_count") or 0)
                     if _collected:
@@ -448,6 +451,24 @@ def search_people(
                     logger.warning("coresignal: test budget exhausted (%.0f of %.0f)", _spent, _budget)
         except Exception:
             logger.exception("people-deck coresignal rung failed for uid=%s", user_id)
+            contacts = contacts or []
+
+    # FullEnrich budget-discovery rung (env-gated, photo-less; capability
+    # matrix 2026-08-24: rich rows at 0.25 cr/result). Default OFF: the
+    # swipe deck's photos are measured product value.
+    if not contacts:
+        try:
+            from app.services import fullenrich_search
+            if fullenrich_search.discovery_enabled(db):
+                contacts, _lvl2, _saved2, fe_meta = fullenrich_search.search_contacts_from_prompt(
+                    parsed, min(limit, 20), exclude_keys=set(), user_profile=user_doc, db=db)
+                if contacts:
+                    _adjacency = dict(fe_meta or {})
+                    _adjacency["provider"] = "fullenrich_search"
+                    logger.info("people-deck fullenrich-search rung uid=%s returned %d",
+                                user_id, len(contacts))
+        except Exception:
+            logger.exception("people-deck fullenrich-search rung failed uid=%s", user_id)
             contacts = contacts or []
 
     if not contacts:
@@ -787,6 +808,22 @@ def reveal_person(
                 contact["Email"] = address
                 contact["EmailSource"] = "coresignal_smtp_valid"
                 contact["EmailVerified"] = True
+
+    # Crustdata v2 (enterprise path, dormant unless CRUSTDATA_V2_ENABLED=1):
+    # deliverable-labeled business email at 1 credit per matched person.
+    if not address:
+        try:
+            from app.services import crustdata_v2_client
+            if crustdata_v2_client.enabled():
+                hit_v2 = crustdata_v2_client.deliverable_business_email(
+                    (contact.get("LinkedInUrn") or contact.get("LinkedIn") or "").strip())
+                if hit_v2:
+                    address = hit_v2["email"]
+                    contact["Email"] = address
+                    contact["EmailSource"] = "crustdata_v2_deliverable"
+                    contact["EmailVerified"] = True
+        except Exception:
+            logger.exception("people-deck crustdata-v2 failed uid=%s", user_id)
 
     # FullEnrich waterfall (2026-08-24, the chosen email layer): when no
     # provider handed us a sellable address, hunt one at reveal time. Works

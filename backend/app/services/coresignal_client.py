@@ -74,6 +74,7 @@ def search_contacts_from_prompt(
     max_contacts: int,
     exclude_keys: Optional[Set[str]] = None,
     user_profile: Optional[Dict[str, Any]] = None,
+    alumni_school: Optional[str] = None,
 ) -> Tuple[List[Dict[str, Any]], int, List[Dict[str, Any]], Optional[Dict[str, Any]]]:
     """
     Drop-in surface for pdl_client.search_contacts_from_prompt.
@@ -101,6 +102,16 @@ def search_contacts_from_prompt(
     ids = _search_ids(query, page_size=DEFAULT_SEARCH_PAGE_SIZE)
     if not ids:
         return [], 0, [], {"provider": "coresignal", "raw_count": 0}
+
+    # Alumni-first (2026-08-24): the same search constrained to the
+    # student's own school, and those people lead the deck. Searches are
+    # free; the warmth scorer then writes a real "fellow Trojan" opener.
+    if alumni_school:
+        alumni = alumni_first_ids(parsed_prompt, alumni_school, page_size=max_contacts * 2)
+        if alumni:
+            alumni_set = set(alumni)
+            ids = alumni + [i for i in ids if i not in alumni_set]
+            logger.info("coresignal alumni-first: %d alumni lead the deck", len(alumni))
 
     # Lazy collect: walk the ID list, fetching in parallel batches sized to
     # exactly what we still need. Each Collect call is 1 paid credit, so
@@ -266,6 +277,32 @@ def _build_es_query(parsed: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             }
         })
 
+    # Joined-company-recently (capability matrix 2026-08-24): their date
+    # fields want "February 2026"-style values; a bare year also works.
+    joined_after = parsed.get("joined_after")  # e.g. "February 2026"
+    if joined_after and company_names:
+        # fold into the same nested experience clause via a sibling must
+        must.append({
+            "nested": {
+                "path": "experience",
+                "query": {"bool": {"must": [
+                    {"term": {"experience.active_experience": 1}},
+                    {"range": {"experience.date_from": {"gte": joined_after}}},
+                ]}},
+            }
+        })
+
+    # Skills, matched against Coresignal's inferred_skills (982 React
+    # engineers at Stripe in the live probe).
+    skills = [sk for sk in (parsed.get("skills") or []) if isinstance(sk, str) and sk.strip()]
+    if skills:
+        must.append({
+            "bool": {
+                "should": [{"match": {"inferred_skills": sk}} for sk in skills],
+                "minimum_should_match": 1,
+            }
+        })
+
     # Location is a flat field on the profile.
     if locations:
         must.append({
@@ -299,6 +336,33 @@ def _target_company_name(parsed: Dict[str, Any]) -> Optional[str]:
 
 def _headers() -> Dict[str, str]:
     return {"apikey": CORESIGNAL_API_KEY, "Content-Type": "application/json"}
+
+
+def alumni_first_ids(parsed, school: str, page_size: int = 30):
+    """IDs for people matching the search AND sharing the student's school.
+
+    The warm-intro query the capability matrix proved (1,000 USC alumni
+    currently at Deloitte): free to run, and the deck leads with people the
+    warmth scorer can write a real opening line about. Returns [] on any
+    failure; the caller treats alumni as a bonus, never a dependency.
+    """
+    school = (school or "").strip()
+    if not school:
+        return []
+    base = _build_es_query(parsed)
+    if base is None:
+        return []
+    try:
+        base["query"]["bool"].setdefault("must", []).append({
+            "nested": {
+                "path": "education",
+                "query": {"match_phrase": {"education.institution_name": school}},
+            }
+        })
+        return _search_ids(base, page_size=page_size)
+    except Exception:
+        logger.exception("coresignal: alumni-first search failed")
+        return []
 
 
 def _search_ids(query: Dict[str, Any], page_size: int = DEFAULT_SEARCH_PAGE_SIZE) -> List[int]:
