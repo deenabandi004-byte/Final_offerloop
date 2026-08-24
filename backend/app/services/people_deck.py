@@ -334,7 +334,21 @@ def search_people(
         }, 429
 
     parsed = parse_search_prompt_structured(prompt)
-    if parsed.get("error") or parsed.get("confidence") == "low":
+    if parsed.get("error"):
+        return {
+            "error": "vague",
+            "message": (
+                "That was a little vague to search on. Add a role, a company, or a city."
+            ),
+        }, 400
+    # A low-confidence parse used to 400 here, which turned "recently hired
+    # engineers" into a dead-feeling error (live session 2026-08-24). If the
+    # parse produced ANYTHING actionable (a title, company, or industry),
+    # continue: the target rule below returns a 200 empty state that says
+    # exactly what to add, which is guidance, not a wall.
+    if parsed.get("confidence") == "low" and not (
+        parsed.get("title_variations") or parsed.get("companies") or parsed.get("industries")
+    ):
         return {
             "error": "vague",
             "message": (
@@ -353,7 +367,8 @@ def search_people(
             "next_cursor": None,
             "reason": (
                 "Add a company or an industry so we search the right people. "
-                "Try \"software engineers at Stripe\" or \"analysts in consulting\"."
+                "Try \"software engineers at Stripe\", \"analysts in consulting\", "
+                "or \"recently hired engineers at Datadog\"."
             ),
         }, 200
 
