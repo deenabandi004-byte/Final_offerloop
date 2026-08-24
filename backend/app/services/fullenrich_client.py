@@ -34,7 +34,7 @@ BUDGET = float(os.getenv("FULLENRICH_BUDGET", "450"))
 #: How long a synchronous reveal will wait on the waterfall before giving
 #: up. Abandoned enrichments may still complete (and bill) server-side;
 #: at 1 credit per find that is an accepted cost, logged when it happens.
-POLL_SECONDS = int(os.getenv("FULLENRICH_POLL_SECONDS", "45"))
+POLL_SECONDS = int(os.getenv("FULLENRICH_POLL_SECONDS", "30"))
 
 _BUDGET_DOC = ("meta", "fullenrichBudget")
 
@@ -134,3 +134,90 @@ def find_work_email(
     except Exception:
         logger.exception("fullenrich: find_work_email failed")
         return None
+
+def start_bulk(people, db=None) -> str:
+    """Fire ONE waterfall for a whole deck's email-less people.
+
+    `people` is [(pid, first, last, company, linkedin_url)]. One call per
+    deck instead of one per swipe (their start endpoint 429s bursts), and
+    by swipe time the result is usually FINISHED, so reveals become
+    instant lookups. Returns the enrichment id, or "" on any failure.
+    """
+    if not _key() or not people:
+        return ""
+    data = []
+    for pid, first, last, company, linkedin in people[:100]:
+        row = {"first_name": first or "", "last_name": last or "",
+               "company_name": company or "",
+               "enrich_fields": ["contact.work_emails"],
+               "custom": {"pid": str(pid)}}
+        if linkedin:
+            row["linkedin_url"] = linkedin
+        data.append(row)
+    try:
+        r = requests.post(f"{BASE}/contact/enrich/bulk", headers=_headers(),
+                          json={"name": "offerloop-deck-prefetch", "data": data},
+                          timeout=20)
+        if r.status_code == 429:
+            time.sleep(3)
+            r = requests.post(f"{BASE}/contact/enrich/bulk", headers=_headers(),
+                              json={"name": "offerloop-deck-prefetch", "data": data},
+                              timeout=20)
+        logger.info("fullenrich prefetch start (%d people) -> %s %s",
+                    len(data), r.status_code, r.text[:120])
+        if r.status_code not in (200, 201):
+            return ""
+        return r.json().get("enrichment_id") or r.json().get("id") or ""
+    except Exception:
+        logger.exception("fullenrich: start_bulk failed")
+        return ""
+
+
+def fetch_bulk(enrichment_id: str, wait_seconds: int = 12, db=None) -> Dict[str, Dict[str, Any]]:
+    """Result of a prefetch job as {pid: {email, status}}, sellable tiers
+    only. Waits briefly if the job is still running. {} on any failure."""
+    if not _key() or not enrichment_id:
+        return {}
+    deadline = time.time() + max(0, wait_seconds)
+    body = None
+    try:
+        while True:
+            g = requests.get(f"{BASE}/contact/enrich/bulk/{enrichment_id}",
+                             headers=_headers(), timeout=15)
+            if g.status_code == 200 and g.json().get("status") == "FINISHED":
+                body = g.json()
+                break
+            if time.time() >= deadline:
+                logger.info("fullenrich prefetch %s not ready in %ss", enrichment_id, wait_seconds)
+                return {}
+            time.sleep(3)
+        credits = float((body.get("cost") or {}).get("credits") or 0)
+        if credits and db is not None and not _spent_marked(db, enrichment_id):
+            _add_spend(db, credits)
+        out: Dict[str, Dict[str, Any]] = {}
+        for row in body.get("data") or []:
+            pid = str(((row.get("custom") or {}).get("pid")) or "")
+            best = ((row.get("contact_info") or {}).get("most_probable_work_email") or {})
+            email = (best.get("email") or "").strip().lower()
+            status = (best.get("status") or "").upper()
+            if pid and email and status in ("DELIVERABLE", "HIGH_PROBABILITY"):
+                out[pid] = {"email": email, "status": status}
+        return out
+    except Exception:
+        logger.exception("fullenrich: fetch_bulk failed")
+        return {}
+
+
+def _spent_marked(db, enrichment_id: str) -> bool:
+    """Bill a prefetch job's credits into the guard exactly once."""
+    try:
+        ref = db.collection("meta").document("fullenrichBudget")
+        doc = ref.get().to_dict() or {}
+        seen = doc.get("billed_jobs") or []
+        if enrichment_id in seen:
+            return True
+        ref.set({"billed_jobs": (seen + [enrichment_id])[-200:]}, merge=True)
+        return False
+    except Exception:
+        return False
+

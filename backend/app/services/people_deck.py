@@ -29,6 +29,7 @@ email is written, only about what gets charged and when.
 """
 import hashlib
 import logging
+import os
 import re
 import traceback
 from datetime import datetime, timedelta, timezone
@@ -583,6 +584,33 @@ def search_people(
         logger.exception("people-deck stash failed for uid=%s", user_id)
         return {"error": "search_failed", "message": "Could not save that search."}, 502
 
+    # FullEnrich prefetch (2026-08-24): one bulk waterfall for every SHOWN
+    # card that lacks a sellable address, fired while the student is still
+    # reading card one. Reveals become instant lookups instead of 45-second
+    # timeouts (the first live session logged nine of those), and one call
+    # per deck sidesteps their per-request rate limit. Costs a credit only
+    # per FOUND email among shown cards (~$0.35/deck at measured hit rates).
+    try:
+        from app.services import fullenrich_client
+        if fullenrich_client.enabled(db) and os.getenv("FULLENRICH_PREFETCH", "1") == "1":
+            wanting = [
+                (pid,
+                 stash[pid].get("FirstName") or "",
+                 stash[pid].get("LastName") or "",
+                 stash[pid].get("Company") or "",
+                 (stash[pid].get("LinkedIn") or "").strip())
+                for pid in order[:limit]
+                if not _has_address(stash[pid]) and not stash[pid].get("PendingEmail")
+            ]
+            if wanting:
+                eid = fullenrich_client.start_bulk(wanting, db=db)
+                if eid:
+                    _deck_ref(db, user_id, deck_id).update({"fe_job": {
+                        "id": eid, "pids": [w[0] for w in wanting],
+                    }})
+    except Exception:
+        logger.exception("people-deck prefetch failed for uid=%s", user_id)
+
     return _batch_payload(db, user_id, deck_id, order, stash, offset=0, limit=limit), 200
 
 
@@ -808,6 +836,35 @@ def reveal_person(
                 contact["Email"] = address
                 contact["EmailSource"] = "coresignal_smtp_valid"
                 contact["EmailVerified"] = True
+
+    # Prefetched waterfall result first: the deck-serve started one bulk
+    # enrichment for these people; by swipe time it is usually FINISHED,
+    # so this is a lookup, not a wait.
+    if not address:
+        try:
+            from app.services import fullenrich_client
+            fe_job = deck.get("fe_job") or {}
+            if fe_job.get("id"):
+                results = fullenrich_client.fetch_bulk(fe_job["id"], wait_seconds=12, db=db)
+                hit_pre = results.get(str(person_id))
+                if hit_pre:
+                    ok = hit_pre["status"] == "DELIVERABLE"
+                    if not ok:
+                        try:
+                            if neverbounce_client.is_configured():
+                                ok = neverbounce_client.verify_email(hit_pre["email"]).get("result") == neverbounce_client.RESULT_VALID
+                            else:
+                                from app.services.crustdata_client import _hunter_says_deliverable
+                                ok = _hunter_says_deliverable(hit_pre["email"])
+                        except Exception:
+                            ok = False
+                    if ok:
+                        address = hit_pre["email"]
+                        contact["Email"] = address
+                        contact["EmailSource"] = f"fullenrich_prefetch_{hit_pre['status'].lower()}"
+                        contact["EmailVerified"] = True
+        except Exception:
+            logger.exception("people-deck prefetch lookup failed uid=%s", user_id)
 
     # Crustdata v2 (enterprise path, dormant unless CRUSTDATA_V2_ENABLED=1):
     # deliverable-labeled business email at 1 credit per matched person.
