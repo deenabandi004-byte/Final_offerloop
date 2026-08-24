@@ -288,6 +288,18 @@ def _filter_contacts(contacts: List[Dict[str, Any]], parsed: Dict[str, Any], use
     return out
 
 
+
+def _track(db, kind: str, payload: Dict[str, Any]) -> None:
+    """One compact record per provider decision, so 'which path did what,
+    when, and why' is queryable instead of grep-able. Best effort: tracking
+    must never break the product path."""
+    try:
+        doc = {"kind": kind, "at": datetime.now(timezone.utc), **payload}
+        db.collection("providerEvents").add(doc)
+    except Exception:
+        logger.exception("provider event write failed (%s)", kind)
+
+
 def search_people(
     *,
     user_id: str,
@@ -638,6 +650,17 @@ def search_people(
     except Exception:
         logger.exception("people-deck prefetch failed for uid=%s", user_id)
 
+    _track(db, "search", {
+        "uid": user_id,
+        "deck": deck_id,
+        "provider": (_adjacency or {}).get("provider") or "pdl",
+        "prompt": prompt[:120],
+        "joined_after": parsed.get("joined_after") or "",
+        "companies": [c.get("name") if isinstance(c, dict) else c for c in (parsed.get("companies") or [])][:3],
+        "shown": min(len(order), limit),
+        "stash_total": len(order),
+    })
+
     return _batch_payload(db, user_id, deck_id, order, stash, offset=0, limit=limit), 200
 
 
@@ -948,8 +971,18 @@ def reveal_person(
                 contact["EmailVerified"] = True
 
     if not address:
+        _track(db, "reveal", {
+            "uid": user_id, "deck": deck_id, "pid": person_id,
+            "outcome": "no_email", "source": "", "provider": contact.get("_provider") or "",
+            "fe_prefetch_checked": bool(locals().get("fe_checked")),
+        })
         return {"email": None, "verified": False, "charged": False,
                 "drafted": False, "sent": False}, 200
+    _track(db, "reveal", {
+        "uid": user_id, "deck": deck_id, "pid": person_id,
+        "outcome": "email_found", "source": contact.get("EmailSource") or "provider_direct",
+        "provider": contact.get("_provider") or "",
+    })
 
     # Cross-deck guard (2026-08-18). The `revealed` map above is PER DECK, and
     # a re-run of the same prompt mints a new deck_id, so without this the
