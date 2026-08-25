@@ -1021,6 +1021,40 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
             if briefing:
                 contact["briefing"] = briefing
 
+        # FullEnrich backfill (2026-08-25): every surface that runs this
+        # pipeline (job right-swipe, website Find, Loops) was mailing whatever
+        # address the searcher happened to hold, and PDL-era addresses bounce
+        # ~50% when trusted blind. Before any email is written, contacts
+        # WITHOUT a verified address get one waterfall lookup: DELIVERABLE
+        # adopts as-is, anything weaker keeps the original as a fallback.
+        # Capped so a large website batch cannot stack minutes of waterfall
+        # waits; 1 credit only on found, misses free.
+        _FE_BACKFILL_CAP = 6
+        if outreach_mode != "preview" and contacts:
+            _fe_done = 0
+            for contact in contacts:
+                if _fe_done >= _FE_BACKFILL_CAP:
+                    break
+                if contact.get("EmailVerified"):
+                    continue
+                try:
+                    from app.services import fullenrich_client
+                    _fe_hit = fullenrich_client.find_work_email(
+                        first_name=(contact.get("FirstName") or "").strip(),
+                        last_name=(contact.get("LastName") or "").strip(),
+                        company=(contact.get("Company") or "").strip(),
+                        linkedin_url=(contact.get("LinkedIn") or "").strip(),
+                        db=db,
+                    )
+                except Exception:
+                    print("[ContactSearch] FullEnrich backfill errored; keeping original address")
+                    _fe_hit = None
+                _fe_done += 1
+                if _fe_hit and _fe_hit.get("email") and _fe_hit.get("status") == "DELIVERABLE":
+                    contact["Email"] = _fe_hit["email"]
+                    contact["EmailSource"] = "fullenrich_backfill"
+                    contact["EmailVerified"] = True
+
         if outreach_mode != "preview":
             _progress("writing", "Writing your outreach", 62)
 

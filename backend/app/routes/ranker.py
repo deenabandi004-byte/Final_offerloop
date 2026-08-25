@@ -376,7 +376,9 @@ def reveal_candidate_email(candidate_id):
             "have":     remaining,
         }), 402
 
-    # ── 4. Hunter. Any exception → refund (safely) and return provider_error.
+    # ── 4. Hunter first. An exception here no longer ends the reveal — the
+    # waterfall below hunts the same person across fifteen sources, so a
+    # single provider's bad day is not the user's no-hit.
     try:
         from app.services.hunter import get_verified_email
         result = get_verified_email(
@@ -387,17 +389,10 @@ def reveal_candidate_email(candidate_id):
         ) or {}
     except Exception as exc:
         logger.warning(
-            "reveal: Hunter call raised uid=%s cid=%s: %s",
+            "reveal: Hunter call raised uid=%s cid=%s: %s (falling to waterfall)",
             uid, candidate_id, exc,
         )
-        _try_refund(uid, cost, "reveal_email_refund")
-        return jsonify({
-            "email":    None,
-            "verified": False,
-            "reason":   "provider_error",
-            "cached":   False,
-            "charged":  False,
-        })
+        result = {}
 
     email      = (result.get("email") or "").strip() or None
     verified   = bool(result.get("email_verified"))
@@ -416,6 +411,46 @@ def reveal_candidate_email(candidate_id):
             or (source == "hunter_finder" and confidence >= REVEAL_CHARGE_MIN_CONFIDENCE)
         )
     )
+
+    # ── 4b. FullEnrich waterfall (2026-08-25). Hunter is one database; the
+    # bench measured single sources at 40-60% on US targets while the
+    # waterfall ran 88-95%, and THIS deck was the only surface still
+    # stopping at one source. Same contract as the prompt deck's reveal:
+    # DELIVERABLE sells as-is, HIGH_PROBABILITY must pass the SMTP gate,
+    # anything else stays a miss. 1 FullEnrich credit only when found.
+    if not charge_worthy:
+        fe_hit = None
+        try:
+            from app.services import fullenrich_client
+            fe_hit = fullenrich_client.find_work_email(
+                first_name=first,
+                last_name=last,
+                company=company_display,
+                linkedin_url=(fs.get("linkedin_url") or "").strip(),
+                db=db,
+            )
+        except Exception:
+            logger.exception("reveal: fullenrich failed uid=%s cid=%s", uid, candidate_id)
+        if fe_hit and fe_hit.get("email"):
+            fe_ok = fe_hit.get("status") == "DELIVERABLE"
+            if not fe_ok:
+                try:
+                    from app.services import neverbounce_client
+                    if neverbounce_client.is_configured():
+                        fe_ok = (neverbounce_client.verify_email(fe_hit["email"])
+                                 .get("result") == neverbounce_client.RESULT_VALID)
+                    else:
+                        from app.services.crustdata_client import _hunter_says_deliverable
+                        fe_ok = _hunter_says_deliverable(fe_hit["email"])
+                except Exception:
+                    logger.exception("reveal: waterfall SMTP gate failed uid=%s", uid)
+                    fe_ok = False
+            if fe_ok:
+                email = fe_hit["email"]
+                verified = True
+                source = f"fullenrich_{(fe_hit.get('status') or 'found').lower()}"
+                confidence = 0
+                charge_worthy = True
 
     if not charge_worthy:
         _try_refund(uid, cost, "reveal_email_refund")
