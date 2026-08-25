@@ -47,10 +47,22 @@ def _headers() -> Dict[str, str]:
     return {"Authorization": f"Bearer {_key()}", "Content-Type": "application/json"}
 
 
+def _month() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime("%Y-%m")
+
+
 def _spent(db) -> float:
+    """Credits spent THIS CALENDAR MONTH. The subscription's credits reset
+    monthly, so a cumulative counter would wrongly brick the vendor forever
+    once lifetime spend passed one month's ceiling (2026-08-25). A doc
+    stamped with an older month reads as zero; the next write resets it."""
     try:
         snap = db.collection(_BUDGET_DOC[0]).document(_BUDGET_DOC[1]).get()
-        return float((snap.to_dict() or {}).get("spent_estimate", 0.0)) if snap.exists else 0.0
+        doc = (snap.to_dict() or {}) if snap.exists else {}
+        if doc.get("month") != _month():
+            return 0.0
+        return float(doc.get("spent_estimate", 0.0))
     except Exception:
         logger.exception("fullenrich: budget read failed; treating as exhausted")
         return BUDGET
@@ -59,10 +71,27 @@ def _spent(db) -> float:
 def _add_spend(db, credits: float) -> None:
     try:
         from google.cloud import firestore as _fs
-        db.collection(_BUDGET_DOC[0]).document(_BUDGET_DOC[1]).set(
-            {"spent_estimate": _fs.Increment(credits), "find_count": _fs.Increment(1)},
-            merge=True,
-        )
+        ref = db.collection(_BUDGET_DOC[0]).document(_BUDGET_DOC[1])
+        # Month rollover: first spend of a new month restarts the counter
+        # instead of stacking onto last month's. A concurrent write in the
+        # same instant can lose one increment; cents-level slack, accepted.
+        try:
+            snap = ref.get()
+            stale = (snap.to_dict() or {}).get("month") != _month() if snap.exists else True
+        except Exception:
+            stale = False
+        if stale:
+            ref.set({"spent_estimate": credits, "find_count": 1, "month": _month()})
+        else:
+            ref.set({"spent_estimate": _fs.Increment(credits),
+                     "find_count": _fs.Increment(1), "month": _month()}, merge=True)
+        # Mirror into provider_calls so the spend alerter can see this
+        # vendor at all (it reads provider_calls, not the budget docs).
+        try:
+            from app.services.metering import log_provider_spend
+            log_provider_spend("fullenrich", "enrich", credits, returned=int(credits))
+        except Exception:
+            logger.exception("fullenrich: metering mirror failed")
     except Exception:
         logger.exception("fullenrich: budget write failed (%.1f untracked)", credits)
 

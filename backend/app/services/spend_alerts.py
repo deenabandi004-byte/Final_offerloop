@@ -253,6 +253,53 @@ def check_and_alert(force: bool = False) -> Dict[str, Any]:
             fired.append({"kind": kind, "level": frac, "spend": total, "budget": budget, "sent": sent})
             state[kind] = {"period": period_key, "level": frac, "alerted_at": now.isoformat()}
 
+    # Vendor tank gauges (2026-08-25). The dollar windows above read
+    # provider_calls; these read the ENFORCEMENT docs the clients actually
+    # stop on, so "80% of the tank is gone" reaches an inbox even when a
+    # metering row was missed. Coresignal's tank is the one-time grant
+    # (never resets); FullEnrich's is the monthly subscription allowance.
+    if db is not None:
+        gauges = [
+            ("fullenrich_tank", ("meta", "fullenrichBudget"),
+             float(os.getenv("FULLENRICH_BUDGET") or 450),
+             now.strftime("%Y-%m"), "FullEnrich monthly credits"),
+            ("coresignal_tank", ("meta", "coresignalTestBudget"),
+             float(os.getenv("CORESIGNAL_TEST_BUDGET") or 1500),
+             "grant", "Coresignal grant credits"),
+        ]
+        for kind, doc_path, budget, period_key, label in gauges:
+            try:
+                snap = db.collection(doc_path[0]).document(doc_path[1]).get()
+                doc = (snap.to_dict() or {}) if snap.exists else {}
+                tank_spent = float(doc.get("spent_estimate", 0.0))
+                # The FullEnrich doc is month-stamped; an older month means
+                # the counter has effectively reset to zero.
+                if kind == "fullenrich_tank" and doc.get("month") not in (None, period_key):
+                    tank_spent = 0.0
+            except Exception:  # noqa: BLE001
+                logger.warning("tank gauge read failed for %s", kind)
+                continue
+            frac = _crossed(tank_spent, budget)
+            if frac is None:
+                continue
+            st = state.get(kind) or {}
+            already = st.get("level", 0.0) if st.get("period") == period_key else 0.0
+            if frac > already or force:
+                pct = int(round(frac * 100))
+                siren = "🔴" if frac >= 1.0 else ("🟠" if frac >= 0.8 else "🟡")
+                subject = (f"{siren} Offerloop tank alert — {label} at {pct}% "
+                           f"({tank_spent:,.0f} of {budget:,.0f} credits)")
+                text_body = (f"{subject}\n\nAt 100% this vendor stops serving and the app "
+                             f"degrades to cached data. Decide on the next tier before the wall, "
+                             f"not after students hit it.")
+                html_body = (f"<h2>{subject}</h2><p>At 100% this vendor stops serving and the "
+                             f"app degrades to cached data. Decide on the next tier before the "
+                             f"wall, not after students hit it.</p>")
+                sent = _dispatch_alert(subject, html_body, text_body)
+                fired.append({"kind": kind, "level": frac, "spend": tank_spent,
+                              "budget": budget, "sent": sent})
+                state[kind] = {"period": period_key, "level": frac, "alerted_at": now.isoformat()}
+
     if fired and db is not None:
         _write_state(db, state)
 

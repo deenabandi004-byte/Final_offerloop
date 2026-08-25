@@ -37,6 +37,13 @@ ranker_bp = Blueprint("ranker", __name__, url_prefix="/api/ranker")
 # re-charge and re-lookup rather than serve stale addresses.
 REVEAL_CACHE_TTL_DAYS = 30
 
+# Warehouse-cache TTL for the shared work_email on firm_employees docs.
+# One student's verified reveal serves every later student free (the cache
+# economics the whole provider plan leans on); longer than the per-user
+# TTL because it was SMTP-verified at write time, shorter than job-change
+# cadence would make risky.
+WAREHOUSE_EMAIL_TTL_DAYS = 90
+
 # Charge-keeper threshold for reveal-email. Hunter's own "trustworthy"
 # cutoff for Email Finder is 80; we put a 10-point safety margin above
 # that. `email_verified == True` (Hunter SMTP-confirmed) is stronger
@@ -143,6 +150,47 @@ def get_ranked_candidates():
     # reveal-email calls so the training row can be joined back to the
     # deck context (features_snapshot, rank).
     deck_id = uuid.uuid4().hex[:16]
+
+    # FullEnrich prefetch (2026-08-25), same trick the prompt deck ships:
+    # one bulk waterfall for the top of the deck, fired while the student
+    # reads card one, so a right-swipe finds its address already waiting
+    # instead of paying a live 30-second lookup. Runs in a daemon thread:
+    # deck latency is the product here and the prefetch must never add to
+    # it. Their dedupe makes re-enriching a recently-enriched person free,
+    # so no cache check is needed before asking.
+    if candidates:
+        def _prefetch(cands, uid_, deck_id_):
+            try:
+                from app.services import fullenrich_client
+                from app.extensions import get_db as _get_db
+                pdb = _get_db()
+                if pdb is None or not fullenrich_client.enabled(pdb):
+                    return
+                wanting = []
+                for c in cands[:12]:
+                    p = c.get("person") or c
+                    pid = (p.get("id") or "").strip()
+                    if not pid:
+                        continue
+                    wanting.append((pid,
+                                    p.get("firstName") or "",
+                                    p.get("lastName") or "",
+                                    p.get("company") or "",
+                                    (p.get("linkedinUrl") or "").strip()))
+                if not wanting:
+                    return
+                eid = fullenrich_client.start_bulk(wanting, db=pdb)
+                if eid:
+                    (pdb.collection("users").document(uid_)
+                        .collection("rankerPrefetch").document(deck_id_)
+                        .set({"fe_job": eid,
+                              "pids": [w[0] for w in wanting],
+                              "created_at": datetime.now(timezone.utc).isoformat()}))
+            except Exception:
+                logger.exception("ranker prefetch failed uid=%s", uid_)
+        import threading as _threading
+        _threading.Thread(target=_prefetch, args=(candidates, uid, deck_id),
+                          daemon=True, name="ranker-prefetch").start()
 
     if not candidates:
         return jsonify({
@@ -376,31 +424,82 @@ def reveal_candidate_email(candidate_id):
             "have":     remaining,
         }), 402
 
-    # ── 4. Hunter first. An exception here no longer ends the reveal — the
-    # waterfall below hunts the same person across fifteen sources, so a
-    # single provider's bad day is not the user's no-hit.
-    try:
-        from app.services.hunter import get_verified_email
-        result = get_verified_email(
-            pdl_email=None,
-            first_name=first,
-            last_name=last,
-            company=company_display,
-        ) or {}
-    except Exception as exc:
-        logger.warning(
-            "reveal: Hunter call raised uid=%s cid=%s: %s (falling to waterfall)",
-            uid, candidate_id, exc,
-        )
-        result = {}
+    email: str | None = None
+    verified = False
+    source = ""
+    confidence = 0
 
-    email      = (result.get("email") or "").strip() or None
-    verified   = bool(result.get("email_verified"))
-    source     = result.get("email_source") or ""
-    try:
-        confidence = int(result.get("score") or result.get("confidence") or 0)
-    except (TypeError, ValueError):
-        confidence = 0
+    # ── 3b. Warehouse cache: a previous student's verified reveal for this
+    # SAME person, stored on the shared firm_employees doc. The user still
+    # pays (the product is the unlock), the vendors get nothing, and the
+    # response is instant. This is the "popular targets are paid for once"
+    # economics, made real.
+    wh_email = (fs.get("work_email") or "").strip()
+    if wh_email and _within_ttl(fs.get("work_email_verified_at"), days=WAREHOUSE_EMAIL_TTL_DAYS):
+        email, verified, source = wh_email, True, "warehouse"
+
+    # ── 3c. Prefetch lookup: the deck-serve fired one bulk waterfall for
+    # the top cards; by swipe time it is usually FINISHED, so this is a
+    # read, not a wait. fe_checked=True means the job finished and a
+    # missing pid is an authoritative miss (skip the live waterfall).
+    fe_checked = False
+    if not email and deck_id:
+        try:
+            from app.services import fullenrich_client
+            pre_snap = (db.collection("users").document(uid)
+                          .collection("rankerPrefetch").document(deck_id).get())
+            pre = (pre_snap.to_dict() or {}) if getattr(pre_snap, "exists", False) else {}
+            if pre.get("fe_job") and candidate_id in (pre.get("pids") or []):
+                ready, results = fullenrich_client.fetch_bulk(pre["fe_job"], wait_seconds=8, db=db)
+                fe_checked = bool(ready)
+                hit_pre = results.get(str(candidate_id))
+                if hit_pre:
+                    ok = hit_pre["status"] == "DELIVERABLE"
+                    if not ok:
+                        try:
+                            from app.services import neverbounce_client
+                            if neverbounce_client.is_configured():
+                                ok = (neverbounce_client.verify_email(hit_pre["email"])
+                                      .get("result") == neverbounce_client.RESULT_VALID)
+                            else:
+                                from app.services.crustdata_client import _hunter_says_deliverable
+                                ok = _hunter_says_deliverable(hit_pre["email"])
+                        except Exception:
+                            ok = False
+                    if ok:
+                        email = hit_pre["email"]
+                        verified = True
+                        source = f"fullenrich_prefetch_{hit_pre['status'].lower()}"
+        except Exception:
+            logger.exception("reveal: prefetch lookup failed uid=%s cid=%s", uid, candidate_id)
+
+    # ── 4. Hunter, only when nothing cheaper answered. An exception here
+    # no longer ends the reveal — the waterfall below hunts the same person
+    # across fifteen sources, so a single provider's bad day is not the
+    # user's no-hit.
+    if not email:
+        try:
+            from app.services.hunter import get_verified_email
+            result = get_verified_email(
+                pdl_email=None,
+                first_name=first,
+                last_name=last,
+                company=company_display,
+            ) or {}
+        except Exception as exc:
+            logger.warning(
+                "reveal: Hunter call raised uid=%s cid=%s: %s (falling to waterfall)",
+                uid, candidate_id, exc,
+            )
+            result = {}
+
+        email      = (result.get("email") or "").strip() or None
+        verified   = bool(result.get("email_verified"))
+        source     = result.get("email_source") or ""
+        try:
+            confidence = int(result.get("score") or result.get("confidence") or 0)
+        except (TypeError, ValueError):
+            confidence = 0
 
     # Refund unless we have deliverability evidence: SMTP-verified OR
     # Hunter Email Finder with confidence >= threshold. Synthesized
@@ -418,7 +517,9 @@ def reveal_candidate_email(candidate_id):
     # stopping at one source. Same contract as the prompt deck's reveal:
     # DELIVERABLE sells as-is, HIGH_PROBABILITY must pass the SMTP gate,
     # anything else stays a miss. 1 FullEnrich credit only when found.
-    if not charge_worthy:
+    # Skipped when a FINISHED prefetch already ruled this person a miss —
+    # the live lookup would spend 30 seconds rediscovering that.
+    if not charge_worthy and not fe_checked:
         fe_hit = None
         try:
             from app.services import fullenrich_client
@@ -467,6 +568,21 @@ def reveal_candidate_email(candidate_id):
     # ── 5. Charge-worthy: write cache + event. Failures here do NOT
     # cost the user the charge — they got the email in the response and
     # kept the value (see reveal-email safety trace in the handoff doc).
+
+    # Warehouse write-back: a freshly found, verified address goes onto the
+    # shared firm_employees doc, so the NEXT student's reveal of this person
+    # is instant and vendor-free. Only verified addresses are shared;
+    # confidence-threshold Hunter finds stay per-user.
+    if verified and source != "warehouse":
+        try:
+            db.collection(FIRM_EMPLOYEES_COLLECTION).document(candidate_id).set({
+                "work_email":             email,
+                "work_email_source":      source,
+                "work_email_verified_at": datetime.now(timezone.utc).isoformat(),
+            }, merge=True)
+        except Exception as exc:
+            logger.warning("reveal: warehouse write-back failed cid=%s: %s", candidate_id, exc)
+
     try:
         cache_ref.set({
             "candidate_id": candidate_id,

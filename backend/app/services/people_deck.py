@@ -479,6 +479,14 @@ def search_people(
                                        "collect_count": _fs.Increment(_collected)}, merge=True)
                         except Exception:
                             logger.exception("coresignal budget write failed (%d collects untracked)", _collected)
+                        # Mirror into provider_calls: the spend alerter reads
+                        # that collection, not the tank doc, so without this
+                        # row Coresignal consumption is invisible to alerts.
+                        try:
+                            from app.services.metering import log_provider_spend
+                            log_provider_spend("coresignal", "member_collect", _collected, returned=_collected)
+                        except Exception:
+                            logger.exception("coresignal metering mirror failed")
                     if cs_contacts:
                         contacts = cs_contacts
                         _adjacency = dict(cs_meta or {})

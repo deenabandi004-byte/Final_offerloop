@@ -61,7 +61,37 @@ PROVIDER_RATES: Dict[str, Dict[str, float]] = {
     "hunter":      {"domain_search": 0.004, "email_finder": 0.003, "email_verify": 0.002},
     "apify":       {"linkedin_posts": 0.005, "sales_nav": 0.005},
     "neverbounce": {"single_check": 0.005},
+    # FullEnrich: 1 credit = 1 found work email; Pro is $55/1,000 credits.
+    # Search rung billed per result (capability matrix 2026-08-24).
+    "fullenrich":  {"enrich": 0.055, "search": 0.0145},
 }
+
+
+def log_provider_spend(provider: str, endpoint: str, credits: float,
+                       returned: int = 0) -> None:
+    """One provider_calls row for spend tracked OUTSIDE meter_call (the
+    vendor budget docs in fullenrich_client / people_deck). Without this,
+    the spend alerter is blind to exactly the vendors the app now runs on.
+    Background write, never raises, never blocks the caller."""
+    try:
+        rate = PROVIDER_RATES.get(provider, {}).get(endpoint, 0.0)
+        payload = {
+            "provider": provider,
+            "endpoint": endpoint,
+            "user_id": _get_g("user_id", "unknown"),
+            "search_id": _get_g("search_id"),
+            "returned_records": int(returned),
+            "credits_charged": float(credits),
+            "est_cost_usd": round(float(credits) * rate, 6),
+            "cache_hit": False,
+            "latency_ms": 0,
+            "status": "ok",
+            "error_msg": None,
+        }
+        threading.Thread(target=_safe_write, args=(payload,),
+                         daemon=True, name=f"meter-{provider}").start()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("log_provider_spend failed: %s", e)
 
 
 # ---------------------------------------------------------------------------
