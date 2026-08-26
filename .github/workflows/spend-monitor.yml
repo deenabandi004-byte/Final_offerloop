@@ -23,6 +23,14 @@ jobs:
           if [ -z "$SPEND_CHECK_TOKEN" ]; then
             echo "::error::SPEND_CHECK_TOKEN secret not set"; exit 1
           fi
+          # Website backend (main): dollar-window alerts over provider_calls.
           curl -fsS --retry 2 -X POST "https://offerloop.ai/api/admin/spend-check" \
             -H "X-Spend-Token: $SPEND_CHECK_TOKEN" \
             -H "Content-Type: application/json"
+          # Mobile prod (staging/mobile-field): same windows PLUS the vendor
+          # tank gauges (Coresignal grant, FullEnrich monthly allowance),
+          # which only exist on this branch's deploy. Non-fatal so a mobile
+          # hiccup never silences the website check.
+          curl -sS --retry 2 -X POST "https://offerloop-mobile-prod.onrender.com/api/admin/spend-check" \
+            -H "X-Spend-Token: $SPEND_CHECK_TOKEN" \
+            -H "Content-Type: application/json" || echo "::warning::mobile spend-check failed"
