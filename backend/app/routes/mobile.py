@@ -930,6 +930,23 @@ def save_preferences():
         li = str(data.get('linkedinUrl') or '').strip()[:200]
         if li:
             patch['linkedinUrl'] = li
+    # The two fields the People deck cannot run without. The app's gap survey
+    # and Scout's school nudge have POSTed them here since 2026-08-16, but the
+    # route never recognized them, so every save came back 400 ("Could not
+    # save that. Try again later.") and the ranker stayed blind forever
+    # (Rylan 2026-08-26, saving USC on the empty-deck nudge). Written to BOTH
+    # spellings the readers use: person_ranker reads academics.school and
+    # top-level school, goals.dreamCompanies and top-level dreamCompanies.
+    if 'school' in data:
+        school = str(data.get('school') or '').strip()[:120]
+        if school:
+            patch['school'] = school
+            patch['academics'] = {'school': school}
+    if 'dreamCompanies' in data:
+        firms = _clean_str_list(data.get('dreamCompanies'))
+        if firms is None:
+            return jsonify({'error': 'dreamCompanies must be a list'}), 400
+        patch['dreamCompanies'] = firms[:20]
 
     if not patch:
         return jsonify({'error': 'no recognized preference fields'}), 400
