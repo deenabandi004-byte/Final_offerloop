@@ -146,6 +146,46 @@ def get_ranked_candidates():
     candidates = rank_people_for_user(uid=uid, db=db, limit=limit, exclude_ids=exclude_ids)
     generated_at = datetime.now(timezone.utc).isoformat()
 
+    # Warm-first ordering (Rylan 2026-08-26): within each relevance tier,
+    # people whose email is already banked in the warehouse lead the deck, so
+    # early swipes draft instantly and the cold tail is reached only after
+    # the prefetch below has had time to finish. Readiness is a tiebreaker
+    # INSIDE a tier, never across tiers: the best-fit person still outranks
+    # a mediocre-but-instant one. One batched read for the whole deck.
+    if candidates:
+        try:
+            from app.services.firm_cache.schema import FIRM_EMPLOYEES_COLLECTION
+            refs = [
+                db.collection(FIRM_EMPLOYEES_COLLECTION).document(
+                    ((c.get("person") or {}).get("id") or "").strip()
+                )
+                for c in candidates
+                if ((c.get("person") or {}).get("id") or "").strip()
+            ]
+            ready_ids = set()
+            for snap in db.get_all(refs):
+                if not getattr(snap, "exists", False):
+                    continue
+                d = snap.to_dict() or {}
+                if (d.get("work_email") or "").strip() and _within_ttl(
+                    d.get("work_email_verified_at"), days=WAREHOUSE_EMAIL_TTL_DAYS
+                ):
+                    ready_ids.add(snap.id)
+            if ready_ids:
+                # Tier order as the RANKER emitted it, then readiness, then
+                # the ranker's own order as the final stable tiebreak.
+                tier_rank: dict = {}
+                for c in candidates:
+                    tier_rank.setdefault(c.get("tier"), len(tier_rank))
+                original_index = {id(c): i for i, c in enumerate(candidates)}
+                candidates.sort(key=lambda c: (
+                    tier_rank.get(c.get("tier"), 99),
+                    0 if ((c.get("person") or {}).get("id") in ready_ids) else 1,
+                    original_index[id(c)],
+                ))
+        except Exception:
+            logger.exception("ranked warm-first ordering failed uid=%s", uid)
+
     # deck_id is generated per-call. Client MUST echo it on feedback +
     # reveal-email calls so the training row can be joined back to the
     # deck context (features_snapshot, rank).

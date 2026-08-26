@@ -619,6 +619,32 @@ def search_people(
         stash[pid] = _stashable(c)
         order.append(pid)
 
+    # Warm-first ordering (Rylan 2026-08-26): within the deck, people whose
+    # email is already in hand (or one quick verify away) lead, cold people
+    # sit deeper. By the time a fast swiper reaches them, the prefetch fired
+    # below has usually finished, so even the cold cards arrive warm. Stable
+    # sort: relevance decided WHO is in the deck and still breaks ties.
+    def _readiness(pid: str) -> int:
+        c = stash.get(pid) or {}
+        if _has_address(c):
+            return 2
+        if c.get("PendingEmail"):
+            return 1
+        return 0
+    order.sort(key=lambda pid: -_readiness(pid))
+
+    # Warehouse feed (2026-08-26): every collected profile becomes a permanent
+    # firm_employees asset instead of dying with this deck's TTL. This is the
+    # cache-economics half of the provider plan: the ranked deck, alumni
+    # queries, and every later search serve these people free. The writer is
+    # flag-gated (ENABLE_FIRM_CACHE_WRITE) and async, so this costs the
+    # request nothing.
+    try:
+        from app.services.firm_cache.writer import cache_pdl_contacts
+        cache_pdl_contacts(contacts, shape="app", async_write=True)
+    except Exception:
+        logger.exception("people-deck warehouse feed failed for uid=%s", user_id)
+
     try:
         _deck_ref(db, user_id, deck_id).set({
             "prompt": prompt,
