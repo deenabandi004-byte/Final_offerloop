@@ -20,6 +20,7 @@ Auth: `apikey: <key>` request header.
 import os
 import hashlib
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -201,6 +202,48 @@ def enrich_linkedin_profile(linkedin_url: str) -> Optional[Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
+# Role nouns and seniority words that appear in nearly every title. A
+# variation made ONLY of these carries none of the request's identity.
+_GENERIC_TITLE_TOKENS = {
+    "analyst", "manager", "engineer", "developer", "specialist", "associate",
+    "coordinator", "director", "lead", "senior", "junior", "staff",
+    "principal", "intern", "consultant", "executive", "officer",
+    "representative", "rep", "assistant", "head", "vp", "president",
+}
+
+
+def _distinctive_variations(variations: List[str]) -> List[str]:
+    """Drop title variations that lost every distinctive word of the request.
+
+    The parser deliberately pads title_variations with generic fallbacks
+    ("Investment Banking Analyst" gains "Financial Analyst"). Anchored to a
+    company that is harmless breadth; with no company filter it turned
+    "Investment Banking Analysts at Technology companies" into "anyone in
+    finance anywhere" and served a city-government finance manager
+    (Rylan 2026-08-26). The FIRST variation is treated as the literal ask;
+    any variation sharing one of its non-generic words survives. A request
+    whose title is purely generic ("Consultant", "Recruiter") keeps
+    everything, since there is no identity to lose.
+    """
+    if len(variations) <= 1:
+        return variations
+    primary_tokens = set(re.findall(r"[a-z]+", (variations[0] or "").lower()))
+    distinctive = primary_tokens - _GENERIC_TITLE_TOKENS
+    # Single-word asks ("Recruiter") keep their synonyms; only a QUALIFIED
+    # title ("Investment Banking Analyst") has an identity to defend.
+    if not distinctive or len(primary_tokens) < 2:
+        return variations
+    kept = [
+        v for v in variations
+        if set(re.findall(r"[a-z]+", (v or "").lower())) & distinctive
+    ]
+    dropped = [v for v in variations if v not in kept]
+    if dropped:
+        logger.info("coresignal title guard dropped %d generic variations: %s",
+                    len(dropped), dropped[:5])
+    return kept or variations
+
+
 def _build_es_query(parsed: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Translate Offerloop's parse_search_prompt_structured output into the
@@ -214,7 +257,7 @@ def _build_es_query(parsed: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     companies = parsed.get("companies") or []
     company_names = [c.get("name") for c in companies if isinstance(c, dict) and c.get("name")]
-    title_variations = parsed.get("title_variations") or []
+    title_variations = _distinctive_variations(parsed.get("title_variations") or [])
     schools = parsed.get("schools") or []
     locations = parsed.get("locations") or []
 
