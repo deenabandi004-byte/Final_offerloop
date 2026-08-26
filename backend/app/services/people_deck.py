@@ -797,6 +797,83 @@ def _user_profile(db, user_id: str, user_email: Optional[str]) -> Dict[str, Any]
     return profile
 
 
+def _fulfill_pending(user_id: str, deck_id: str) -> None:
+    """Background completer for reveals that out-ran the prefetch waterfall.
+
+    Polls the deck's bulk job until FINISHED (up to ~6 minutes), then re-runs
+    reveal_person for every pending swipe — the re-entry finds the job done,
+    so the normal path does the charge, verification, draft, and refund
+    exactly as if the user had swiped a moment later. Drafted people ring
+    the existing draft-ready bell; misses clear quietly and were never
+    charged. Best-effort: a lost thread leaves the pending markers in place
+    and the next reveal on this deck respawns a fulfiller.
+    """
+    import time as _time
+    try:
+        from app.extensions import get_db
+        from app.services import fullenrich_client
+        db = get_db()
+        if db is None:
+            return
+        deck_snap = _deck_ref(db, user_id, deck_id).get()
+        deck = deck_snap.to_dict() or {}
+        fe_job = (deck.get("fe_job") or {}).get("id")
+        if not fe_job:
+            return
+        deadline = _time.time() + 360
+        ready = False
+        while _time.time() < deadline:
+            ready, _ = fullenrich_client.fetch_bulk(fe_job, wait_seconds=20, db=db)
+            if ready:
+                break
+            _time.sleep(10)
+        # Re-read pending AFTER the wait: more swipes may have joined while
+        # the job cooked, and this single thread completes them all.
+        deck = (_deck_ref(db, user_id, deck_id).get().to_dict() or {})
+        pending = deck.get("pending") or {}
+        if not pending:
+            return
+        drafted_items = []
+        for pid, meta in pending.items():
+            meta = meta or {}
+            try:
+                payload, _status = reveal_person(
+                    user_id=user_id,
+                    user_email=meta.get("user_email"),
+                    auth_display_name=meta.get("auth_display_name") or "",
+                    deck_id=deck_id,
+                    person_id=pid,
+                    action=(meta.get("action") or "draft"),
+                    _from_fulfiller=True,
+                )
+                if payload.get("drafted") or payload.get("sent"):
+                    person = (deck.get("people") or {}).get(pid) or {}
+                    drafted_items.append({
+                        "contactId": pid,
+                        "contactName": (
+                            (person.get("FirstName", "") + " " + person.get("LastName", "")).strip()
+                            or "a contact"
+                        ),
+                        "company": person.get("Company") or "",
+                        "sent": bool(payload.get("sent")),
+                    })
+            except Exception:
+                logger.exception("pending fulfillment failed uid=%s pid=%s", user_id, pid)
+            try:
+                from google.cloud import firestore as _fs
+                _deck_ref(db, user_id, deck_id).update({f"pending.{pid}": _fs.DELETE_FIELD})
+            except Exception:
+                logger.exception("pending marker clear failed uid=%s pid=%s", user_id, pid)
+        if drafted_items:
+            try:
+                from app.services.draft_ready_notify import notify_drafts_ready
+                notify_drafts_ready(user_id, drafted_items, db=db)
+            except Exception:
+                logger.exception("pending fulfillment notify failed uid=%s", user_id)
+    except Exception:
+        logger.exception("pending fulfiller crashed uid=%s deck=%s", user_id, deck_id)
+
+
 def reveal_person(
     *,
     user_id: str,
@@ -805,6 +882,7 @@ def reveal_person(
     deck_id: str,
     person_id: str,
     action: str = "draft",
+    _from_fulfiller: bool = False,
 ) -> Tuple[Dict[str, Any], int]:
     """The paid step: unlock this person's address and write to them.
 
@@ -900,10 +978,12 @@ def reveal_person(
     # Prefetched waterfall result first: the deck-serve started one bulk
     # enrichment for these people. A fast swiper reaches the reveal before
     # the waterfall finishes (Rylan 2026-08-26: five reveals in 22 seconds,
-    # every one raced past a 10-second wait, then the live fallback 429ed
-    # on the burst and a whole deck reported no emails that WERE coming).
-    # So the reveal now waits for the job it already paid for, up to 45s,
-    # instead of abandoning it to re-ask the same question the slow way.
+    # every one raced past the wait, then the live fallback 429ed on the
+    # burst and a whole deck reported no emails that WERE coming). The
+    # answer is NOT a longer wait (slow toasts also fail the product): a
+    # still-cooking job turns the reveal into a PENDING fulfillment below,
+    # completed in the background when the job lands. The fulfiller's own
+    # re-entry waits patiently because by then the job is done or nearly.
     if not address:
         try:
             from app.services import fullenrich_client
@@ -911,7 +991,7 @@ def reveal_person(
             fe_covered = str(person_id) in [str(p) for p in (fe_job.get("pids") or [])]
             if fe_job.get("id"):
                 ready, results = fullenrich_client.fetch_bulk(
-                    fe_job["id"], wait_seconds=45 if fe_covered else 10, db=db)
+                    fe_job["id"], wait_seconds=30 if _from_fulfiller else 10, db=db)
                 # Authoritative only when the job FINISHED: then a missing
                 # pid is a real miss and the live fallback would waste 30s
                 # rediscovering it. A still-running job falls through.
@@ -992,6 +1072,46 @@ def reveal_person(
                 contact["EmailVerified"] = True
 
     if not address:
+        # Covered by a still-running waterfall: this is not a miss, the answer
+        # is minutes away. Register a pending fulfillment (nothing charged
+        # yet; the background re-entry charges only on a verified find) and
+        # make sure a fulfiller thread is working this deck. The app renders
+        # `pending` as "locking down their email, draft lands in your Inbox".
+        if fe_covered and not fe_checked and not _from_fulfiller:
+            try:
+                now_iso = datetime.now(timezone.utc).isoformat()
+                _deck_ref(db, user_id, deck_id).update({
+                    f"pending.{person_id}": {
+                        "action": action,
+                        "user_email": user_email,
+                        "auth_display_name": auth_display_name or "",
+                        "at": now_iso,
+                    },
+                })
+                fulfiller_at = deck.get("fulfiller_at")
+                stale = True
+                if fulfiller_at:
+                    try:
+                        started = datetime.fromisoformat(str(fulfiller_at).replace("Z", "+00:00"))
+                        stale = (datetime.now(timezone.utc) - started).total_seconds() > 420
+                    except Exception:
+                        stale = True
+                if stale:
+                    _deck_ref(db, user_id, deck_id).update({"fulfiller_at": now_iso})
+                    import threading as _threading
+                    _threading.Thread(
+                        target=_fulfill_pending, args=(user_id, deck_id),
+                        daemon=True, name=f"fulfill-{deck_id[:8]}",
+                    ).start()
+                _track(db, "reveal", {
+                    "uid": user_id, "deck": deck_id, "pid": person_id,
+                    "outcome": "pending", "source": "fullenrich_prefetch",
+                    "provider": contact.get("_provider") or "",
+                })
+                return {"email": None, "verified": False, "charged": False,
+                        "drafted": False, "sent": False, "pending": True}, 200
+            except Exception:
+                logger.exception("pending registration failed uid=%s pid=%s", user_id, person_id)
         _track(db, "reveal", {
             "uid": user_id, "deck": deck_id, "pid": person_id,
             "outcome": "no_email", "source": "", "provider": contact.get("_provider") or "",
