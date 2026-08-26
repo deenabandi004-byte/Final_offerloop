@@ -872,7 +872,7 @@ def _fulfill_pending(user_id: str, deck_id: str) -> None:
                     action=(meta.get("action") or "draft"),
                     _from_fulfiller=True,
                 )
-                if payload.get("drafted") or payload.get("sent"):
+                if (payload.get("drafted") or payload.get("sent")) and not payload.get("duplicate"):
                     person = (deck.get("people") or {}).get(pid) or {}
                     drafted_items.append({
                         "contactId": pid,
@@ -1237,6 +1237,37 @@ def reveal_person(
         _refund("people_deck_unverified")
         return {"email": None, "verified": False, "charged": False,
                 "drafted": False, "sent": False}, 200
+
+    # ---- Outreach lock (2026-08-26). One swipe produced THREE drafts to the
+    # same person: the reveal call arrived three times in the same instant
+    # (gesture double-fire or transport retry), each spawned a fulfiller, and
+    # every copy passed the `already` check because none had finished writing
+    # yet. Firestore create() is atomic: exactly one caller wins the right to
+    # draft this address, everyone else refunds and reports the draft that
+    # the winner is producing. The lock is per-user per-address and permanent,
+    # matching the product rule of one outreach per human ("find another
+    # contact" is the deliberate path to more).
+    try:
+        lock_ref = (db.collection("users").document(user_id)
+                      .collection("outreachLocks")
+                      .document(hashlib.sha1(address.lower().encode()).hexdigest()[:20]))
+        lock_ref.create({"email": address.lower(),
+                         "deck": deck_id, "pid": person_id,
+                         "at": datetime.now(timezone.utc).isoformat()})
+    except Exception as lock_err:
+        if "already exists" in str(lock_err).lower() or type(lock_err).__name__ == "AlreadyExists":
+            logger.info("people-deck outreach lock held for %s; duplicate call refunded", address)
+            _refund("people_deck_duplicate")
+            try:
+                _deck_ref(db, user_id, deck_id).update(
+                    {f"revealed.{person_id}": datetime.utcnow().isoformat() + "Z"}
+                )
+            except Exception:
+                pass
+            return {"email": address, "verified": True, "charged": False,
+                    "drafted": True, "sent": False, "duplicate": True}, 200
+        # A broken lock write must not block a legitimate reveal.
+        logger.exception("people-deck outreach lock errored; proceeding uid=%s", user_id)
 
     # ---- The write. From here the address is delivered no matter what, so a
     # failure past this point reports what the user DID get rather than
