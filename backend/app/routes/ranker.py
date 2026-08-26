@@ -443,6 +443,7 @@ def reveal_candidate_email(candidate_id):
     # read, not a wait. fe_checked=True means the job finished and a
     # missing pid is an authoritative miss (skip the live waterfall).
     fe_checked = False
+    fe_covered = False
     if not email and deck_id:
         try:
             from app.services import fullenrich_client
@@ -450,7 +451,11 @@ def reveal_candidate_email(candidate_id):
                           .collection("rankerPrefetch").document(deck_id).get())
             pre = (pre_snap.to_dict() or {}) if getattr(pre_snap, "exists", False) else {}
             if pre.get("fe_job") and candidate_id in (pre.get("pids") or []):
-                ready, results = fullenrich_client.fetch_bulk(pre["fe_job"], wait_seconds=8, db=db)
+                # Fast swipers reach here before the waterfall finishes; wait
+                # for the job we already paid for rather than abandoning it
+                # (the prompt deck learned this the hard way, 2026-08-26).
+                fe_covered = True
+                ready, results = fullenrich_client.fetch_bulk(pre["fe_job"], wait_seconds=45, db=db)
                 fe_checked = bool(ready)
                 hit_pre = results.get(str(candidate_id))
                 if hit_pre:
@@ -518,8 +523,10 @@ def reveal_candidate_email(candidate_id):
     # DELIVERABLE sells as-is, HIGH_PROBABILITY must pass the SMTP gate,
     # anything else stays a miss. 1 FullEnrich credit only when found.
     # Skipped when a FINISHED prefetch already ruled this person a miss —
-    # the live lookup would spend 30 seconds rediscovering that.
-    if not charge_worthy and not fe_checked:
+    # the live lookup would spend 30 seconds rediscovering that — and when
+    # the person is covered by a still-running job (asking twice 429s and
+    # can double-bill when both finish).
+    if not charge_worthy and not fe_checked and not fe_covered:
         fe_hit = None
         try:
             from app.services import fullenrich_client

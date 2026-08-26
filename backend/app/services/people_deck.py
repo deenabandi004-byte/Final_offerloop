@@ -896,15 +896,22 @@ def reveal_person(
                 contact["EmailVerified"] = True
 
     fe_checked = False
+    fe_covered = False
     # Prefetched waterfall result first: the deck-serve started one bulk
-    # enrichment for these people; by swipe time it is usually FINISHED,
-    # so this is a lookup, not a wait.
+    # enrichment for these people. A fast swiper reaches the reveal before
+    # the waterfall finishes (Rylan 2026-08-26: five reveals in 22 seconds,
+    # every one raced past a 10-second wait, then the live fallback 429ed
+    # on the burst and a whole deck reported no emails that WERE coming).
+    # So the reveal now waits for the job it already paid for, up to 45s,
+    # instead of abandoning it to re-ask the same question the slow way.
     if not address:
         try:
             from app.services import fullenrich_client
             fe_job = deck.get("fe_job") or {}
+            fe_covered = str(person_id) in [str(p) for p in (fe_job.get("pids") or [])]
             if fe_job.get("id"):
-                ready, results = fullenrich_client.fetch_bulk(fe_job["id"], wait_seconds=10, db=db)
+                ready, results = fullenrich_client.fetch_bulk(
+                    fe_job["id"], wait_seconds=45 if fe_covered else 10, db=db)
                 # Authoritative only when the job FINISHED: then a missing
                 # pid is a real miss and the live fallback would waste 30s
                 # rediscovering it. A still-running job falls through.
@@ -950,7 +957,10 @@ def reveal_person(
     # for ANY provider's contact. 1 credit only when an email is found.
     # DELIVERABLE sells as-is (their measured ~2% bounce); HIGH_PROBABILITY
     # must also pass our SMTP gate; everything else stays a miss.
-    if not address and not fe_checked:
+    # fe_covered skips it too: a person already in the running bulk job
+    # would just be asked twice (second start 429s under swipe bursts and
+    # can double-bill when both finish).
+    if not address and not fe_checked and not fe_covered:
         try:
             from app.services import fullenrich_client
             hit = fullenrich_client.find_work_email(
