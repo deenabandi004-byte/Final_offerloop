@@ -35,6 +35,8 @@ import traceback
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from google.cloud.firestore import Query as _FSQuery
+_FS_DESC = _FSQuery.DESCENDING
 from app.config import CREDIT_COSTS, TIER_CONFIGS
 from app.services import neverbounce_client
 from app.services.auth import check_and_reset_credits, deduct_credits_atomic
@@ -137,7 +139,37 @@ def _public_person(contact: Dict[str, Any], person_id: str, rank: int) -> Dict[s
         # this yet, but the swipe needs it and a client that knows can stop
         # charging for a person we already know has no address.
         "hasEmail": _has_address(contact),
+        # The settle-on-this-card facts (Rylan 2026-08-27: cards were too thin
+        # to pause on, so users swipe faster than any pipeline can serve).
+        # All real data or absent: the one-line briefing the warmth scorer
+        # wrote, where they were BEFORE this job, and when they joined it.
+        "briefing": (contact.get("briefing") or "").strip(),
+        "prevCompany": _previous_company(contact),
+        "joinedYear": _joined_year(contact),
     }
+
+
+def _previous_company(contact: Dict[str, Any]) -> str:
+    """The person's previous employer, when the summary knows it and it
+    differs from the current one. "ex-Goldman" is a settle-worthy fact."""
+    exp = contact.get("experience") or []
+    if not isinstance(exp, list) or len(exp) < 2:
+        return ""
+    cur = (exp[0].get("company") or "").strip() if isinstance(exp[0], dict) else ""
+    prev = (exp[1].get("company") or "").strip() if isinstance(exp[1], dict) else ""
+    if prev and prev.lower() != cur.lower():
+        return prev
+    return ""
+
+
+def _joined_year(contact: Dict[str, Any]) -> Optional[int]:
+    """Year they started the current role, from the summary's date_from."""
+    exp = contact.get("experience") or []
+    if not isinstance(exp, list) or not exp or not isinstance(exp[0], dict):
+        return None
+    date_from = (exp[0].get("date_from") or "").strip()
+    m = re.search(r"(19|20)\d{2}", date_from)
+    return int(m.group(0)) if m else None
 
 
 #: Everything a stashed person needs to survive until a reveal: who they are,
@@ -147,7 +179,7 @@ def _public_person(contact: Dict[str, Any], person_id: str, rank: int) -> Dict[s
 _STASH_FIELDS = (
     "FirstName", "LastName", "LinkedIn", "LinkedInUrn", "Email", "WorkEmail",
     "PersonalEmail", "PendingEmail", "PendingEmailStatus", "Title", "Company",
-    "City", "State", "College", "WorkSummary", "PhotoUrl",
+    "City", "State", "College", "WorkSummary", "PhotoUrl", "experience",
     "warmth_score", "warmth_tier", "warmth_label", "warmth_signals", "briefing",
     "personalization", "_reasons", "_provider",
 )
@@ -162,6 +194,40 @@ def _stashable(contact: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(summary, str) and len(summary) > 600:
         out["WorkSummary"] = summary[:600]
     return out
+
+
+
+def _seen_people_keys(db, user_id: str) -> set:
+    """LinkedIn keys of everyone this user has already been shown or saved.
+
+    Re-running a search used to return the exact same deck (same query, same
+    id order), so "that's all of them" arrived after seven cards and the
+    product felt tiny (Rylan 2026-08-27). Excluding the recent decks' people
+    and saved contacts makes every repeat search dig DEEPER into the same
+    well instead of replaying it. Keys match coresignal_client._contact_key
+    (LinkedIn URL lowercase). Best-effort: an error excludes nobody.
+    """
+    keys: set = set()
+    try:
+        decks = (db.collection("users").document(user_id)
+                   .collection("peopleDecks")
+                   .order_by("createdAt", direction=_FS_DESC).limit(10).stream())
+        for d in decks:
+            for c in ((d.to_dict() or {}).get("people") or {}).values():
+                li = (c.get("LinkedIn") or "").strip().lower()
+                if li:
+                    keys.add(li)
+    except Exception:
+        logger.exception("seen-people deck scan failed uid=%s", user_id)
+    try:
+        for c in (db.collection("users").document(user_id)
+                    .collection("contacts").select(["linkedinUrl"]).limit(500).stream()):
+            li = ((c.to_dict() or {}).get("linkedinUrl") or "").strip().lower()
+            if li:
+                keys.add(li)
+    except Exception:
+        logger.exception("seen-people contact scan failed uid=%s", user_id)
+    return keys
 
 
 def _deck_ref(db, user_id: str, deck_id: str):
@@ -461,11 +527,15 @@ def search_people(
                     logger.exception("coresignal budget read failed; treating as exhausted")
                     _spent = _budget
                 if _spent < _budget:
-                    _max_collects = int(_os.getenv("CORESIGNAL_MAX_COLLECTS", "8"))
+                    # 20, not 8: the trial-era cap made every deck seven cards and the
+                    # empty state land in under a minute (Rylan 2026-08-27). The
+                    # grant is confirmed healthy and the budget doc meters every
+                    # collect, so the deck can be a real session now.
+                    _max_collects = int(_os.getenv("CORESIGNAL_MAX_COLLECTS", "20"))
                     cs_contacts, _lvl, _saved, cs_meta = coresignal_client.search_contacts_from_prompt(
                         parsed,
                         min(limit, _max_collects),
-                        exclude_keys=set(),
+                        exclude_keys=_seen_people_keys(db, user_id),
                         user_profile=user_doc,
                         # Alumni-first: same filters, the student's school,
                         # those people lead the deck (free extra search).
