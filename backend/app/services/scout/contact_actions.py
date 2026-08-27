@@ -81,14 +81,18 @@ def find_contacts_for_chat(
     if (school or "").strip():
         args["school"] = school.strip()
 
+    # Unified engine (2026-08-27): the same ladder the People deck runs.
+    # The old path imported app.mcp_server.tools.find_contacts, which only
+    # exists on the WEBSITE branch — on the mobile services every Scout
+    # people-find failed "contact search failed" while the hiring-manager
+    # tool quietly served PDL-era, photo-less people. Scout now gets
+    # Coresignal discovery (photos, warehouse feed, spend metering) and
+    # FullEnrich waterfall emails with the verdict-aware gate.
     try:
-        from app.mcp_server.tools.find_contacts import handle
-        raw = handle(
-            args=args, ip_hash=_SCOUT_IP_HASH, db=db,
-            user_ctx=_user_ctx(uid, tier),
-        )
+        raw = _find_via_engine(db, uid, company, args.get("role") or "",
+                               args.get("school") or "", count)
     except Exception as e:
-        logger.warning("[ScoutContacts] find_contacts failed: %s", e)
+        logger.exception("[ScoutContacts] engine find failed: %s", e)
         return {**empty, "error": "contact search failed", "code": "INTERNAL"}
 
     if not isinstance(raw, dict):
@@ -175,3 +179,142 @@ def company_intel_for_chat(
         "divisions": (raw.get("divisions") or [])[:8],
         "alumni_at_your_school": raw.get("alumni_at_your_school"),
     }
+
+
+def _find_via_engine(db, uid: str, company: str, role: str, school: str,
+                     count: int) -> Dict[str, Any]:
+    """Coresignal discovery + FullEnrich emails, shaped to the old MCP
+    contract: {contacts: [...], note?} where each contact carries name,
+    title, company, linkedin_url, email, warmth, personalization_hook.
+
+    Charges 5 credits per contact RETURNED WITH AN EMAIL (an address-less
+    person is not the product Scout promised), saves those to the user's
+    network with their photo, and mirrors spend into the same meters the
+    People deck feeds.
+    """
+    from google.cloud import firestore as _fs
+    import os as _os
+    from app.services import coresignal_client, fullenrich_client
+    from app.services.firm_cache.writer import cache_pdl_contacts
+    from app.services.people_deck import _seen_people_keys
+    from app.utils.warmth_scoring import build_briefing_line, score_and_sort_contacts
+
+    parsed = {
+        "companies": [{"name": company, "matched_titles": [role] if role else []}],
+        "title_variations": [role] if role else [],
+        "schools": [school] if school else [],
+        "locations": [],
+    }
+
+    # Budget wall, same doc the People deck stops on.
+    budget = float(_os.getenv("CORESIGNAL_TEST_BUDGET", "20"))
+    try:
+        snap = db.collection("meta").document("coresignalTestBudget").get()
+        spent = float((snap.to_dict() or {}).get("spent_estimate", 0.0)) if snap.exists else 0.0
+    except Exception:
+        spent = budget
+    if not coresignal_client.CORESIGNAL_API_KEY or spent >= budget:
+        return {"contacts": [], "note": "people search is at its budget wall right now"}
+
+    contacts, _lvl, _saved, meta = coresignal_client.search_contacts_from_prompt(
+        parsed, count, exclude_keys=_seen_people_keys(db, uid))
+    collected = int((meta or {}).get("collected_count") or 0)
+    if collected:
+        try:
+            db.collection("meta").document("coresignalTestBudget").set(
+                {"spent_estimate": _fs.Increment(20.0 * collected),
+                 "collect_count": _fs.Increment(collected)}, merge=True)
+            from app.services.metering import log_provider_spend
+            log_provider_spend("coresignal", "member_collect", collected, returned=collected)
+        except Exception:
+            logger.exception("[ScoutContacts] spend mirror failed")
+    try:
+        cache_pdl_contacts(contacts, shape="app", async_write=True)
+    except Exception:
+        logger.exception("[ScoutContacts] warehouse feed failed")
+    if not contacts:
+        return {"contacts": []}
+
+    # Warmth + briefing, the same scorer every other surface uses. It
+    # returns the contacts SORTED by warmth and stamps warmth_score/tier/
+    # label/signals onto each one in place.
+    try:
+        user_doc = (db.collection("users").document(uid).get().to_dict() or {})
+        contacts = score_and_sort_contacts(user_doc, contacts) or contacts
+        for c in contacts:
+            c["briefing"] = build_briefing_line(c, c.get("warmth_signals") or [])
+    except Exception:
+        logger.exception("[ScoutContacts] warmth scoring failed")
+
+    # Emails: one bulk waterfall, chat waits (a find in chat is a real ask,
+    # and 60-90s with the model narrating beats a silent shrug).
+    wanting = [
+        (str(i), c.get("FirstName") or "", c.get("LastName") or "",
+         c.get("Company") or company, (c.get("LinkedIn") or "").strip())
+        for i, c in enumerate(contacts)
+        if not (c.get("Email") or "").strip()
+    ]
+    found: Dict[str, Dict[str, Any]] = {}
+    if wanting and fullenrich_client.enabled(db):
+        eid = fullenrich_client.start_bulk(wanting, db=db)
+        if eid:
+            ready, results = fullenrich_client.fetch_bulk(eid, wait_seconds=90, db=db)
+            if ready:
+                found = results
+    for i, c in enumerate(contacts):
+        hit = found.get(str(i))
+        if hit and fullenrich_client.sellable_gate(hit["email"], hit["status"]):
+            c["Email"] = hit["email"]
+
+    emailed = [c for c in contacts if (c.get("Email") or "").strip()]
+    if emailed:
+        try:
+            from app.services.auth import deduct_credits_atomic
+            deduct_credits_atomic(uid, 5 * len(emailed), "scout_find_contacts")
+        except Exception:
+            logger.exception("[ScoutContacts] charge failed")
+        # Save to network (skip anyone already there by email).
+        from datetime import datetime, timezone
+        col = db.collection("users").document(uid).collection("contacts")
+        for c in emailed:
+            email = (c.get("Email") or "").strip().lower()
+            try:
+                if list(col.where("email", "==", email).limit(1).stream()):
+                    continue
+                col.add({
+                    "firstName": (c.get("FirstName") or "").strip(),
+                    "lastName": (c.get("LastName") or "").strip(),
+                    "email": email,
+                    "linkedinUrl": (c.get("LinkedIn") or "").strip(),
+                    "company": (c.get("Company") or "").strip(),
+                    "jobTitle": (c.get("Title") or "").strip(),
+                    "college": (c.get("College") or "").strip(),
+                    "photoUrl": (c.get("PhotoUrl") or "").strip(),
+                    "status": "Not Contacted",
+                    "userId": uid,
+                    "createdAt": datetime.now(timezone.utc).isoformat(),
+                    "source": "scout_chat",
+                    "emailVerified": True,
+                })
+            except Exception:
+                logger.exception("[ScoutContacts] save failed for %s", email)
+
+    out = []
+    for c in emailed:
+        out.append({
+            "name": f"{(c.get('FirstName') or '').strip()} {(c.get('LastName') or '').strip()}".strip(),
+            "title": (c.get("Title") or "").strip(),
+            "company": (c.get("Company") or "").strip(),
+            "linkedin_url": (c.get("LinkedIn") or "").strip(),
+            "email": (c.get("Email") or "").strip(),
+            "warmth": (c.get("warmth_label") or c.get("warmth_tier") or ""),
+            "personalization_hook": (c.get("briefing") or "").strip(),
+        })
+    note = None
+    misses = len(contacts) - len(emailed)
+    if misses > 0:
+        note = f"found {len(contacts)} matching people; {misses} had no reachable email and were not charged"
+    result: Dict[str, Any] = {"contacts": out}
+    if note:
+        result["note"] = note
+    return result

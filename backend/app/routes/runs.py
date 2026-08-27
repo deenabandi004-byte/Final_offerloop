@@ -540,47 +540,66 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
             f"Finding the right person at {_search_co}" if _search_co else "Finding the right person",
             18,
         )
+        # Provider ladder unified with the People deck (2026-08-27):
+        # Coresignal PRIMARY (photo-rich, current, budget-metered), PDL as
+        # the reliability fallback, the Hunter bridge as the last rung.
+        # Every job right-swipe now buys the same quality the People tab
+        # serves, and every collected profile lands in the warehouse below.
+        contacts, retry_level_used, already_saved_contacts, adjacency_metadata = [], 0, [], {}
         try:
-            contacts, retry_level_used, already_saved_contacts, adjacency_metadata = search_contacts_from_prompt(
-                parsed, max_contacts, exclude_keys=seen_contact_set, user_profile=user_data
-            )
-            adjacency_metadata = adjacency_metadata or {}
-            adjacency_metadata.setdefault("provider", "pdl")
-        except Exception as pdl_err:
-            # Reliability fallback only (NOT a credit-efficient secondary):
-            # if PDL itself is unreachable (5xx/timeout/402-out-of-credits),
-            # fall through so users aren't shown an empty results page.
-            print(f"[ContactSearch] PDL primary failed ({pdl_err!r}); falling back to Coresignal")
-            existing_contact_count = len(seen_contact_set) if seen_contact_set else 0
-            fb_fetch_count = max_contacts + min(existing_contact_count, 3) + 2
-            try:
+            if getattr(coresignal_client, "CORESIGNAL_API_KEY", ""):
                 contacts, retry_level_used, already_saved_contacts, adjacency_metadata = coresignal_client.search_contacts_from_prompt(
-                    parsed, fb_fetch_count, exclude_keys=seen_contact_set, user_profile=user_data
+                    parsed, max_contacts, exclude_keys=seen_contact_set, user_profile=user_data
                 )
-            except Exception as cs_err:
-                print(f"[ContactSearch] Coresignal fallback errored ({cs_err!r})")
-                contacts, retry_level_used, already_saved_contacts, adjacency_metadata = [], 0, [], {}
-            adjacency_metadata = adjacency_metadata or {}
-            adjacency_metadata["fallback_used"] = "coresignal"
-            adjacency_metadata["primary_provider"] = "pdl"
-            # Second rung (2026-08-11, PDL account over limit during the
-            # billing dispute): Coresignal has no key configured on the
-            # mobile services, so its fallback returns nothing. The Hunter
-            # bridge (hunter_person_search, built for exactly this outage
-            # mode) covers company-targeted searches via Domain Search,
-            # which is every mobile swipe ("<title> at <company>"). Only
-            # fires when the rungs above produced zero contacts.
-            if not contacts and (parsed.get("companies") or []):
-                try:
-                    from app.services.hunter_person_search import search_people_via_hunter
-                    contacts, retry_level_used, already_saved_contacts, hunter_meta = search_people_via_hunter(
-                        parsed, max_contacts, exclude_keys=seen_contact_set, user_profile=user_data
-                    )
-                    adjacency_metadata.update(hunter_meta or {})
-                    adjacency_metadata["fallback_used"] = "hunter"
-                    print(f"[ContactSearch] Hunter bridge returned {len(contacts)} contacts")
-                except Exception as hunter_err:
-                    print(f"[ContactSearch] Hunter bridge failed ({hunter_err!r})")
+                adjacency_metadata = adjacency_metadata or {}
+                adjacency_metadata.setdefault("provider", "coresignal")
+                _cs_collected = int((adjacency_metadata or {}).get("collected_count") or 0)
+                if _cs_collected:
+                    try:
+                        from google.cloud import firestore as _fs
+                        db.collection("meta").document("coresignalTestBudget").set(
+                            {"spent_estimate": _fs.Increment(20.0 * _cs_collected),
+                             "collect_count": _fs.Increment(_cs_collected)}, merge=True)
+                        from app.services.metering import log_provider_spend
+                        log_provider_spend("coresignal", "member_collect", _cs_collected, returned=_cs_collected)
+                    except Exception:
+                        print("[ContactSearch] coresignal spend mirror failed")
+        except Exception as cs_err:
+            print(f"[ContactSearch] Coresignal primary failed ({cs_err!r}); falling back to PDL")
+            contacts = []
+        if not contacts:
+            try:
+                contacts, retry_level_used, already_saved_contacts, adjacency_metadata = search_contacts_from_prompt(
+                    parsed, max_contacts, exclude_keys=seen_contact_set, user_profile=user_data
+                )
+                adjacency_metadata = adjacency_metadata or {}
+                adjacency_metadata.setdefault("provider", "pdl")
+                adjacency_metadata["fallback_used"] = "pdl"
+            except Exception as pdl_err:
+                print(f"[ContactSearch] PDL fallback failed ({pdl_err!r})")
+                contacts, retry_level_used, already_saved_contacts, adjacency_metadata = contacts, 0, [], (adjacency_metadata or {})
+        # Last rung, at the LADDER level so it fires whenever both providers
+        # came back empty (not only when PDL raised): the Hunter bridge
+        # covers company-targeted searches via Domain Search, which is
+        # every mobile swipe ("<title> at <company>").
+        if not contacts and (parsed.get("companies") or []):
+            try:
+                from app.services.hunter_person_search import search_people_via_hunter
+                contacts, retry_level_used, already_saved_contacts, hunter_meta = search_people_via_hunter(
+                    parsed, max_contacts, exclude_keys=seen_contact_set, user_profile=user_data
+                )
+                adjacency_metadata.update(hunter_meta or {})
+                adjacency_metadata["fallback_used"] = "hunter"
+                print(f"[ContactSearch] Hunter bridge returned {len(contacts)} contacts")
+            except Exception as hunter_err:
+                print(f"[ContactSearch] Hunter bridge failed ({hunter_err!r})")
+        # Warehouse feed: every collected profile becomes a permanent asset
+        # (flag-gated, async, same feed the People deck ships).
+        try:
+            from app.services.firm_cache.writer import cache_pdl_contacts
+            cache_pdl_contacts(contacts, shape="app", async_write=True)
+        except Exception:
+            print("[ContactSearch] warehouse feed failed")
         search_broadened = retry_level_used >= 1
 
         # Surface which dimensions were dropped at the rung that succeeded so the
@@ -1432,6 +1451,9 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
                     # Persisted so My Network can render a "Verified" /
                     # "Best guess" badge and we have data for tuning.
                     contact_doc["emailSource"] = contact.get("EmailSource") or None
+                    # Face for the Inbox/Network rows; Avatar falls back to
+                    # initials when the hotlink expires.
+                    contact_doc["photoUrl"] = (contact.get("PhotoUrl") or "").strip()
                     contact_doc["emailVerified"] = bool(contact.get("EmailVerified"))
                     contact_doc["emailConfidenceScore"] = int(contact.get("EmailConfidenceScore") or 0)
                     if contact.get("emailSubject"):
