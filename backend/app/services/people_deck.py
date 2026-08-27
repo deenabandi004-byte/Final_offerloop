@@ -1452,6 +1452,10 @@ def _record_reveal(db, user_id, deck_id, person_id, contact, address,
             "company": (contact.get("Company") or "").strip(),
             "jobTitle": (contact.get("Title") or "").strip(),
             "college": (contact.get("College") or "").strip(),
+            # LinkedIn-CDN hotlink with an expiry token: good for weeks to
+            # months, then dies. The app's Avatar falls back to initials the
+            # moment it stops loading, so this is display sugar, not truth.
+            "photoUrl": (contact.get("PhotoUrl") or "").strip(),
             "city": (contact.get("City") or "").strip(),
             "state": (contact.get("State") or "").strip(),
             "firstContactDate": today,

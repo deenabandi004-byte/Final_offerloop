@@ -37,6 +37,7 @@ _LIST_VIEW_FIELDS = frozenset({
     "name",
     "company",
     "title",
+    "photoUrl",
     "linkedinUrl",
     "pipelineStage",
     "hasUnreadReply",

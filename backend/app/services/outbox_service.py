@@ -157,6 +157,9 @@ def _contact_to_dict(contact_id, data):
         "email": data.get("draftToEmail") or data.get("email") or "",
         "company": data.get("company") or "",
         "title": data.get("jobTitle") or "",
+        # Hotlinked LinkedIn photo (expires in weeks-months); the app's
+        # Avatar falls back to initials when it stops loading.
+        "photoUrl": data.get("photoUrl") or "",
         "linkedinUrl": ("https://" + data.get("linkedinUrl") if data.get("linkedinUrl") and not data.get("linkedinUrl", "").startswith("http") else data.get("linkedinUrl")),
         # Outbox state
         "pipelineStage": data.get("pipelineStage"),
