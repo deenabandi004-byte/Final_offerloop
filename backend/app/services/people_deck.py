@@ -1018,23 +1018,15 @@ def reveal_person(
             if fe_job.get("id"):
                 ready, results = fullenrich_client.fetch_bulk(
                     fe_job["id"], wait_seconds=30 if _from_fulfiller else 10, db=db)
-                # Authoritative only when the job FINISHED: then a missing
-                # pid is a real miss and the live fallback would waste 30s
-                # rediscovering it. A still-running job falls through.
-                fe_checked = bool(ready)
+                # Authoritative only when the job FINISHED, and only for the
+                # people it COVERED: a finished job says nothing about a
+                # pending-tier person who was never in it, and treating it as
+                # global suppressed their live fallback (Rylan 2026-08-26).
+                fe_checked = bool(ready) and fe_covered
                 hit_pre = results.get(str(person_id))
                 if hit_pre:
-                    ok = hit_pre["status"] == "DELIVERABLE"
-                    if not ok:
-                        try:
-                            if neverbounce_client.is_configured():
-                                ok = neverbounce_client.verify_email(hit_pre["email"]).get("result") == neverbounce_client.RESULT_VALID
-                            else:
-                                from app.services.crustdata_client import _hunter_says_deliverable
-                                ok = _hunter_says_deliverable(hit_pre["email"])
-                        except Exception:
-                            ok = False
-                    if ok:
+                    # Verdicts may reject; outages may not (sellable_gate).
+                    if fullenrich_client.sellable_gate(hit_pre["email"], hit_pre["status"]):
                         address = hit_pre["email"]
                         contact["Email"] = address
                         contact["EmailSource"] = f"fullenrich_prefetch_{hit_pre['status'].lower()}"
@@ -1080,18 +1072,8 @@ def reveal_person(
             logger.exception("people-deck fullenrich failed uid=%s", user_id)
             hit = None
         if hit:
-            ok = hit["status"] == "DELIVERABLE"
-            if not ok:
-                try:
-                    if neverbounce_client.is_configured():
-                        ok = neverbounce_client.verify_email(hit["email"]).get("result") == neverbounce_client.RESULT_VALID
-                    else:
-                        from app.services.crustdata_client import _hunter_says_deliverable
-                        ok = _hunter_says_deliverable(hit["email"])
-                except Exception:
-                    logger.exception("people-deck fullenrich verify failed uid=%s", user_id)
-                    ok = False
-            if ok:
+            # Verdicts may reject; outages may not (sellable_gate).
+            if fullenrich_client.sellable_gate(hit["email"], hit["status"]):
                 address = hit["email"]
                 contact["Email"] = address
                 contact["EmailSource"] = f"fullenrich_{hit['status'].lower()}"

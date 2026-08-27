@@ -100,6 +100,58 @@ def enabled(db) -> bool:
     return bool(_key()) and _spent(db) < BUDGET
 
 
+def sellable_gate(email: str, status: str) -> bool:
+    """Whether a waterfall result may be sold, distinguishing VERDICTS from
+    OUTAGES. DELIVERABLE sells as-is (their measured ~2% bounce).
+    HIGH_PROBABILITY wants a second opinion, but only a real verdict may
+    reject it: NeverBounce/Hunter saying INVALID is a verdict; a missing
+    key, quota wall, timeout, or "unknown" is OUR problem, and rejecting on
+    it read as "no email found" for addresses that benchmarked ~88%
+    deliverable (Rylan 2026-08-26, a whole deck of misses during a Hunter
+    quota outage). Uncertain accepts are logged loudly so the bounce data
+    can veto this policy later.
+    """
+    if not email:
+        return False
+    if (status or "").upper() == "DELIVERABLE":
+        return True
+    # Second opinion, tri-state: True / False / None (= no verdict).
+    verdict = None
+    try:
+        from app.services import neverbounce_client
+        if neverbounce_client.is_configured():
+            result = (neverbounce_client.verify_email(email) or {}).get("result")
+            if result == neverbounce_client.RESULT_VALID:
+                verdict = True
+            elif result == getattr(neverbounce_client, "RESULT_INVALID", "invalid"):
+                verdict = False
+    except Exception:
+        logger.exception("sellable_gate: neverbounce errored for %s", email)
+    if verdict is None:
+        try:
+            hkey = (os.getenv("HUNTER_API_KEY") or "").strip()
+            if hkey:
+                r = requests.get(
+                    "https://api.hunter.io/v2/email-verifier",
+                    params={"email": email, "api_key": hkey}, timeout=15,
+                )
+                hstatus = ((r.json().get("data") or {}).get("status") or "") if r.status_code == 200 else ""
+                if hstatus in ("deliverable", "valid"):
+                    verdict = True
+                elif hstatus in ("undeliverable", "invalid"):
+                    verdict = False
+                else:
+                    logger.warning("sellable_gate: hunter no-verdict (%s / %s) for %s",
+                                   r.status_code, hstatus or "?", email)
+        except Exception:
+            logger.exception("sellable_gate: hunter errored for %s", email)
+    if verdict is None:
+        logger.warning("sellable_gate: NO VERDICT for %s (%s) — accepting on "
+                       "FullEnrich's own verification", email, status)
+        return True
+    return verdict
+
+
 def find_work_email(
     *, first_name: str, last_name: str, company: str,
     linkedin_url: str = "", db=None,

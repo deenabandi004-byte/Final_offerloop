@@ -499,19 +499,7 @@ def reveal_candidate_email(candidate_id):
                 fe_checked = bool(ready)
                 hit_pre = results.get(str(candidate_id))
                 if hit_pre:
-                    ok = hit_pre["status"] == "DELIVERABLE"
-                    if not ok:
-                        try:
-                            from app.services import neverbounce_client
-                            if neverbounce_client.is_configured():
-                                ok = (neverbounce_client.verify_email(hit_pre["email"])
-                                      .get("result") == neverbounce_client.RESULT_VALID)
-                            else:
-                                from app.services.crustdata_client import _hunter_says_deliverable
-                                ok = _hunter_says_deliverable(hit_pre["email"])
-                        except Exception:
-                            ok = False
-                    if ok:
+                    if fullenrich_client.sellable_gate(hit_pre["email"], hit_pre["status"]):
                         email = hit_pre["email"]
                         verified = True
                         source = f"fullenrich_prefetch_{hit_pre['status'].lower()}"
@@ -580,20 +568,8 @@ def reveal_candidate_email(candidate_id):
         except Exception:
             logger.exception("reveal: fullenrich failed uid=%s cid=%s", uid, candidate_id)
         if fe_hit and fe_hit.get("email"):
-            fe_ok = fe_hit.get("status") == "DELIVERABLE"
-            if not fe_ok:
-                try:
-                    from app.services import neverbounce_client
-                    if neverbounce_client.is_configured():
-                        fe_ok = (neverbounce_client.verify_email(fe_hit["email"])
-                                 .get("result") == neverbounce_client.RESULT_VALID)
-                    else:
-                        from app.services.crustdata_client import _hunter_says_deliverable
-                        fe_ok = _hunter_says_deliverable(fe_hit["email"])
-                except Exception:
-                    logger.exception("reveal: waterfall SMTP gate failed uid=%s", uid)
-                    fe_ok = False
-            if fe_ok:
+            from app.services import fullenrich_client as _fec
+            if _fec.sellable_gate(fe_hit["email"], fe_hit.get("status") or ""):
                 email = fe_hit["email"]
                 verified = True
                 source = f"fullenrich_{(fe_hit.get('status') or 'found').lower()}"
