@@ -130,6 +130,12 @@ def _contact_to_dict(contact_id, data):
     # Gmail API returns HTML-encoded snippets (&#39; &amp; etc.) — decode them
     if snippet:
         snippet = html.unescape(snippet)
+    # A snippet is a preview line, not the document: the emailBody fallback
+    # above was shipping FULL email bodies for every draft-stage contact,
+    # inflating GET /outbox/threads to ~0.5MB per poll across a few hundred
+    # contacts. Detail views fetch the real body via the messages endpoint.
+    if snippet and len(snippet) > 160:
+        snippet = snippet[:157].rstrip() + "…"
 
     # Flag drafts stuck in draft_created for > STUCK_DRAFT_HOURS with no thread.
     # These are contacts the Gmail webhook never matched to a sent message, so
@@ -151,6 +157,9 @@ def _contact_to_dict(contact_id, data):
         "email": data.get("draftToEmail") or data.get("email") or "",
         "company": data.get("company") or "",
         "title": data.get("jobTitle") or "",
+        # Hotlinked LinkedIn photo (expires in weeks-months); the app's
+        # Avatar falls back to initials when it stops loading.
+        "photoUrl": data.get("photoUrl") or "",
         "linkedinUrl": ("https://" + data.get("linkedinUrl") if data.get("linkedinUrl") and not data.get("linkedinUrl", "").startswith("http") else data.get("linkedinUrl")),
         # Outbox state
         "pipelineStage": data.get("pipelineStage"),
@@ -1175,7 +1184,9 @@ def get_contact_thread_messages(uid, contact_id):
 # Auto-Prep (Coffee Chat) — triggered when meeting_scheduled
 # ---------------------------------------------------------------------------
 
-COFFEE_CHAT_CREDITS = 15
+# Single source of truth in config — this local copy silently drifted to 15
+# while manual preps charged 30 (found 2026-07-07; both are 0 now).
+from app.config import COFFEE_CHAT_CREDITS
 
 
 def _maybe_trigger_auto_prep(uid, contact_id, contact_data):

@@ -20,6 +20,7 @@ Auth: `apikey: <key>` request header.
 import os
 import hashlib
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -74,6 +75,7 @@ def search_contacts_from_prompt(
     max_contacts: int,
     exclude_keys: Optional[Set[str]] = None,
     user_profile: Optional[Dict[str, Any]] = None,
+    alumni_school: Optional[str] = None,
 ) -> Tuple[List[Dict[str, Any]], int, List[Dict[str, Any]], Optional[Dict[str, Any]]]:
     """
     Drop-in surface for pdl_client.search_contacts_from_prompt.
@@ -101,6 +103,16 @@ def search_contacts_from_prompt(
     ids = _search_ids(query, page_size=DEFAULT_SEARCH_PAGE_SIZE)
     if not ids:
         return [], 0, [], {"provider": "coresignal", "raw_count": 0}
+
+    # Alumni-first (2026-08-24): the same search constrained to the
+    # student's own school, and those people lead the deck. Searches are
+    # free; the warmth scorer then writes a real "fellow Trojan" opener.
+    if alumni_school:
+        alumni = alumni_first_ids(parsed_prompt, alumni_school, page_size=max_contacts * 2)
+        if alumni:
+            alumni_set = set(alumni)
+            ids = alumni + [i for i in ids if i not in alumni_set]
+            logger.info("coresignal alumni-first: %d alumni lead the deck", len(alumni))
 
     # Lazy collect: walk the ID list, fetching in parallel batches sized to
     # exactly what we still need. Each Collect call is 1 paid credit, so
@@ -130,6 +142,14 @@ def search_contacts_from_prompt(
             normalized = _normalize_to_contact(prof, target_company=target_company)
             if not normalized:
                 continue
+            # Promotion guard: "joined recently" means the person's FIRST
+            # entry at the target company is recent, not merely their
+            # newest title.
+            if parsed_prompt.get("joined_after") and target_company:
+                if not _joined_recently(prof, target_company, parsed_prompt["joined_after"]):
+                    logger.info("coresignal recency guard dropped %s (tenure predates cutoff)",
+                                normalized.get("FirstName", "?"))
+                    continue
             key = _contact_key(normalized)
             if key and key in seen_keys:
                 already_saved.append(normalized)
@@ -182,6 +202,48 @@ def enrich_linkedin_profile(linkedin_url: str) -> Optional[Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
+# Role nouns and seniority words that appear in nearly every title. A
+# variation made ONLY of these carries none of the request's identity.
+_GENERIC_TITLE_TOKENS = {
+    "analyst", "manager", "engineer", "developer", "specialist", "associate",
+    "coordinator", "director", "lead", "senior", "junior", "staff",
+    "principal", "intern", "consultant", "executive", "officer",
+    "representative", "rep", "assistant", "head", "vp", "president",
+}
+
+
+def _distinctive_variations(variations: List[str]) -> List[str]:
+    """Drop title variations that lost every distinctive word of the request.
+
+    The parser deliberately pads title_variations with generic fallbacks
+    ("Investment Banking Analyst" gains "Financial Analyst"). Anchored to a
+    company that is harmless breadth; with no company filter it turned
+    "Investment Banking Analysts at Technology companies" into "anyone in
+    finance anywhere" and served a city-government finance manager
+    (Rylan 2026-08-26). The FIRST variation is treated as the literal ask;
+    any variation sharing one of its non-generic words survives. A request
+    whose title is purely generic ("Consultant", "Recruiter") keeps
+    everything, since there is no identity to lose.
+    """
+    if len(variations) <= 1:
+        return variations
+    primary_tokens = set(re.findall(r"[a-z]+", (variations[0] or "").lower()))
+    distinctive = primary_tokens - _GENERIC_TITLE_TOKENS
+    # Single-word asks ("Recruiter") keep their synonyms; only a QUALIFIED
+    # title ("Investment Banking Analyst") has an identity to defend.
+    if not distinctive or len(primary_tokens) < 2:
+        return variations
+    kept = [
+        v for v in variations
+        if set(re.findall(r"[a-z]+", (v or "").lower())) & distinctive
+    ]
+    dropped = [v for v in variations if v not in kept]
+    if dropped:
+        logger.info("coresignal title guard dropped %d generic variations: %s",
+                    len(dropped), dropped[:5])
+    return kept or variations
+
+
 def _build_es_query(parsed: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Translate Offerloop's parse_search_prompt_structured output into the
@@ -195,7 +257,7 @@ def _build_es_query(parsed: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     companies = parsed.get("companies") or []
     company_names = [c.get("name") for c in companies if isinstance(c, dict) and c.get("name")]
-    title_variations = parsed.get("title_variations") or []
+    title_variations = _distinctive_variations(parsed.get("title_variations") or [])
     schools = parsed.get("schools") or []
     locations = parsed.get("locations") or []
 
@@ -205,6 +267,11 @@ def _build_es_query(parsed: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         nested_must: List[Dict[str, Any]] = [
             {"term": {"experience.active_experience": 1}},
         ]
+        # Joined-recently constrains the SAME experience entry as the
+        # company match; a sibling clause matched ANY recent entry, which
+        # let a 4-year veteran with a fresh promotion pass as a new hire.
+        if parsed.get("joined_after"):
+            nested_must.append({"range": {"experience.date_from": {"gte": parsed["joined_after"]}}})
         if len(company_names) == 1:
             nested_must.append({"match_phrase": {"experience.company_name": company_names[0]}})
         else:
@@ -266,14 +333,28 @@ def _build_es_query(parsed: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             }
         })
 
-    # Location is a flat field on the profile.
+    # Skills, matched against Coresignal's inferred_skills (982 React
+    # engineers at Stripe in the live probe).
+    skills = [sk for sk in (parsed.get("skills") or []) if isinstance(sk, str) and sk.strip()]
+    if skills:
+        must.append({
+            "bool": {
+                "should": [{"match": {"inferred_skills": sk}} for sk in skills],
+                "minimum_should_match": 1,
+            }
+        })
+
+    # Location is a flat field on the profile. match_phrase, not match:
+    # analyzed OR-matching let "United Kingdom" pass a "United States"
+    # filter token-by-token (caught via a Goa profile on a US-defaulted
+    # deck, 2026-08-24). Phrase matching pins the whole value.
     if locations:
         must.append({
             "bool": {
                 "should": [
-                    {"match": {"location_full": loc}} for loc in locations
+                    {"match_phrase": {"location_full": loc}} for loc in locations
                 ] + [
-                    {"match": {"location_country": loc}} for loc in locations
+                    {"match_phrase": {"location_country": loc}} for loc in locations
                 ],
                 "minimum_should_match": 1,
             }
@@ -299,6 +380,57 @@ def _target_company_name(parsed: Dict[str, Any]) -> Optional[str]:
 
 def _headers() -> Dict[str, str]:
     return {"apikey": CORESIGNAL_API_KEY, "Content-Type": "application/json"}
+
+
+def _joined_recently(prof: Dict[str, Any], target_company: str, joined_after: str) -> bool:
+    """True when the person's EARLIEST stint at the target company started
+    on or after the cutoff ("February 2026"-style). Unknown dates pass."""
+    from datetime import datetime as _dt
+    try:
+        cutoff = _dt.strptime(joined_after, "%B %Y")
+    except Exception:
+        return True
+    tc = (target_company or "").strip().lower()
+    earliest = None
+    for e in prof.get("experience") or []:
+        if not isinstance(e, dict):
+            continue
+        if tc not in (e.get("company_name") or "").lower():
+            continue
+        y, mo = e.get("date_from_year"), e.get("date_from_month") or 1
+        if not y:
+            continue
+        stamp = _dt(int(y), int(mo), 1)
+        if earliest is None or stamp < earliest:
+            earliest = stamp
+    return earliest is None or earliest >= cutoff
+
+
+def alumni_first_ids(parsed, school: str, page_size: int = 30):
+    """IDs for people matching the search AND sharing the student's school.
+
+    The warm-intro query the capability matrix proved (1,000 USC alumni
+    currently at Deloitte): free to run, and the deck leads with people the
+    warmth scorer can write a real opening line about. Returns [] on any
+    failure; the caller treats alumni as a bonus, never a dependency.
+    """
+    school = (school or "").strip()
+    if not school:
+        return []
+    base = _build_es_query(parsed)
+    if base is None:
+        return []
+    try:
+        base["query"]["bool"].setdefault("must", []).append({
+            "nested": {
+                "path": "education",
+                "query": {"match_phrase": {"education.institution_name": school}},
+            }
+        })
+        return _search_ids(base, page_size=page_size)
+    except Exception:
+        logger.exception("coresignal: alumni-first search failed")
+        return []
 
 
 def _search_ids(query: Dict[str, Any], page_size: int = DEFAULT_SEARCH_PAGE_SIZE) -> List[int]:
@@ -403,17 +535,27 @@ def _normalize_to_contact(
     # most recent experience array entry.
     title = (prof.get("active_experience_title") or "").strip()
     company = ""
+    actives = [e for e in (prof.get("experience") or []) if isinstance(e, dict) and e.get("active_experience") == 1]
+    # People hold two active positions (a Deloitte consultant who also lists
+    # a side role first, benchmark 2026-08-20). When the search named a
+    # company, the active position AT that company is the one the card and
+    # the "currently at target" flag should describe.
+    if target_company and actives:
+        tc = target_company.strip().lower()
+        for exp in actives:
+            if tc and tc in (exp.get("company_name") or "").lower():
+                title = (exp.get("position_title") or "").strip() or title
+                company = (exp.get("company_name") or "").strip()
+                break
     if not title:
-        for exp in prof.get("experience") or []:
-            if exp.get("active_experience") == 1:
-                title = (exp.get("position_title") or "").strip()
-                company = (exp.get("company_name") or "").strip()
-                break
+        for exp in actives:
+            title = (exp.get("position_title") or "").strip()
+            company = company or (exp.get("company_name") or "").strip()
+            break
     if not company:
-        for exp in prof.get("experience") or []:
-            if exp.get("active_experience") == 1:
-                company = (exp.get("company_name") or "").strip()
-                break
+        for exp in actives:
+            company = (exp.get("company_name") or "").strip()
+            break
     if not company and (prof.get("experience") or []):
         company = (prof["experience"][0].get("company_name") or "").strip()
 
@@ -432,6 +574,22 @@ def _normalize_to_contact(
             if cand and "@" in cand and not is_personal_email_domain(cand.split("@")[-1]):
                 email = cand
                 break
+
+    # Trust tiering, calibrated 2026-08-20 by SMTP-verifying every address
+    # in an 18-profile benchmark: guessed tiers went 6 of 6 invalid (pure
+    # pattern guesses, one set aimed at a recruiting domain), matched_email
+    # went 4 of 5 valid, and nothing arrived as "verified". So:
+    #   verified      -> sendable as-is
+    #   matched_email -> held as PendingEmail; the reveal step SMTP-checks
+    #                    it before it counts (free of Coresignal credits)
+    #   guessed_*     -> discarded outright; a bounce costs more trust
+    #                    than a miss
+    email_status = (prof.get("primary_professional_email_status") or "").strip().lower()
+    pending_email = ""
+    if email and email_status != "verified":
+        if email_status == "matched_email":
+            pending_email = email
+        email = ""
 
     # Education: pick the highest-signal school (prefer first entry in array,
     # which Coresignal orders by recency).
@@ -475,11 +633,25 @@ def _normalize_to_contact(
         "WorkSummary": _format_experience((prof.get("experience") or [])[:3]),
         "experience": _summarize_experience((prof.get("experience") or [])[:2]),
         "Phone": "",  # Coresignal multi-source doesn't expose phone in standard plan
+        # Benchmarked 18/18 present (2026-08-20): real LinkedIn headshots plus
+        # the employer logo. snake-case photo_url is what the app card reads.
+        "PhotoUrl": (prof.get("picture_url") or "").strip(),
+        "CompanyLogoUrl": (
+            (prof["experience"][0].get("company_logo_url") or "").strip()
+            if isinstance(prof.get("experience"), list) and prof.get("experience")
+            and isinstance(prof["experience"][0], dict) else ""
+        ),
+        "PendingEmail": pending_email,
+        "PendingEmailStatus": email_status if pending_email else "",
         "_source": "coresignal",
+        "_provider": "coresignal",
         "_coresignal_profile_score": prof.get("profile_score"),
         "_coresignal_is_decision_maker": prof.get("is_decision_maker"),
         "EmailSource": "coresignal" if email else "",
-        "EmailVerified": bool(email and prof.get("primary_professional_email_status") == "valid"),
+        # Their statuses are verified/matched_email/matched_pattern/
+        # guessed_common_pattern; the old check compared against "valid",
+        # which never occurs, so nothing was ever marked verified.
+        "EmailVerified": bool(email and email_status == "verified"),
     }
     # IsCurrentlyAtTarget mirrors the PDL flag used downstream by the
     # frontend's "still at target company" UI badge.

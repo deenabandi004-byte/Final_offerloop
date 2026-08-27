@@ -287,28 +287,71 @@ def prompt_search():
                     co = (ch.get("Company") or "").strip().lower()
                     if fn and ln and co:
                         pdl_exclude.add((fn, ln, co))
-                pdl_contacts, retry_level_used, already_saved_contacts, adjacency_metadata = search_contacts_from_prompt(
-                    parsed, pdl_target, exclude_keys=pdl_exclude, user_profile=user_data
-                )
-                contacts = cache_hits + (pdl_contacts or [])
-                adjacency_metadata = adjacency_metadata or {}
-                adjacency_metadata.setdefault("provider", "pdl")
+                # Provider ladder unified with the mobile engine
+                # (2026-08-27): warehouse hits stay first (free), then
+                # Coresignal PRIMARY for the remainder (photo-rich, current,
+                # budget-metered), PDL as the reliability fallback, the
+                # Hunter bridge last.
+                remainder = []
+                remainder_meta: dict = {}
+                try:
+                    if getattr(coresignal_client, "CORESIGNAL_API_KEY", ""):
+                        remainder, retry_level_used, already_saved_contacts, remainder_meta = coresignal_client.search_contacts_from_prompt(
+                            parsed, pdl_target, exclude_keys=pdl_exclude, user_profile=user_data
+                        )
+                        remainder_meta = remainder_meta or {}
+                        remainder_meta.setdefault("provider", "coresignal")
+                        _cs_collected = int(remainder_meta.get("collected_count") or 0)
+                        if _cs_collected:
+                            try:
+                                from google.cloud import firestore as _fs
+                                from app.extensions import get_db as _get_db
+                                _db = _get_db()
+                                if _db is not None:
+                                    _db.collection("meta").document("coresignalTestBudget").set(
+                                        {"spent_estimate": _fs.Increment(20.0 * _cs_collected),
+                                         "collect_count": _fs.Increment(_cs_collected)}, merge=True)
+                                from app.services.metering import log_provider_spend
+                                log_provider_spend("coresignal", "member_collect", _cs_collected, returned=_cs_collected)
+                            except Exception:
+                                print("[ContactSearch] coresignal spend mirror failed")
+                except Exception as cs_err:
+                    print(f"[ContactSearch] Coresignal primary failed ({cs_err!r}); falling back to PDL")
+                    remainder = []
+                if not remainder:
+                    remainder, retry_level_used, already_saved_contacts, remainder_meta = search_contacts_from_prompt(
+                        parsed, pdl_target, exclude_keys=pdl_exclude, user_profile=user_data
+                    )
+                    remainder_meta = remainder_meta or {}
+                    remainder_meta.setdefault("provider", "pdl")
+                    remainder_meta["fallback_used"] = "pdl"
+                contacts = cache_hits + (remainder or [])
+                adjacency_metadata = remainder_meta
                 if cache_hits:
                     adjacency_metadata["firm_cache_hits"] = len(cache_hits)
-                    adjacency_metadata["pdl_fills"] = len(pdl_contacts or [])
-        except Exception as pdl_err:
-            # Reliability fallback only (NOT a credit-efficient secondary):
-            # if PDL itself is unreachable (5xx/timeout/etc.), fall through
-            # to Coresignal so users aren't shown an empty results page.
-            print(f"[ContactSearch] PDL primary failed ({pdl_err!r}); falling back to Coresignal")
-            existing_contact_count = len(seen_contact_set) if seen_contact_set else 0
-            fb_fetch_count = max_contacts + min(existing_contact_count, 3) + 2
-            contacts, retry_level_used, already_saved_contacts, adjacency_metadata = coresignal_client.search_contacts_from_prompt(
-                parsed, fb_fetch_count, exclude_keys=seen_contact_set, user_profile=user_data
-            )
-            adjacency_metadata = adjacency_metadata or {}
-            adjacency_metadata["fallback_used"] = "coresignal"
-            adjacency_metadata["primary_provider"] = "pdl"
+                    adjacency_metadata["provider_fills"] = len(remainder or [])
+        except Exception as ladder_err:
+            print(f"[ContactSearch] provider ladder failed ({ladder_err!r})")
+            contacts, retry_level_used, already_saved_contacts, adjacency_metadata = [], 0, [], {}
+        # Last rung: the Hunter bridge covers company-targeted searches via
+        # Domain Search when both providers came back empty.
+        if not contacts and (parsed.get("companies") or []):
+            try:
+                from app.services.hunter_person_search import search_people_via_hunter
+                contacts, retry_level_used, already_saved_contacts, hunter_meta = search_people_via_hunter(
+                    parsed, max_contacts, exclude_keys=seen_contact_set, user_profile=user_data
+                )
+                adjacency_metadata.update(hunter_meta or {})
+                adjacency_metadata["fallback_used"] = "hunter"
+            except Exception as hunter_err:
+                print(f"[ContactSearch] Hunter bridge failed ({hunter_err!r})")
+        # Warehouse feed: every collected profile becomes a permanent asset
+        # (flag-gated by ENABLE_FIRM_CACHE_WRITE, async).
+        try:
+            from app.services.firm_cache.writer import cache_pdl_contacts
+            cache_pdl_contacts(contacts, shape="app", async_write=True)
+        except Exception:
+            print("[ContactSearch] warehouse feed failed")
         search_broadened = retry_level_used >= 1
 
         # Surface which dimensions were dropped at the rung that succeeded so the
@@ -603,6 +646,39 @@ def prompt_search():
             briefing = build_briefing_line(contact, signals)
             if briefing:
                 contact["briefing"] = briefing
+
+        # FullEnrich backfill (2026-08-27, ported from the mobile engine):
+        # before any email is written, contacts WITHOUT a verified address get
+        # one waterfall lookup behind the verdict-aware gate. DELIVERABLE
+        # adopts as-is; anything weaker keeps the original as a fallback.
+        # Capped so a large batch cannot stack minutes of waterfall waits;
+        # 1 credit only on found, misses free.
+        _FE_BACKFILL_CAP = 6
+        if outreach_mode != "preview" and contacts:
+            _fe_done = 0
+            for contact in contacts:
+                if _fe_done >= _FE_BACKFILL_CAP:
+                    break
+                if contact.get("EmailVerified"):
+                    continue
+                try:
+                    from app.services import fullenrich_client
+                    from app.extensions import get_db as _get_db
+                    _fe_hit = fullenrich_client.find_work_email(
+                        first_name=(contact.get("FirstName") or "").strip(),
+                        last_name=(contact.get("LastName") or "").strip(),
+                        company=(contact.get("Company") or "").strip(),
+                        linkedin_url=(contact.get("LinkedIn") or "").strip(),
+                        db=_get_db(),
+                    )
+                except Exception:
+                    print("[ContactSearch] FullEnrich backfill errored; keeping original address")
+                    _fe_hit = None
+                _fe_done += 1
+                if _fe_hit and _fe_hit.get("email") and _fe_hit.get("status") == "DELIVERABLE":
+                    contact["Email"] = _fe_hit["email"]
+                    contact["EmailSource"] = "fullenrich_backfill"
+                    contact["EmailVerified"] = True
 
         # Generate emails with resume text. Skipped entirely in preview mode:
         # preview returns contact info only, so no email is written and (because
@@ -965,6 +1041,9 @@ def prompt_search():
                     # Persisted so My Network can render a "Verified" /
                     # "Best guess" badge and we have data for tuning.
                     contact_doc["emailSource"] = contact.get("EmailSource") or None
+                    # Face for Inbox/Network rows; clients fall back to
+                    # initials when the hotlink expires.
+                    contact_doc["photoUrl"] = (contact.get("PhotoUrl") or "").strip()
                     contact_doc["emailVerified"] = bool(contact.get("EmailVerified"))
                     contact_doc["emailConfidenceScore"] = int(contact.get("EmailConfidenceScore") or 0)
                     if contact.get("emailSubject"):
@@ -1150,6 +1229,33 @@ def _is_admin(uid: str) -> bool:
     import os as _os
     admins = (_os.environ.get("ADMIN_UIDS") or "").split(",")
     return bool(uid) and uid in {a.strip() for a in admins if a.strip()}
+
+
+@runs_bp.route("/admin/spend-check", methods=["POST", "GET"])
+def admin_spend_check():
+    """
+    Run the provider-spend safeguard: total today + month-to-date spend and fire
+    a Telegram alert on any newly-crossed budget threshold (50/80/100%).
+
+    Auth is a shared secret (header `X-Spend-Token` or `?token=`) matching the
+    SPEND_CHECK_TOKEN env var, so a GitHub Actions cron can hit it without a
+    Firebase session. Fails closed if the token isn't configured.
+
+    `?force=1` re-sends the current highest threshold even if already alerted
+    (manual test). `?dry=1` returns the spend snapshot without sending alerts.
+    """
+    import os as _os
+    expected = _os.environ.get("SPEND_CHECK_TOKEN")
+    provided = request.headers.get("X-Spend-Token") or request.args.get("token")
+    if not expected or provided != expected:
+        return jsonify({"error": "forbidden"}), 403
+
+    from app.services.spend_alerts import check_and_alert, compute_spend
+    if request.args.get("dry") in ("1", "true"):
+        return jsonify({"ok": True, "dry_run": True, "spend": compute_spend()}), 200
+
+    force = request.args.get("force") in ("1", "true")
+    return jsonify(check_and_alert(force=force)), 200
 
 
 @runs_bp.route("/admin/metering/spend-by-provider", methods=["GET"])
