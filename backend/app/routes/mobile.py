@@ -1613,7 +1613,6 @@ def scout_ask():
 
     # ---- find_contacts: search-only, web-Find parity ----
     from app.services.prompt_parser import parse_search_prompt_structured
-    from app.services.pdl_client import search_contacts_with_smart_location_strategy
     role = (params.get('role') or '').strip()
     company = (params.get('company') or '').strip()
     location = (params.get('location') or '').strip()
@@ -1634,22 +1633,35 @@ def scout_ask():
             'actions': [], 'askId': ask_id,
             'error': {'code': 'needs_company', 'detail': ''},
         }), 200
-    # No location named? Search nationally instead of bailing. The underlying
-    # search REQUIRES a location and returns [] on empty — so "software engineers
-    # at Spotify" (no city) used to come back empty. "United States" resolves to a
-    # country_only strategy: one broad, US-scoped search, which is also what an
-    # American student wants by default.
-    search_location = location or 'United States'
+    # Engine search (2026-08-27): Coresignal replaced PDL here. The PDL key is
+    # retired and its calls came back 401 UNAUTHORIZED, which the old code read
+    # as "nobody matched" and told the user to broaden the role. Search-only:
+    # no email lookups, no user charge; the reveal happens at draft time.
+    # No location means a nationwide search; no role means anyone at the firm.
+    from app.services import coresignal_client
+    parsed_for_engine = {
+        'companies': [{'name': company}],
+        'title_variations': ([role] if role else []),
+        'locations': ([location] if location else []),
+    }
     try:
         _fut = _scout_find_pool.submit(
-            search_contacts_with_smart_location_strategy,
-            role or 'professional', company, search_location, max_contacts=5,
+            coresignal_client.search_contacts_from_prompt,
+            parsed_for_engine, 5,
         )
-        contacts = _fut.result(timeout=_SCOUT_FIND_BUDGET_S) or []
+        contacts, _rl, _already, _meta = _fut.result(timeout=_SCOUT_FIND_BUDGET_S)
+        contacts = contacts or []
+        # Free warehouse feed: every collected profile is a future instant hit.
+        if contacts:
+            try:
+                from app.services.firm_cache.writer import cache_pdl_contacts
+                cache_pdl_contacts(contacts, shape="app", async_write=True)
+            except Exception:
+                pass
     except _FuturesTimeout:
         # Orphan the slow search (it finishes into cache); don't pin the UI.
         return jsonify({
-            'say': f"That search is taking longer than usual — nothing was charged. "
+            'say': f"That search is taking longer than usual, nothing was charged. "
                    f"Try again in a moment, or narrow it (a role at {company}).",
             'actions': [], 'askId': ask_id,
             'error': {'code': 'search_timeout', 'detail': ''},
@@ -1670,9 +1682,9 @@ def scout_ask():
         })
     say = (
         f"Found {len(items)} at {company}" + (f" in {location}" if location else '') +
-        " — tap Draft and I'll write to the best matches."
+        ", tap Draft and I'll write to the best matches."
         if items else
-        f"I couldn't find anyone matching that at {company} — try a broader role. Nothing was charged."
+        f"I couldn't find anyone at {company} just now. Try the full company name. Nothing was charged."
     )
     return jsonify({
         'say': say,

@@ -533,6 +533,22 @@ def get_feed():
             logger.debug(f"could not load dismissed jobs for {uid}: {e}")
         return out
 
+    def _load_applied() -> set[str]:
+        # A job the user already applied to (any status: submitted, pending
+        # verification, even failed, they right-swiped it) must leave the deck
+        # permanently. Without this, every fresh rank re-served applied jobs
+        # and the feed read as "the same cards over and over".
+        out: set[str] = set()
+        try:
+            for d in user_ref.collection("autoApplyJobs").stream():
+                ad = d.to_dict() or {}
+                jid = ad.get("job_id") or d.id
+                if jid:
+                    out.add(str(jid))
+        except Exception as e:
+            logger.debug(f"could not load applied jobs for {uid}: {e}")
+        return out
+
     def _load_saved_companies() -> set[str]:
         out: set[str] = set()
         try:
@@ -555,11 +571,13 @@ def get_feed():
             logger.exception("[JobsFeed] load_user_signals failed for uid=%s", uid)
             return None
 
-    with ThreadPoolExecutor(max_workers=3) as _pf:
+    with ThreadPoolExecutor(max_workers=4) as _pf:
         _f_dismissed = _pf.submit(_load_dismissed)
+        _f_applied = _pf.submit(_load_applied)
         _f_saved = _pf.submit(_load_saved_companies)
         _f_signals = _pf.submit(_load_signals)
         dismissed_ids: set[str] = _f_dismissed.result()
+        dismissed_ids |= _f_applied.result()
         saved_companies: set[str] = _f_saved.result()
         user_signals = _f_signals.result()
 
