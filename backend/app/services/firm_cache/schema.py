@@ -518,6 +518,10 @@ def firm_employee_doc_from_app_contact(contact: dict) -> Optional[dict]:
         "city":            city,
         "state":           state,
         "country_code":    country_code,
+        # Photo (2026-08-26): PDL never had them, Coresignal always does, and
+        # a deck card with a face is measured product value. Carried when the
+        # source contact has one; never invented.
+        "photo_url":       (contact.get("PhotoUrl") or contact.get("photo_url") or "").strip(),
         # last_seen_at is stamped by writer.py with SERVER_TIMESTAMP
     }
 

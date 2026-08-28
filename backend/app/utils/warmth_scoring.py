@@ -281,12 +281,12 @@ def _score_career_relevance(comparison, contact):
         signals.append({"signal": "role_matches_industry", "points": 15,
                         "detail": comparison["career_track"]})
 
-    # Career transition the user wants to make (+12) -----------------------
-    transition = _detect_career_transition(contact)
-    if transition is not None:
-        points += 12
-        signals.append({"signal": "career_transition", "points": 12,
-                        "detail": transition.get("value", "")})
+    # Career transition scoring CUT 2026-08-27 (Rylan): the detector only
+    # read the CONTACT's history with keyword buckets so loose that an
+    # intern-to-analyst promotion scored as "transitioned into consulting",
+    # and it never knew what transition the USER wants. +12 of noise and a
+    # wrong card claim. Rebuild it when from->to intent is collected;
+    # _detect_career_transition stays importable for that day.
 
     # Company on dream list (+10) ------------------------------------------
     contact_company = _normalize(_get_field(contact, "company", "Company"))
@@ -571,7 +571,6 @@ _MEANINGFUL_SIGNALS = frozenset({
     "same_hometown",
     "same_past_company",
     "recently_joined",
-    "career_transition",
     "target_industry_match",
 })
 
@@ -613,8 +612,6 @@ def build_briefing_line(contact, warmth_signals):
             parts.append(f"Both worked at {detail}" if detail else "Shared employer")
         elif signal == "recently_joined":
             parts.append("Recently joined" + (f" {detail}" if detail else ""))
-        elif signal == "career_transition":
-            parts.append("Career transition match")
         elif signal == "target_industry_match":
             parts.append("In your target industry")
 
