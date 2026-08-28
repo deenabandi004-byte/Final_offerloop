@@ -2,6 +2,7 @@
 Run routes - prompt-based contact search endpoint
 """
 import json
+import os
 import time
 import traceback
 import threading
@@ -647,38 +648,76 @@ def prompt_search():
             if briefing:
                 contact["briefing"] = briefing
 
-        # FullEnrich backfill (2026-08-27, ported from the mobile engine):
-        # before any email is written, contacts WITHOUT a verified address get
-        # one waterfall lookup behind the verdict-aware gate. DELIVERABLE
-        # adopts as-is; anything weaker keeps the original as a fallback.
-        # Capped so a large batch cannot stack minutes of waterfall waits;
-        # 1 credit only on found, misses free.
+        # Email pass (2026-08-27, runs in EVERY mode including preview).
+        # PDL used to hand us emails inline with each person record, so the
+        # preview response already carried them and the Draft button just
+        # worked. Coresignal records carry no emails, so preview must earn
+        # them here or the whole website Find returns email-less contacts
+        # and drafting is a no-op. Ladder matches the mobile engine:
+        # warehouse hits arrive with emails already, Hunter next (seconds),
+        # then ONE FullEnrich bulk waterfall for whoever is left, with a
+        # bounded wait. Misses stay email-less rather than blocking forever.
         _FE_BACKFILL_CAP = 6
-        if outreach_mode != "preview" and contacts:
-            _fe_done = 0
-            for contact in contacts:
-                if _fe_done >= _FE_BACKFILL_CAP:
-                    break
-                if contact.get("EmailVerified"):
-                    continue
+        _fe_wait = int(os.environ.get("FE_SEARCH_WAIT_SECONDS", "75"))
+        _gained_email = []
+        _missing = [c for c in contacts
+                    if not (c.get("Email") or c.get("email") or "").strip()][:_FE_BACKFILL_CAP]
+        if _missing:
+            # Rung 1: Hunter Email Finder, one fast call per contact.
+            for contact in _missing:
+                try:
+                    from app.services.hunter import get_verified_email as _hunter_find
+                    _h = _hunter_find(
+                        None,
+                        (contact.get("FirstName") or "").strip(),
+                        (contact.get("LastName") or "").strip(),
+                        (contact.get("Company") or "").strip(),
+                        skip_personal_emails=True,
+                    )
+                except Exception:
+                    _h = None
+                if _h and _h.get("email") and _h.get("email_verified"):
+                    contact["Email"] = _h["email"]
+                    contact["WorkEmail"] = _h["email"]
+                    contact["EmailSource"] = _h.get("email_source") or "hunter.io"
+                    contact["EmailVerified"] = True
+                    _gained_email.append(contact)
+            # Rung 2: one FullEnrich bulk for the Hunter misses.
+            _still = [c for c in _missing if not (c.get("Email") or "").strip()]
+            if _still:
                 try:
                     from app.services import fullenrich_client
                     from app.extensions import get_db as _get_db
-                    _fe_hit = fullenrich_client.find_work_email(
-                        first_name=(contact.get("FirstName") or "").strip(),
-                        last_name=(contact.get("LastName") or "").strip(),
-                        company=(contact.get("Company") or "").strip(),
-                        linkedin_url=(contact.get("LinkedIn") or "").strip(),
-                        db=_get_db(),
-                    )
+                    _fe_db = _get_db()
+                    _people = [(str(i),
+                                (c.get("FirstName") or "").strip(),
+                                (c.get("LastName") or "").strip(),
+                                (c.get("Company") or "").strip(),
+                                (c.get("LinkedIn") or "").strip())
+                               for i, c in enumerate(_still)]
+                    _eid = fullenrich_client.start_bulk(_people, db=_fe_db)
+                    if _eid:
+                        _ready, _hits = fullenrich_client.fetch_bulk(
+                            _eid, wait_seconds=_fe_wait, db=_fe_db)
+                        for _i, _hit in (_hits or {}).items():
+                            _c = _still[int(_i)]
+                            _c["Email"] = _hit["email"]
+                            _c["WorkEmail"] = _hit["email"]
+                            _c["EmailSource"] = "fullenrich_backfill"
+                            _c["EmailVerified"] = True
+                            _gained_email.append(_c)
+                        print(f"[ContactSearch] FullEnrich search pass: "
+                              f"{len(_hits or {})}/{len(_still)} found (ready={_ready})")
                 except Exception:
-                    print("[ContactSearch] FullEnrich backfill errored; keeping original address")
-                    _fe_hit = None
-                _fe_done += 1
-                if _fe_hit and _fe_hit.get("email") and _fe_hit.get("status") == "DELIVERABLE":
-                    contact["Email"] = _fe_hit["email"]
-                    contact["EmailSource"] = "fullenrich_backfill"
-                    contact["EmailVerified"] = True
+                    print("[ContactSearch] FullEnrich search pass errored; contacts stay email-less")
+        # Re-feed the warehouse for anyone who just gained a verified address,
+        # so the next student's search serves this email instantly and free.
+        if _gained_email:
+            try:
+                from app.services.firm_cache.writer import cache_pdl_contacts as _cache_feed
+                _cache_feed(_gained_email, shape="app", async_write=True)
+            except Exception:
+                pass
 
         # Generate emails with resume text. Skipped entirely in preview mode:
         # preview returns contact info only, so no email is written and (because
