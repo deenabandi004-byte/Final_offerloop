@@ -565,23 +565,13 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
                     except Exception:
                         print("[ContactSearch] coresignal spend mirror failed")
         except Exception as cs_err:
-            print(f"[ContactSearch] Coresignal primary failed ({cs_err!r}); falling back to PDL")
+            print(f"[ContactSearch] Coresignal primary failed ({cs_err!r})")
             contacts = []
-        if not contacts:
-            try:
-                contacts, retry_level_used, already_saved_contacts, adjacency_metadata = search_contacts_from_prompt(
-                    parsed, max_contacts, exclude_keys=seen_contact_set, user_profile=user_data
-                )
-                adjacency_metadata = adjacency_metadata or {}
-                adjacency_metadata.setdefault("provider", "pdl")
-                adjacency_metadata["fallback_used"] = "pdl"
-            except Exception as pdl_err:
-                print(f"[ContactSearch] PDL fallback failed ({pdl_err!r})")
-                contacts, retry_level_used, already_saved_contacts, adjacency_metadata = contacts, 0, [], (adjacency_metadata or {})
-        # Last rung, at the LADDER level so it fires whenever both providers
-        # came back empty (not only when PDL raised): the Hunter bridge
-        # covers company-targeted searches via Domain Search, which is
-        # every mobile swipe ("<title> at <company>").
+        # The PDL rung is gone (2026-08-30): the subscription is retired and
+        # its key 401s on every call, so a fallback to it could never rescue
+        # a search. It only added a doomed round-trip before Hunter.
+        # Last rung: the Hunter bridge covers company-targeted searches via
+        # Domain Search, which is every mobile swipe ("<title> at <company>").
         if not contacts and (parsed.get("companies") or []):
             try:
                 from app.services.hunter_person_search import search_people_via_hunter
@@ -1595,7 +1585,7 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
             "search_broadened": search_broadened,
             "retry_level_used": retry_level_used,
             "broadened_dimensions": broadened_dimensions,
-            "provider": (adjacency_metadata or {}).get("provider", "pdl"),
+            "provider": (adjacency_metadata or {}).get("provider", "unknown"),
         }
         if search_broadened:
             response_data["broadening_level"] = retry_level_used

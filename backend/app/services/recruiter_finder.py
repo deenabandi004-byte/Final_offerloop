@@ -129,6 +129,63 @@ def _run_tight_pdl_query(company: str, pdl_role: str, size: int = 3) -> List[Dic
         return []
 
 
+def _run_engine_tier_search(company: str, titles: List[str], location: Optional[str],
+                            size: int) -> List[Dict]:
+    """Coresignal discovery for one tier of hiring-manager titles.
+
+    Engine-primary replacement for the PDL tier search (the PDL key is
+    retired and its calls 401). Returns canonical-schema contacts, the same
+    shape the ranking, Perplexity, and Hunter stages already consume.
+    Empty list on miss or error so the caller can fall back to PDL.
+    """
+    try:
+        from . import coresignal_client
+        if not getattr(coresignal_client, "CORESIGNAL_API_KEY", ""):
+            return []
+        parsed = {
+            "companies": [{"name": company}],
+            "title_variations": [t for t in (titles or []) if t][:6],
+            "locations": ([location] if location else []),
+        }
+        contacts, _rl, _saved, _meta = coresignal_client.search_contacts_from_prompt(
+            parsed, max(1, size)
+        )
+        # Mirror collect spend into the grant tank + provider_calls, same as
+        # every other engine call site, so the alerter stays honest.
+        _collected = int(((_meta or {}).get("collected_count")) or 0)
+        if _collected:
+            try:
+                from google.cloud import firestore as _fs
+                from app.extensions import get_db as _get_db
+                _db = _get_db()
+                if _db is not None:
+                    _db.collection("meta").document("coresignalTestBudget").set(
+                        {"spent_estimate": _fs.Increment(20.0 * _collected),
+                         "collect_count": _fs.Increment(_collected)}, merge=True)
+                from .metering import log_provider_spend
+                log_provider_spend("coresignal", "member_collect", _collected, returned=_collected)
+            except Exception:
+                print("[EngineTier] coresignal spend mirror failed")
+        out = []
+        for c in contacts or []:
+            # Coresignal search matches on the person's ACTIVE experience, so
+            # everyone it returns is a current employee of the target.
+            c["IsCurrentlyAtTarget"] = True
+            c["_source"] = "coresignal_tier"
+            out.append(c)
+        # Free warehouse feed: collected profiles become instant hits later.
+        if out:
+            try:
+                from .firm_cache.writer import cache_pdl_contacts
+                cache_pdl_contacts(out, shape="app", async_write=True)
+            except Exception:
+                pass
+        return out
+    except Exception as e:
+        print(f"[EngineTier] exception: {e}")
+        return []
+
+
 def _split_name(full_name: str) -> tuple[str, str]:
     """Split 'Jane Van Doe' -> ('Jane', 'Van Doe'). First word is first name,
     everything after is last name. Handles common edge cases (extra whitespace,
@@ -1484,7 +1541,9 @@ def find_hiring_manager(
             "search_tier_used": 2  # Highest tier that contributed results
         }
     """
-    if not PEOPLE_DATA_LABS_API_KEY:
+    # Engine-only: Coresignal is the discovery provider. PDL is retired.
+    from . import coresignal_client as _cs
+    if not getattr(_cs, "CORESIGNAL_API_KEY", ""):
         return {
             "hiringManagers": [],
             "emails": [],
@@ -1492,7 +1551,7 @@ def find_hiring_manager(
             "company_cleaned": company_name,
             "total_found": 0,
             "credits_charged": 0,
-            "error": "PDL API key not configured"
+            "error": "Coresignal API key not configured"
         }
     
     # Clean company name with alias expansion
@@ -1539,22 +1598,11 @@ def find_hiring_manager(
     # second (recruiters who reply). Together they give the user a richer
     # result set than either alone, while costing FAR less PDL when tight
     # supplies the precise candidates and the loose loop only tops up.
+    # The tight-PDL precision rung is retired with the PDL key. Its job
+    # (1-3 exact decision-makers before the loose loop) is covered by the
+    # engine tier search, whose title guard keeps queries precise.
     tight_pdl_used = False
     tight_pdl_count = 0
-    tight_target = _tight_target_for(max_results)
-    tight_pdl_role = _JOB_TYPE_TO_PDL_ROLE.get((job_type or "").lower())
-    if tight_pdl_role:
-        print(f"[HiringManagerFinder] Tight PDL query: company={cleaned_company}, role={tight_pdl_role}, size={tight_target}")
-        tight_results = _run_tight_pdl_query(cleaned_company, tight_pdl_role, size=tight_target)
-        if tight_results:
-            tight_pdl_used = True
-            tight_pdl_count = len(tight_results)
-            candidate_pool.extend(tight_results)
-            all_contacts_found.extend(tight_results)
-            highest_tier_used = 1  # treat as tier 1 for downstream telemetry
-            print(f"[HiringManagerFinder] Tight PDL returned {len(tight_results)} decision-makers")
-        else:
-            print(f"[HiringManagerFinder] Tight PDL returned 0 — full tier-loop fallback")
 
     # Tier-loop sizing.
     # - Tight path: tight PDL already supplied precise candidates, so the loose
@@ -1595,33 +1643,13 @@ def find_hiring_manager(
         all_search_titles.extend(tier_titles)
         
         print(f"[HiringManagerFinder] Searching Tier {tier} with titles: {tier_titles[:3]}...")
-        
-        # Build query for this tier
-        query_obj = build_hiring_manager_search_query(
-            company_name=cleaned_company.lower(),
-            titles=tier_titles,
-            location=location,
-            company_aliases=company_names,
-        )
-        
-        # Execute PDL search
-        PDL_URL = f"{PDL_BASE_URL}/person/search"
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
-        }
-        
+
         try:
-            raw_managers, _ = execute_pdl_search(
-                headers=headers,
-                url=PDL_URL,
-                query_obj=query_obj,
-                desired_limit=per_tier_size,  # Shrunk when tight already supplied precise candidates
-                search_type="hiring_manager_search",
-                page_size=per_tier_size,
-                verbose=False,
-                target_company=cleaned_company
+            # Engine discovery (2026-08-30): Coresignal is the only rung.
+            # The retired PDL fallback is gone; a dead key can never rescue
+            # anything, it only adds a doomed round-trip per tier.
+            raw_managers = _run_engine_tier_search(
+                cleaned_company, tier_titles, location, per_tier_size
             )
 
             if raw_managers:
