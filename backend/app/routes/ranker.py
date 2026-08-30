@@ -173,8 +173,16 @@ def get_ranked_candidates():
                 _dug, _rl, _sv, _meta = coresignal_client.search_contacts_from_prompt(
                     {"companies": [{"name": _dig_firm.replace("-", " ")}],
                      "title_variations": [], "locations": []},
-                    10,
+                    12,
                 )
+                # Keep only people whose employer actually IS the firm. A
+                # one-word firm name like Stripe token-matches "Kleen Stripe"
+                # and "PERMA-STRIPE OF FLORIDA" in the search index; caching
+                # those as Stripe would poison the warehouse for everyone.
+                import re as _re
+                _firm_l = _dig_firm.replace("-", " ").lower().strip()
+                _pat = _re.compile(r"^\s*" + _re.escape(_firm_l) + r"\b", _re.I)
+                _dug = [c for c in (_dug or []) if _pat.match((c.get("Company") or ""))]
                 if _dug:
                     cache_pdl_contacts(_dug, shape="app", async_write=False)
                     _collected = int(((_meta or {}).get("collected_count")) or 0)
