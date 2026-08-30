@@ -1924,11 +1924,7 @@ def find_hiring_manager(
             "candidates_title_corrected": perplexity_title_corrections if 'perplexity_title_corrections' in locals() else 0,
             "firecrawl_seed_used": firecrawl_seed_used,
             "firecrawl_seed_name": seed_hiring_manager_name if firecrawl_seed_used else None,
-            "tight_pdl_used": tight_pdl_used,
-            "tight_pdl_count": tight_pdl_count,
-            "tight_pdl_role": tight_pdl_role,
-            "tight_target": tight_target,
-            "mix_mode": "tight+loose" if tight_pdl_used else "loose_only",
+            "discovery_provider": "coresignal",
         },
     }
 
