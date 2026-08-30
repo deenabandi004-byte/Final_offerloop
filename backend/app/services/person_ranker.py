@@ -522,6 +522,11 @@ def _to_response_dict(scored_item: dict) -> dict:
             # current-job block, nothing in the sensitive class this list
             # exists to block, and the card's best outreach hook.
             "joinedYear":  cand.get("JoinedYear") or None,
+            # Allowlist extension (2026-08-30): the profile photo. Display
+            # sugar, not sensitive; the card falls back to initials when it
+            # is empty or the LinkedIn hotlink dies. The app mapper reads
+            # snake_case photo_url, matching the prompt deck's contract.
+            "photo_url":   cand.get("PhotoUrl") or "",
         },
         "score":    scored_item["score"],
         "tier":     scored_item["tier"],

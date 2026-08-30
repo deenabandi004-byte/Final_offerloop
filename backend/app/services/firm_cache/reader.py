@@ -187,6 +187,10 @@ def firm_employee_doc_to_app_contact(doc: dict) -> dict:
         # Professional tenure fact for the deck card ("joined this year" is a
         # real outreach hook). Allowlist extension approved by Rylan 2026-08-18.
         "JoinedYear":         doc.get("joined_year") or None,
+        # The face. Stored on warehouse rows since 2026-08-26; without this
+        # mapping every cache-hydrated person lost their photo on the way
+        # out, which blanked ranked deck cards and the Inbox rows they saved.
+        "PhotoUrl":           doc.get("photo_url") or "",
         "EmailSource":        "cache_no_email",
         "EmailVerified":      False,
         "EmailConfidenceScore": 0,

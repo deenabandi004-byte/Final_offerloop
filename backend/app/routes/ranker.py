@@ -934,6 +934,9 @@ def candidate_outreach(candidate_id):
         "candidateId": candidate_id,
         "attributionSource": "ranker_deck",
         "emailSource": contact.get("EmailSource") or None,
+        # Face for the Inbox and Network rows; the Avatar falls back to
+        # initials when this is empty or the LinkedIn hotlink expires.
+        "photoUrl": (contact.get("PhotoUrl") or "").strip(),
         "emailVerified": bool(contact.get("EmailVerified")),
         "emailConfidenceScore": int(contact.get("EmailConfidenceScore") or 0),
         "emailSubject": subject,
