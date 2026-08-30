@@ -204,10 +204,18 @@ def _process_coffee_chat_prep_impl(
 
         extra_context = extra_context or {}
 
-        # Step 1: Enrich LinkedIn profile
+        # Step 1: Enrich LinkedIn profile. Engine-first (2026-08-30): the PDL
+        # enrich this used to call 401s on the retired key, which killed EVERY
+        # prep at this exact line with "check the URL". Coresignal collects
+        # the same profile by its LinkedIn shorthand; the warehouse covers
+        # people the engine already met; the PDL call stays as a last rung
+        # only because it fails in one round-trip.
         print("Step 1: Enriching LinkedIn profile...")
         _update_stage(prep_ref, "enriching", "Looking up LinkedIn profile...", 10)
-        contact_data = enrich_linkedin_profile(linkedin_url)
+        from app.services.linkedin_enrich import enrich_linkedin_profile_engine
+        contact_data = enrich_linkedin_profile_engine(linkedin_url, db=get_db())
+        if not contact_data:
+            contact_data = enrich_linkedin_profile(linkedin_url)
 
         if not contact_data:
             print("Failed to enrich profile")
