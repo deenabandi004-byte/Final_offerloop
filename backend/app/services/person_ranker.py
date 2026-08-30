@@ -349,6 +349,18 @@ def _fetch_candidates(
                        .where("schools", "array_contains", sch)
                        .limit(cap)
                 )
+        # Alumni-at-target-firm is gold but rare. This used to be the ONLY
+        # query when both were set, so a user with a school saved got NOBODY
+        # at their target firms unless the warehouse happened to hold an alum
+        # there (Rylan's Stripe well, 2026-08-30: 14 employees banked, zero
+        # USC alumni, zero results). Top up with the firm's other people, the
+        # warmth scorer still floats any alumni to the top.
+        if len(docs) < cap:
+            for co in companies:
+                _stream(col.where("company", "==", co).limit(cap))
+        if len(docs) < cap:
+            for sch in schools:
+                _stream(col.where("schools", "array_contains", sch).limit(cap))
     elif companies:
         for co in companies:
             _stream(col.where("company", "==", co).limit(cap))

@@ -162,8 +162,10 @@ def get_ranked_candidates():
             _firms = _ctx.get("dream_company_slugs") or []
             _dig_firm = None
             for _f in _firms:
+                # The warehouse stamps the firm slug under "company"
+                # (schema.py), not "company_slug".
                 _n = (db.collection("firm_employees")
-                        .where("company_slug", "==", _f).limit(1).get())
+                        .where("company", "==", _f).limit(1).get())
                 if not list(_n):
                     _dig_firm = _f
                     break
