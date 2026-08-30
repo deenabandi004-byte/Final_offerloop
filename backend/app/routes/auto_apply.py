@@ -59,7 +59,7 @@ def _reap_if_stale(uid: str, data: Dict[str, Any]) -> Dict[str, Any]:
     Read-time (so it survives worker restarts). Returns the doc dict, patched
     in place when reaped, so callers can just hand the result to jsonify.
     """
-    if not data or data.get("status") not in ("queued", "running"):
+    if not data:
         return data
     stamp = data.get("updated_at") or data.get("created_at")
     if not stamp:
@@ -67,6 +67,43 @@ def _reap_if_stale(uid: str, data: Dict[str, Any]) -> Dict[str, Any]:
     try:
         last = datetime.fromisoformat(str(stamp).replace("Z", ""))
     except (TypeError, ValueError):
+        return data
+
+    # An emailed verification code that nobody entered for a day is dead:
+    # ATS codes expire in minutes to hours, so after 24h the honest state is
+    # "this one needs the company site", not an amber card that outlives the
+    # code it is waiting for (the Bland AI zombie, 2026-08-30). Refund path
+    # matches the silent-run reap below.
+    if data.get("status") == "needs_verification":
+        if (datetime.utcnow() - last).total_seconds() < 86400:
+            return data
+        now = datetime.utcnow().isoformat()
+        patch: Dict[str, Any] = {
+            "status": "submit_failed",
+            "stage": "failed",
+            "failure_reason": (
+                "The confirmation code expired before it was entered. "
+                "Apply on the company site to finish this one."
+            ),
+            "failed_at": now,
+            "updated_at": now,
+        }
+        try:
+            charged = int(data.get("credits_charged") or 0)
+            if charged and not data.get("credits_refunded") and not data.get("dry_run"):
+                refund_credits_atomic(uid, charged, "auto_apply_refund")
+                patch["credits_refunded"] = True
+            (
+                get_db().collection("users").document(uid)
+                .collection("autoApplyJobs").document(str(data.get("auto_apply_id")))
+                .update(patch)
+            )
+        except Exception:
+            logger.exception("verification reap failed for auto-apply %s", data.get("auto_apply_id"))
+            return data
+        return {**data, **patch}
+
+    if data.get("status") not in ("queued", "running"):
         return data
     if (datetime.utcnow() - last).total_seconds() < AUTO_APPLY_STALE_AFTER_SECONDS:
         return data
