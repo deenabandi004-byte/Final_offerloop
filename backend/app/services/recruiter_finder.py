@@ -1745,8 +1745,14 @@ def find_hiring_manager(
                     signal = v.get("recent_hiring_signal", "")
                     if signal:
                         manager["_recent_hiring_signal"] = signal
-                    fresh_title = v.get("current_title", "")
+                    fresh_title = (v.get("current_title") or "").strip()
                     pdl_title = manager.get("Title", "")
+                    # A non-answer is not a correction. Perplexity returns
+                    # "unknown" when it cannot verify, and blindly adopting it
+                    # was overwriting real provider titles with the word
+                    # "unknown" on the draft sheet.
+                    if fresh_title.lower() in ("unknown", "n/a", "none", "not available"):
+                        fresh_title = ""
                     if fresh_title and fresh_title.lower() != pdl_title.lower():
                         manager["_pdl_title"] = pdl_title
                         manager["Title"] = fresh_title
@@ -1870,8 +1876,38 @@ def find_hiring_manager(
             final_hiring_managers.append(contact)
             seen_ids.add(k)
         
+        # FullEnrich waterfall for the FINAL picks still lacking a verified
+        # address (2026-08-30). Hunter's pattern guesses shipped as unverified
+        # "ganderson@" emails; one bulk job on at most max_results people
+        # upgrades them to triple-verified addresses, 1 credit each only on
+        # found. Same rung every other surface already runs.
+        _fe_need = [c for c in final_hiring_managers
+                    if not (c.get("EmailVerified") or c.get("email_verified"))]
+        if _fe_need:
+            try:
+                from . import fullenrich_client
+                from app.extensions import get_db as _fe_get_db
+                _fe_db = _fe_get_db()
+                _people = [(str(i),
+                            (c.get("FirstName") or "").strip(),
+                            (c.get("LastName") or "").strip(),
+                            (c.get("Company") or cleaned_company or "").strip(),
+                            (c.get("LinkedIn") or "").strip())
+                           for i, c in enumerate(_fe_need)]
+                _eid = fullenrich_client.start_bulk(_people, db=_fe_db)
+                if _eid:
+                    _ready, _hits = fullenrich_client.fetch_bulk(_eid, wait_seconds=60, db=_fe_db)
+                    for _i, _hit in (_hits or {}).items():
+                        _c = _fe_need[int(_i)]
+                        _c["Email"] = _hit["email"]
+                        _c["EmailVerified"] = True
+                        _c["email_source"] = "fullenrich_hm"
+                    print(f"[HiringManagerFinder] FullEnrich pass: {len(_hits or {})}/{len(_fe_need)} upgraded (ready={_ready})")
+            except Exception:
+                print("[HiringManagerFinder] FullEnrich pass errored; keeping Hunter guesses")
+
         verified_count = len([c for c in final_hiring_managers if (
-            c.get('EmailVerified', False) or 
+            c.get('EmailVerified', False) or
             c.get('is_verified_email', False) or
             c.get('email_verified', False)
         )])
