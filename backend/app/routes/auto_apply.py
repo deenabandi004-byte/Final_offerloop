@@ -353,7 +353,11 @@ def resolve_needs_attention(auto_apply_id: str):
         question = by_id.get(qid)
         if not question:
             continue  # Unknown question_id — silently skip
-        label = question.get("label") or ""
+        # Pending questions carry their text under "question" (the drawer's
+        # shape); older shapes used "label". Reading only "label" saved every
+        # answer with EMPTY question text, so the library could never match
+        # it to the same question on the next job: saved, but useless.
+        label = question.get("label") or question.get("question") or ""
         field_type = question.get("field_type") or "text"
         options = question.get("options")
         save_answer(
