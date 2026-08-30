@@ -144,6 +144,56 @@ def get_ranked_candidates():
         return jsonify({"error": "Database not initialized"}), 500
 
     candidates = rank_people_for_user(uid=uid, db=db, limit=limit, exclude_ids=exclude_ids)
+
+    # Dry well? DIG (2026-08-30). "Show more from your targets" rank-orders the
+    # warehouse, so a target firm nobody has searched yet (Rylan's well was
+    # Stripe-only, warehouse rows: zero) returned no_candidates forever, which
+    # read as the button doing nothing. When the rank comes back empty and the
+    # user has target firms, run ONE live Coresignal search for the least
+    # covered firm, feed the warehouse, and rank again. Bounded: one firm, one
+    # search, ~10 collects, only on an empty rank, so a healthy well never
+    # pays it and a dry one pays it once.
+    if not candidates:
+        try:
+            from app.services import coresignal_client
+            from app.services.firm_cache.writer import cache_pdl_contacts
+            from app.services.person_ranker import _load_user_context
+            _ctx = _load_user_context(uid, db) or {}
+            _firms = _ctx.get("dream_company_slugs") or []
+            _dig_firm = None
+            for _f in _firms:
+                _n = (db.collection("firm_employees")
+                        .where("company_slug", "==", _f).limit(1).get())
+                if not list(_n):
+                    _dig_firm = _f
+                    break
+            if _dig_firm is None and _firms:
+                _dig_firm = _firms[0]
+            if _dig_firm and getattr(coresignal_client, "CORESIGNAL_API_KEY", ""):
+                _dug, _rl, _sv, _meta = coresignal_client.search_contacts_from_prompt(
+                    {"companies": [{"name": _dig_firm.replace("-", " ")}],
+                     "title_variations": [], "locations": []},
+                    10,
+                )
+                if _dug:
+                    cache_pdl_contacts(_dug, shape="app", async_write=False)
+                    _collected = int(((_meta or {}).get("collected_count")) or 0)
+                    if _collected:
+                        try:
+                            from google.cloud import firestore as _fs
+                            db.collection("meta").document("coresignalTestBudget").set(
+                                {"spent_estimate": _fs.Increment(20.0 * _collected),
+                                 "collect_count": _fs.Increment(_collected)}, merge=True)
+                            from app.services.metering import log_provider_spend
+                            log_provider_spend("coresignal", "member_collect", _collected, returned=_collected)
+                        except Exception:
+                            pass
+                    candidates = rank_people_for_user(uid=uid, db=db, limit=limit, exclude_ids=exclude_ids)
+                    logger.info("ranker dig: %s -> %d collected, %d ranked",
+                                _dig_firm, len(_dug), len(candidates))
+        except Exception:
+            logger.exception("ranker dig failed uid=%s", uid)
+
     generated_at = datetime.now(timezone.utc).isoformat()
 
     # Warm-first ordering (Rylan 2026-08-26): within each relevance tier,
