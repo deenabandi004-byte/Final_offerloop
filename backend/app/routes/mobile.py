@@ -1808,6 +1808,13 @@ def _scout_ask_contract(env: dict, ask_id: str) -> dict:
     learns to render this one in Phase 2).
     """
     say = (env.get('message') or '').strip()
+    # The web path strips em dashes on labels and args; the mobile say text
+    # was slipping through unstripped (Rylan's screenshot, 2026-08-30).
+    try:
+        from app.services.scout_assistant_service import _strip_em_dashes
+        say = _strip_em_dashes(say)
+    except Exception:
+        pass
     actions: list = []
     error = None
 

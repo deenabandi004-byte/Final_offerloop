@@ -430,11 +430,48 @@ def resolve_needs_attention(auto_apply_id: str):
             "saved_to_library": saved_ids,
         }), 200
 
+    # Loop breaker (2026-08-30, the Snowflake checkbox): if two answer-and-
+    # retry rounds have already failed on the SAME form, a third ask is a
+    # treadmill, not progress — the form itself is defeating the filler
+    # (checkbox click timeouts, custom widgets). Stop honestly: demote to
+    # apply-on-the-site and refund, instead of re-asking questions the user
+    # already answered twice.
+    _rounds = int(data.get("attention_rounds") or 0)
+    if _rounds >= 2:
+        now_iso = datetime.utcnow().isoformat()
+        fail_payload: Dict[str, Any] = {
+            "status": "submit_failed",
+            "stage": "failed",
+            "failure_reason": (
+                "This company's form keeps blocking our filler even with your "
+                "answers. Your answers were used each try; finishing it on the "
+                "company site is the honest next step."
+            ),
+            "failed_at": now_iso,
+            "updated_at": now_iso,
+            "pending_questions": [],
+        }
+        try:
+            charged = int(data.get("credits_charged") or 0)
+            if charged and not data.get("credits_refunded") and not data.get("dry_run"):
+                refund_credits_atomic(uid, charged, "auto_apply_refund")
+                fail_payload["credits_refunded"] = True
+        except Exception:
+            logger.exception("loop-breaker refund failed for %s", auto_apply_id)
+        job_ref.update(fail_payload)
+        return jsonify({
+            "auto_apply_id": auto_apply_id,
+            "status": "submit_failed",
+            "pending_questions": [],
+            "saved_to_library": saved_ids,
+        }), 200
+
     # All required pending questions resolved → re-run the worker. The library
     # is now populated, so the next filler pass will resolve every field and
     # actually click Submit.
     update_payload["status"] = "queued"
     update_payload["stage"] = "queued_for_resume"
+    update_payload["attention_rounds"] = _rounds + 1
     # Clear the submit-attempt stamp: the USER has just answered the drawer and
     # explicitly asked us to try again, so another submission is authorized.
     #

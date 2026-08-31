@@ -162,7 +162,7 @@ def run_target_predig(db) -> None:
                 take = max(2, need // 2)
                 contacts, _rl, _sv, meta = coresignal_client.search_contacts_from_prompt(
                     {"companies": [{"name": disp}],
-                     "title_variations": [role], "locations": []},
+                     "title_variations": [role], "locations": ["United States"]},
                     take,
                 )
                 contacts = _exact_firm_filter(disp, contacts or [])

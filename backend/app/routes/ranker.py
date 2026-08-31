@@ -174,7 +174,7 @@ def get_ranked_candidates():
             if _dig_firm and getattr(coresignal_client, "CORESIGNAL_API_KEY", ""):
                 _dug, _rl, _sv, _meta = coresignal_client.search_contacts_from_prompt(
                     {"companies": [{"name": _dig_firm.replace("-", " ")}],
-                     "title_variations": [], "locations": []},
+                     "title_variations": [], "locations": ["United States"]},
                     12,
                 )
                 # Keep only people whose employer actually IS the firm. A
