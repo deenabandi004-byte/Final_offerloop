@@ -35,7 +35,8 @@ from flask import Blueprint, request, jsonify
 from app.extensions import require_firebase_auth, get_db
 from app.config import TIER_CONFIGS
 from app.services.auth import check_and_reset_credits, deduct_credits_atomic
-from app.services.pdl_client import get_contact_identity, search_contacts_from_prompt
+from app.services.engine_search import engine_search_contacts
+from app.services.pdl_client import get_contact_identity
 from app.services.feature_flags import PDL_OUTAGE_ACTIVE
 from app.routes.runs import _build_exclusion_data_from_firestore
 
@@ -314,15 +315,15 @@ def find_similar():
         # ----- Query 1: same company, no title filter -----
         same_co_results: list[dict] = []
         try:
-            sc_contacts, _, _, _ = search_contacts_from_prompt(
+            sc_contacts, _, _, _ = engine_search_contacts(
                 _build_same_company_prompt(source),
                 _PDL_FETCH_PER_QUERY,
                 exclude_keys=exclusion_keys,
                 user_profile=user_data,
             )
             same_co_results = sc_contacts or []
-        except Exception as pdl_err:
-            print(f"[find-similar] same-company PDL call failed: {pdl_err}")
+        except Exception as engine_err:
+            print(f"[find-similar] same-company engine call failed: {engine_err}")
 
         # Classify same-company results into A (same role) vs B (any other role).
         bucket_a: list[dict] = []
@@ -337,15 +338,15 @@ def find_similar():
         cross_co_results: list[dict] = []
         if title_band:
             try:
-                cc_contacts, _, _, _ = search_contacts_from_prompt(
+                cc_contacts, _, _, _ = engine_search_contacts(
                     _build_cross_company_prompt(source),
                     _PDL_FETCH_PER_QUERY + 2,  # extra buffer — we'll drop same-co
                     exclude_keys=exclusion_keys,
                     user_profile=user_data,
                 )
                 cross_co_results = cc_contacts or []
-            except Exception as pdl_err:
-                print(f"[find-similar] cross-company PDL call failed: {pdl_err}")
+            except Exception as engine_err:
+                print(f"[find-similar] cross-company engine call failed: {engine_err}")
 
         # Bucket C — drop any PDL still surfaced at the source company.
         bucket_c: list[dict] = [c for c in cross_co_results if not _same_company(c, source_company)]
