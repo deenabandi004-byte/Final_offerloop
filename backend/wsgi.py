@@ -719,6 +719,38 @@ def create_app() -> Flask:
     else:
         _loop_sched_logger.info("Loop scheduler disabled via LOOP_SCHEDULER_ENABLED=false")
 
+    # ---- Warehouse warm daemon (nightly) ─────────────────────────────────────
+    #
+    # The cache works the night shift: pre-digs the firms users target most
+    # (plus the new-user seed firms) and re-collects rotted rows (no photo,
+    # stale) in demand order. Hourly tick; warehouse_warm's own hour check +
+    # Firestore date guard make it fire once per night. Tank-capped.
+    _warm_logger = logging.getLogger("warehouse_warm_daemon")
+
+    def _warehouse_warm_loop():
+        ONE_HOUR = 3600
+        _warm_logger.info("Warehouse warm daemon started (nightly, hour=%s UTC)",
+                          os.getenv("WARM_HOUR_UTC", "9"))
+        time.sleep(900)  # boot stabilization
+        while True:
+            try:
+                with app.app_context():
+                    from .app.extensions import get_db as _warm_get_db
+                    from .app.services.warehouse_warm import run_nightly_warm
+                    _db = _warm_get_db()
+                    if _db is not None:
+                        run_nightly_warm(_db)
+            except Exception:
+                _warm_logger.exception("Warehouse warm daemon failed")
+            time.sleep(ONE_HOUR)
+
+    if _RUN_DAEMONS and os.getenv("WAREHOUSE_WARM_ENABLED", "true").lower() == "true":
+        warm_thread = threading.Thread(target=_warehouse_warm_loop, daemon=True)
+        warm_thread.start()
+        _warm_logger.info("Warehouse warm daemon registered")
+    else:
+        _warm_logger.info("Warehouse warm daemon disabled via WAREHOUSE_WARM_ENABLED=false")
+
     # ---- Agent follow-up daemon (every 1 hour) ───────────────────────────────
     #
     # Separate from the main agent daemon. Only scans for stale outreach
