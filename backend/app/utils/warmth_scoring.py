@@ -140,9 +140,16 @@ def _build_user_comparison_data(user_profile, search_context=None):
             dream_companies.add(_normalize(co))
 
     # Hometown / location --------------------------------------------------
+    # location on the APP's user doc is a DICT ({city, state, ...}); str()ing
+    # it fed the matcher garbage like "{'state': '', 'interests': []...}" and
+    # hometown matching compared against that (seen live 2026-08-31).
+    _loc = user_profile.get("location")
+    if isinstance(_loc, dict):
+        _loc = ", ".join(filter(None, [(_loc.get("city") or "").strip(),
+                                       (_loc.get("state") or "").strip()]))
     hometown = (
         user_profile.get("hometown")
-        or user_profile.get("location")
+        or _loc
         or professional_info.get("location")
         or ""
     )

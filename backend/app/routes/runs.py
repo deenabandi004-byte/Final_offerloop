@@ -1091,6 +1091,11 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
                     warmth_data=warmth_data,
                     uid=user_id,
                     enrichment_data=enrichment_data,
+                    # The About box and target firms the user typed in the app
+                    # never reached generation from this pipeline; both params
+                    # existed and defaulted to empty (Rylan 2026-08-31).
+                    personal_note=(user_data or {}).get("personalNote") or "",
+                    dream_companies=(user_data or {}).get("dreamCompanies"),
                 )
             except Exception as e:
                 print(f"[Runs] Email generation failed (prompt-search): {e}")

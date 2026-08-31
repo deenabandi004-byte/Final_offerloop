@@ -108,15 +108,18 @@ def get_user_school(user_data: dict) -> str:
         resume_edu = {}
     return (
         academics.get("university")
+        or resume_edu.get("university")
+        or user_data.get("professionalInfo", {}).get("university")
+        or user_data.get("university")
         # The APP writes the typed school to academics.school and the
         # top-level school field (Profile > Your details, the Scout nudge).
         # This chain never read either, so an app-only student with no
         # resume generated emails with university="" and lost the whole
-        # alumni angle (Rylan 2026-08-31, the Kevin Lyu email).
+        # alumni angle (Rylan 2026-08-31, the Kevin Lyu email). Below the
+        # resume rungs on purpose: the resume is the high-effort source and
+        # wins when both exist; the app fields keep a resume-less student
+        # from being a blank sender.
         or academics.get("school")
-        or resume_edu.get("university")
-        or user_data.get("professionalInfo", {}).get("university")
-        or user_data.get("university")
         or user_data.get("school")
         or ""
     )
@@ -600,17 +603,26 @@ def build_coffee_chat_user_context(parsed_resume: dict, user_profile: dict = Non
 
     # Extract education fields
     edu = parsed_resume.get("education", {})
+    # Hierarchy (Rylan 2026-08-31): resume first (the high-effort source),
+    # then the fields the APP writes (academics.school, gradYear, and
+    # academics.major) so an app-only student is not a blank sender.
+    academics = profile.get("academics") or {}
     if isinstance(edu, dict):
-        university = edu.get("university", "") or profile.get("university", "")
-        major = edu.get("major", "") or profile.get("major", "") or profile.get("fieldOfStudy", "")
+        university = (edu.get("university", "") or profile.get("university", "")
+                      or get_user_school(profile))
+        major = (edu.get("major", "") or profile.get("major", "")
+                 or profile.get("fieldOfStudy", "") or academics.get("major", ""))
         minor = edu.get("minor", "")
-        year = edu.get("graduation", "") or profile.get("year", "") or profile.get("graduationYear", "")
+        year = (edu.get("graduation", "") or profile.get("year", "")
+                or profile.get("graduationYear", "") or profile.get("gradYear", ""))
         gpa = edu.get("gpa")
     else:
-        university = profile.get("university", "")
-        major = profile.get("major", "") or profile.get("fieldOfStudy", "")
+        university = profile.get("university", "") or get_user_school(profile)
+        major = (profile.get("major", "") or profile.get("fieldOfStudy", "")
+                 or academics.get("major", ""))
         minor = ""
-        year = profile.get("year", "") or profile.get("graduationYear", "")
+        year = (profile.get("year", "") or profile.get("graduationYear", "")
+                or profile.get("gradYear", ""))
         gpa = None
 
     # Extract skills as flat list
