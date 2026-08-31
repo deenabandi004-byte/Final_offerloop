@@ -1298,14 +1298,18 @@ def meeting_prep_preview():
         return jsonify({'ok': False, 'error': 'Enter a LinkedIn profile URL (linkedin.com/in/…)'}), 400
 
     try:
-        from app.services.pdl_client import enrich_linkedin_profile
-        c = enrich_linkedin_profile(url) or {}
+        # Engine-first (2026-08-30): the PDL enrich this reused 401s on the
+        # retired key, so the confirm card ALWAYS said not-found. Coresignal
+        # collects by shorthand; the warehouse answers free for people the
+        # engine already met; the prep's full run uses the same door.
+        from app.services.linkedin_enrich import enrich_linkedin_profile_engine
+        c = enrich_linkedin_profile_engine(url, db=get_db()) or {}
     except Exception:
         c = {}
 
     if not c or not (c.get('fullName') or c.get('firstName')):
-        # Not an error — the URL may just be too new/sparse for PDL. The app
-        # falls back to letting the user prep anyway with a typed name.
+        # Not an error — the URL may just be too new/sparse for the provider.
+        # The app falls back to letting the user prep anyway with a typed name.
         return jsonify({'ok': True, 'found': False}), 200
 
     edu = c.get('educationArray') or []
