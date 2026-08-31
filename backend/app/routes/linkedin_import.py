@@ -353,113 +353,47 @@ def import_from_linkedin():
             return jsonify({'status': 'error', 'message': 'Invalid LinkedIn URL format'}), 400
         print(f"[LinkedInImport] ✅ Normalized URL: {linkedin_url}")
         
-        # Step 2: Query PDL by LinkedIn URL
-        print(f"[LinkedInImport] Step 2: Querying PDL API...")
-        pdl_url = linkedin_url
-        if not pdl_url.startswith('http'):
-            pdl_url = f'https://www.linkedin.com/in/{pdl_url.split("/in/")[-1].rstrip("/")}'
-        
-        print(f"[LinkedInImport]   - PDL API URL: {PDL_BASE_URL}/person/enrich")
-        print(f"[LinkedInImport]   - Profile: {pdl_url}")
-        
-        response = requests.get(
-            f"{PDL_BASE_URL}/person/enrich",
-            params={
-                'api_key': PEOPLE_DATA_LABS_API_KEY,
-                'profile': pdl_url,
-                'pretty': True
-            },
-            timeout=30
-        )
-        
-        print(f"[LinkedInImport]   - PDL Response Status: {response.status_code}")
-        
-        # Handle different error status codes appropriately
-        if response.status_code == 402:
-            # Payment Required - API quota exceeded or payment issue
-            error_detail = ""
-            try:
-                error_data = response.json()
-                error_detail = error_data.get("error", {}).get("message", "") if isinstance(error_data.get("error"), dict) else str(error_data.get("error", ""))
-            except:
-                error_detail = response.text[:200] if response.text else ""
-            
-            print(f"[LinkedInImport] ❌ ERROR: PDL API returned 402 (Payment Required): {error_detail}")
-            
-            # Check if it's a quota/credits issue
-            if "maximum" in error_detail.lower() or "matches used" in error_detail.lower() or "quota" in error_detail.lower() or "limit" in error_detail.lower():
-                error_message = "The contact lookup service has reached its monthly limit. Please try again later or contact support for assistance."
-            else:
-                error_message = "The contact lookup service is temporarily unavailable due to a payment issue. Please try again in a few minutes or contact support."
-            
+        # Step 2: Enrich via the engine (2026-08-31): warehouse for people
+        # we already met, Coresignal collect by LinkedIn shorthand for the
+        # rest. Replaces the PDL /person/enrich call, whose retired key
+        # 401ed and broke this endpoint for the Chrome extension entirely.
+        print(f"[LinkedInImport] Step 2: Enriching via engine...")
+        from app.services.linkedin_enrich import enrich_linkedin_profile_engine
+        engine_data = enrich_linkedin_profile_engine(linkedin_url, db=get_db())
+        if not engine_data or not (engine_data.get('firstName') or engine_data.get('lastName')):
+            print(f"[LinkedInImport] ❌ ERROR: engine returned no data")
             return jsonify({
-                'status': 'error', 
-                'message': error_message,
-                'error_code': 'PDL_QUOTA_EXCEEDED'
-            }), 503  # Service Unavailable
-        
-        elif response.status_code != 200:
-            print(f"[LinkedInImport] ❌ ERROR: PDL API returned {response.status_code}")
-            # For other non-200 status codes, try to extract error message
-            error_message = 'Could not find contact information for this LinkedIn profile'
-            try:
-                error_data = response.json()
-                if isinstance(error_data.get("error"), dict):
-                    error_message = error_data.get("error", {}).get("message", error_message)
-                elif isinstance(error_data.get("error"), str):
-                    error_message = error_data.get("error", error_message)
-            except:
-                pass
-            
-            return jsonify({
-                'status': 'error', 
-                'message': error_message,
-                'error_code': 'PDL_API_ERROR'
-            }), 404
-        
-        person_data = response.json()
-        print(f"[LinkedInImport]   - PDL Response Status (JSON): {person_data.get('status')}")
-        print(f"[LinkedInImport]   - PDL Has Data: {bool(person_data.get('data'))}")
-        
-        if person_data.get('status') != 200 or not person_data.get('data'):
-            print(f"[LinkedInImport] ❌ ERROR: PDL returned no data")
-            return jsonify({
-                'status': 'error', 
+                'status': 'error',
                 'message': 'Could not find contact information for this LinkedIn profile',
                 'error_code': 'CONTACT_NOT_FOUND'
             }), 404
-        
-        # Log raw PDL data structure for debugging
-        raw_data = person_data['data']
-        print(f"[LinkedInImport]   - PDL Data Structure Debug:")
-        print(f"[LinkedInImport]     - Has 'experience': {bool(raw_data.get('experience'))}")
-        print(f"[LinkedInImport]     - Has 'experiences': {bool(raw_data.get('experiences'))}")
-        print(f"[LinkedInImport]     - Has 'company': {bool(raw_data.get('company'))}")
-        if raw_data.get('experience'):
-            exp = raw_data.get('experience', [])
-            if isinstance(exp, list) and len(exp) > 0:
-                print(f"[LinkedInImport]     - Experience[0] company: {exp[0].get('company') if isinstance(exp[0], dict) else 'N/A'}")
-        if raw_data.get('experiences'):
-            exps = raw_data.get('experiences', [])
-            if isinstance(exps, list) and len(exps) > 0:
-                print(f"[LinkedInImport]     - Experiences[0] company: {exps[0].get('company') if isinstance(exps[0], dict) else 'N/A'}")
-        
-        # Extract contact using existing function
-        print(f"[LinkedInImport] Step 3: Extracting contact data from PDL response...")
-        pdl_contact = extract_contact_from_pdl_person_enhanced(person_data['data'])
-        if not pdl_contact:
-            print(f"[LinkedInImport] ❌ ERROR: Failed to extract contact data")
-            return jsonify({'status': 'error', 'message': 'Failed to extract contact data'}), 500
-        
+
+        # Shape into the App-contact dict the rest of this route consumes.
+        edu0 = (engine_data.get('educationArray') or [{}])[0] if engine_data.get('educationArray') else {}
+        pdl_contact = {
+            'FirstName': engine_data.get('firstName', ''),
+            'LastName': engine_data.get('lastName', ''),
+            'Title': engine_data.get('jobTitle', ''),
+            'Company': engine_data.get('company', ''),
+            'City': engine_data.get('city', ''),
+            'State': engine_data.get('state', ''),
+            'College': (edu0.get('school') or '') if isinstance(edu0, dict) else '',
+            'LinkedIn': linkedin_url,
+            'PhotoUrl': engine_data.get('photoUrl', ''),
+            'Email': '',
+        }
+
         print(f"[LinkedInImport] ✅ Contact Extracted:")
         print(f"[LinkedInImport]   - Name: {pdl_contact.get('FirstName', '')} {pdl_contact.get('LastName', '')}")
         print(f"[LinkedInImport]   - Company: {pdl_contact.get('Company', 'None')}")
         print(f"[LinkedInImport]   - Title: {pdl_contact.get('Title', 'None')}")
         print(f"[LinkedInImport]   - Location: {pdl_contact.get('City', '')}, {pdl_contact.get('State', '')}")
-        
-        # Step 3: Resolve email using Hunter fallback pipeline
+
+        # Step 3: Resolve email using Hunter fallback pipeline. The engine
+        # never returns emails, so the raw-person second arg (which only
+        # mined PDL's personal-email fields) is an empty dict.
         print(f"[LinkedInImport] Step 4: Resolving email using Hunter.io pipeline...")
-        email_result = resolve_email_for_linkedin_import(pdl_contact, person_data['data'])
+        email_result = resolve_email_for_linkedin_import(pdl_contact, {})
         contact_email = email_result['email']
         email_source = email_result['email_source']
         has_email = contact_email is not None

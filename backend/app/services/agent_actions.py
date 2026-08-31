@@ -15,7 +15,8 @@ import os
 from datetime import datetime, timedelta, timezone
 
 from app.extensions import get_db
-from app.services.pdl_client import search_contacts_from_prompt, get_contact_identity
+from app.services.engine_search import engine_search_contacts
+from app.services.pdl_client import get_contact_identity
 from app.services.reply_generation import batch_generate_emails
 from app.services.auth import deduct_credits_atomic
 from app.services.loop_budget import CREDIT_COSTS
@@ -573,8 +574,8 @@ def execute_find_and_draft(
             parsed_prompt.get("schools", []),
             parsed_prompt.get("locations", []),
         )
-        result = search_contacts_from_prompt(
-            parsed_prompt=parsed_prompt,
+        result = engine_search_contacts(
+            parsed_prompt,
             max_contacts=min(max_contacts, tier_max),
             exclude_keys=exclude_keys,
             user_profile=user_profile,
@@ -604,8 +605,8 @@ def execute_find_and_draft(
                 "schools": [],
                 "locations": [],
             }
-            result = search_contacts_from_prompt(
-                parsed_prompt=relaxed_prompt,
+            result = engine_search_contacts(
+                relaxed_prompt,
                 max_contacts=min(max_contacts, tier_max),
                 exclude_keys=exclude_keys,
                 user_profile=user_profile,

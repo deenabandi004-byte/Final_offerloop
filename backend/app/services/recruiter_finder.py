@@ -154,51 +154,30 @@ def _run_tight_pdl_query(
 
 
 def _run_engine_tier_search(company: str, titles: List[str], location: Optional[str],
-                            size: int) -> List[Dict]:
-    """Coresignal discovery for one tier of hiring-manager titles.
+                            size: int, allow_vendor: bool = True) -> List[Dict]:
+    """Engine discovery for one tier of hiring-manager titles.
 
-    Ported from mobile (2026-08-31): the engine replaces the PDL tier
-    search (the PDL key is retired and 401s). Returns canonical-schema
-    contacts, the same shape the ranking, Perplexity, and Hunter stages
-    already consume. Empty list on miss or error.
+    2026-08-31: routed through engine_search_contacts, so the warehouse is
+    read before Coresignal spends anything (the audit found this surface
+    paid cold rates on every call). Returns canonical-schema contacts, the
+    same shape the ranking, Perplexity, and Hunter stages already consume.
+    Empty list on miss or error.
     """
     try:
-        from . import coresignal_client
-        if not getattr(coresignal_client, "CORESIGNAL_API_KEY", ""):
-            return []
+        from app.services.engine_search import engine_search_contacts
         parsed = {
             "companies": [{"name": company}],
             "title_variations": [t for t in (titles or []) if t][:6],
             "locations": ([location] if location else []),
         }
-        contacts, _rl, _saved, _meta = coresignal_client.search_contacts_from_prompt(
-            parsed, max(1, size)
+        contacts, _rl, _saved, _meta = engine_search_contacts(
+            parsed, max(1, size), allow_vendor=allow_vendor
         )
-        _collected = int(((_meta or {}).get("collected_count")) or 0)
-        if _collected:
-            try:
-                from google.cloud import firestore as _fs
-                from app.extensions import get_db as _get_db
-                _db = _get_db()
-                if _db is not None:
-                    _db.collection("meta").document("coresignalTestBudget").set(
-                        {"spent_estimate": _fs.Increment(20.0 * _collected),
-                         "collect_count": _fs.Increment(_collected)}, merge=True)
-                from .metering import log_provider_spend
-                log_provider_spend("coresignal", "member_collect", _collected, returned=_collected)
-            except Exception:
-                print("[EngineTier] coresignal spend mirror failed")
         out = []
         for c in contacts or []:
             c["IsCurrentlyAtTarget"] = True
-            c["_source"] = "coresignal_tier"
+            c.setdefault("_source", "coresignal_tier")
             out.append(c)
-        if out:
-            try:
-                from .firm_cache.writer import cache_pdl_contacts
-                cache_pdl_contacts(out, shape="app", async_write=True)
-            except Exception:
-                pass
         return out
     except Exception as e:
         print(f"[EngineTier] exception: {e}")
@@ -1201,7 +1180,12 @@ def find_recruiters(
             "credits_charged": 30  # find_recruiter cost (6) per contact returned
         }
     """
-    if not PEOPLE_DATA_LABS_API_KEY:
+    try:
+        from app.services import coresignal_client as _cs
+        _engine_ready = bool(getattr(_cs, "CORESIGNAL_API_KEY", ""))
+    except Exception:
+        _engine_ready = False
+    if not _engine_ready:
         return {
             "recruiters": [],
             "job_type_detected": job_type or "general",
@@ -1209,9 +1193,9 @@ def find_recruiters(
             "search_titles": [],
             "total_found": 0,
             "credits_charged": 0,
-            "error": "PDL API key not configured"
+            "error": "Search engine not configured"
         }
-    
+
     # Clean company name with alias expansion
     company_names = _resolve_company_alias(company_name)
     cleaned_company = company_names[0]
@@ -1232,43 +1216,24 @@ def find_recruiters(
     else:
         recruiter_titles = get_recruiter_titles_for_job_type(job_type)
 
-    # Build query with alias expansion for better matching
-    query_obj = build_recruiter_search_query(
-        company_name=cleaned_company.lower(),
-        recruiter_titles=recruiter_titles,
-        location=location,
-        company_aliases=company_names,
-    )
-    
-    # Execute PDL search using existing execute_pdl_search function
-    PDL_URL = f"{PDL_BASE_URL}/person/search"
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
-    }
-    
     try:
-        # CREDIT-EFFICIENCY FIX (2026-06): PDL Person Search bills 1 credit
-        # PER RECORD returned in `data`. The old desired_limit=20 burned 20
-        # credits for a 3-recruiter card (85% waste). We need SOME buffer
-        # because the post-fetch filter drops ex-employees (IsCurrentlyAtTarget)
-        # — without buffer a single historical contaminated batch returns 0
-        # current employees. max_results + 3 covers the typical historical
-        # rate (~30-50%) without over-fetching. For max_results=3 this is 6
-        # credits/call instead of 20.
+        # Warehouse-then-Coresignal (2026-08-31). The buffer over max_results
+        # survives from the PDL era: the post-fetch filter drops ex-employees,
+        # so a small over-fetch protects against a contaminated batch
+        # returning zero current employees.
         recruiter_fetch_limit = max(max_results + 3, 6)
-        raw_recruiters, _ = execute_pdl_search(
-            headers=headers,
-            url=PDL_URL,
-            query_obj=query_obj,
-            desired_limit=recruiter_fetch_limit,
-            search_type="recruiter_search",
-            page_size=recruiter_fetch_limit,
-            verbose=False,
-            target_company=cleaned_company  # Pass target company for correct domain extraction
+        from app.services.engine_search import engine_search_contacts
+        _parsed = {
+            "companies": [{"name": n} for n in (company_names or [cleaned_company]) if n],
+            "title_variations": [t for t in (recruiter_titles or []) if t][:8],
+            "locations": ([location] if location else []),
+        }
+        raw_recruiters, _rl, _saved, _meta = engine_search_contacts(
+            _parsed, recruiter_fetch_limit
         )
-        
+        for _c in raw_recruiters or []:
+            _c.setdefault("IsCurrentlyAtTarget", True)
+
         if not raw_recruiters:
             # No recruiters found - try fallback search
             print(f"[RecruiterSearch] No recruiters found for {cleaned_company}, trying fallback search...")
@@ -1413,48 +1378,20 @@ def search_by_titles(
     max_results: int = 10
 ) -> List[Dict]:
     """
-    Search PDL for people at a company with specific job titles.
+    Search for people at a company with specific job titles, warehouse
+    first then Coresignal (2026-08-31: the PDL query builder is gone with
+    the retired key).
     """
-    # Build title clauses
-    title_should = []
-    for title in titles:
-        title_should.append({"match_phrase": {"job_title": title}})
-        title_should.append({"match": {"job_title": title}})
-    
-    # Build company should clause
-    company_should = [
-        {"match_phrase": {"job_company_name": company_name}},
-        {"match": {"job_company_name": company_name}}
-    ]
-    
-    must = [
-        {"bool": {"should": title_should}},
-        {"bool": {"should": company_should}},
-    ]
-    inferred_country = infer_location_country(location)
-    if inferred_country:
-        must.append({"term": {"location_country": inferred_country}})
-    query_obj = {"bool": {"must": must}}
-
-    # Execute PDL search
-    PDL_URL = f"{PDL_BASE_URL}/person/search"
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
-    }
-    
     try:
-        contacts, _ = execute_pdl_search(
-            headers=headers,
-            url=PDL_URL,
-            query_obj=query_obj,
-            desired_limit=max_results,
-            search_type="title_search",
-            page_size=max_results,
-            verbose=False,
-            target_company=company_name
-        )
+        from app.services.engine_search import engine_search_contacts
+        parsed = {
+            "companies": [{"name": company_name}],
+            "title_variations": [t for t in (titles or []) if t][:8],
+            "locations": ([location] if location else []),
+        }
+        contacts, _rl, _saved, _meta = engine_search_contacts(parsed, max(1, max_results))
+        for c in contacts or []:
+            c["IsCurrentlyAtTarget"] = True
         return contacts or []
     except Exception as e:
         print(f"[RecruiterSearch] Error in fallback search: {e}")
@@ -1901,6 +1838,7 @@ def find_hiring_manager(
     uid: Optional[str] = None,
     seed_hiring_manager_name: Optional[str] = None,
     mode: str = "draft",
+    allow_vendor_spend: bool = True,
 ) -> Dict:
     """
     Find hiring managers at a company using tiered search strategy.
@@ -2059,7 +1997,8 @@ def find_hiring_manager(
             # is the only rung. The retired PDL search could never fire
             # again (dead key), it only added a doomed round-trip per tier.
             raw_managers = _run_engine_tier_search(
-                cleaned_company, tier_titles, location, per_tier_size
+                cleaned_company, tier_titles, location, per_tier_size,
+                allow_vendor=allow_vendor_spend,
             )
 
             if raw_managers:
@@ -2136,7 +2075,7 @@ def find_hiring_manager(
         perplexity_title_corrections = 0
         if mode == "preview" and candidate_pool:
             print(f"[HiringManagerFinder] Preview mode: skipping Perplexity verify for {len(candidate_pool)} candidates")
-        if candidate_pool and mode != "preview":
+        if candidate_pool and mode != "preview" and allow_vendor_spend:
             from .perplexity_client import verify_hiring_managers_v2
             pool_before = len(candidate_pool)
             perplexity_start = time.time()
@@ -2207,7 +2146,8 @@ def find_hiring_manager(
                 m.get('email_verified')
             )
 
-        needs_hunter = [m for m in candidate_pool if not _already_verified(m)]
+        needs_hunter = ([m for m in candidate_pool if not _already_verified(m)]
+                        if allow_vendor_spend else [])
         already_verified_count = len(candidate_pool) - len(needs_hunter)
 
         print(
@@ -2271,8 +2211,9 @@ def find_hiring_manager(
         # address (ported from mobile, 2026-08-31): Hunter's pattern guesses
         # shipped as unverified emails; one bulk job on at most max_results
         # people upgrades them, 1 credit each only on found.
-        _fe_need = [c for c in final_hiring_managers
-                    if not (c.get("EmailVerified") or c.get("email_verified"))]
+        _fe_need = ([c for c in final_hiring_managers
+                     if not (c.get("EmailVerified") or c.get("email_verified"))]
+                    if allow_vendor_spend else [])
         if _fe_need:
             try:
                 from . import fullenrich_client

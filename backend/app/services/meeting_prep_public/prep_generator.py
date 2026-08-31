@@ -18,20 +18,36 @@ from concurrent.futures import ALL_COMPLETED, ThreadPoolExecutor, wait as future
 from typing import Any
 
 from app.services.openai_client import get_openai_client
-from app.services.pdl_client import enrich_linkedin_profile
 from app.services.perplexity_client import get_company_news_brief, pro_search
 
 logger = logging.getLogger(__name__)
 
 
-# ── PDL enrichment ───────────────────────────────────────────────────
+# ── Warehouse-only enrichment ────────────────────────────────────────
 
 
 def enrich_contact(linkedin_url: str) -> dict | None:
-    """Thin wrapper around the existing PDL enrichment. Returns the
-    coffee_chat_data dict (see pdl_client.build_coffee_chat_data) or None
-    if PDL has no record / the URL is malformed."""
-    return enrich_linkedin_profile(linkedin_url)
+    """Warehouse-only (2026-08-31): the public widget serves people the
+    engine has already met (firm_employees, doc id = LinkedIn slug) and
+    never spends a vendor credit for anonymous traffic. Returns the
+    coffee_chat_data dict shape or None on a miss; the route's existing
+    miss message doubles as the signup pitch. Replaces the PDL enrich
+    call (retired key)."""
+    try:
+        from app.extensions import get_db
+        from app.services.linkedin_enrich import _from_warehouse, _slug
+        slug = _slug(linkedin_url)
+        if not slug:
+            return None
+        db = get_db()
+        if db is None:
+            return None
+        snap = db.collection("firm_employees").document(slug).get()
+        if getattr(snap, "exists", False):
+            return _from_warehouse(snap.to_dict() or {}, linkedin_url)
+    except Exception:
+        logger.warning("[meeting_prep_public] warehouse lookup failed", exc_info=True)
+    return None
 
 
 # ── Perplexity research ──────────────────────────────────────────────
