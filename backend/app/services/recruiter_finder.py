@@ -153,6 +153,58 @@ def _run_tight_pdl_query(
         return []
 
 
+def _run_engine_tier_search(company: str, titles: List[str], location: Optional[str],
+                            size: int) -> List[Dict]:
+    """Coresignal discovery for one tier of hiring-manager titles.
+
+    Ported from mobile (2026-08-31): the engine replaces the PDL tier
+    search (the PDL key is retired and 401s). Returns canonical-schema
+    contacts, the same shape the ranking, Perplexity, and Hunter stages
+    already consume. Empty list on miss or error.
+    """
+    try:
+        from . import coresignal_client
+        if not getattr(coresignal_client, "CORESIGNAL_API_KEY", ""):
+            return []
+        parsed = {
+            "companies": [{"name": company}],
+            "title_variations": [t for t in (titles or []) if t][:6],
+            "locations": ([location] if location else []),
+        }
+        contacts, _rl, _saved, _meta = coresignal_client.search_contacts_from_prompt(
+            parsed, max(1, size)
+        )
+        _collected = int(((_meta or {}).get("collected_count")) or 0)
+        if _collected:
+            try:
+                from google.cloud import firestore as _fs
+                from app.extensions import get_db as _get_db
+                _db = _get_db()
+                if _db is not None:
+                    _db.collection("meta").document("coresignalTestBudget").set(
+                        {"spent_estimate": _fs.Increment(20.0 * _collected),
+                         "collect_count": _fs.Increment(_collected)}, merge=True)
+                from .metering import log_provider_spend
+                log_provider_spend("coresignal", "member_collect", _collected, returned=_collected)
+            except Exception:
+                print("[EngineTier] coresignal spend mirror failed")
+        out = []
+        for c in contacts or []:
+            c["IsCurrentlyAtTarget"] = True
+            c["_source"] = "coresignal_tier"
+            out.append(c)
+        if out:
+            try:
+                from .firm_cache.writer import cache_pdl_contacts
+                cache_pdl_contacts(out, shape="app", async_write=True)
+            except Exception:
+                pass
+        return out
+    except Exception as e:
+        print(f"[EngineTier] exception: {e}")
+        return []
+
+
 def _split_name(full_name: str) -> tuple[str, str]:
     """Split 'Jane Van Doe' -> ('Jane', 'Van Doe'). First word is first name,
     everything after is last name. Handles common edge cases (extra whitespace,
@@ -1881,7 +1933,10 @@ def find_hiring_manager(
             "search_tier_used": 2  # Highest tier that contributed results
         }
     """
-    if not PEOPLE_DATA_LABS_API_KEY:
+    # Engine-only (ported from mobile, 2026-08-31): Coresignal is the
+    # discovery provider. PDL is retired.
+    from . import coresignal_client as _cs
+    if not getattr(_cs, "CORESIGNAL_API_KEY", ""):
         return {
             "hiringManagers": [],
             "emails": [],
@@ -1889,9 +1944,9 @@ def find_hiring_manager(
             "company_cleaned": company_name,
             "total_found": 0,
             "credits_charged": 0,
-            "error": "PDL API key not configured"
+            "error": "Coresignal API key not configured"
         }
-    
+
     # Clean company name with alias expansion
     company_names = _resolve_company_alias(company_name)
     cleaned_company = company_names[0]
@@ -1948,29 +2003,11 @@ def find_hiring_manager(
     # named HM from the actual posting, so spending 2-3 more PDL credits
     # hunting for another decision-maker in the same function is redundant.
     # The loose tier loop can supply team-lead peers instead.
+    # The tight-PDL precision rung is retired with the PDL key (ported from
+    # mobile, 2026-08-31). Its job is covered by the engine tier search,
+    # whose title guard keeps queries precise.
     tight_pdl_used = False
     tight_pdl_count = 0
-    tight_target = _tight_target_for(max_results)
-    tight_pdl_role = _JOB_TYPE_TO_PDL_ROLE.get((job_type or "").lower())
-    if tight_pdl_role and not firecrawl_seed_used:
-        print(f"[HiringManagerFinder] Tight PDL query: company={cleaned_company}, role={tight_pdl_role}, size={tight_target}")
-        tight_results = _run_tight_pdl_query(
-            cleaned_company,
-            tight_pdl_role,
-            size=tight_target,
-            company_website=company_website,
-        )
-        if tight_results:
-            tight_pdl_used = True
-            tight_pdl_count = len(tight_results)
-            candidate_pool.extend(tight_results)
-            all_contacts_found.extend(tight_results)
-            highest_tier_used = 1  # treat as tier 1 for downstream telemetry
-            print(f"[HiringManagerFinder] Tight PDL returned {len(tight_results)} decision-makers")
-        else:
-            print(f"[HiringManagerFinder] Tight PDL returned 0 — full tier-loop fallback")
-    elif firecrawl_seed_used:
-        print(f"[HiringManagerFinder] Tight PDL skipped — Firecrawl seed already supplied named HM")
 
     # Tier-loop sizing.
     # - Tight path: tight PDL already supplied precise candidates, so the loose
@@ -2017,43 +2054,12 @@ def find_hiring_manager(
         
         print(f"[HiringManagerFinder] Searching Tier {tier} with titles: {tier_titles[:3]}...")
         
-        # Build query for this tier. Only Tiers 2-3 (team leads, dept heads,
-        # VPs, directors) get a functional-role pin — those are the roles
-        # PDL reliably tags with a job_title_role matching the requisition.
-        # Tier 1 (recruiters, hiring-manager titles) stays title-only because
-        # recruiters cross functions in PDL's tagging (a "Consulting
-        # Recruiter" at MBB is usually role=human_resources, not
-        # role=consulting) — role-pinning Tier 1 would silently drop them.
-        # Tiers 4-5 (referral sources, execs) also stay title-only for the
-        # same reason (a founder isn't tagged as "engineering" even at an
-        # engineering-heavy startup).
-        query_obj = build_hiring_manager_search_query(
-            company_name=cleaned_company.lower(),
-            titles=tier_titles,
-            location=location,
-            company_aliases=company_names,
-            company_website=company_website,
-            pdl_role=tight_pdl_role if tier in (2, 3) else None,
-        )
-        
-        # Execute PDL search
-        PDL_URL = f"{PDL_BASE_URL}/person/search"
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
-        }
-        
         try:
-            raw_managers, _ = execute_pdl_search(
-                headers=headers,
-                url=PDL_URL,
-                query_obj=query_obj,
-                desired_limit=per_tier_size,  # Shrunk when tight already supplied precise candidates
-                search_type="hiring_manager_search",
-                page_size=per_tier_size,
-                verbose=False,
-                target_company=cleaned_company
+            # Engine discovery (ported from mobile, 2026-08-31): Coresignal
+            # is the only rung. The retired PDL search could never fire
+            # again (dead key), it only added a doomed round-trip per tier.
+            raw_managers = _run_engine_tier_search(
+                cleaned_company, tier_titles, location, per_tier_size
             )
 
             if raw_managers:
@@ -2155,7 +2161,12 @@ def find_hiring_manager(
                     signal = v.get("recent_hiring_signal", "")
                     if signal:
                         manager["_recent_hiring_signal"] = signal
-                    fresh_title = v.get("current_title", "")
+                    fresh_title = (v.get("current_title") or "").strip()
+                    # A non-answer is not a correction: Perplexity returns
+                    # "unknown" when it cannot verify, and adopting it was
+                    # overwriting real provider titles (ported from mobile).
+                    if fresh_title.lower() in ("unknown", "n/a", "none", "not available"):
+                        fresh_title = ""
                     pdl_title = manager.get("Title", "")
                     if fresh_title and fresh_title.lower() != pdl_title.lower():
                         manager["_pdl_title"] = pdl_title
@@ -2256,6 +2267,35 @@ def find_hiring_manager(
             final_hiring_managers.append(contact)
             seen_ids.add(k)
 
+        # FullEnrich waterfall for the FINAL picks still lacking a verified
+        # address (ported from mobile, 2026-08-31): Hunter's pattern guesses
+        # shipped as unverified emails; one bulk job on at most max_results
+        # people upgrades them, 1 credit each only on found.
+        _fe_need = [c for c in final_hiring_managers
+                    if not (c.get("EmailVerified") or c.get("email_verified"))]
+        if _fe_need:
+            try:
+                from . import fullenrich_client
+                from app.extensions import get_db as _fe_get_db
+                _fe_db = _fe_get_db()
+                _people = [(str(i),
+                            (c.get("FirstName") or "").strip(),
+                            (c.get("LastName") or "").strip(),
+                            (c.get("Company") or cleaned_company or "").strip(),
+                            (c.get("LinkedIn") or "").strip())
+                           for i, c in enumerate(_fe_need)]
+                _eid = fullenrich_client.start_bulk(_people, db=_fe_db)
+                if _eid:
+                    _ready, _hits = fullenrich_client.fetch_bulk(_eid, wait_seconds=60, db=_fe_db)
+                    for _i, _hit in (_hits or {}).items():
+                        _c = _fe_need[int(_i)]
+                        _c["Email"] = _hit["email"]
+                        _c["EmailVerified"] = True
+                        _c["email_source"] = "fullenrich_hm"
+                    print(f"[HiringManagerFinder] FullEnrich pass: {len(_hits or {})}/{len(_fe_need)} upgraded (ready={_ready})")
+            except Exception:
+                print("[HiringManagerFinder] FullEnrich pass errored; keeping Hunter guesses")
+
         verified_count = len([c for c in final_hiring_managers if (
             c.get('EmailVerified', False) or
             c.get('is_verified_email', False) or
@@ -2330,11 +2370,7 @@ def find_hiring_manager(
             "candidates_title_corrected": perplexity_title_corrections if 'perplexity_title_corrections' in locals() else 0,
             "firecrawl_seed_used": firecrawl_seed_used,
             "firecrawl_seed_name": seed_hiring_manager_name if firecrawl_seed_used else None,
-            "tight_pdl_used": tight_pdl_used,
-            "tight_pdl_count": tight_pdl_count,
-            "tight_pdl_role": tight_pdl_role,
-            "tight_target": tight_target,
-            "mix_mode": "tight+loose" if tight_pdl_used else "loose_only",
+            "discovery_provider": "coresignal",
         },
     }
 
