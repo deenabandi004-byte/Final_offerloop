@@ -267,17 +267,43 @@ def _run_pdl_search(parsed: FindContactsInput, count: int) -> list[dict]:
     Falls back to a manual parsed_prompt construction if the LLM parser
     is unavailable (no OPENAI_API_KEY, network error, low-confidence parse).
     """
-    from app.services.pdl_client import search_contacts_from_prompt
+    # Engine-primary (2026-08-31): Coresignal's search_contacts_from_prompt
+    # is a declared drop-in for the PDL function this wrapped, and the PDL
+    # key is retired (401s on every call). The Hunter bridge covers a
+    # company-targeted miss, mirroring the website ladder.
+    from app.services import coresignal_client
 
     parsed_prompt = _build_parsed_prompt(parsed)
     user_profile = _synthesize_user_profile(parsed)
 
-    contacts, _retry_level, _already_saved, _adjacency = search_contacts_from_prompt(
+    contacts, _retry_level, _already_saved, _adjacency = coresignal_client.search_contacts_from_prompt(
         parsed_prompt,
         count,
         exclude_keys=None,
         user_profile=user_profile,
     )
+    _collected = int(((_adjacency or {}).get("collected_count")) or 0)
+    if _collected:
+        try:
+            from google.cloud import firestore as _fs
+            from app.extensions import get_db as _get_db
+            _db = _get_db()
+            if _db is not None:
+                _db.collection("meta").document("coresignalTestBudget").set(
+                    {"spent_estimate": _fs.Increment(20.0 * _collected),
+                     "collect_count": _fs.Increment(_collected)}, merge=True)
+            from app.services.metering import log_provider_spend
+            log_provider_spend("coresignal", "member_collect", _collected, returned=_collected)
+        except Exception:
+            logger.warning("[MCP find_contacts] coresignal spend mirror failed")
+    if not contacts and (parsed_prompt.get("companies") or []):
+        try:
+            from app.services.hunter_person_search import search_people_via_hunter
+            contacts, _retry_level, _already_saved, _hmeta = search_people_via_hunter(
+                parsed_prompt, count, exclude_keys=None, user_profile=user_profile
+            )
+        except Exception as e:
+            logger.warning("[MCP find_contacts] hunter bridge failed: %s", e)
     return contacts or []
 
 

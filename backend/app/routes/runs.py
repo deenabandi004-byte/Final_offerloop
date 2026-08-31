@@ -317,15 +317,12 @@ def prompt_search():
                             except Exception:
                                 print("[ContactSearch] coresignal spend mirror failed")
                 except Exception as cs_err:
-                    print(f"[ContactSearch] Coresignal primary failed ({cs_err!r}); falling back to PDL")
+                    print(f"[ContactSearch] Coresignal primary failed ({cs_err!r})")
                     remainder = []
-                if not remainder:
-                    remainder, retry_level_used, already_saved_contacts, remainder_meta = search_contacts_from_prompt(
-                        parsed, pdl_target, exclude_keys=pdl_exclude, user_profile=user_data
-                    )
-                    remainder_meta = remainder_meta or {}
-                    remainder_meta.setdefault("provider", "pdl")
-                    remainder_meta["fallback_used"] = "pdl"
+                # The PDL rung is gone (2026-08-31, ported from mobile): the
+                # subscription is retired and its key 401s on every call, so
+                # a fallback to it could never rescue a search. Coresignal
+                # falls straight to the Hunter bridge below.
                 contacts = cache_hits + (remainder or [])
                 adjacency_metadata = remainder_meta
                 if cache_hits:
