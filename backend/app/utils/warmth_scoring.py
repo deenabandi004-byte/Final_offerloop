@@ -88,10 +88,14 @@ def _build_user_comparison_data(user_profile, search_context=None):
     # University -----------------------------------------------------------
     university = (
         academics.get("university")
+        # App-typed school lands in academics.school / top-level school
+        # (ported from the mobile fix, 2026-08-31).
+        or academics.get("school")
         or resume_education.get("university")
         or resume_parsed.get("university")
         or professional_info.get("university")
         or user_profile.get("university")
+        or user_profile.get("school")
         or ""
     )
     university_short = get_university_shorthand(university) or university
@@ -135,9 +139,14 @@ def _build_user_comparison_data(user_profile, search_context=None):
             dream_companies.add(_normalize(co))
 
     # Hometown / location --------------------------------------------------
+    # location can be a DICT on app-onboarded users; flatten, never str().
+    _loc = user_profile.get("location")
+    if isinstance(_loc, dict):
+        _loc = ", ".join(filter(None, [(_loc.get("city") or "").strip(),
+                                       (_loc.get("state") or "").strip()]))
     hometown = (
         user_profile.get("hometown")
-        or user_profile.get("location")
+        or _loc
         or professional_info.get("location")
         or ""
     )

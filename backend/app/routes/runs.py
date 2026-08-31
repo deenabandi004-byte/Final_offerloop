@@ -743,6 +743,11 @@ def prompt_search():
                     warmth_data=warmth_data,
                     uid=user_id,
                     enrichment_data=enrichment_data,
+                    # The About box and target firms never reached generation
+                    # from this pipeline; both params existed and defaulted
+                    # empty (ported from the mobile fix, 2026-08-31).
+                    personal_note=(user_data or {}).get("personalNote") or "",
+                    dream_companies=(user_data or {}).get("dreamCompanies"),
                 )
             except Exception as e:
                 print(f"[Runs] Email generation failed (prompt-search): {e}")

@@ -111,6 +111,13 @@ def get_user_school(user_data: dict) -> str:
         or resume_edu.get("university")
         or user_data.get("professionalInfo", {}).get("university")
         or user_data.get("university")
+        # The APP writes the typed school to academics.school and the
+        # top-level school field. Without these rungs an app-onboarded
+        # student generated website emails with university="" (ported from
+        # the mobile fix, 2026-08-31). Below the resume rungs on purpose:
+        # the resume is the high-effort source and wins when both exist.
+        or academics.get("school")
+        or user_data.get("school")
         or ""
     )
 
@@ -630,17 +637,25 @@ def build_coffee_chat_user_context(parsed_resume: dict, user_profile: dict = Non
 
     # Extract education fields
     edu = parsed_resume.get("education", {})
+    # Hierarchy (ported from mobile, 2026-08-31): resume first, then the
+    # fields the APP writes (academics.school, gradYear, academics.major).
+    academics = profile.get("academics") or {}
     if isinstance(edu, dict):
-        university = edu.get("university", "") or profile.get("university", "")
-        major = edu.get("major", "") or profile.get("major", "") or profile.get("fieldOfStudy", "")
+        university = (edu.get("university", "") or profile.get("university", "")
+                      or get_user_school(profile))
+        major = (edu.get("major", "") or profile.get("major", "")
+                 or profile.get("fieldOfStudy", "") or academics.get("major", ""))
         minor = edu.get("minor", "")
-        year = edu.get("graduation", "") or profile.get("year", "") or profile.get("graduationYear", "")
+        year = (edu.get("graduation", "") or profile.get("year", "")
+                or profile.get("graduationYear", "") or profile.get("gradYear", ""))
         gpa = edu.get("gpa")
     else:
-        university = profile.get("university", "")
-        major = profile.get("major", "") or profile.get("fieldOfStudy", "")
+        university = profile.get("university", "") or get_user_school(profile)
+        major = (profile.get("major", "") or profile.get("fieldOfStudy", "")
+                 or academics.get("major", ""))
         minor = ""
-        year = profile.get("year", "") or profile.get("graduationYear", "")
+        year = (profile.get("year", "") or profile.get("graduationYear", "")
+                or profile.get("gradYear", ""))
         gpa = None
 
     # Extract skills as flat list
