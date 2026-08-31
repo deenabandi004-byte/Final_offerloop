@@ -88,10 +88,15 @@ def _build_user_comparison_data(user_profile, search_context=None):
     # University -----------------------------------------------------------
     university = (
         academics.get("university")
+        # The app's typed school lands in academics.school / top-level
+        # school; without these two rungs, app-only students lost every
+        # alumni warmth signal (same gap as users.get_user_school).
+        or academics.get("school")
         or resume_education.get("university")
         or resume_parsed.get("university")
         or professional_info.get("university")
         or user_profile.get("university")
+        or user_profile.get("school")
         or ""
     )
     university_short = get_university_shorthand(university) or university

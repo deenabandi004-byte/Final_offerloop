@@ -108,9 +108,16 @@ def get_user_school(user_data: dict) -> str:
         resume_edu = {}
     return (
         academics.get("university")
+        # The APP writes the typed school to academics.school and the
+        # top-level school field (Profile > Your details, the Scout nudge).
+        # This chain never read either, so an app-only student with no
+        # resume generated emails with university="" and lost the whole
+        # alumni angle (Rylan 2026-08-31, the Kevin Lyu email).
+        or academics.get("school")
         or resume_edu.get("university")
         or user_data.get("professionalInfo", {}).get("university")
         or user_data.get("university")
+        or user_data.get("school")
         or ""
     )
 
