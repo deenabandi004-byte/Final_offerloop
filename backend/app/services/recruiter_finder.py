@@ -154,7 +154,7 @@ def _run_tight_pdl_query(
 
 
 def _run_engine_tier_search(company: str, titles: List[str], location: Optional[str],
-                            size: int) -> List[Dict]:
+                            size: int, allow_vendor: bool = True) -> List[Dict]:
     """Engine discovery for one tier of hiring-manager titles.
 
     2026-08-31: routed through engine_search_contacts, so the warehouse is
@@ -170,7 +170,9 @@ def _run_engine_tier_search(company: str, titles: List[str], location: Optional[
             "title_variations": [t for t in (titles or []) if t][:6],
             "locations": ([location] if location else []),
         }
-        contacts, _rl, _saved, _meta = engine_search_contacts(parsed, max(1, size))
+        contacts, _rl, _saved, _meta = engine_search_contacts(
+            parsed, max(1, size), allow_vendor=allow_vendor
+        )
         out = []
         for c in contacts or []:
             c["IsCurrentlyAtTarget"] = True
@@ -1836,6 +1838,7 @@ def find_hiring_manager(
     uid: Optional[str] = None,
     seed_hiring_manager_name: Optional[str] = None,
     mode: str = "draft",
+    allow_vendor_spend: bool = True,
 ) -> Dict:
     """
     Find hiring managers at a company using tiered search strategy.
@@ -1994,7 +1997,8 @@ def find_hiring_manager(
             # is the only rung. The retired PDL search could never fire
             # again (dead key), it only added a doomed round-trip per tier.
             raw_managers = _run_engine_tier_search(
-                cleaned_company, tier_titles, location, per_tier_size
+                cleaned_company, tier_titles, location, per_tier_size,
+                allow_vendor=allow_vendor_spend,
             )
 
             if raw_managers:
@@ -2071,7 +2075,7 @@ def find_hiring_manager(
         perplexity_title_corrections = 0
         if mode == "preview" and candidate_pool:
             print(f"[HiringManagerFinder] Preview mode: skipping Perplexity verify for {len(candidate_pool)} candidates")
-        if candidate_pool and mode != "preview":
+        if candidate_pool and mode != "preview" and allow_vendor_spend:
             from .perplexity_client import verify_hiring_managers_v2
             pool_before = len(candidate_pool)
             perplexity_start = time.time()
@@ -2142,7 +2146,8 @@ def find_hiring_manager(
                 m.get('email_verified')
             )
 
-        needs_hunter = [m for m in candidate_pool if not _already_verified(m)]
+        needs_hunter = ([m for m in candidate_pool if not _already_verified(m)]
+                        if allow_vendor_spend else [])
         already_verified_count = len(candidate_pool) - len(needs_hunter)
 
         print(
@@ -2206,8 +2211,9 @@ def find_hiring_manager(
         # address (ported from mobile, 2026-08-31): Hunter's pattern guesses
         # shipped as unverified emails; one bulk job on at most max_results
         # people upgrades them, 1 credit each only on found.
-        _fe_need = [c for c in final_hiring_managers
-                    if not (c.get("EmailVerified") or c.get("email_verified"))]
+        _fe_need = ([c for c in final_hiring_managers
+                     if not (c.get("EmailVerified") or c.get("email_verified"))]
+                    if allow_vendor_spend else [])
         if _fe_need:
             try:
                 from . import fullenrich_client

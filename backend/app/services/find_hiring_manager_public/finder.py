@@ -175,7 +175,10 @@ def find_hiring_managers_from_url(job_url: str) -> Dict[str, Any]:
         company, job_title, location, job_type,
     )
 
-    # ── 3. PDL hiring-manager discovery ──────────────────────────────
+    # ── 3. Warehouse-only hiring-manager discovery ────────────────────
+    # (2026-08-31) The public widget serves whatever the firm_employees
+    # cache already holds and never spends a vendor credit for anonymous
+    # traffic. A miss becomes the signup pitch.
     try:
         result = find_hiring_manager(
             company_name=company,
@@ -186,6 +189,7 @@ def find_hiring_managers_from_url(job_url: str) -> Dict[str, Any]:
             max_results=MAX_RESULTS,
             generate_emails=False,
             uid=None,
+            allow_vendor_spend=False,
         )
     except Exception:
         logger.exception("find_hiring_manager raised for company=%r", company)
@@ -202,9 +206,9 @@ def find_hiring_managers_from_url(job_url: str) -> Dict[str, Any]:
     candidates: List[Dict[str, Any]] = list(result.get("hiringManagers") or [])
     if not candidates:
         fallback_msg = result.get("fallback_message") or (
-            f"We couldn't pin down a hiring manager at {company} for this role. "
-            "This usually means the company is very small or PDL doesn't have "
-            "the right person on file. Try a similar role at a larger team."
+            f"We haven't mapped a hiring manager at {company} for this role "
+            "yet. Create a free Offerloop account to run a full search, "
+            "including people we haven't indexed here."
         )
         return {
             "status": "no_candidates",

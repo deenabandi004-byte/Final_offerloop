@@ -623,14 +623,14 @@ def _run_search_with_timeout(
     yet (PDL doesn't tell us this directly), but the tuple is shaped so
     tests can wire it in and the route can plumb it without further changes.
     """
-    from app.services.pdl_client import search_contacts_from_prompt
+    from app.services.engine_search import engine_search_contacts
 
     started = time.time()
     contacts: list[dict] = []
     timed_out = False
     with ThreadPoolExecutor(max_workers=1) as pool:
         fut = pool.submit(
-            search_contacts_from_prompt,
+            engine_search_contacts,
             parsed,
             max_contacts,
             exclude_keys,

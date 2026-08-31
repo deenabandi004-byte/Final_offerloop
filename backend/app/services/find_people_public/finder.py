@@ -157,17 +157,11 @@ def _extract_slim(person: dict) -> dict | None:
 
 
 def search_public_people(company: str, role: str, limit: int = 5) -> list[dict]:
-    """Run a single PDL /person/search and return up to `limit` slim
-    contact dicts. Empty list on missing API key, network failure, or
-    no matches.
-
-    Costs: 1 PDL credit per profile actually returned. A miss is 0
-    credits (404 status from PDL).
+    """Warehouse-only search (2026-08-31): serves whatever firm_employees
+    already holds and never spends a vendor credit for anonymous traffic.
+    A miss returns [] and the widget shows the signup pitch. Replaces the
+    PDL /person/search call (retired key).
     """
-    if not PEOPLE_DATA_LABS_API_KEY:
-        logger.warning("[find_people_public] PEOPLE_DATA_LABS_API_KEY not set; returning empty")
-        return []
-
     company = (company or "").strip()
     role = (role or "").strip()
     if not company or not role:
@@ -176,48 +170,41 @@ def search_public_people(company: str, role: str, limit: int = 5) -> list[dict]:
     # Pull in the same alias map the paid path uses (McKinsey, Goldman, etc).
     canonical_company = clean_company_name(company) or company
 
-    query = _build_query(canonical_company, role)
-    body = {"query": query, "size": max(1, min(int(limit), 10))}
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "X-Api-Key": PEOPLE_DATA_LABS_API_KEY,
-    }
-
     try:
-        resp = requests.post(
-            f"{PDL_BASE_URL}/person/search",
-            headers=headers,
-            json=body,
-            timeout=20,
+        from app.services.engine_search import engine_search_contacts
+        parsed = {
+            "companies": [{"name": canonical_company}],
+            "title_variations": [role],
+        }
+        contacts, _rl, _saved, _meta = engine_search_contacts(
+            parsed, max(1, min(int(limit), 10)), allow_vendor=False
         )
-    except requests.RequestException as exc:
-        logger.warning("[find_people_public] PDL request failed: %s", exc)
-        return []
-
-    if resp.status_code == 404:
-        return []
-    if resp.status_code != 200:
-        logger.warning(
-            "[find_people_public] PDL %s for %s / %s: %s",
-            resp.status_code, canonical_company, role, resp.text[:200],
-        )
-        return []
-
-    try:
-        payload = resp.json() or {}
-    except ValueError:
-        return []
-
-    data = payload.get("data") or []
-    if not isinstance(data, list):
+    except Exception as exc:
+        logger.warning("[find_people_public] warehouse search failed: %s", exc)
         return []
 
     results: list[dict] = []
-    for person in data:
-        slim = _extract_slim(person)
-        if slim:
-            results.append(slim)
+    for contact in contacts or []:
+        linkedin = (contact.get("LinkedIn") or "").strip()
+        first = (contact.get("FirstName") or "").strip()
+        last = (contact.get("LastName") or "").strip()
+        if not linkedin or not (first or last):
+            # The widget card links to LinkedIn; a row without one is
+            # useless here (same rule the PDL extractor enforced).
+            continue
+        if linkedin.startswith("linkedin.com"):
+            linkedin = f"https://www.{linkedin}"
+        elif not linkedin.startswith("http"):
+            linkedin = f"https://www.linkedin.com/in/{linkedin.strip('/')}"
+        results.append({
+            "name": f"{_smart_title(first)} {_smart_title(last)}".strip(),
+            "first_name": _smart_title(first),
+            "last_name": _smart_title(last),
+            "title": _smart_title((contact.get("Title") or "").strip()),
+            "company": _smart_title((contact.get("Company") or "").strip() or canonical_company),
+            "school": _smart_title((contact.get("College") or "").strip()),
+            "linkedin": linkedin,
+        })
         if len(results) >= limit:
             break
     return results

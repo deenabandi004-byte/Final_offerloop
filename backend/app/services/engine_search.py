@@ -48,8 +48,13 @@ def engine_search_contacts(
     max_contacts: int,
     exclude_keys: Optional[Set] = None,
     user_profile: Optional[Dict[str, Any]] = None,
+    allow_vendor: bool = True,
 ) -> SearchResult:
-    """Warehouse-then-Coresignal search. Never raises; empty result on miss."""
+    """Warehouse-then-Coresignal search. Never raises; empty result on miss.
+
+    allow_vendor=False serves warehouse hits only and never spends a
+    credit; the public no-login widgets run in this mode.
+    """
     exclude_keys = set(exclude_keys or set())
 
     # Rung 1: the warehouse. Free, and every prior collect lives here.
@@ -69,7 +74,7 @@ def engine_search_contacts(
         cache_hits = []
         cache_meta = None
 
-    if len(cache_hits) >= max_contacts:
+    if len(cache_hits) >= max_contacts or not allow_vendor:
         meta = dict(cache_meta or {})
         meta.setdefault("provider", "firm_cache")
         meta["firm_cache_hits"] = len(cache_hits)
