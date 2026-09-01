@@ -579,6 +579,7 @@ def execute_find_and_draft(
             max_contacts=min(max_contacts, tier_max),
             exclude_keys=exclude_keys,
             user_profile=user_profile,
+            source="agent_loop",
         )
         # Returns (filtered_list, retry_level, already_saved, adjacency_metadata)
         raw_contacts = result[0] if isinstance(result, tuple) else result
@@ -610,6 +611,7 @@ def execute_find_and_draft(
                 max_contacts=min(max_contacts, tier_max),
                 exclude_keys=exclude_keys,
                 user_profile=user_profile,
+                source="agent_loop",
             )
             raw_contacts = result[0] if isinstance(result, tuple) else result
             adjacency_metadata = result[3] if isinstance(result, tuple) and len(result) > 3 else adjacency_metadata

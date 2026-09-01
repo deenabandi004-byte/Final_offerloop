@@ -177,7 +177,8 @@ def search_public_people(company: str, role: str, limit: int = 5) -> list[dict]:
             "title_variations": [role],
         }
         contacts, _rl, _saved, _meta = engine_search_contacts(
-            parsed, max(1, min(int(limit), 10)), allow_vendor=False
+            parsed, max(1, min(int(limit), 10)), allow_vendor=False,
+            source="public_find_people",
         )
     except Exception as exc:
         logger.warning("[find_people_public] warehouse search failed: %s", exc)

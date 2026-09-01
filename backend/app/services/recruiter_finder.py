@@ -171,7 +171,8 @@ def _run_engine_tier_search(company: str, titles: List[str], location: Optional[
             "locations": ([location] if location else []),
         }
         contacts, _rl, _saved, _meta = engine_search_contacts(
-            parsed, max(1, size), allow_vendor=allow_vendor
+            parsed, max(1, size), allow_vendor=allow_vendor,
+            source="hiring_manager",
         )
         out = []
         for c in contacts or []:
@@ -1229,7 +1230,7 @@ def find_recruiters(
             "locations": ([location] if location else []),
         }
         raw_recruiters, _rl, _saved, _meta = engine_search_contacts(
-            _parsed, recruiter_fetch_limit
+            _parsed, recruiter_fetch_limit, source="find_recruiter"
         )
         for _c in raw_recruiters or []:
             _c.setdefault("IsCurrentlyAtTarget", True)
@@ -1389,7 +1390,9 @@ def search_by_titles(
             "title_variations": [t for t in (titles or []) if t][:8],
             "locations": ([location] if location else []),
         }
-        contacts, _rl, _saved, _meta = engine_search_contacts(parsed, max(1, max_results))
+        contacts, _rl, _saved, _meta = engine_search_contacts(
+            parsed, max(1, max_results), source="find_recruiter_fallback"
+        )
         for c in contacts or []:
             c["IsCurrentlyAtTarget"] = True
         return contacts or []

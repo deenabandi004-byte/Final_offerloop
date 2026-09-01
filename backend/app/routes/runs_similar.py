@@ -320,6 +320,7 @@ def find_similar():
                 _PDL_FETCH_PER_QUERY,
                 exclude_keys=exclusion_keys,
                 user_profile=user_data,
+                source="find_similar",
             )
             same_co_results = sc_contacts or []
         except Exception as engine_err:
@@ -343,6 +344,7 @@ def find_similar():
                     _PDL_FETCH_PER_QUERY + 2,  # extra buffer — we'll drop same-co
                     exclude_keys=exclusion_keys,
                     user_profile=user_data,
+                    source="find_similar",
                 )
                 cross_co_results = cc_contacts or []
             except Exception as engine_err:
