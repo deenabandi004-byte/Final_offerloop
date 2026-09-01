@@ -1285,31 +1285,40 @@ def find_recruiters(
                 print(f"[RecruiterFinder] derive_receipts failed for {recruiter.get('FirstName', '?')}: {receipt_error}")
                 recruiter["findHumansReceipts"] = []
 
-        # ✅ HUNTER.IO ENRICHMENT - VERIFY ALL RECRUITER EMAILS (including PDL emails)
+        # Email sourcing is FullEnrich-only now (2026-09-01, per the reseller
+        # agreement thread: verification is included in their 1-credit cost,
+        # so the Hunter finder/verify pass here paid twice for the same
+        # work). One bulk job on the final picks lacking a verified address,
+        # 1 credit each only on found.
         if generate_emails and final_recruiters:
-            # Ensure Company field is set for Hunter.io (uses cleaned_company)
             for recruiter in final_recruiters:
                 if not recruiter.get('Company'):
                     recruiter['Company'] = cleaned_company
-            
-            # ✅ VERIFY ALL RECRUITER EMAILS (not just those without emails)
-            # This ensures PDL emails are verified before use
-            print(f"[RecruiterFinder] 🔍 Verifying emails for {len(final_recruiters)} recruiters using Hunter.io...")
-            try:
-                # enrich_contacts_with_hunter now verifies ALL emails (including PDL emails)
-                # Uses Email Finder API (1 API call per person instead of 10+)
-                # skip_personal_emails=True ensures we only accept emails from target company
-                final_recruiters = enrich_contacts_with_hunter(
-                    contacts=final_recruiters,
-                    max_enrichments=len(final_recruiters),  # Verify/enrich all recruiters
-                    target_company=cleaned_company,  # Pass for batch summary logging and target domain
-                    skip_personal_emails=True  # Skip personal emails - only accept target company emails
-                )
-                print(f"[RecruiterFinder] ✅ Email verification/enrichment complete")
-            except Exception as hunter_error:
-                print(f"[RecruiterFinder] ⚠️ Hunter.io verification/enrichment failed: {hunter_error}")
-                # Continue with original recruiters (some may still have emails from PDL)
-        
+            _fe_need = [c for c in final_recruiters
+                        if not (c.get("EmailVerified") or c.get("email_verified"))]
+            if _fe_need:
+                try:
+                    from . import fullenrich_client
+                    from app.extensions import get_db as _fe_get_db
+                    _fe_db = _fe_get_db()
+                    _people = [(str(i),
+                                (c.get("FirstName") or "").strip(),
+                                (c.get("LastName") or "").strip(),
+                                (c.get("Company") or cleaned_company or "").strip(),
+                                (c.get("LinkedIn") or "").strip())
+                               for i, c in enumerate(_fe_need)]
+                    _eid = fullenrich_client.start_bulk(_people, db=_fe_db)
+                    if _eid:
+                        _ready, _hits = fullenrich_client.fetch_bulk(_eid, wait_seconds=60, db=_fe_db)
+                        for _i, _hit in (_hits or {}).items():
+                            _c = _fe_need[int(_i)]
+                            _c["Email"] = _hit["email"]
+                            _c["EmailVerified"] = True
+                            _c["email_source"] = "fullenrich_recruiter"
+                        print(f"[RecruiterFinder] FullEnrich pass: {len(_hits or {})}/{len(_fe_need)} found (ready={_ready})")
+                except Exception:
+                    print("[RecruiterFinder] FullEnrich pass errored; continuing without emails")
+
         # Generate emails if requested
         emails = []
         if generate_emails and user_resume and user_contact and final_recruiters:
@@ -2131,53 +2140,17 @@ def find_hiring_manager(
             if not manager.get('Company'):
                 manager['Company'] = cleaned_company
 
-        # Phase 1 (Job Board Elevation Plan): skip Hunter on contacts whose
-        # email is already flagged verified upstream (PDL high-confidence,
-        # Perplexity confirmation, etc.). Pre-Phase-1 we ran Hunter on every
-        # candidate including the ~30-40% with already-verified PDL emails,
-        # burning Hunter quota for no incremental signal.
-        # enrich_contacts_with_hunter mutates contact dicts in place, so we
-        # rely on those mutations rather than the function's returned (possibly
-        # reordered) list — keeps the original ranking intact.
-        def _already_verified(m: dict) -> bool:
-            email = m.get('Email')
-            if not email or email == "Not available":
-                return False
-            return bool(
-                m.get('EmailVerified') or
-                m.get('is_verified_email') or
-                m.get('email_verified')
-            )
+        # Email sourcing is FullEnrich-only now (2026-09-01, per the reseller
+        # agreement thread: Hunter is one of FullEnrich's own upstream
+        # providers and verification is included in their 1-credit cost, so
+        # the Hunter finder/verify pass here was paying twice for the same
+        # work). The FullEnrich pass on the FINAL picks below is the single
+        # email rung; Hunter remains only as the no-results people-finding
+        # bridge elsewhere.
 
-        needs_hunter = ([m for m in candidate_pool if not _already_verified(m)]
-                        if allow_vendor_spend else [])
-        already_verified_count = len(candidate_pool) - len(needs_hunter)
-
-        print(
-            f"[HiringManagerFinder] Hunter scope: {len(needs_hunter)} need verification, "
-            f"{already_verified_count} skipped (already verified)"
-        )
-        verify_start = time.time()
-        try:
-            if needs_hunter:
-                enrich_contacts_with_hunter(
-                    contacts=needs_hunter,
-                    max_enrichments=len(needs_hunter),
-                    target_company=cleaned_company,
-                    skip_personal_emails=True,
-                )
-            verify_time = time.time() - verify_start
-            print(
-                f"[HiringManagerFinder] Email verification complete: {verify_time:.2f}s "
-                f"for {len(needs_hunter)} contacts (skipped {already_verified_count})"
-            )
-        except Exception as hunter_error:
-            print(f"[HiringManagerFinder] Hunter.io verification failed: {hunter_error}")
-            verify_time = time.time() - verify_start
-        
-        # Re-rank now that Hunter results are in — score_hiring_manager
-        # applies a +15 for verified email, so post-Hunter re-rank lets that
-        # boost land. Firecrawl seeds still float to the top explicitly.
+        # Re-rank the pool — score_hiring_manager applies a +15 for verified
+        # email where one arrived with the profile, and Firecrawl seeds
+        # still float to the top explicitly.
         candidate_pool = rank_hiring_managers(
             candidate_pool,
             job_type,
