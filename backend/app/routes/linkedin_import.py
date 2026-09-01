@@ -389,13 +389,27 @@ def import_from_linkedin():
         print(f"[LinkedInImport]   - Title: {pdl_contact.get('Title', 'None')}")
         print(f"[LinkedInImport]   - Location: {pdl_contact.get('City', '')}, {pdl_contact.get('State', '')}")
 
-        # Step 3: Resolve email using Hunter fallback pipeline. The engine
-        # never returns emails, so the raw-person second arg (which only
-        # mined PDL's personal-email fields) is an empty dict.
-        print(f"[LinkedInImport] Step 4: Resolving email using Hunter.io pipeline...")
-        email_result = resolve_email_for_linkedin_import(pdl_contact, {})
-        contact_email = email_result['email']
-        email_source = email_result['email_source']
+        # Step 3: Resolve email via FullEnrich (2026-09-01: email sourcing is
+        # FullEnrich-only per the reseller agreement thread; verification is
+        # included in their 1-credit cost, so the old Hunter pipeline paid
+        # twice for the same work).
+        print(f"[LinkedInImport] Step 4: Resolving email via FullEnrich...")
+        contact_email = None
+        email_source = None
+        try:
+            from app.services import fullenrich_client
+            _fe_hit = fullenrich_client.find_work_email(
+                first_name=pdl_contact.get('FirstName', ''),
+                last_name=pdl_contact.get('LastName', ''),
+                company=pdl_contact.get('Company', ''),
+                linkedin_url=linkedin_url,
+                db=get_db(),
+            )
+            if _fe_hit and _fe_hit.get('email'):
+                contact_email = _fe_hit['email']
+                email_source = 'fullenrich'
+        except Exception as fe_err:
+            print(f"[LinkedInImport] FullEnrich lookup failed: {fe_err}")
         has_email = contact_email is not None
 
         print(f"[LinkedInImport] Email resolution: found={has_email}, source={email_source or 'None'}")

@@ -659,37 +659,20 @@ def prompt_search():
         # preview response already carried them and the Draft button just
         # worked. Coresignal records carry no emails, so preview must earn
         # them here or the whole website Find returns email-less contacts
-        # and drafting is a no-op. Ladder matches the mobile engine:
-        # warehouse hits arrive with emails already, Hunter next (seconds),
-        # then ONE FullEnrich bulk waterfall for whoever is left, with a
-        # bounded wait. Misses stay email-less rather than blocking forever.
+        # and drafting is a no-op. FullEnrich-only as of 2026-09-01 (per the
+        # reseller agreement thread: Hunter is one of FullEnrich's own
+        # upstream providers and verification is included in their 1-credit
+        # cost, so the Hunter rung here paid twice for the same lookup):
+        # warehouse hits arrive with emails already, then ONE FullEnrich
+        # bulk waterfall for whoever is left, with a bounded wait. Misses
+        # stay email-less rather than blocking forever.
         _FE_BACKFILL_CAP = 6
         _fe_wait = int(os.environ.get("FE_SEARCH_WAIT_SECONDS", "75"))
         _gained_email = []
         _missing = [c for c in contacts
                     if not (c.get("Email") or c.get("email") or "").strip()][:_FE_BACKFILL_CAP]
         if _missing:
-            # Rung 1: Hunter Email Finder, one fast call per contact.
-            for contact in _missing:
-                try:
-                    from app.services.hunter import get_verified_email as _hunter_find
-                    _h = _hunter_find(
-                        None,
-                        (contact.get("FirstName") or "").strip(),
-                        (contact.get("LastName") or "").strip(),
-                        (contact.get("Company") or "").strip(),
-                        skip_personal_emails=True,
-                    )
-                except Exception:
-                    _h = None
-                if _h and _h.get("email") and _h.get("email_verified"):
-                    contact["Email"] = _h["email"]
-                    contact["WorkEmail"] = _h["email"]
-                    contact["EmailSource"] = _h.get("email_source") or "hunter.io"
-                    contact["EmailVerified"] = True
-                    _gained_email.append(contact)
-            # Rung 2: one FullEnrich bulk for the Hunter misses.
-            _still = [c for c in _missing if not (c.get("Email") or "").strip()]
+            _still = _missing
             if _still:
                 try:
                     from app.services import fullenrich_client

@@ -169,12 +169,23 @@ const TermsOfService = () => {
 
                 <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">10. Third-Party Data Providers</h2>
                 <p className="text-gray-600">
-                  Offerloop obtains professional and publicly available information from data providers such as
-                  People Data Labs, Hunter.io, Coresignal, Bright Data, and Apify, which may include names, titles,
-                  employers, professional and personal contact details, and education and employment history. This
-                  data is provided to enable networking and recruiting features. You must use it only for legitimate
-                  professional networking, not for harassment, discrimination, or any unlawful purpose. Individuals
-                  may request removal of their information as described in our Privacy Policy.
+                  Offerloop obtains professional and publicly available information from licensed data providers,
+                  including Coresignal (profile data such as names, titles, employers, and education and employment
+                  history) and FullEnrich (email data). This data is provided to enable networking and recruiting
+                  features. You must use it only for legitimate professional networking and your own job seeking,
+                  not for harassment, discrimination, or any unlawful purpose. Individuals may request removal of
+                  their information as described in our Privacy Policy.
+                </p>
+                <p className="text-gray-600 mt-3">
+                  Provider data is licensed for your personal use within Offerloop, and you agree that you will not:
+                  (a) resell, sublicense, publish, or otherwise redistribute contact or profile data obtained through
+                  the service; (b) use it to build, enrich, or validate your own or any third party's database,
+                  directory, or competing product; (c) use it for automated decision-making with legal or similarly
+                  significant effects; or (d) retain exported contact data after your account is closed, and you will
+                  delete it on request. Contact data supplied by our providers is retained by Offerloop for a limited
+                  period (no longer than three months for email data) and then permanently deleted, as described in
+                  our Privacy Policy. Our data providers are third-party beneficiaries of this section, and provide
+                  their data without warranty of accuracy or completeness.
                 </p>
 
                 <h2 className="text-lg font-semibold text-[#0F172A] mt-8 mb-4">11. Google API Services; Limited Use</h2>
