@@ -608,6 +608,19 @@ const Index = () => {
         </div>
       </section>
 
+      {/* Quiet site footer. The landing page had none, so legal links get a
+          home here, and it carries the data heritage line the FullEnrich
+          reseller agreement requires (placement agreed over email
+          2026-09-01). Keep the exact wording; it is the contractual
+          sentence. */}
+      <footer style={{ padding: '26px 16px 34px', textAlign: 'center', background: '#FFFFFF' }}>
+        <p style={{ fontSize: 12, color: '#94A3B8', margin: 0 }}>
+          © 2026 Offerloop.ai · <a href="/privacy" style={{ color: '#94A3B8', textDecoration: 'underline' }}>Privacy</a> · <a href="/terms-of-service" style={{ color: '#94A3B8', textDecoration: 'underline' }}>Terms</a>
+        </p>
+        <p style={{ fontSize: 11, color: '#94A3B8', marginTop: 6, marginBottom: 0 }}>
+          Email data provided by <a href="https://fullenrich.com" target="_blank" rel="noopener noreferrer" style={{ color: '#94A3B8', textDecoration: 'underline' }}>FullEnrich</a>
+        </p>
+      </footer>
 
       {/* Back to Top Button */}
       <button
