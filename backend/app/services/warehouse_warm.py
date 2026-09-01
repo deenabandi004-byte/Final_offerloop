@@ -109,6 +109,22 @@ def _demand_ranked_firms(db, cap_users: int = 2000) -> list[tuple[str, str, int]
         logger.info("warm: demand scan covered %d users, %d distinct firms", scanned, len(counts))
     except Exception:
         logger.exception("warm: demand scan failed, seeds only")
+    # Live search demand (2026-08-31): every surface logs the firms users
+    # actually search into meta/warehouseDemand. A search is a stronger
+    # signal than a saved target (they wanted the person NOW), so it adds
+    # 2 per occurrence over the trailing week on top of the profile scan.
+    try:
+        from app.services.warehouse_metrics import recent_demand_firms
+        searched = recent_demand_firms(days=7)
+        for dslug, n in searched.items():
+            if not dslug or n <= 0:
+                continue
+            disp, score = counts.get(dslug, (dslug.replace("-", " ").title(), 0))
+            counts[dslug] = (disp, score + 2 * int(n))
+        if searched:
+            logger.info("warm: search-demand merge added %d firms", len(searched))
+    except Exception:
+        logger.exception("warm: search-demand merge failed, profile scan only")
     ranked = [(disp, s, score) for s, (disp, score) in counts.items()]
     ranked.sort(key=lambda t: -t[2])
     return ranked

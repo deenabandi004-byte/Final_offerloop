@@ -749,7 +749,13 @@ def create_app() -> Flask:
         warm_thread.start()
         _warm_logger.info("Warehouse warm daemon registered")
     else:
-        _warm_logger.info("Warehouse warm daemon disabled via WAREHOUSE_WARM_ENABLED=false")
+        # On the web services RUN_DAEMONS is off by design (daemons run on
+        # the worker); say so instead of blaming the warm flag.
+        _warm_logger.info(
+            "Warehouse warm daemon not started here (%s)",
+            "RUN_DAEMONS off, runs on the daemons worker" if not _RUN_DAEMONS
+            else "WAREHOUSE_WARM_ENABLED=false",
+        )
 
     # ---- Agent follow-up daemon (every 1 hour) ───────────────────────────────
     #

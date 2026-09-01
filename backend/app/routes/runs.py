@@ -545,11 +545,41 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
         # the reliability fallback, the Hunter bridge as the last rung.
         # Every job right-swipe now buys the same quality the People tab
         # serves, and every collected profile lands in the warehouse below.
+        # Warehouse first (2026-08-31): the mobile right-swipe was the last
+        # surface paying cold rates on every search. People the engine has
+        # already met are served free; Coresignal only fills the remainder.
+        # Cache hits carry Email="" and flow into the same FullEnrich
+        # backfill every email-less contact already takes.
+        cache_hits = []
+        try:
+            from app.services.firm_cache import search_firm_cache
+            from app.services.firm_cache.reader import _flag_enabled as _lookup_enabled
+            if _lookup_enabled():
+                cache_hits, _, _, _cache_meta = search_firm_cache(
+                    parsed, max_contacts, exclude_keys=seen_contact_set
+                )
+                if cache_hits:
+                    print(f"[ContactSearch] warehouse hit: {len(cache_hits)}/{max_contacts} free")
+        except Exception as _wh_err:
+            print(f"[ContactSearch] warehouse lookup failed (non-fatal): {_wh_err}")
+            cache_hits = []
         contacts, retry_level_used, already_saved_contacts, adjacency_metadata = [], 0, [], {}
         try:
-            if getattr(coresignal_client, "CORESIGNAL_API_KEY", ""):
+            if len(cache_hits) >= max_contacts:
+                contacts = cache_hits[:max_contacts]
+                adjacency_metadata = {"provider": "firm_cache",
+                                      "firm_cache_hits": len(contacts)}
+            elif getattr(coresignal_client, "CORESIGNAL_API_KEY", ""):
+                _vendor_exclude = set(seen_contact_set or set())
+                for _ch in cache_hits:
+                    _fn = (_ch.get("FirstName") or "").strip().lower()
+                    _ln = (_ch.get("LastName") or "").strip().lower()
+                    _co = (_ch.get("Company") or "").strip().lower()
+                    if _fn and _ln and _co:
+                        _vendor_exclude.add((_fn, _ln, _co))
                 contacts, retry_level_used, already_saved_contacts, adjacency_metadata = coresignal_client.search_contacts_from_prompt(
-                    parsed, max_contacts, exclude_keys=seen_contact_set, user_profile=user_data
+                    parsed, max_contacts - len(cache_hits),
+                    exclude_keys=_vendor_exclude, user_profile=user_data
                 )
                 adjacency_metadata = adjacency_metadata or {}
                 adjacency_metadata.setdefault("provider", "coresignal")
@@ -564,9 +594,22 @@ def execute_prompt_search(*, user_id, user_email, auth_display_name, data, progr
                         log_provider_spend("coresignal", "member_collect", _cs_collected, returned=_cs_collected)
                     except Exception:
                         print("[ContactSearch] coresignal spend mirror failed")
+                contacts = cache_hits + (contacts or [])
+                if cache_hits:
+                    adjacency_metadata["firm_cache_hits"] = len(cache_hits)
+                    adjacency_metadata["provider_fills"] = len(contacts) - len(cache_hits)
         except Exception as cs_err:
             print(f"[ContactSearch] Coresignal primary failed ({cs_err!r})")
-            contacts = []
+            contacts = cache_hits or []
+        try:
+            from app.services.warehouse_metrics import log_demand, log_search_mix
+            log_demand(parsed, "mobile_swipe")
+            log_search_mix(
+                "mobile_swipe", max_contacts, len(cache_hits or []),
+                max(0, len(contacts or []) - len(cache_hits or [])),
+            )
+        except Exception:
+            pass
         # The PDL rung is gone (2026-08-30): the subscription is retired and
         # its key 401s on every call, so a fallback to it could never rescue
         # a search. It only added a doomed round-trip before Hunter.
