@@ -1068,6 +1068,11 @@ const HowItWorks = () => {
             <p style={{ fontFamily: "'Libre Baskerville', Georgia, serif", fontSize: 12, color: '#CBD5E1' }}>
               © 2026 Offerloop. All rights reserved.
             </p>
+            {/* Data heritage line, required attribution under the FullEnrich
+                reseller agreement (placement agreed over email 2026-09-01). */}
+            <p style={{ fontSize: 11, color: '#94A3B8', marginTop: 4 }}>
+              Email data provided by <a href="https://fullenrich.com" target="_blank" rel="noopener noreferrer" style={{ color: '#94A3B8', textDecoration: 'underline' }}>FullEnrich</a>
+            </p>
           </div>
         </div>
       </footer>
