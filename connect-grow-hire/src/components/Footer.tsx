@@ -34,6 +34,12 @@ const Footer = () => {
           <p className="text-xs text-muted-foreground mt-2">
             Illustrations by <a href="https://storyset.com/work" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground transition-colors">Storyset</a>
           </p>
+          {/* Data heritage line, required attribution under the FullEnrich
+              reseller agreement (placement agreed over email 2026-09-01).
+              Keep the exact wording; it is the contractual sentence. */}
+          <p className="text-xs text-muted-foreground mt-1">
+            Email data provided by <a href="https://fullenrich.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground transition-colors">FullEnrich</a>
+          </p>
         </div>
       </div>
     </footer>
