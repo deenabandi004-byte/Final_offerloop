@@ -566,33 +566,11 @@ def reveal_candidate_email(candidate_id):
         except Exception:
             logger.exception("reveal: prefetch lookup failed uid=%s cid=%s", uid, candidate_id)
 
-    # ── 4. Hunter, only when nothing cheaper answered. An exception here
-    # no longer ends the reveal — the waterfall below hunts the same person
-    # across fifteen sources, so a single provider's bad day is not the
-    # user's no-hit.
-    if not email:
-        try:
-            from app.services.hunter import get_verified_email
-            result = get_verified_email(
-                pdl_email=None,
-                first_name=first,
-                last_name=last,
-                company=company_display,
-            ) or {}
-        except Exception as exc:
-            logger.warning(
-                "reveal: Hunter call raised uid=%s cid=%s: %s (falling to waterfall)",
-                uid, candidate_id, exc,
-            )
-            result = {}
-
-        email      = (result.get("email") or "").strip() or None
-        verified   = bool(result.get("email_verified"))
-        source     = result.get("email_source") or ""
-        try:
-            confidence = int(result.get("score") or result.get("confidence") or 0)
-        except (TypeError, ValueError):
-            confidence = 0
+    # ── 4. (Removed 2026-09-01.) The Hunter rung that sat here paid twice
+    # for the same lookup: Hunter is one of FullEnrich's own upstream
+    # providers and verification is included in their 1-credit cost (per
+    # the reseller agreement thread). Email sourcing is FullEnrich-only
+    # now; the waterfall below is the single rung after the warehouse.
 
     # Refund unless we have deliverability evidence: SMTP-verified OR
     # Hunter Email Finder with confidence >= threshold. Synthesized

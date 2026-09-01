@@ -303,8 +303,49 @@ def run_warehouse_groom(db) -> None:
     logger.info("groom: done, %d rows refreshed", done)
 
 
+def run_email_purge(db) -> None:
+    """Hard-delete cached work emails older than 90 days.
+
+    The FullEnrich reseller agreement (signed 2026-09-01) requires vendor
+    data to be permanently deleted within three months of access. The
+    read path already refuses emails past the TTL; this makes the deletion
+    real: the fields come OFF the firm_employees docs, not just out of
+    reach. Profile fields stay; only the email and its provenance go.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+    cap = int(os.getenv("EMAIL_PURGE_MAX_DOCS", "1500"))
+    purged = 0
+    try:
+        from google.cloud import firestore as _fs
+        while purged < cap:
+            page = list(
+                db.collection("firm_employees")
+                .where("work_email_verified_at", "<", cutoff)
+                .limit(min(300, cap - purged))
+                .get()
+            )
+            if not page:
+                break
+            batch = db.batch()
+            for snap in page:
+                batch.update(snap.reference, {
+                    "work_email": _fs.DELETE_FIELD,
+                    "work_email_source": _fs.DELETE_FIELD,
+                    "work_email_verified_at": _fs.DELETE_FIELD,
+                })
+            batch.commit()
+            purged += len(page)
+            if len(page) < 300:
+                break
+    except Exception:
+        logger.exception("email purge failed after %d docs", purged)
+        return
+    if purged:
+        logger.info("email purge: removed %d expired cached emails", purged)
+
+
 def run_nightly_warm(db) -> None:
-    """Once-per-night gate + both jobs. Safe to call hourly."""
+    """Once-per-night gate + all three jobs. Safe to call hourly."""
     hour = int(os.getenv("WARM_HOUR_UTC", "9"))
     now = datetime.now(timezone.utc)
     if now.hour != hour:
@@ -315,6 +356,7 @@ def run_nightly_warm(db) -> None:
         return
     guard.set({"lastRun": today, "startedAt": now.isoformat()}, merge=True)
     logger.info("nightly warm: starting (%s)", today)
+    run_email_purge(db)
     run_target_predig(db)
     run_warehouse_groom(db)
     guard.set({"finishedAt": datetime.now(timezone.utc).isoformat()}, merge=True)
