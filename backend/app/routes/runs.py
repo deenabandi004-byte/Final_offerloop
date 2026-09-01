@@ -331,6 +331,15 @@ def prompt_search():
         except Exception as ladder_err:
             print(f"[ContactSearch] provider ladder failed ({ladder_err!r})")
             contacts, retry_level_used, already_saved_contacts, adjacency_metadata = [], 0, [], {}
+        try:
+            from app.services.warehouse_metrics import log_demand, log_search_mix
+            log_demand(parsed, "prompt_search")
+            log_search_mix(
+                "prompt_search", max_contacts, len(cache_hits or []),
+                max(0, len(contacts or []) - len(cache_hits or [])),
+            )
+        except Exception:
+            pass
         # Last rung: the Hunter bridge covers company-targeted searches via
         # Domain Search when both providers came back empty.
         if not contacts and (parsed.get("companies") or []):

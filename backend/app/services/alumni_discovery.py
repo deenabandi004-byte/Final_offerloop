@@ -635,6 +635,8 @@ def _run_search_with_timeout(
             max_contacts,
             exclude_keys,
             user_profile,
+            True,               # allow_vendor
+            "alumni_discovery"  # source label for warehouse metrics
         )
         try:
             result = fut.result(timeout=PDL_TIMEOUT_SEC)

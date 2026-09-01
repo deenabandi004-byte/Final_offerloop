@@ -49,13 +49,21 @@ def engine_search_contacts(
     exclude_keys: Optional[Set] = None,
     user_profile: Optional[Dict[str, Any]] = None,
     allow_vendor: bool = True,
+    source: str = "engine",
 ) -> SearchResult:
     """Warehouse-then-Coresignal search. Never raises; empty result on miss.
 
     allow_vendor=False serves warehouse hits only and never spends a
-    credit; the public no-login widgets run in this mode.
+    credit; the public no-login widgets run in this mode. `source` labels
+    the surface in the hit-rate and demand metrics.
     """
     exclude_keys = set(exclude_keys or set())
+
+    try:
+        from app.services.warehouse_metrics import log_demand
+        log_demand(parsed, source)
+    except Exception:
+        pass
 
     # Rung 1: the warehouse. Free, and every prior collect lives here.
     cache_hits: List[Dict[str, Any]] = []
@@ -78,6 +86,11 @@ def engine_search_contacts(
         meta = dict(cache_meta or {})
         meta.setdefault("provider", "firm_cache")
         meta["firm_cache_hits"] = len(cache_hits)
+        try:
+            from app.services.warehouse_metrics import log_search_mix
+            log_search_mix(source, max_contacts, len(cache_hits), 0)
+        except Exception:
+            pass
         return cache_hits[:max_contacts], 0, [], meta
 
     # Rung 2: Coresignal for the remainder, cache hits excluded.
@@ -119,4 +132,9 @@ def engine_search_contacts(
         meta = dict(meta or {})
         meta["firm_cache_hits"] = len(cache_hits)
         meta["provider_fills"] = len(remainder or [])
+    try:
+        from app.services.warehouse_metrics import log_search_mix
+        log_search_mix(source, max_contacts, len(cache_hits), len(remainder or []))
+    except Exception:
+        pass
     return contacts, retry_level, saved, (meta or None)
