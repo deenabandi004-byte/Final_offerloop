@@ -31,6 +31,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
 from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger("warehouse_warm")
@@ -193,6 +194,80 @@ def run_target_predig(db) -> None:
         except Exception:
             logger.exception("predig: %s failed, continuing", disp)
     logger.info("predig: done, %d collects", dug)
+
+
+def run_instant_user_warm(db, firms: list) -> None:
+    """Signup-triggered predig for ONE user's just-saved targets.
+
+    The missing middle layer between dig-on-dry (deck open, 12 collects)
+    and the 2am demand-ranked warm: a new user who saves dream companies
+    at 3pm should find a stocked deck minutes later, not tomorrow. Same
+    coverage probe, exact-name guard, US-only, and tank guard as the
+    nightly predig; firms already stocked cost nothing, so repeat saves
+    are near-free no-ops.
+    """
+    firms = [f.strip() for f in (firms or []) if isinstance(f, str) and f.strip()][:5]
+    if not firms or not _tank_ok(db):
+        return
+    from app.services import coresignal_client
+    if not getattr(coresignal_client, "CORESIGNAL_API_KEY", ""):
+        logger.warning("instant warm: no CORESIGNAL_API_KEY on this service")
+        return
+    from app.services.firm_cache.writer import cache_pdl_contacts
+
+    min_rows = int(os.getenv("PREDIG_MIN_ROWS", "12"))
+    budget = int(os.getenv("USER_WARM_MAX_COLLECTS", "36"))
+    dug = 0
+    for disp in firms:
+        if dug >= budget:
+            break
+        slug = _slug(disp)
+        if not slug:
+            continue
+        try:
+            have = len(list(db.collection("firm_employees")
+                            .where("company", "==", slug).limit(min_rows).get()))
+            if have >= min_rows:
+                continue
+            need = min(min_rows - have, budget - dug)
+            for role in _roles_for(disp):
+                if need <= 0 or dug >= budget:
+                    break
+                take = max(2, need // 2)
+                contacts, _rl, _sv, meta = coresignal_client.search_contacts_from_prompt(
+                    {"companies": [{"name": disp}],
+                     "title_variations": [role], "locations": ["United States"]},
+                    take,
+                )
+                contacts = _exact_firm_filter(disp, contacts or [])
+                collected = int(((meta or {}).get("collected_count")) or 0)
+                _mirror(db, collected)
+                dug += collected
+                need -= len(contacts)
+                if contacts:
+                    cache_pdl_contacts(contacts, shape="app", async_write=False)
+            logger.info("instant warm: %s topped up, %d/%d collects used",
+                        disp, dug, budget)
+        except Exception:
+            logger.exception("instant warm: %s failed, continuing", disp)
+    logger.info("instant warm: done, %d collects across %d firms", dug, len(firms))
+
+
+def spawn_instant_user_warm(firms: list) -> None:
+    """Fire run_instant_user_warm on a daemon thread; never blocks or
+    raises into the calling request."""
+    def _run():
+        try:
+            from app.extensions import get_db
+            db = get_db()
+            if db is not None:
+                run_instant_user_warm(db, firms)
+        except Exception:
+            logger.exception("instant warm thread failed")
+    try:
+        threading.Thread(target=_run, daemon=True).start()
+    except Exception:
+        logger.exception("instant warm spawn failed")
 
 
 def run_warehouse_groom(db) -> None:

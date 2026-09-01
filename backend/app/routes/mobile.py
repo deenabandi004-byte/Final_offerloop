@@ -952,6 +952,18 @@ def save_preferences():
         return jsonify({'error': 'no recognized preference fields'}), 400
 
     db.collection('users').document(uid).set(patch, merge=True)
+    # Instant warm (2026-08-31): the moment a user saves target firms,
+    # stock the warehouse shelf for THOSE firms in the background, so the
+    # people deck is full by the time they reach it instead of waiting for
+    # the 2am demand-ranked warm. Bounded (USER_WARM_MAX_COLLECTS, default
+    # 36), coverage-probed (already-stocked firms cost nothing), and
+    # tank-guarded like every other warm path.
+    if patch.get('dreamCompanies'):
+        try:
+            from app.services.warehouse_warm import spawn_instant_user_warm
+            spawn_instant_user_warm(patch['dreamCompanies'])
+        except Exception:
+            logger.exception('instant warm spawn failed for uid=%s', uid)
     # A feed-relevant edit (roles/industries/locations) must re-tune the feed.
     # The write alone doesn't touch jobFeedCache, so the ranked deck would keep
     # serving the stale slice for up to ~2h. Null the cache — same bust the

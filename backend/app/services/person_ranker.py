@@ -153,6 +153,15 @@ def rank_people_for_user(
         )
         return []
 
+    # Deck opens are demand too (2026-08-31): the nightly warm ranks firms
+    # by what people search AND what decks are hungry for.
+    try:
+        from app.services.warehouse_metrics import log_demand
+        log_demand({"companies": user_ctx["dream_company_slugs"],
+                    "schools": user_ctx["school_slugs"]}, "people_deck")
+    except Exception:
+        pass
+
     exclude_keys = _already_known_keys(uid, db)
     swiped_ids = _swiped_person_ids(uid, db)
 
