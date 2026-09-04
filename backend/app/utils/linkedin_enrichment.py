@@ -163,6 +163,26 @@ def fetch_linkedin_firecrawl(linkedin_url: str) -> dict | None:
         return None
 
 
+def _try_coresignal(url: str) -> tuple[dict | None, str]:
+    """Coresignal profile-by-URL. First tier since 2026-09-03: Firecrawl
+    refuses linkedin.com ("Website Not Supported"), Bright Data has no key on
+    the mobile services and PDL is out of credits, so every auto-fill and
+    LinkedIn resume build was failing with "tried: no sources". One collect
+    (~20 credits) returns the whole work and education history."""
+    try:
+        try:
+            from app.services.coresignal_client import fetch_linkedin_profile_raw
+        except ImportError:
+            from backend.app.services.coresignal_client import fetch_linkedin_profile_raw
+        result = fetch_linkedin_profile_raw(url)
+        if result:
+            logger.info(f"[Enrichment] Coresignal returned a profile for: {url}")
+            return result, "coresignal"
+    except Exception as e:
+        logger.warning(f"[Enrichment] Coresignal failed: {e}")
+    return None, ""
+
+
 def _try_pdl(url: str) -> tuple[dict | None, str]:
     try:
         try:
@@ -256,12 +276,12 @@ def get_enrichment_tiers(prefer_scrape: bool = False):
     """
     if prefer_scrape:
         if os.getenv("ENABLE_APIFY_USER_LINKEDIN"):
-            return [_try_apify, _try_pdl]
-        chain = [_try_firecrawl, _try_brightdata, _try_pdl]
+            return [_try_coresignal, _try_apify, _try_pdl]
+        chain = [_try_coresignal, _try_firecrawl, _try_brightdata, _try_pdl]
         if os.getenv("ENABLE_JINA_FALLBACK"):
             chain.insert(1, _try_jina)
         return chain
-    return [_try_pdl, _try_brightdata]
+    return [_try_coresignal, _try_pdl, _try_brightdata]
 
 
 def enrich_linkedin_with_fallback(

@@ -168,6 +168,42 @@ def search_contacts_from_prompt(
 
 
 @meter_call("coresignal", "member_collect")
+def fetch_linkedin_profile_raw(linkedin_url: str) -> Optional[Dict[str, Any]]:
+    """The full Coresignal profile for one LinkedIn URL (experience[],
+    education[], headline, location), for the user's OWN profile: the
+    onboarding auto-fill and the LinkedIn resume builder. Same search-then-
+    collect roundtrip as enrich_linkedin_profile, but returns the raw
+    document because those callers need the whole history, not a contact
+    card. Added 2026-09-03 when the Firecrawl / Bright Data / PDL chain had
+    no working source left (Firecrawl refuses linkedin.com outright)."""
+    if not CORESIGNAL_API_KEY or not linkedin_url:
+        return None
+    canonical = (linkedin_url or "").strip().lower().rstrip("/")
+    if not canonical:
+        return None
+    ids: List[int] = []
+    for variant in (canonical, canonical + "/", canonical.replace("https://www.", "https://")):
+        query = {"query": {"bool": {"must": [{"term": {"linkedin_url": variant}}]}}}
+        ids = _search_ids(query, page_size=1)
+        if ids:
+            break
+    if not ids:
+        return None
+    prof = _collect_profile(ids[0])
+    if not prof:
+        return None
+    try:
+        # Same tank the decks and the nightly warm draw from.
+        from google.cloud import firestore as _fs
+        from app.extensions import get_db
+        get_db().collection("meta").document("coresignalTestBudget").set(
+            {"spent_estimate": _fs.Increment(20.0), "collect_count": _fs.Increment(1)}, merge=True)
+    except Exception:
+        logger.exception("coresignal: tank mirror failed for profile lookup")
+    return prof
+
+
+@meter_call("coresignal", "member_collect")
 def enrich_linkedin_profile(linkedin_url: str) -> Optional[Dict[str, Any]]:
     """
     Look up a single profile by LinkedIn URL. Returns canonical contact or None.

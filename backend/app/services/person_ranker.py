@@ -146,12 +146,27 @@ def rank_people_for_user(
         return []
 
     if not user_ctx["dream_company_slugs"] and not user_ctx["school_slugs"]:
+        # Brand-new accounts have neither (onboarding does not ask for target
+        # companies yet), and every one of them opened an empty deck on day
+        # one (Rylan 2026-09-03). Serve the firms most students target, the
+        # same demand ranking the nightly warm stocks, so the first deck is
+        # never blank. The scorer still ranks by the user's roles/industries.
+        try:
+            from app.services.warehouse_warm import _demand_ranked_firms
+            seeds = [disp for disp, _slug, _score in _demand_ranked_firms(db)[:12]]
+        except Exception:
+            logger.exception("person_ranker: seed-firm fallback failed uid=%s", uid)
+            seeds = []
+        if not seeds:
+            logger.info("person_ranker: sparse profile uid=%s and no seeds, returning empty deck", uid)
+            return []
+        user_ctx["dream_company_names"] = list(seeds)
+        user_ctx["dream_company_slugs"] = [s for s in (slugify_company(n) for n in seeds) if s]
+        user_ctx["seed_fallback"] = True
         logger.info(
-            "person_ranker: sparse profile uid=%s "
-            "dreamCompanies=0 school=None — returning empty deck",
-            uid,
+            "person_ranker: sparse profile uid=%s, falling back to %d seed firms",
+            uid, len(user_ctx["dream_company_slugs"]),
         )
-        return []
 
     # Deck opens are demand too (2026-08-31): the nightly warm ranks firms
     # by what people search AND what decks are hungry for.
