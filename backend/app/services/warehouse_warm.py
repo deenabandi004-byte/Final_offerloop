@@ -73,6 +73,22 @@ def _slug(name: str) -> str:
         return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
+def _shelf_key(display_name: str) -> str:
+    """The key firm_employees rows are actually stored under.
+
+    The writer keys `company` with firm_cache.schema.slugify_company
+    (underscores: goldman_sachs); _slug above is normalize_company (hyphens:
+    goldman-sachs), which is right for demand ranking but WRONG for reading
+    the shelf. With the hyphen form every multi-word firm read as empty, so
+    predig re-dug Goldman / Morgan Stanley / JPMorgan nightly and groom never
+    saw their rows (caught by the launch-seed dry run, 2026-09-03)."""
+    try:
+        from app.services.firm_cache.schema import slugify_company
+        return slugify_company(display_name) or ""
+    except Exception:
+        return re.sub(r"[^a-z0-9]+", "_", (display_name or "").lower()).strip("_")
+
+
 def _tank_ok(db) -> bool:
     try:
         doc = db.collection("meta").document("coresignalTestBudget").get().to_dict() or {}
@@ -169,7 +185,7 @@ def run_target_predig(db) -> None:
             break
         try:
             have = len(list(db.collection("firm_employees")
-                            .where("company", "==", slug).limit(min_rows).get()))
+                            .where("company", "==", _shelf_key(disp)).limit(min_rows).get()))
             if have >= min_rows:
                 continue
             need = min(min_rows - have, budget - dug)
@@ -226,7 +242,7 @@ def run_instant_user_warm(db, firms: list) -> None:
             continue
         try:
             have = len(list(db.collection("firm_employees")
-                            .where("company", "==", slug).limit(min_rows).get()))
+                            .where("company", "==", _shelf_key(disp)).limit(min_rows).get()))
             if have >= min_rows:
                 continue
             need = min(min_rows - have, budget - dug)
@@ -285,7 +301,7 @@ def run_warehouse_groom(db) -> None:
             break
         try:
             rows = list(db.collection("firm_employees")
-                        .where("company", "==", slug).limit(40).get())
+                        .where("company", "==", _shelf_key(disp)).limit(40).get())
             for snap in rows:
                 if done >= budget:
                     break

@@ -69,9 +69,18 @@ def _alumni_roles(firm: str) -> list[str]:
     return ["analyst", "software engineer", "associate", "product manager"]
 
 
-def _shelf_count(db, slug: str, cap: int = 200) -> int:
+def _shelf_count(db, display_name: str, cap: int = 200) -> int:
+    """Rows already on the shelf for a firm. Keyed the way the WRITER keys
+    them (firm_cache.schema.slugify_company, underscores), not the way the
+    demand ranker slugs names (normalize_company, hyphens). The dry run on
+    2026-09-03 showed Goldman / Morgan Stanley / JPMorgan as "had 0" with
+    dozens of rows on the shelf, which is exactly that mismatch."""
+    from app.services.firm_cache.schema import slugify_company
+    key = slugify_company(display_name)
+    if not key:
+        return 0
     return len(list(db.collection("firm_employees")
-                    .where("company", "==", slug).limit(cap).get()))
+                    .where("company", "==", key).limit(cap).get()))
 
 
 def _progress(db) -> dict:
@@ -156,8 +165,12 @@ def run_general_pass(db, firms, cap_total: int, min_rows: int, dry_run: bool) ->
         if not dry_run and not _tank_ok(db):
             logger.warning("general pass: tank guard tripped, stopping")
             break
-        have = _shelf_count(db, slug)
-        need = min(max(0, min_rows - have), cap_total - dug)
+        have = _shelf_count(db, disp)
+        # One user's saved target (score 3) is not the same signal as a firm
+        # many users search; the dry run surfaced construction and utility
+        # names from a single profile. Those get a starter bench, not a full one.
+        target_rows = min_rows if score >= 5 else min(min_rows, 12)
+        need = min(max(0, target_rows - have), cap_total - dug)
         if need <= 0:
             _mark(db, key, 0) if not dry_run else None
             logger.info("general: %-28s already %d rows, skip", disp, have)
@@ -199,10 +212,13 @@ def main() -> int:
     ap.add_argument("--reset", action="store_true", help="forget meta/launchSeed progress and exit")
     args = ap.parse_args()
 
-    from app.extensions import get_db
+    from app.extensions import get_db, init_firebase
     from app.services import coresignal_client
     from app.services.warehouse_warm import _demand_ranked_firms, _tank_ok
 
+    # CLI process: the Flask app normally does this at boot. The arg is unused;
+    # init reads the mounted service-account file or the env JSON.
+    init_firebase(None)
     db = get_db()
     if args.reset:
         db.collection("meta").document("launchSeed").delete()
