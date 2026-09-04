@@ -352,8 +352,30 @@ def post_ranker_feedback():
 
     if not candidate_id:
         return jsonify({"error": "candidate_id required"}), 400
-    if signal not in ("right", "left", "skip"):
-        return jsonify({"error": "signal must be right, left, or skip"}), 400
+    if signal not in ("right", "left", "skip", "restore"):
+        return jsonify({"error": "signal must be right, left, skip, or restore"}), 400
+
+    # "restore" (2026-09-03): the user put someone back from Network's
+    # "People you passed on". Forget the left/skip mark so the ranker can
+    # serve them again; nothing else to record. No deck_id or rank needed.
+    if signal == "restore":
+        db = get_db()
+        if not db:
+            return jsonify({"error": "Database not initialized"}), 500
+        try:
+            (db.collection("users").document(uid)
+               .collection("peoplePreferences").document(candidate_id).delete())
+        except Exception as exc:
+            logger.warning("feedback: restore delete failed uid=%s cid=%s: %s", uid, candidate_id, exc)
+        try:
+            log_recommendation_event(
+                event_type="person_swipe_restore", uid=uid, contact_id=candidate_id,
+                surface="ios_network_passed", extra={"deck_id": deck_id or "restore"},
+            )
+        except Exception:
+            logger.exception("feedback: restore event log failed uid=%s", uid)
+        return jsonify({"ok": True, "restored": candidate_id}), 200
+
     if not deck_id:
         return jsonify({
             "error": "deck_id required — echo from /candidates response"
