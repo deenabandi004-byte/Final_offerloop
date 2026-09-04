@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: offerloop-studio
+    runtime: python
+    plan: starter
+    buildCommand: "echo no build step"
+    startCommand: "python studio_app.py"
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.6"
+      - key: NOTION_TOKEN
+        sync: false
+      - key: NOTION_INBOX_DB
+        sync: false
+      - key: STUDIO_PASSWORD
+        sync: false
